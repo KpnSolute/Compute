@@ -1,0 +1,20 @@
+{
+  "name": "mjc-inventory-dashboard",
+  "version": "1.0.0",
+  "description": "Miami Job Corps Cafeteria Inventory Management Dashboard",
+  "main": "inventory_dashboard.html",
+  "scripts": {
+    "start": "npx serve . -p 3000 --single",
+    "setup": "bash setup.sh",
+    "backup": "echo 'Use the Export button in the dashboard to create a backup JSON'"
+  },
+  "keywords": ["inventory", "cafeteria", "dashboard", "job-corps"],
+  "license": "UNLICENSED",
+  "private": true,
+  "devDependencies": {
+    "serve": "^14.0.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
