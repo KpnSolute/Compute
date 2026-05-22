@@ -4,6 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Miami Job Corps Cafeteria — Inventory Dashboard</title>
+<script>
+// Auth guard — redirect to login if no valid session
+(function(){
+  try{
+    var auth=JSON.parse(sessionStorage.getItem('mjc_auth')||'null');
+    if(!auth||!auth.ts||(Date.now()-auth.ts)>8*60*60*1000){
+      window.location.replace('index.html');
+    }
+  }catch(e){ window.location.replace('index.html'); }
+})();
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/JsBarcode/3.11.5/JsBarcode.all.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js"></script>
@@ -233,6 +244,7 @@ textarea:focus{outline:none;border-color:#1A2B4A}
     <span id="sync-badge" class="sync-badge" onclick="openSyncSetup()" title="Cloud sync settings" style="background:rgba(100,116,139,.25)">⚫ Cloud Sync</span><button class="btn-save" onclick="syncPush()" title="Push inventory to cloud">☁ Push</button><button class="btn-save" onclick="syncPull()" title="Pull inventory from cloud">⬇ Pull</button><button id="scan-btn" class="btn-save" onclick="toggleScanMode()" title="Activate barcode scanner">📡 Scan Mode</button>
     <button class="btn-hdr" onclick="openCameraScan()" title="Scan barcodes with camera (Chrome/Android)">📷 Camera</button>
     <button class="btn-hdr" onclick="window.print()">🖨 Print Report</button>
+    <button class="btn-hdr" onclick="(function(){try{sessionStorage.removeItem('mjc_auth');}catch(e){}window.location.replace('index.html');})()" title="Sign out" style="background:rgba(220,38,38,.2);border-color:rgba(220,38,38,.4)">🔓 Sign Out</button>
   </div>
 </div>
 <div id="scan-active-bar">📡 SCANNER ACTIVE — Scan any barcode to update inventory · Click <a href="#" onclick="toggleScanMode();return false" style="color:white;font-weight:900">STOP</a> to exit</div>
