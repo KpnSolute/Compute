@@ -2,9 +2,9 @@
   "name": "mjc-inventory-dashboard",
   "version": "1.0.0",
   "description": "Miami Job Corps Cafeteria Inventory Management Dashboard",
-  "main": "backend/server.js",
+  "main": "backend/main.py",
   "scripts": {
-    "start": "node backend/server.js",
+    "start": "python3 backend/main.py",
     "setup": "bash setup.sh",
     "backup": "echo 'Use the Export button in the dashboard to create a backup JSON'"
   },
@@ -16,10 +16,6 @@
   ],
   "license": "UNLICENSED",
   "private": true,
-  "dependencies": {
-    "express": "^5.2.1",
-    "express-session": "^1.18.2"
-  },
   "devDependencies": {
     "serve": "^14.0.0"
   },
