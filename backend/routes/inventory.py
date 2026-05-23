@@ -90,6 +90,31 @@ def update_item(item_id):
     if not user:
         return jsonify(error='Not authenticated'), 401
 
+    FIELD_MAP = {
+        'onHand':     'on_hand',
+        'w1i':        'w1_issued',
+        'w2i':        'w2_issued',
+        'w3i':        'w3_issued',
+        'w4i':        'w4_issued',
+        'w1r':        'w1_received',
+        'w2r':        'w2_received',
+        'w3r':        'w3_received',
+        'w4r':        'w4_received',
+        'price':      'unit_price',
+        'par':        'par_level',
+        'on_hand':    'on_hand',
+        'w1_issued':  'w1_issued',
+        'w2_issued':  'w2_issued',
+        'w3_issued':  'w3_issued',
+        'w4_issued':  'w4_issued',
+        'w1_received':'w1_received',
+        'w2_received':'w2_received',
+        'w3_received':'w3_received',
+        'w4_received':'w4_received',
+        'unit_price': 'unit_price',
+        'par_level':  'par_level',
+    }
+
     data = request.get_json(silent=True) or {}
     field = data.get('field')
     value = data.get('value')
@@ -98,20 +123,24 @@ def update_item(item_id):
 
     if not field or value is None or month is None or year is None:
         return jsonify(error='field, value, month, and year are required'), 400
-    if field not in ALLOWED_FIELDS:
+
+    db_field = FIELD_MAP.get(field)
+    if not db_field:
+        return jsonify(error=f'Unknown field: {field}'), 400
+    if db_field not in ALLOWED_FIELDS:
         return jsonify(error=f'field must be one of: {",".join(ALLOWED_FIELDS)}'), 400
-    if field in PRICE_FIELDS and user['role'] not in ('admin', 'manager'):
+    if db_field in PRICE_FIELDS and user['role'] not in ('admin', 'manager'):
         return jsonify(error='Only admin/manager can change price or par_level'), 403
 
     db = get_client()
 
-    if field == 'unit_price':
-        db.table('inventory_items').update({field: value}).eq('id', item_id).execute()
-    elif field == 'par_level':
-        db.table('inventory_items').update({field: value}).eq('id', item_id).execute()
+    if db_field == 'unit_price':
+        db.table('inventory_items').update({db_field: value}).eq('id', item_id).execute()
+    elif db_field == 'par_level':
+        db.table('inventory_items').update({db_field: value}).eq('id', item_id).execute()
     else:
         db.table('monthly_inventory') \
-            .update({field: value}) \
+            .update({db_field: value}) \
             .eq('item_id', item_id) \
             .eq('month', month) \
             .eq('year', year) \

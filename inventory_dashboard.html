@@ -4,17 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Miami Job Corps Cafeteria — Inventory Dashboard</title>
-<script>
-// Auth guard — redirect to login if no valid session
-(function(){
-  try{
-    var auth=JSON.parse(sessionStorage.getItem('mjc_auth')||'null');
-    if(!auth||!auth.ts||(Date.now()-auth.ts)>8*60*60*1000){
-      window.location.replace('index.html');
-    }
-  }catch(e){ window.location.replace('index.html'); }
-})();
-</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/JsBarcode/3.11.5/JsBarcode.all.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js"></script>
@@ -1128,6 +1117,12 @@ function saveSnapshot(){
     localStorage.setItem(snapKey(y,m),JSON.stringify(snap));
     showToast('💾 '+MONTHS[m]+' '+y+' snapshot saved');
   }catch(e){showToast('⚠ Storage unavailable — save the file to persist data');}
+  fetch('/api/inventory/save-snapshot', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ month: m, year: y })
+  }).catch(err => console.warn('Snapshot API push failed:', err));
 }
 
 // ── MONTH ROLLOVER ────────────────────────────────────────────────────────────
@@ -1369,7 +1364,7 @@ function renderHistory(){
 
   document.getElementById('pg-history').innerHTML=h;
 }
-function renderActive(){if(_curPg==='dashboard')renderDash();else if(_curPg==='inventory')renderInv();else if(_curPg==='report')renderReport();}
+function renderActive(){if(_curPg==='dashboard'||_curPg==='inventory'||_curPg==='report'){initDashboard();}}
 
 /* ── DASHBOARD ── */
 function renderDash(){
@@ -1645,6 +1640,15 @@ function upd(id,field,val,cat){
   const it=INV[cat].find(i=>i.id===id);if(!it)return;
   it[field]=(field==='desc'||field==='sku')?val:num(val);
   persistInv();
+  const itemId = it.item_id || it.id;
+  const m = +document.getElementById('selMonth').value;
+  const y = +document.getElementById('selYear').value;
+  fetch('/api/inventory/items/'+itemId, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ field: field, value: it[field], month: m, year: y })
+  }).catch(err => console.warn('PATCH failed:', err));
   const el=document.getElementById('pg-inventory');
   if(el)setTimeout(()=>{const active=document.activeElement;renderInv();if(active&&active.id)document.getElementById(active.id)?.focus();},0);
 }
@@ -2213,25 +2217,116 @@ try{
   document.getElementById('sync-status').style.color='#FCD34D';
 }
 
-renderDash();
-renderInvoiceTab();
-setTimeout(checkRolloverNeeded, 1500); // check after page settles
-// Clear stale Supabase credentials injected by a previous version of the app.
-// Only keep them if the user explicitly enabled auto-sync from the Mobile Sync tab.
+// ── API HELPERS ─────────────────────────────────────────────────────────
+function apiItemToInvItem(apiItem) {
+  return {
+    id:      apiItem.state_id,
+    item_id: apiItem.item_id,
+    sku:     apiItem.sku || '',
+    desc:    apiItem.description,
+    price:   parseFloat(apiItem.unit_price) || 0,
+    onHand:  parseFloat(apiItem.on_hand) || 0,
+    par:     parseInt(apiItem.par_level) || 0,
+    w1i:     parseFloat(apiItem.w1_issued) || 0,
+    w2i:     parseFloat(apiItem.w2_issued) || 0,
+    w3i:     parseFloat(apiItem.w3_issued) || 0,
+    w4i:     parseFloat(apiItem.w4_issued) || 0,
+    w1r:     parseFloat(apiItem.w1_received) || 0,
+    w2r:     parseFloat(apiItem.w2_received) || 0,
+    w3r:     parseFloat(apiItem.w3_received) || 0,
+    w4r:     parseFloat(apiItem.w4_received) || 0,
+  };
+}
+function apiItemsToINV(apiItems) {
+  const inv = {};
+  const categoryOrder = [
+    'Dairy','Cereal','Beverages','Snacks','Dry Goods',
+    'Produce & Fresh','Protein & Meat','Frozen Foods','Supplies'
+  ];
+  categoryOrder.forEach(cat => inv[cat] = []);
+  apiItems.forEach(item => {
+    const cat = item.category;
+    if (!inv[cat]) inv[cat] = [];
+    inv[cat].push(apiItemToInvItem(item));
+  });
+  return inv;
+}
+function apiSnapshotToHist(snap) {
+  var cats = snap.category_totals || snap.category_breakdown || {};
+  var categories = {};
+  Object.keys(cats).forEach(function(k) {
+    var v = cats[k];
+    if (typeof v === 'number' || typeof v === 'string') {
+      categories[k] = { total: parseFloat(v) || 0, issued: 0, received: 0, count: 0 };
+    } else {
+      categories[k] = v;
+    }
+  });
+  return {
+    month:      snap.month,
+    year:       snap.year,
+    grandTotal: parseFloat(snap.grand_total) || 0,
+    wk1Total:   parseFloat(snap.wk1_total) || 0,
+    wk2Total:   parseFloat(snap.wk2_total) || 0,
+    wk3Total:   parseFloat(snap.wk3_total) || 0,
+    wk4Total:   parseFloat(snap.wk4_total) || 0,
+    items:      snap.item_count || 0,
+    reorders:   snap.reorder_count || 0,
+    savedAt:    snap.saved_at,
+    preset:     true,
+    categories: categories,
+  };
+}
+
+async function initDashboard() {
+  document.getElementById('pg-dashboard').innerHTML =
+    '<div style="padding:40px;text-align:center;color:#64748B;font-size:13px">' +
+    '⏳ Loading inventory from server…</div>';
+  try {
+    const m = +document.getElementById('selMonth').value;
+    const y = +document.getElementById('selYear').value;
+    const [itemsRes, histRes] = await Promise.all([
+      fetch('/api/inventory/items?month='+m+'&year='+y, { credentials: 'include' }),
+      fetch('/api/inventory/history', { credentials: 'include' })
+    ]);
+    if (itemsRes.status === 401 || histRes.status === 401) {
+      window.location.href = '/';
+      return;
+    }
+    const apiItems = await itemsRes.json();
+    const apiHistory = await histRes.json();
+    if (Array.isArray(apiItems) && apiItems.length > 0) {
+      INV = apiItemsToINV(apiItems);
+    }
+    if (Array.isArray(apiHistory) && apiHistory.length > 0) {
+      const apiHist = apiHistory.map(apiSnapshotToHist);
+      HIST_DATA.length = 0;
+      apiHist.forEach(h => HIST_DATA.push(h));
+    }
+  } catch(err) {
+    console.warn('API load failed, using cached data:', err);
+  }
+  renderDash();
+  renderInvoiceTab();
+  setTimeout(checkRolloverNeeded, 1500);
+}
+
+// Clear stale Supabase credentials
 try{
   if(localStorage.getItem('mjc_auto_sync')!=='1'){
     localStorage.removeItem('mjc_supa_url');
     localStorage.removeItem('mjc_supa_key');
   }
 }catch(e){}
-// Restore cloud sync only if user explicitly enabled it
 updateSyncBadge();
 try{
   if(localStorage.getItem('mjc_auto_sync')==='1'&&_supaUrl){
-    _initSupa().then(ok=>{if(ok)startAutoSync();}).catch(()=>{/* silent */});
+    _initSupa().then(ok=>{if(ok)startAutoSync();}).catch(()=>{});
   }
-}catch(e){/* silent */}
+}catch(e){}
 try{if(_storageOk&&!localStorage.getItem(snapKey(2026,4))){saveSnapshot();}}catch(e){}
+
+initDashboard();
 </script>
 </body>
 </html>

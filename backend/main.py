@@ -19,6 +19,7 @@ app = Flask(__name__, static_folder=None)
 app.secret_key = os.getenv('SECRET_KEY', 'fallback-dev-key')
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = False
 app.register_blueprint(inventory_bp)
 app.register_blueprint(auth_bp)
 app.register_blueprint(users_bp)
@@ -45,6 +46,14 @@ def dashboard():
     if user['role'] == 'staff':
         return send_from_directory(FRONTEND_DIR, 'staff_dashboard.html')
     return send_from_directory(FRONTEND_DIR, 'admin_dashboard.html')
+
+
+@app.get('/inventory_dashboard.html')
+def inventory_dashboard():
+    user = session.get('user')
+    if not user:
+        return redirect('/')
+    return send_from_directory(BASE_DIR, 'inventory_dashboard.html')
 
 
 @app.get('/static/<path:name>')
