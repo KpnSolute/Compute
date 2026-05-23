@@ -51,7 +51,39 @@ let loginType='staff';
 function setType(t){loginType=t;document.getElementById('btn-staff').classList.toggle('active',t==='staff');document.getElementById('btn-admin').classList.toggle('active',t==='admin');document.getElementById('field-pin').style.display=t==='staff'?'block':'none';document.getElementById('field-password').style.display=t==='staff'?'none':'block';clearError();}
 function clearError(){const el=document.getElementById('error-msg');el.style.display='none';el.textContent='';}
 function showError(msg){const el=document.getElementById('error-msg');el.textContent=msg;el.style.display='block';}
-async function doLogin(){clearError();const username=document.getElementById('inp-username').value.trim();if(!username)return showError('Please enter your username.');const payload={username,type:loginType};if(loginType==='staff')payload.pin=document.getElementById('inp-pin').value.trim();else payload.password=document.getElementById('inp-password').value;const res=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(payload)});const data=await res.json().catch(()=>({}));if(!res.ok)return showError(data.error||'Login failed.');window.location.href='/dashboard';}
+async function doLogin(){
+  clearError();
+  const username = document.getElementById('inp-username').value.trim();
+  if(!username){ showError('Please enter your username.'); return; }
+  const payload = { username, type: loginType };
+  if(loginType === 'staff'){
+    const pin = document.getElementById('inp-pin').value.trim();
+    if(!pin){ showError('Please enter your PIN.'); return; }
+    payload.pin = pin;
+  } else {
+    const password = document.getElementById('inp-password').value;
+    if(!password){ showError('Please enter your password.'); return; }
+    payload.password = password;
+  }
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if(!res.ok){ showError(data.error || 'Login failed.'); return; }
+    // Redirect based on role
+    if(data.user.role === 'staff'){
+      window.location.href = '/dashboard';
+    } else {
+      window.location.href = '/dashboard';
+    }
+  } catch(e) {
+    showError('Could not connect to server. Please try again.');
+  }
+}
 document.addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
 setType('staff');
 </script>
