@@ -1672,6 +1672,10 @@ function renderInvoiceTab(){
       </select>
     </div>
     <textarea id="inv-txt" placeholder="Paste invoice text here…"></textarea>
+    <div style="margin-top:8px">
+      <label style="font-size:11px;color:#64748B;font-weight:600">Or upload invoice image/PDF:</label>
+      <input type="file" id="inv-img" accept="image/*,.pdf" style="display:block;margin-top:4px;font-size:12px">
+    </div>
     <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
       <button class="btn-p" id="ai-btn" onclick="doParseAI()">✨ Parse with AI</button>
       <span id="ai-err" style="color:#DC2626;font-size:11px"></span>
@@ -1685,18 +1689,18 @@ async function doParseAI(){
   if(!txt){document.getElementById('ai-err').textContent='Please paste invoice text first.';return;}
   document.getElementById('ai-err').textContent='';
   const btn=document.getElementById('ai-btn');btn.textContent='⏳ Analyzing…';btn.disabled=true;
-  const catalog=allItems().map(i=>`${i.id}|${i.sku}|${i.desc}|${i.price}`).join('\n');
+  const m=+document.getElementById('selMonth').value;
+  const y=+document.getElementById('selYear').value;
   try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
+    const res=await fetch('/api/inventory/parse-invoice',{method:'POST',
+      credentials:'include',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:2000,
-        system:`You are an inventory assistant for Miami Job Corps Cafeteria. Parse the invoice and match each line to the catalog by SKU or description. Return ONLY a JSON array, no markdown, no preamble. Format: [{"itemId":"...","matchedDesc":"...","qty":N,"unitPrice":N.NN}]. If no match, use itemId "NEW" and include the description. Catalog (id|sku|description|price):\n${catalog}`,
-        messages:[{role:'user',content:`Parse this invoice:\n\n${txt}`}]})});
+      body:JSON.stringify({text:txt,month:m,year:y})});
+    if(!res.ok){const e=await res.json();throw new Error(e.error||'Parse failed');}
     const data=await res.json();
-    const raw=data.content?.map(c=>c.text||'').join('');
-    _parsedCache=JSON.parse(raw.replace(/```json|```/g,'').trim());
+    _parsedCache=data.matches||[];
     renderParsed();
-  }catch(e){document.getElementById('ai-err').textContent='Could not parse invoice. Check format and try again.';}
+  }catch(e){document.getElementById('ai-err').textContent=e.message||'Could not parse invoice. Check format and try again.';}
   btn.textContent='✨ Parse with AI';btn.disabled=false;
 }
 function renderParsed(){
@@ -1722,18 +1726,21 @@ function showToast(msg='✓ Applied to inventory'){
   const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';
   setTimeout(()=>t.style.display='none',2800);
 }
-function applyParsed(){
+async function applyParsed(){
   const wk=document.getElementById('inv-wk').value;
-  _parsedCache.forEach(p=>{
-    if(p.itemId==='NEW')return;
-    for(const cat of Object.keys(INV)){
-      const it=INV[cat].find(i=>i.id===p.itemId);
-      if(it){it[wk]=(it[wk]||0)+p.qty;it.onHand+=p.qty;break;}
-    }
-  });
-  document.getElementById('parsed-out').innerHTML='';
-  document.getElementById('inv-txt').value='';_parsedCache=[];
-  showToast();
+  const m=+document.getElementById('selMonth').value;
+  const y=+document.getElementById('selYear').value;
+  try{
+    const res=await fetch('/api/inventory/apply-invoice',{method:'POST',
+      credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({matches:_parsedCache,week_field:wk,month:m,year:y})});
+    if(!res.ok){const e=await res.json();throw new Error(e.error||'Apply failed');}
+    document.getElementById('parsed-out').innerHTML='';
+    document.getElementById('inv-txt').value='';_parsedCache=[];
+    await initDashboard();
+    showToast();
+  }catch(e){document.getElementById('ai-err').textContent=e.message||'Could not apply.';}
 }
 
 /* ── REPORT ── */

@@ -1,8 +1,16 @@
 import os
 import sys
+import logging
 from pathlib import Path
 from flask import Flask, redirect, session, send_from_directory
+from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
+
+# Import configuration
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from config import config
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
@@ -15,14 +23,44 @@ FRONTEND_DIR = BASE_DIR / 'frontend'
 
 load_dotenv(BASE_DIR / '.env')
 
+# Determine config based on environment
+env = os.getenv('FLASK_ENV', 'development')
+app_config = config.get(env, config['default'])
+
 app = Flask(__name__, static_folder=None)
-app.secret_key = os.getenv('SECRET_KEY', 'fallback-dev-key')
-app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['SESSION_COOKIE_SECURE'] = False
+app.secret_key = app_config.SECRET_KEY
+app.config.from_object(app_config)
+
+# Setup logging
+logging.basicConfig(
+    level=getattr(logging, app_config.LOG_LEVEL),
+    format=app_config.LOG_FORMAT
+)
+logger = logging.getLogger(__name__)
+
+# Configure CORS with more specific settings for production
+if app_config.DEBUG:
+    # Development: allow all origins
+    CORS(app, supports_credentials=True, origins=app_config.CORS_ORIGINS)
+else:
+    # Production: restrict origins
+    CORS(app, supports_credentials=True, origins=app_config.CORS_ORIGINS)
+
+# Add security headers
+@app.after_request
+def add_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    if not app_config.DEBUG:
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    return response
+
 app.register_blueprint(inventory_bp)
 app.register_blueprint(auth_bp)
 app.register_blueprint(users_bp)
+
+logger.info(f"Starting application in {env} mode")
 
 
 @app.after_request
@@ -61,5 +99,28 @@ def static_files(name):
     return send_from_directory(FRONTEND_DIR, name)
 
 
+@app.errorhandler(404)
+def not_found(error):
+    logger.warning(f"404 error: {error}")
+    return {'error': 'Not found'}, 404
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    logger.error(f"500 error: {error}")
+    return {'error': 'Internal server error'}, 500
+
+
+@app.errorhandler(Exception)
+def unhandled_exception(error):
+    logger.exception(f"Unhandled exception: {error}")
+    return {'error': 'Internal server error'}, 500
+
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    logger.info(f"Starting server on {app_config.HOST if hasattr(app_config, 'HOST') else '0.0.0.0'}:{app_config.PORT if hasattr(app_config, 'PORT') else 5000}")
+    app.run(
+        host=getattr(app_config, 'HOST', '0.0.0.0'),
+        port=getattr(app_config, 'PORT', 5000),
+        debug=app_config.DEBUG
+    )

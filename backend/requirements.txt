@@ -1,0 +1,6 @@
+Flask==3.0.0
+Flask-CORS==4.0.0
+Flask-Limiter==3.5.0
+python-dotenv==1.0.0
+supabase==2.30.0
+google-generativeai==0.3.2

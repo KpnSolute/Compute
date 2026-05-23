@@ -51,20 +51,20 @@ def login():
         if pin != str(profile.get('pin') or ''):
             return jsonify(error='Incorrect PIN. Please try again.'), 401
 
-        session['user'] = {
-            'id':           profile['id'],
-            'username':     profile['username'],
-            'display_name': profile.get('display_name', ''),
-            'role':         profile['role'],
-        }
-        return jsonify(
-            ok=True,
-            user={
+            session['user'] = {
+                'id':           profile['id'],
                 'username':     profile['username'],
                 'display_name': profile.get('display_name', ''),
                 'role':         profile['role'],
             }
-        )
+            return jsonify(
+                ok=True,
+                user={
+                    'username':     profile['username'],
+                    'display_name': profile.get('display_name', ''),
+                    'role':         profile['role'],
+                }
+            )
 
     # ── ADMIN / MANAGER PASSWORD FLOW ────────────────────────
     elif login_type == 'admin':
@@ -83,15 +83,17 @@ def login():
                 'email':    email,
                 'password': password,
             })
+            access_token = result.session.access_token
             session['user'] = {
                 'id':           profile['id'],
                 'username':     profile['username'],
                 'display_name': profile.get('display_name', ''),
                 'role':         profile['role'],
-                'access_token': result.session.access_token,
+                'access_token': access_token,
             }
             return jsonify(
                 ok=True,
+                access_token=access_token,
                 user={
                     'username':     profile['username'],
                     'display_name': profile.get('display_name', ''),
