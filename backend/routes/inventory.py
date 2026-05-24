@@ -30,19 +30,12 @@ def summary():
         if not user:
             return jsonify(error='Not authenticated'), 401
 
-        # Validate query parameters
-        is_valid, validated_data_or_error, status_code = validate_json({
-            'month': {'type': 'int', 'required': True, 'min': 0, 'max': 11},
-            'year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030}
-        })
-        # For GET requests, we need to get data from args instead of JSON
-        if not is_valid:
-            return validated_data_or_error, status_code
-            
         month = request.args.get('month', type=int)
         year = request.args.get('year', type=int)
         if month is None or year is None:
             return jsonify(error='month and year are required'), 400
+        if not (0 <= month <= 11 and 2020 <= year <= 2030):
+            return jsonify(error='month must be 0-11, year must be 2020-2030'), 400
 
         db = get_client()
         resp = db.table('dashboard_summary') \
@@ -63,6 +56,7 @@ def summary():
         prior_total = float((snap_resp.data or [{}])[0].get('grand_total', 0) or 0)
 
         result = calculators.dashboard_summary(items, prior_total)
+        result['data_source'] = 'LIVE_SUPABASE'
         return jsonify(result)
     except Exception as e:
         logger.exception(f"Error in summary endpoint: {e}")
