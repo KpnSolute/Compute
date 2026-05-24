@@ -6,7 +6,7 @@
 - **Database:** Supabase (PostgreSQL)
 - **Auth:** Supabase Auth + Flask sessions + PIN-based staff login
 - **Rate Limiting:** Flask-Limiter
-- **AI:** OllamaFreeAPI (free, no key needed — supports llama, mistral, deepseek, qwen)
+- **AI:** OllamaFreeAPI (default, free) or Groq (set `AI_PROVIDER=groq` + `GROQ_API_KEY`)
 
 ## Frontend
 - Vanilla HTML/CSS/JS (SPA)

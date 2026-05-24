@@ -1,11 +1,16 @@
 import json
 import os
 
+from groq import Groq
 from ollamafreeapi import OllamaFreeAPI
 
+AI_PROVIDER = os.getenv('AI_PROVIDER', 'ollama').lower()
 AI_MODEL = os.getenv('AI_MODEL', 'llama3.2:3b')
+GROQ_API_KEY = os.getenv('GROQ_API_KEY', '')
+GROQ_MODEL = os.getenv('GROQ_MODEL', 'mixtral-8x7b-32768')
 
-client = OllamaFreeAPI()
+ollama_client = OllamaFreeAPI()
+groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 
 def _build_catalog_text(items: list) -> str:
@@ -45,14 +50,33 @@ def _clean_response(raw: str) -> str:
     return raw
 
 
-def parse_invoice_text(items: list, invoice_text: str) -> list:
-    catalog = _build_catalog_text(items)
-    prompt = _build_prompt(catalog)
-
-    resp = client.chat(
+def _parse_via_ollama(prompt: str, invoice_text: str) -> list:
+    resp = ollama_client.chat(
         model=AI_MODEL,
         prompt=f'{prompt}\n\nInvoice:\n{invoice_text}',
         temperature=0.1,
     )
-    raw = _clean_response(resp)
-    return json.loads(raw)
+    return json.loads(_clean_response(resp))
+
+
+def _parse_via_groq(prompt: str, invoice_text: str) -> list:
+    if not groq_client:
+        raise RuntimeError('GROQ_API_KEY not configured')
+    completion = groq_client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=[
+            {'role': 'system', 'content': prompt},
+            {'role': 'user', 'content': invoice_text},
+        ],
+        temperature=0.1,
+    )
+    return json.loads(_clean_response(completion.choices[0].message.content))
+
+
+def parse_invoice_text(items: list, invoice_text: str) -> list:
+    catalog = _build_catalog_text(items)
+    prompt = _build_prompt(catalog)
+
+    if AI_PROVIDER == 'groq':
+        return _parse_via_groq(prompt, invoice_text)
+    return _parse_via_ollama(prompt, invoice_text)

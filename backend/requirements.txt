@@ -3,6 +3,7 @@ Flask-CORS==4.0.0
 Flask-Limiter==3.5.0
 python-dotenv==1.0.0
 supabase==2.30.0
+groq==0.9.0
 ollamafreeapi==0.1.4
 # Dev / tooling
 pytest==8.3.5
