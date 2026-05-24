@@ -6,11 +6,20 @@ from ollamafreeapi import OllamaFreeAPI
 
 AI_PROVIDER = os.getenv('AI_PROVIDER', 'ollama').lower()
 AI_MODEL = os.getenv('AI_MODEL', 'llama3.2:3b')
-GROQ_API_KEY = os.getenv('GROQ_API_KEY', '')
 GROQ_MODEL = os.getenv('GROQ_MODEL', 'mixtral-8x7b-32768')
 
 ollama_client = OllamaFreeAPI()
-groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+_groq_client = None
+
+
+def _get_groq_client() -> Groq:
+    global _groq_client
+    if _groq_client is None:
+        key = os.getenv('GROQ_API_KEY', '')
+        if not key:
+            raise RuntimeError('GROQ_API_KEY not configured')
+        _groq_client = Groq(api_key=key)
+    return _groq_client
 
 
 def _build_catalog_text(items: list) -> str:
@@ -60,9 +69,8 @@ def _parse_via_ollama(prompt: str, invoice_text: str) -> list:
 
 
 def _parse_via_groq(prompt: str, invoice_text: str) -> list:
-    if not groq_client:
-        raise RuntimeError('GROQ_API_KEY not configured')
-    completion = groq_client.chat.completions.create(
+    client = _get_groq_client()
+    completion = client.chat.completions.create(
         model=GROQ_MODEL,
         messages=[
             {'role': 'system', 'content': prompt},

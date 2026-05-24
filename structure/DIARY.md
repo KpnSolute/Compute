@@ -17,5 +17,6 @@
 - Created `run.sh` as single entry script (kills port 5000, activates venv, starts server)
 - Updated `npm start` to use `run.sh`
 - Replaced Gemini with OllamaFreeAPI; kept Groq as dual provider
+- Made Groq client lazy-initialized (avoids crash at import when key is empty)
 - Removed image parsing support (text-only providers)
 - Updated `.env` with GROQ_API_KEY, AI_PROVIDER, AI_MODEL
