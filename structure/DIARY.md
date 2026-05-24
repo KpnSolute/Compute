@@ -20,3 +20,6 @@
 - Made Groq client lazy-initialized (avoids crash at import when key is empty)
 - Removed image parsing support (text-only providers)
 - Updated `.env` with GROQ_API_KEY, AI_PROVIDER, AI_MODEL
+- Fixed `DevelopmentConfig` to respect `FLASK_DEBUG` env var (was hardcoded True)
+- Fixed `run.sh` to wait for server to be ready before returning (no more connection refused)
+- Added rule: every fix MUST be logged in DIARY.md

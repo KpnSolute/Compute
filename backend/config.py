@@ -34,7 +34,7 @@ class Config:
     LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
 class DevelopmentConfig(Config):
-    DEBUG = True
+    DEBUG = os.getenv('FLASK_DEBUG', 'True').lower() == 'true'
     SESSION_COOKIE_SECURE = False
     LOG_LEVEL = 'DEBUG'
 

@@ -18,6 +18,7 @@
 
 ## Process
 - Document every change in `structure/DIARY.md`
+- Every fix or change MUST be logged in `DIARY.md` with what was fixed and why
 - Keep `structure/` as single source of project planning
 - Run `ruff check .` before committing
 - Run `pytest` before merging
