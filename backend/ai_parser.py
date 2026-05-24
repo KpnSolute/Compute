@@ -1,6 +1,6 @@
-import os
-import json
 import base64
+import json
+import os
 
 import google.generativeai as genai
 from groq import Groq
@@ -119,7 +119,10 @@ def parse_invoice_text(items: list, invoice_text: str) -> list:
 
 def parse_invoice_image(items: list, image_data: str) -> list:
     if AI_PROVIDER == 'groq':
-        raise RuntimeError('Image parsing is not supported with Groq provider. Set AI_PROVIDER=gemini for image support.')
+        raise RuntimeError(
+            'Image parsing requires AI_PROVIDER=gemini. '
+            'Groq does not support image input.'
+        )
 
     catalog = _build_catalog_text(items)
     prompt = _build_prompt(catalog)

@@ -1,8 +1,13 @@
 {
   "name": "mjcc-inventory",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "private": true,
   "scripts": {
-    "start": "python3 backend/main.py"
+    "start": "python3 backend/main.py",
+    "format": "prettier --write '**/*.{html,css,js,json,md}'",
+    "format:check": "prettier --check '**/*.{html,css,js,json,md}'"
+  },
+  "devDependencies": {
+    "prettier": "^3.5.0"
   }
 }

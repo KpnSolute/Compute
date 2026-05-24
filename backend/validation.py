@@ -1,7 +1,9 @@
-import re
 import json
-from typing import Any, Dict, List, Optional, Union
-from flask import request, jsonify
+import re
+from typing import Any, Dict
+
+from flask import jsonify, request
+
 
 def validate_json(schema: Dict[str, Any]) -> tuple:
     """
@@ -25,21 +27,21 @@ def validate_json(schema: Dict[str, Any]) -> tuple:
     data = request.get_json(silent=True) or {}
     errors = {}
     validated = {}
-    
+
     for field, rules in schema.items():
         value = data.get(field)
         required = rules.get('required', False)
-        
+
         # Check if required field is missing
         if required and (value is None or value == ''):
             errors[field] = f'{field} is required'
             continue
-            
+
         # Skip validation if field is not present and not required
         if value is None and not required:
             validated[field] = None
             continue
-            
+
         # Type validation
         expected_type = rules.get('type')
         if expected_type:
@@ -51,7 +53,7 @@ def validate_json(schema: Dict[str, Any]) -> tuple:
                 'list': list,
                 'dict': dict
             }
-            
+
             if expected_type in type_map:
                 try:
                     if expected_type == 'int' and isinstance(value, str):
@@ -64,14 +66,14 @@ def validate_json(schema: Dict[str, Any]) -> tuple:
                         value = json.loads(value)
                     elif expected_type == 'dict' and isinstance(value, str):
                         value = json.loads(value)
-                    
+
                     if not isinstance(value, type_map[expected_type]):
                         errors[field] = f'{field} must be of type {expected_type}'
                         continue
                 except (ValueError, TypeError, json.JSONDecodeError):
                     errors[field] = f'{field} must be of type {expected_type}'
                     continue
-                    
+
         # Range validation
         if isinstance(value, (int, float)):
             if 'min' in rules and value < rules['min']:
@@ -80,7 +82,7 @@ def validate_json(schema: Dict[str, Any]) -> tuple:
             if 'max' in rules and value > rules['max']:
                 errors[field] = f'{field} must be at most {rules["max"]}'
                 continue
-                
+
         # Length validation
         if isinstance(value, (str, list)):
             if 'min' in rules and len(value) < rules['min']:
@@ -89,30 +91,30 @@ def validate_json(schema: Dict[str, Any]) -> tuple:
             if 'max' in rules and len(value) > rules['max']:
                 errors[field] = f'{field} must be at most {rules["max"]} characters long'
                 continue
-                
+
         # Enum validation
         if 'enum' in rules and value not in rules['enum']:
             errors[field] = f'{field} must be one of: {", ".join(map(str, rules["enum"]))}'
             continue
-            
+
         # Pattern validation
         if 'pattern' in rules and isinstance(value, str):
             if not re.match(rules['pattern'], value):
                 errors[field] = f'{field} does not match required pattern'
                 continue
-                
+
         # Custom validation
         if 'custom' in rules:
             is_valid, error_msg = rules['custom'](value)
             if not is_valid:
                 errors[field] = error_msg
                 continue
-                
+
         validated[field] = value
-    
+
     if errors:
         return False, jsonify({'errors': errors}), 400
-    
+
     return True, validated, None
 
 # Common validation schemas

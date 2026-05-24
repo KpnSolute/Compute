@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify, request, session
+
 from backend.supabase_client import get_client
 
 users_bp = Blueprint('users', __name__, url_prefix='/api/users')

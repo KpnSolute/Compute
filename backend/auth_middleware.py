@@ -1,6 +1,8 @@
 import logging
-from flask import session, request, jsonify
 from functools import wraps
+
+from flask import jsonify, request, session
+
 from backend.supabase_client import get_client
 
 logger = logging.getLogger(__name__)

@@ -11,6 +11,13 @@
 ## Frontend
 - Vanilla HTML/CSS/JS (SPA)
 - No framework — pure client-side JS
+- **Formatting:** Prettier (HTML, CSS, JS, JSON, MD)
+
+## Tooling
+- **Testing:** pytest
+- **Linting:** ruff (select: E, F, I, N, W)
+- **Formatting (Python):** ruff
+- **Formatting (HTML/CSS/JS):** Prettier
 
 ## Deployment
 - Gunicorn (4 workers)
@@ -24,3 +31,4 @@
 - groq
 - python-dotenv
 - gunicorn
+- pytest, ruff (dev)

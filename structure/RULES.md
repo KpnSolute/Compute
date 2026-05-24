@@ -19,8 +19,16 @@
 ## Process
 - Document every change in `structure/DIARY.md`
 - Keep `structure/` as single source of project planning
-- Run lint/typecheck before committing (once configured)
-- No tests → no merges (once CI is set up)
+- Run `ruff check .` before committing
+- Run `pytest` before merging
+- Run `npm run format` to format HTML/CSS/JS
+
+## Tooling Commands
+- `pytest` — run all tests
+- `ruff check .` — lint Python
+- `ruff format .` — format Python
+- `npm run format` — format HTML/CSS/JS/JSON/MD with Prettier
+- `npm run format:check` — check formatting without writing
 
 ## Versioning
 - Versions increment sequentially: 1.0.0 → 1.0.1 → 1.0.2 → 1.0.3 → 1.0.4

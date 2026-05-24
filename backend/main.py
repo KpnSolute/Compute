@@ -1,12 +1,11 @@
+import logging
 import os
 import sys
-import logging
 from pathlib import Path
-from flask import Flask, redirect, session, send_from_directory
-from flask_cors import CORS
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
+
 from dotenv import load_dotenv
+from flask import Flask, redirect, send_from_directory, session
+from flask_cors import CORS
 
 # Import configuration
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -15,8 +14,8 @@ from config import config
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
-from backend.routes.inventory import inventory_bp
 from backend.routes.auth import auth_bp
+from backend.routes.inventory import inventory_bp
 from backend.routes.users import users_bp
 
 FRONTEND_DIR = BASE_DIR / 'frontend'

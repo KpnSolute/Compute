@@ -1,13 +1,19 @@
-import traceback
 import logging
+
 from flask import Blueprint, jsonify, request
-from backend.supabase_client import get_client
+
 from backend import calculators
+from backend.ai_parser import parse_invoice_image, parse_invoice_text
 from backend.auth_middleware import resolve_user
-from backend.ai_parser import parse_invoice_text, parse_invoice_image
-from backend.validation import validate_json, INVENTORY_ITEM_UPDATE_SCHEMA, INVENTORY_SUMMARY_SCHEMA, INVOICE_PARSE_SCHEMA, INVOICE_APPLY_SCHEMA, SAVE_SNAPSHOT_SCHEMA, ROLLOVER_SCHEMA
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
+from backend.supabase_client import get_client
+from backend.validation import (
+    INVENTORY_ITEM_UPDATE_SCHEMA,
+    INVOICE_APPLY_SCHEMA,
+    INVOICE_PARSE_SCHEMA,
+    ROLLOVER_SCHEMA,
+    SAVE_SNAPSHOT_SCHEMA,
+    validate_json,
+)
 
 inventory_bp = Blueprint('inventory', __name__, url_prefix='/api/inventory')
 logger = logging.getLogger(__name__)
@@ -81,7 +87,7 @@ def items():
         # For GET requests, we need to get data from args instead of JSON
         if not is_valid:
             return validated_data_or_error, status_code
-            
+
         month = request.args.get('month', type=int)
         year = request.args.get('year', type=int)
         category = request.args.get('category')
@@ -98,7 +104,7 @@ def items():
             .eq('year', year)
         if category:
             query = query.eq('category', category)
-        
+
         # Get total count for pagination metadata
         count_query = db.table('dashboard_summary') \
             .select('*', count='exact') \
@@ -108,12 +114,12 @@ def items():
             count_query = count_query.eq('category', category)
         count_resp = count_query.execute()
         total_count = count_resp.count if hasattr(count_resp, 'count') else len(count_resp.data or [])
-        
+
         # Apply pagination
         offset = (page - 1) * per_page
         query = query.range(offset, offset + per_page - 1)
         resp = query.execute()
-        
+
         # Return paginated response
         return jsonify({
             'items': resp.data or [],
@@ -142,7 +148,7 @@ def update_item(item_id):
         is_valid, validated_data_or_error, status_code = validate_json(INVENTORY_ITEM_UPDATE_SCHEMA)
         if not is_valid:
             return validated_data_or_error, status_code
-            
+
         data = validated_data_or_error
         field = data.get('field')
         value = data.get('value')
@@ -224,7 +230,7 @@ def save_snapshot():
         is_valid, validated_data_or_error, status_code = validate_json(SAVE_SNAPSHOT_SCHEMA)
         if not is_valid:
             return validated_data_or_error, status_code
-            
+
         data = validated_data_or_error
         month = data.get('month')
         year = data.get('year')
@@ -296,7 +302,7 @@ def rollover():
         is_valid, validated_data_or_error, status_code = validate_json(ROLLOVER_SCHEMA)
         if not is_valid:
             return validated_data_or_error, status_code
-            
+
         data = validated_data_or_error
         from_month = data.get('from_month')
         from_year = data.get('from_year')
@@ -429,7 +435,7 @@ def parse_invoice():
         is_valid, validated_data_or_error, status_code = validate_json(INVOICE_PARSE_SCHEMA)
         if not is_valid:
             return validated_data_or_error, status_code
-            
+
         data = validated_data_or_error
         invoice_text = data.get('text', '').strip()
         invoice_image = data.get('image', '').strip()
@@ -478,7 +484,7 @@ def apply_invoice():
         is_valid, validated_data_or_error, status_code = validate_json(INVOICE_APPLY_SCHEMA)
         if not is_valid:
             return validated_data_or_error, status_code
-            
+
         data = validated_data_or_error
         matches = data.get('matches', [])
         week_field = data.get('week_field', 'w1r')

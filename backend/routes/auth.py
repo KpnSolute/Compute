@@ -1,4 +1,5 @@
-from flask import Blueprint, request, session, jsonify
+from flask import Blueprint, jsonify, request, session
+
 from backend.supabase_client import get_client
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
