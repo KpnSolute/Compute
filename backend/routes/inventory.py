@@ -3,7 +3,7 @@ import logging
 from flask import Blueprint, jsonify, request
 
 from backend import calculators
-from backend.ai_parser import parse_invoice_image, parse_invoice_text
+from backend.ai_parser import parse_invoice_text
 from backend.auth_middleware import resolve_user
 from backend.supabase_client import get_client
 from backend.validation import (
@@ -438,15 +438,14 @@ def parse_invoice():
 
         data = validated_data_or_error
         invoice_text = (data.get('text') or '').strip()
-        invoice_image = (data.get('image') or '').strip()
         month = data.get('month')
         year = data.get('year')
 
         if month is None or year is None:
             return jsonify(error='month and year are required'), 400
 
-        if not invoice_text and not invoice_image:
-            return jsonify(error='text or image is required'), 400
+        if not invoice_text:
+            return jsonify(error='text is required'), 400
 
         db = get_client()
         cat_resp = db.table('dashboard_summary') \
@@ -457,10 +456,7 @@ def parse_invoice():
         catalog_items = cat_resp.data or []
 
         try:
-            if invoice_image:
-                result = parse_invoice_image(catalog_items, invoice_image)
-            else:
-                result = parse_invoice_text(catalog_items, invoice_text)
+            result = parse_invoice_text(catalog_items, invoice_text)
         except Exception as e:
             logger.exception(f"AI parsing failed: {e}")
             return jsonify(error=f'AI parsing failed: {str(e)}'), 500

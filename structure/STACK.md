@@ -6,7 +6,7 @@
 - **Database:** Supabase (PostgreSQL)
 - **Auth:** Supabase Auth + Flask sessions + PIN-based staff login
 - **Rate Limiting:** Flask-Limiter
-- **AI:** Gemini 2.0 Flash + Groq (configurable via AI_PROVIDER)
+- **AI:** OllamaFreeAPI (free, no key needed — supports llama, mistral, deepseek, qwen)
 
 ## Frontend
 - Vanilla HTML/CSS/JS (SPA)
@@ -27,8 +27,7 @@
 ## Key Packages
 - flask, flask-cors, flask-limiter
 - supabase (Python SDK)
-- google-generativeai
-- groq
+- ollamafreeapi
 - python-dotenv
 - gunicorn
 - pytest, ruff (dev)

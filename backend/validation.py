@@ -132,8 +132,7 @@ INVENTORY_SUMMARY_SCHEMA = {
 }
 
 INVOICE_PARSE_SCHEMA = {
-    'text': {'type': 'str', 'required': False},
-    'image': {'type': 'str', 'required': False},
+    'text': {'type': 'str', 'required': True},
     'month': {'type': 'int', 'required': True, 'min': 0, 'max': 11},
     'year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030}
 }

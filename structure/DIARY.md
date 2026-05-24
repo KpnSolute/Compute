@@ -16,3 +16,6 @@
 - Fixed missing `groq` dependency in venv
 - Created `run.sh` as single entry script (kills port 5000, activates venv, starts server)
 - Updated `npm start` to use `run.sh`
+- Replaced Gemini + Groq with OllamaFreeAPI (`ai_parser.py`, requirements, .env)
+- Removed image parsing support (OllamaFreeAPI is text-only)
+- Cleaned up `.env` — removed GEMINI_API_KEY, GROQ_API_KEY, AI_PROVIDER; added AI_MODEL

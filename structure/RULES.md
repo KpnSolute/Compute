@@ -9,7 +9,7 @@
 - Keep backend logic in Python modules (`backend/calculators.py`, etc.)
 - Keep frontend as HTML presentation layer
 - Avoid adding new JavaScript frameworks/libraries
-- AI provider selection via environment variable (`AI_PROVIDER`)
+- AI provider is OllamaFreeAPI (model selection via `AI_MODEL` env var)
 
 ## Database
 - All schema changes tracked in `structure/MIGRATIONS.md`
