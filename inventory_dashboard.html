@@ -1686,16 +1686,25 @@ function renderInvoiceTab(){
 
 async function doParseAI(){
   const txt=(document.getElementById('inv-txt')||{value:''}).value.trim();
-  if(!txt){document.getElementById('ai-err').textContent='Please paste invoice text first.';return;}
+  const imgInput=document.getElementById('inv-img');
+  const imgFile=imgInput?.files?.[0];
+  if(!txt&&!imgFile){document.getElementById('ai-err').textContent='Paste invoice text or upload an image.';return;}
   document.getElementById('ai-err').textContent='';
   const btn=document.getElementById('ai-btn');btn.textContent='⏳ Analyzing…';btn.disabled=true;
   const m=+document.getElementById('selMonth').value;
   const y=+document.getElementById('selYear').value;
   try{
+    let body;
+    if(imgFile){
+      const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(imgFile);});
+      body=JSON.stringify({image:b64,month:m,year:y});
+    }else{
+      body=JSON.stringify({text:txt,month:m,year:y});
+    }
     const res=await fetch('/api/inventory/parse-invoice',{method:'POST',
       credentials:'include',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({text:txt,month:m,year:y})});
+      body});
     if(!res.ok){const e=await res.json();throw new Error(e.error||'Parse failed');}
     const data=await res.json();
     _parsedCache=data.matches||[];

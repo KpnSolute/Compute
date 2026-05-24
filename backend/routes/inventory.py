@@ -437,8 +437,8 @@ def parse_invoice():
             return validated_data_or_error, status_code
 
         data = validated_data_or_error
-        invoice_text = data.get('text', '').strip()
-        invoice_image = data.get('image', '').strip()
+        invoice_text = (data.get('text') or '').strip()
+        invoice_image = (data.get('image') or '').strip()
         month = data.get('month')
         year = data.get('year')
 

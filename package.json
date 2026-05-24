@@ -3,7 +3,7 @@
   "version": "1.0.4",
   "private": true,
   "scripts": {
-    "start": "python3 backend/main.py",
+    "start": "bash run.sh",
     "format": "prettier --write '**/*.{html,css,js,json,md}'",
     "format:check": "prettier --check '**/*.{html,css,js,json,md}'"
   },
