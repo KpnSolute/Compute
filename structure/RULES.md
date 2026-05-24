@@ -22,8 +22,10 @@
 - Run `ruff check .` before committing
 - Run `pytest` before merging
 - Run `npm run format` to format HTML/CSS/JS
+- Before starting the website for testing, kill any existing Flask/gunicorn processes on port 5000:
 
 ## Tooling Commands
+- `bash run.sh` or `npm start` — start the API + website (kills port 5000 first)
 - `pytest` — run all tests
 - `ruff check .` — lint Python
 - `ruff format .` — format Python

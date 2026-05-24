@@ -13,3 +13,6 @@
 - Added **ruff** with config in `pyproject.toml`
 - Added **Prettier** with `.prettierrc` + npm scripts
 - Updated `STACK.md` and `RULES.md` with tooling docs
+- Fixed missing `groq` dependency in venv
+- Created `run.sh` as single entry script (kills port 5000, activates venv, starts server)
+- Updated `npm start` to use `run.sh`
