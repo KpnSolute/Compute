@@ -24,9 +24,13 @@
 
 ## Deployment
 
-- Gunicorn (4 workers)
-- Docker (python:3.12-slim)
-- Replit-compatible
+- **Platform:** Azure App Service (Linux, Docker)
+- **Container Registry:** Azure Container Registry (ACR) — `mjccacr.azurecr.io`
+- **CI/CD:** GitHub Actions (push to `main` → build image → push to ACR → deploy)
+- **Server:** Gunicorn (4 workers, port 5000)
+- **Base image:** `python:3.12-slim`
+- **Region:** `westus2` (closest to Supabase `us-west-1`)
+- See `structure/DEPLOYMENT.md` for full setup guide
 
 ## Key Packages
 
