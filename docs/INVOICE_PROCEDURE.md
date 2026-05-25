@@ -1,6 +1,7 @@
 # Invoice Entry Procedure — MJC Inventory Dashboard
 
 ## Supported Invoice Types
+
 - US Foods (primary supplier) — PDF or text
 - Multi-Flow Beverages — image or text
 - Any supplier — manual text paste
@@ -44,7 +45,9 @@
 ---
 
 ## Price Update Rule
+
 When a new invoice is processed:
+
 - Always update the unit price to the **most current invoice price**
 - Weight-based items (Chicken, Beef, Pork) use: `total extended ÷ cases shipped`
 - If price changed from prior week, the item price is updated automatically
@@ -53,16 +56,17 @@ When a new invoice is processed:
 
 ## Week Assignment Reference
 
-| Week | Approx Dates | Invoice # (May 2026) |
-|------|-------------|----------------------|
-| Week 1 | May 1–7 | US Foods #2312098 + Multi-Flow #861848, #864172, #864236 |
-| Week 2 | May 8–14 | US Foods #39582 |
-| Week 3 | May 15–21 | TBD |
-| Week 4 | May 22–31 | TBD |
+| Week   | Approx Dates | Invoice # (May 2026)                                     |
+| ------ | ------------ | -------------------------------------------------------- |
+| Week 1 | May 1–7      | US Foods #2312098 + Multi-Flow #861848, #864172, #864236 |
+| Week 2 | May 8–14     | US Foods #39582                                          |
+| Week 3 | May 15–21    | TBD                                                      |
+| Week 4 | May 22–31    | TBD                                                      |
 
 ---
 
 ## VIZIENT Discount Notes
+
 US Foods invoices include VIZIENT contract discounts that are applied at the invoice level, not per item. These will cause a small reconciliation difference between the sum of item prices and the invoice total. This is normal and expected.
 
 - Week 1: −$98.17 + −$117.80 = −$215.97 VIZIENT discount
@@ -72,10 +76,10 @@ US Foods invoices include VIZIENT contract discounts that are applied at the inv
 
 ## Common Issues
 
-| Problem | Solution |
-|---------|----------|
-| Item not matched | Manually assign it in the review table |
+| Problem            | Solution                                                         |
+| ------------------ | ---------------------------------------------------------------- |
+| Item not matched   | Manually assign it in the review table                           |
 | Wrong week applied | Go to Inventory tab, manually correct the w1r/w2r/w3r/w4r column |
-| Quantity doubled | Check if item was applied twice — remove one via Inventory tab |
-| Price wrong | Edit price directly in Inventory tab |
-| PDF won't parse | Try copying text from PDF and pasting manually |
+| Quantity doubled   | Check if item was applied twice — remove one via Inventory tab   |
+| Price wrong        | Edit price directly in Inventory tab                             |
+| PDF won't parse    | Try copying text from PDF and pasting manually                   |

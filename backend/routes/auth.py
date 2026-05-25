@@ -8,11 +8,13 @@ auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 def _get_profile(username: str) -> dict | None:
     try:
         admin = get_client(admin=True)
-        result = admin.table('user_profiles') \
-            .select('id, username, display_name, role, pin, active') \
-            .eq('username', username) \
-            .single() \
+        result = (
+            admin.table('user_profiles')
+            .select('id, username, display_name, role, pin, active')
+            .eq('username', username)
+            .single()
             .execute()
+        )
         return result.data
     except Exception:
         return None
@@ -27,7 +29,7 @@ def _build_email(username: str) -> str:
 @auth_bp.post('/login')
 def login():
     data = request.get_json(silent=True) or {}
-    username   = (data.get('username') or '').strip().lower()
+    username = (data.get('username') or '').strip().lower()
     login_type = (data.get('type') or '').strip()
 
     if not username:
@@ -43,9 +45,7 @@ def login():
     # ── STAFF PIN FLOW ────────────────────────────────────────
     if login_type == 'staff':
         if profile['role'] != 'staff':
-            return jsonify(
-                error='Admin and manager accounts must use the Admin / Manager login.'
-            ), 401
+            return jsonify(error='Admin and manager accounts must use the Admin / Manager login.'), 401
         pin = str(data.get('pin') or '').strip()
         if not pin:
             return jsonify(error='PIN is required.'), 400
@@ -53,53 +53,53 @@ def login():
             return jsonify(error='Incorrect PIN. Please try again.'), 401
 
         session['user'] = {
-            'id':           profile['id'],
-            'username':     profile['username'],
+            'id': profile['id'],
+            'username': profile['username'],
             'display_name': profile.get('display_name', ''),
-            'role':         profile['role'],
+            'role': profile['role'],
         }
         return jsonify(
             ok=True,
             user={
-                'username':     profile['username'],
+                'username': profile['username'],
                 'display_name': profile.get('display_name', ''),
-                'role':         profile['role'],
-            }
+                'role': profile['role'],
+            },
         )
 
     # ── ADMIN / MANAGER PASSWORD FLOW ────────────────────────
     elif login_type == 'admin':
         if profile['role'] not in ('admin', 'manager'):
-            return jsonify(
-                error='Staff accounts must use the Staff login.'
-            ), 401
+            return jsonify(error='Staff accounts must use the Staff login.'), 401
         password = str(data.get('password') or '').strip()
         if not password:
             return jsonify(error='Password is required.'), 400
 
         try:
             client = get_client()
-            email  = _build_email(username)
-            result = client.auth.sign_in_with_password({
-                'email':    email,
-                'password': password,
-            })
+            email = _build_email(username)
+            result = client.auth.sign_in_with_password(
+                {
+                    'email': email,
+                    'password': password,
+                }
+            )
             access_token = result.session.access_token
             session['user'] = {
-                'id':           profile['id'],
-                'username':     profile['username'],
+                'id': profile['id'],
+                'username': profile['username'],
                 'display_name': profile.get('display_name', ''),
-                'role':         profile['role'],
+                'role': profile['role'],
                 'access_token': access_token,
             }
             return jsonify(
                 ok=True,
                 access_token=access_token,
                 user={
-                    'username':     profile['username'],
+                    'username': profile['username'],
                     'display_name': profile.get('display_name', ''),
-                    'role':         profile['role'],
-                }
+                    'role': profile['role'],
+                },
             )
         except Exception:
             return jsonify(error='Incorrect password. Please try again.'), 401
@@ -116,10 +116,10 @@ def me():
     return jsonify(
         authenticated=True,
         user={
-            'username':     user.get('username'),
+            'username': user.get('username'),
             'display_name': user.get('display_name'),
-            'role':         user.get('role'),
-        }
+            'role': user.get('role'),
+        },
     )
 
 

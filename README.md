@@ -1,15 +1,18 @@
 # Miami Job Corps Cafeteria — Inventory Management Dashboard
+
 **Version:** May 2026  
 **Maintained by:** Food Service Manager / Administrator
 
 ---
 
 ## Overview
+
 A standalone HTML-based inventory dashboard for tracking monthly cafeteria inventory, processing US Foods and Multi-Flow invoices, and generating printable monthly reports.
 
 ---
 
 ## Project Structure
+
 ```
 mjc_inventory_project/
 ├── inventory_dashboard.html     ← Main application (open this in browser)
@@ -34,17 +37,20 @@ mjc_inventory_project/
 ## Quick Start
 
 ### Option 1 — Online (simplest)
+
 1. Open `inventory_dashboard.html` in **Chrome** or **Edge**
 2. The dashboard loads with all May 2026 data pre-loaded
 3. No installation needed
 
 ### Option 2 — Fully Offline
+
 1. Run the setup script to download library files:
    - **Mac/Linux:** `bash setup.sh`
    - **Windows:** Double-click `setup.bat`
 2. Open `inventory_dashboard_offline.html` in your browser
 
 ### Option 3 — Local Dev Server (optional)
+
 ```bash
 npm install
 npm start
@@ -54,16 +60,18 @@ npm start
 ---
 
 ## Dependencies (CDN)
-| Library | Version | Purpose |
-|---------|---------|---------|
-| JsBarcode | 3.11.5 | Barcode generation |
-| lz-string | 1.4.4 | Data compression for export |
-| qrcodejs | 1.0.0 | QR code generation |
-| Supabase JS | 2.x | Optional cloud sync |
+
+| Library     | Version | Purpose                     |
+| ----------- | ------- | --------------------------- |
+| JsBarcode   | 3.11.5  | Barcode generation          |
+| lz-string   | 1.4.4   | Data compression for export |
+| qrcodejs    | 1.0.0   | QR code generation          |
+| Supabase JS | 2.x     | Optional cloud sync         |
 
 ---
 
 ## Data & Storage
+
 - All inventory data is stored in **browser localStorage**
 - Use **⬇ Export Data** button to save a `.json` backup
 - Use **⬆ Import Data** to restore or sync between devices
@@ -72,6 +80,7 @@ npm start
 ---
 
 ## Monthly Workflow
+
 1. At start of month: open dashboard — starting value auto-loads from prior month
 2. Upload Week 1 invoice → Invoice Entry tab → Parse & Apply
 3. Repeat for Weeks 2, 3, 4 as invoices arrive
@@ -82,6 +91,7 @@ npm start
 ---
 
 ## Inventory Categories
+
 1. Dairy
 2. Cereal
 3. Beverages
@@ -95,16 +105,18 @@ npm start
 ---
 
 ## Login (when re-enabled)
-| Role | Username | Credential |
-|------|----------|------------|
-| Admin | admin | Admin@MJC2026 |
-| Manager | fs_manager | Manager@MJC2026 |
-| Staff | staff1 / staff2 | PIN: 1234 |
 
-*Login system is currently disabled. Contact admin to re-enable.*
+| Role    | Username        | Credential      |
+| ------- | --------------- | --------------- |
+| Admin   | admin           | Admin@MJC2026   |
+| Manager | fs_manager      | Manager@MJC2026 |
+| Staff   | staff1 / staff2 | PIN: 1234       |
+
+_Login system is currently disabled. Contact admin to re-enable._
 
 ---
 
 ## Support
+
 Built and maintained via Claude AI (Anthropic).  
 For issues, re-open your conversation and upload the HTML file.

@@ -17,29 +17,33 @@ def _get_profile_by_email(email: str) -> dict | None:
     username = email.replace('@mjc-cafeteria.com', '').replace('@mjc.local', '')
     try:
         admin = get_client(admin=True)
-        result = admin.table('user_profiles') \
-            .select('id, username, display_name, role, active') \
-            .eq('username', username) \
-            .single() \
+        result = (
+            admin.table('user_profiles')
+            .select('id, username, display_name, role, active')
+            .eq('username', username)
+            .single()
             .execute()
+        )
         if result.data:
             profile_cache[email] = result.data
             return result.data
     except Exception as e:
-        logger.warning(f"Failed to get profile by username for email {email}: {e}")
+        logger.warning(f'Failed to get profile by username for email {email}: {e}')
 
     try:
         admin = get_client(admin=True)
-        result = admin.table('user_profiles') \
-            .select('id, username, display_name, role, active') \
-            .eq('email', email) \
-            .single() \
+        result = (
+            admin.table('user_profiles')
+            .select('id, username, display_name, role, active')
+            .eq('email', email)
+            .single()
             .execute()
+        )
         if result.data:
             profile_cache[email] = result.data
             return result.data
     except Exception as e:
-        logger.warning(f"Failed to get profile by email for email {email}: {e}")
+        logger.warning(f'Failed to get profile by email for email {email}: {e}')
 
     return None
 
@@ -58,17 +62,17 @@ def resolve_user() -> dict | None:
         client = get_client()
         resp = client.auth.get_user(token)
         if not resp or not resp.user:
-            logger.warning("Invalid or expired token")
+            logger.warning('Invalid or expired token')
             return None
 
         email = (resp.user.email or '').strip().lower()
         if not email:
-            logger.warning("No email in token")
+            logger.warning('No email in token')
             return None
 
         profile = _get_profile_by_email(email)
         if not profile or not profile.get('active'):
-            logger.warning(f"Inactive or non-existent profile for email {email}")
+            logger.warning(f'Inactive or non-existent profile for email {email}')
             return None
 
         return {
@@ -79,7 +83,7 @@ def resolve_user() -> dict | None:
             'access_token': token,
         }
     except Exception as e:
-        logger.exception(f"Error resolving user from token: {e}")
+        logger.exception(f'Error resolving user from token: {e}')
         return None
 
 
@@ -91,6 +95,7 @@ def require_user(f):
             return jsonify(error='Not authenticated'), 401
         request.current_user = user
         return f(*args, **kwargs)
+
     return wrapper
 
 
@@ -104,4 +109,5 @@ def require_admin(f):
             return jsonify(error='Insufficient role'), 403
         request.current_user = user
         return f(*args, **kwargs)
+
     return wrapper

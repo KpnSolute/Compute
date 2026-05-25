@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env')
 
+
 class Config:
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-change-in-production')
     SUPABASE_URL = os.getenv('SUPABASE_URL', '')
@@ -33,24 +34,28 @@ class Config:
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
     LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
+
 class DevelopmentConfig(Config):
     DEBUG = os.getenv('FLASK_DEBUG', 'True').lower() == 'true'
     SESSION_COOKIE_SECURE = False
     LOG_LEVEL = 'DEBUG'
+
 
 class ProductionConfig(Config):
     DEBUG = False
     SESSION_COOKIE_SECURE = True
     LOG_LEVEL = 'WARNING'
 
+
 class TestingConfig(Config):
     TESTING = True
     DEBUG = True
     LOG_LEVEL = 'DEBUG'
 
+
 config = {
     'development': DevelopmentConfig,
     'production': ProductionConfig,
     'testing': TestingConfig,
-    'default': DevelopmentConfig
+    'default': DevelopmentConfig,
 }

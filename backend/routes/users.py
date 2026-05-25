@@ -26,10 +26,12 @@ def list_users():
         return jsonify(error='Not authenticated or insufficient role'), 403
 
     db = get_client(admin=True)
-    resp = db.table('user_profiles') \
-        .select('id, username, display_name, role, active, created_at') \
-        .order('created_at') \
+    resp = (
+        db.table('user_profiles')
+        .select('id, username, display_name, role, active, created_at')
+        .order('created_at')
         .execute()
+    )
     return jsonify(resp.data or [])
 
 
@@ -55,11 +57,13 @@ def create_user():
     db = get_client(admin=True)
 
     try:
-        auth_result = db.auth.admin.create_user({
-            'email': email,
-            'password': password,
-            'email_confirm': True,
-        })
+        auth_result = db.auth.admin.create_user(
+            {
+                'email': email,
+                'password': password,
+                'email_confirm': True,
+            }
+        )
         user_id = auth_result.user.id
     except Exception as e:
         return jsonify(error=f'Failed to create auth user: {str(e)}'), 400
@@ -94,10 +98,7 @@ def update_user(user_id):
         return jsonify(error='No valid fields to update'), 400
 
     db = get_client(admin=True)
-    resp = db.table('user_profiles') \
-        .update(updates) \
-        .eq('id', user_id) \
-        .execute()
+    resp = db.table('user_profiles').update(updates).eq('id', user_id).execute()
 
     if not resp.data:
         return jsonify(error='User not found'), 404

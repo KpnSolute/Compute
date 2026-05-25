@@ -34,7 +34,7 @@ def _build_catalog_text(items: list) -> str:
 
 
 def _build_prompt(catalog_text: str) -> str:
-    return f'''You are an inventory assistant for Miami Job Corps Cafeteria.
+    return f"""You are an inventory assistant for Miami Job Corps Cafeteria.
 Parse the invoice and match each line item to the catalog below.
 Match by SKU first, then by description (fuzzy match is OK).
 Return ONLY a JSON array, no markdown, no preamble, no code fences.
@@ -50,7 +50,7 @@ Rules:
 - For "NEW" items, include the original description in matchedDesc
 
 Catalog (id | sku | description | unit_price):
-{catalog_text}'''
+{catalog_text}"""
 
 
 def _clean_response(raw: str) -> str:

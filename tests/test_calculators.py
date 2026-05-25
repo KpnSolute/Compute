@@ -19,10 +19,18 @@ def test_item_total(sample_item):
 
 
 def test_item_total_zero_on_hand():
-    item = {'on_hand': '0', 'w1_received': '0', 'w1_issued': '0',
-            'w2_received': '0', 'w2_issued': '0',
-            'w3_received': '0', 'w3_issued': '0',
-            'w4_received': '0', 'w4_issued': '0', 'unit_price': '5.00'}
+    item = {
+        'on_hand': '0',
+        'w1_received': '0',
+        'w1_issued': '0',
+        'w2_received': '0',
+        'w2_issued': '0',
+        'w3_received': '0',
+        'w3_issued': '0',
+        'w4_received': '0',
+        'w4_issued': '0',
+        'unit_price': '5.00',
+    }
     assert item_total(item) == 0.0
 
 
@@ -32,10 +40,18 @@ def test_ending_quantity(sample_item):
 
 
 def test_ending_quantity_never_negative():
-    item = {'on_hand': '5', 'w1_received': '0', 'w1_issued': '20',
-            'w2_received': '0', 'w2_issued': '0',
-            'w3_received': '0', 'w3_issued': '0',
-            'w4_received': '0', 'w4_issued': '0', 'unit_price': '1'}
+    item = {
+        'on_hand': '5',
+        'w1_received': '0',
+        'w1_issued': '20',
+        'w2_received': '0',
+        'w2_issued': '0',
+        'w3_received': '0',
+        'w3_issued': '0',
+        'w4_received': '0',
+        'w4_issued': '0',
+        'unit_price': '1',
+    }
     assert ending_quantity(item) == 0.0
 
 
@@ -67,8 +83,7 @@ def test_reorder_alerts(sample_items):
 
 
 def test_reorder_alerts_ignores_zero_par():
-    items = [{'on_hand': '0', 'par_level': '0', 'item_id': '789',
-              'description': '', 'category': '', 'unit_price': '0'}]
+    items = [{'on_hand': '0', 'par_level': '0', 'item_id': '789', 'description': '', 'category': '', 'unit_price': '0'}]
     assert reorder_alerts(items) == []
 
 

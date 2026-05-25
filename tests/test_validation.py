@@ -12,8 +12,7 @@ def app():
 
 
 def test_validate_json_no_data(app):
-    with app.test_request_context(content_type='application/json',
-                                  data='{}'):
+    with app.test_request_context(content_type='application/json', data='{}'):
         schema = {
             'name': {'type': 'str', 'required': True},
         }
@@ -23,8 +22,7 @@ def test_validate_json_no_data(app):
 
 
 def test_validate_json_valid_data(app):
-    with app.test_request_context(content_type='application/json',
-                                  data=json.dumps({'name': 'test', 'age': 25})):
+    with app.test_request_context(content_type='application/json', data=json.dumps({'name': 'test', 'age': 25})):
         schema = {
             'name': {'type': 'str', 'required': True},
             'age': {'type': 'int', 'required': True, 'min': 0, 'max': 150},
@@ -36,8 +34,7 @@ def test_validate_json_valid_data(app):
 
 
 def test_validate_json_type_coercion(app):
-    with app.test_request_context(content_type='application/json',
-                                  data=json.dumps({'age': '25'})):
+    with app.test_request_context(content_type='application/json', data=json.dumps({'age': '25'})):
         schema = {
             'age': {'type': 'int', 'required': True},
         }
@@ -47,11 +44,9 @@ def test_validate_json_type_coercion(app):
 
 
 def test_validate_json_enum(app):
-    with app.test_request_context(content_type='application/json',
-                                  data=json.dumps({'role': 'admin'})):
+    with app.test_request_context(content_type='application/json', data=json.dumps({'role': 'admin'})):
         schema = {
-            'role': {'type': 'str', 'required': True,
-                     'enum': ['admin', 'manager', 'staff']},
+            'role': {'type': 'str', 'required': True, 'enum': ['admin', 'manager', 'staff']},
         }
         is_valid, data, status = validate_json(schema)
         assert is_valid
@@ -59,11 +54,9 @@ def test_validate_json_enum(app):
 
 
 def test_validate_json_enum_invalid(app):
-    with app.test_request_context(content_type='application/json',
-                                  data=json.dumps({'role': 'superadmin'})):
+    with app.test_request_context(content_type='application/json', data=json.dumps({'role': 'superadmin'})):
         schema = {
-            'role': {'type': 'str', 'required': True,
-                     'enum': ['admin', 'manager', 'staff']},
+            'role': {'type': 'str', 'required': True, 'enum': ['admin', 'manager', 'staff']},
         }
         is_valid, data, status = validate_json(schema)
         assert not is_valid

@@ -1,50 +1,107 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Staff Dashboard — MJC Cafeteria</title>
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0F1E35; color: #fff; min-height: 100vh; display: flex; flex-direction: column; }
-nav { background: #1a2f4a; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
-nav h1 { font-size: 1.2rem; font-weight: 500; }
-.btn { background: transparent; border: 1px solid rgba(255,255,255,0.3); color: #fff; padding: 0.5rem 1.2rem; border-radius: 6px; cursor: pointer; font-size: 0.9rem; transition: 0.2s; }
-.btn:hover { background: rgba(255,255,255,0.1); }
-main { flex: 1; padding: 2rem; max-width: 900px; margin: 0 auto; width: 100%; }
-.card { background: #1a2f4a; border-radius: 10px; padding: 1.5rem; margin-bottom: 1.5rem; }
-.card h2 { font-size: 1.1rem; margin-bottom: 0.75rem; color: #8ab4f8; }
-p { color: #ccc; line-height: 1.6; }
-a { color: #8ab4f8; text-decoration: none; }
-a:hover { text-decoration: underline; }
-</style>
-</head>
-<body>
-<nav>
-<h1>MJC Cafeteria Portal</h1>
-<button class="btn" id="logoutBtn">Logout</button>
-</nav>
-<main>
-<div class="card">
-<h2 id="welcome">Welcome, <span id="username">...</span> (Staff)</h2>
-<p>You are logged in with staff-level access.</p>
-</div>
-<div class="card">
-<h2>Inventory</h2>
-<p><a href="/inventory_dashboard.html" target="_blank">Open Inventory Dashboard</a></p>
-</div>
-</main>
-<script>
-(async function() {
-  const res = await fetch('/api/auth/me');
-  if (!res.ok) { window.location.href = '/'; return; }
-  const data = await res.json();
-  document.getElementById('username').textContent = data.user.username;
-})();
-document.getElementById('logoutBtn').addEventListener('click', async () => {
-  await fetch('/api/auth/logout', { method: 'POST' });
-  window.location.href = '/';
-});
-</script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Staff Dashboard — MJC Cafeteria</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: #0f1e35;
+        color: #fff;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      nav {
+        background: #1a2f4a;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      nav h1 {
+        font-size: 1.2rem;
+        font-weight: 500;
+      }
+      .btn {
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        color: #fff;
+        padding: 0.5rem 1.2rem;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        transition: 0.2s;
+      }
+      .btn:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+      main {
+        flex: 1;
+        padding: 2rem;
+        max-width: 900px;
+        margin: 0 auto;
+        width: 100%;
+      }
+      .card {
+        background: #1a2f4a;
+        border-radius: 10px;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+      }
+      .card h2 {
+        font-size: 1.1rem;
+        margin-bottom: 0.75rem;
+        color: #8ab4f8;
+      }
+      p {
+        color: #ccc;
+        line-height: 1.6;
+      }
+      a {
+        color: #8ab4f8;
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <h1>MJC Cafeteria Portal</h1>
+      <button class="btn" id="logoutBtn">Logout</button>
+    </nav>
+    <main>
+      <div class="card">
+        <h2 id="welcome">Welcome, <span id="username">...</span> (Staff)</h2>
+        <p>You are logged in with staff-level access.</p>
+      </div>
+      <div class="card">
+        <h2>Inventory</h2>
+        <p><a href="/inventory_dashboard.html" target="_blank">Open Inventory Dashboard</a></p>
+      </div>
+    </main>
+    <script>
+      (async function () {
+        const res = await fetch('/api/auth/me');
+        if (!res.ok) {
+          window.location.href = '/';
+          return;
+        }
+        const data = await res.json();
+        document.getElementById('username').textContent = data.user.username;
+      })();
+      document.getElementById('logoutBtn').addEventListener('click', async () => {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        window.location.href = '/';
+      });
+    </script>
+  </body>
 </html>

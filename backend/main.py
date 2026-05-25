@@ -14,9 +14,9 @@ from config import config
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
-from backend.routes.auth import auth_bp
-from backend.routes.inventory import inventory_bp
-from backend.routes.users import users_bp
+from backend.routes.auth import auth_bp  # noqa: E402
+from backend.routes.inventory import inventory_bp  # noqa: E402
+from backend.routes.users import users_bp  # noqa: E402
 
 FRONTEND_DIR = BASE_DIR / 'frontend'
 
@@ -31,10 +31,7 @@ app.secret_key = app_config.SECRET_KEY
 app.config.from_object(app_config)
 
 # Setup logging
-logging.basicConfig(
-    level=getattr(logging, app_config.LOG_LEVEL),
-    format=app_config.LOG_FORMAT
-)
+logging.basicConfig(level=getattr(logging, app_config.LOG_LEVEL), format=app_config.LOG_FORMAT)
 logger = logging.getLogger(__name__)
 
 # Configure CORS with more specific settings for production
@@ -44,6 +41,7 @@ if app_config.DEBUG:
 else:
     # Production: restrict origins
     CORS(app, supports_credentials=True, origins=app_config.CORS_ORIGINS)
+
 
 # Add security headers
 @app.after_request
@@ -55,11 +53,12 @@ def add_security_headers(response):
         response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     return response
 
+
 app.register_blueprint(inventory_bp)
 app.register_blueprint(auth_bp)
 app.register_blueprint(users_bp)
 
-logger.info(f"Starting application in {env} mode")
+logger.info(f'Starting application in {env} mode')
 
 
 @app.after_request
@@ -100,26 +99,24 @@ def static_files(name):
 
 @app.errorhandler(404)
 def not_found(error):
-    logger.warning(f"404 error: {error}")
+    logger.warning(f'404 error: {error}')
     return {'error': 'Not found'}, 404
 
 
 @app.errorhandler(500)
 def internal_error(error):
-    logger.error(f"500 error: {error}")
+    logger.error(f'500 error: {error}')
     return {'error': 'Internal server error'}, 500
 
 
 @app.errorhandler(Exception)
 def unhandled_exception(error):
-    logger.exception(f"Unhandled exception: {error}")
+    logger.exception(f'Unhandled exception: {error}')
     return {'error': 'Internal server error'}, 500
 
 
 if __name__ == '__main__':
-    logger.info(f"Starting server on {app_config.HOST if hasattr(app_config, 'HOST') else '0.0.0.0'}:{app_config.PORT if hasattr(app_config, 'PORT') else 5000}")
-    app.run(
-        host=getattr(app_config, 'HOST', '0.0.0.0'),
-        port=getattr(app_config, 'PORT', 5000),
-        debug=app_config.DEBUG
-    )
+    host = app_config.HOST if hasattr(app_config, 'HOST') else '0.0.0.0'
+    port = app_config.PORT if hasattr(app_config, 'PORT') else 5000
+    logger.info(f'Starting server on {host}:{port}')
+    app.run(host=getattr(app_config, 'HOST', '0.0.0.0'), port=getattr(app_config, 'PORT', 5000), debug=app_config.DEBUG)

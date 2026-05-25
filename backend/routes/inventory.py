@@ -21,9 +21,17 @@ logger = logging.getLogger(__name__)
 # Note: Rate limiter is initialized in main.py and shared via app.extensions
 
 ALLOWED_FIELDS = {
-    'on_hand', 'w1_issued', 'w2_issued', 'w3_issued', 'w4_issued',
-    'w1_received', 'w2_received', 'w3_received', 'w4_received',
-    'unit_price', 'par_level',
+    'on_hand',
+    'w1_issued',
+    'w2_issued',
+    'w3_issued',
+    'w4_issued',
+    'w1_received',
+    'w2_received',
+    'w3_received',
+    'w4_received',
+    'unit_price',
+    'par_level',
 }
 
 PRICE_FIELDS = {'unit_price', 'par_level'}
@@ -44,28 +52,26 @@ def summary():
             return jsonify(error='month must be 0-11, year must be 2020-2030'), 400
 
         db = get_client()
-        resp = db.table('dashboard_summary') \
-            .select('*') \
-            .eq('month', month) \
-            .eq('year', year) \
-            .execute()
+        resp = db.table('dashboard_summary').select('*').eq('month', month).eq('year', year).execute()
         items = resp.data or []
 
         prior_month = month - 1 if month > 0 else 11
         prior_year = year if month > 0 else year - 1
-        snap_resp = db.table('monthly_snapshots') \
-            .select('grand_total') \
-            .eq('month', prior_month) \
-            .eq('year', prior_year) \
-            .limit(1) \
+        snap_resp = (
+            db.table('monthly_snapshots')
+            .select('grand_total')
+            .eq('month', prior_month)
+            .eq('year', prior_year)
+            .limit(1)
             .execute()
+        )
         prior_total = float((snap_resp.data or [{}])[0].get('grand_total', 0) or 0)
 
         result = calculators.dashboard_summary(items, prior_total)
         result['data_source'] = 'LIVE_SUPABASE'
         return jsonify(result)
     except Exception as e:
-        logger.exception(f"Error in summary endpoint: {e}")
+        logger.exception(f'Error in summary endpoint: {e}')
         return jsonify(error='Internal server error'), 500
 
 
@@ -77,13 +83,15 @@ def items():
             return jsonify(error='Not authenticated'), 401
 
         # Validate query parameters
-        is_valid, validated_data_or_error, status_code = validate_json({
-            'month': {'type': 'int', 'required': True, 'min': 0, 'max': 11},
-            'year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030},
-            'category': {'type': 'str', 'required': False},
-            'page': {'type': 'int', 'required': False, 'min': 1, 'default': 1},
-            'per_page': {'type': 'int', 'required': False, 'min': 1, 'max': 100, 'default': 50}
-        })
+        is_valid, validated_data_or_error, status_code = validate_json(
+            {
+                'month': {'type': 'int', 'required': True, 'min': 0, 'max': 11},
+                'year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030},
+                'category': {'type': 'str', 'required': False},
+                'page': {'type': 'int', 'required': False, 'min': 1, 'default': 1},
+                'per_page': {'type': 'int', 'required': False, 'min': 1, 'max': 100, 'default': 50},
+            }
+        )
         # For GET requests, we need to get data from args instead of JSON
         if not is_valid:
             return validated_data_or_error, status_code
@@ -98,18 +106,12 @@ def items():
             return jsonify(error='month and year are required'), 400
 
         db = get_client()
-        query = db.table('dashboard_summary') \
-            .select('*') \
-            .eq('month', month) \
-            .eq('year', year)
+        query = db.table('dashboard_summary').select('*').eq('month', month).eq('year', year)
         if category:
             query = query.eq('category', category)
 
         # Get total count for pagination metadata
-        count_query = db.table('dashboard_summary') \
-            .select('*', count='exact') \
-            .eq('month', month) \
-            .eq('year', year)
+        count_query = db.table('dashboard_summary').select('*', count='exact').eq('month', month).eq('year', year)
         if category:
             count_query = count_query.eq('category', category)
         count_resp = count_query.execute()
@@ -121,19 +123,21 @@ def items():
         resp = query.execute()
 
         # Return paginated response
-        return jsonify({
-            'items': resp.data or [],
-            'pagination': {
-                'page': page,
-                'per_page': per_page,
-                'total_count': total_count,
-                'total_pages': (total_count + per_page - 1) // per_page,
-                'has_next': page < ((total_count + per_page - 1) // per_page),
-                'has_prev': page > 1
+        return jsonify(
+            {
+                'items': resp.data or [],
+                'pagination': {
+                    'page': page,
+                    'per_page': per_page,
+                    'total_count': total_count,
+                    'total_pages': (total_count + per_page - 1) // per_page,
+                    'has_next': page < ((total_count + per_page - 1) // per_page),
+                    'has_prev': page > 1,
+                },
             }
-        })
+        )
     except Exception as e:
-        logger.exception(f"Error in items endpoint: {e}")
+        logger.exception(f'Error in items endpoint: {e}')
         return jsonify(error='Internal server error'), 500
 
 
@@ -155,32 +159,32 @@ def update_item(item_id):
         month = data.get('month')
         year = data.get('year')
 
-        FIELD_MAP = {
-            'onHand':     'on_hand',
-            'w1i':        'w1_issued',
-            'w2i':        'w2_issued',
-            'w3i':        'w3_issued',
-            'w4i':        'w4_issued',
-            'w1r':        'w1_received',
-            'w2r':        'w2_received',
-            'w3r':        'w3_received',
-            'w4r':        'w4_received',
-            'price':      'unit_price',
-            'par':        'par_level',
-            'on_hand':    'on_hand',
-            'w1_issued':  'w1_issued',
-            'w2_issued':  'w2_issued',
-            'w3_issued':  'w3_issued',
-            'w4_issued':  'w4_issued',
-            'w1_received':'w1_received',
-            'w2_received':'w2_received',
-            'w3_received':'w3_received',
-            'w4_received':'w4_received',
+        field_map = {
+            'onHand': 'on_hand',
+            'w1i': 'w1_issued',
+            'w2i': 'w2_issued',
+            'w3i': 'w3_issued',
+            'w4i': 'w4_issued',
+            'w1r': 'w1_received',
+            'w2r': 'w2_received',
+            'w3r': 'w3_received',
+            'w4r': 'w4_received',
+            'price': 'unit_price',
+            'par': 'par_level',
+            'on_hand': 'on_hand',
+            'w1_issued': 'w1_issued',
+            'w2_issued': 'w2_issued',
+            'w3_issued': 'w3_issued',
+            'w4_issued': 'w4_issued',
+            'w1_received': 'w1_received',
+            'w2_received': 'w2_received',
+            'w3_received': 'w3_received',
+            'w4_received': 'w4_received',
             'unit_price': 'unit_price',
-            'par_level':  'par_level',
+            'par_level': 'par_level',
         }
 
-        db_field = FIELD_MAP.get(field)
+        db_field = field_map.get(field)
         if not db_field:
             return jsonify(error=f'Unknown field: {field}'), 400
         if db_field not in ALLOWED_FIELDS:
@@ -195,27 +199,28 @@ def update_item(item_id):
         elif db_field == 'par_level':
             db.table('inventory_items').update({db_field: value}).eq('id', item_id).execute()
         else:
-            db.table('monthly_inventory') \
-                .update({db_field: value}) \
-                .eq('item_id', item_id) \
-                .eq('month', month) \
-                .eq('year', year) \
-                .execute()
+            db.table('monthly_inventory').update({db_field: value}).eq('item_id', item_id).eq('month', month).eq(
+                'year', year
+            ).execute()
 
-        resp = db.table('dashboard_summary') \
-            .select('*') \
-            .eq('item_id', item_id) \
-            .eq('month', month) \
-            .eq('year', year) \
-            .limit(1) \
+        resp = (
+            db.table('dashboard_summary')
+            .select('*')
+            .eq('item_id', item_id)
+            .eq('month', month)
+            .eq('year', year)
+            .limit(1)
             .execute()
+        )
         item_data = (resp.data or [{}])[0]
-        return jsonify({
-            'item_total': calculators.item_total(item_data),
-            'ending_qty': calculators.ending_quantity(item_data),
-        })
+        return jsonify(
+            {
+                'item_total': calculators.item_total(item_data),
+                'ending_qty': calculators.ending_quantity(item_data),
+            }
+        )
     except Exception as e:
-        logger.exception(f"Error in update_item endpoint: {e}")
+        logger.exception(f'Error in update_item endpoint: {e}')
         return jsonify(error='Internal server error'), 500
 
 
@@ -236,23 +241,21 @@ def save_snapshot():
         year = data.get('year')
 
         db = get_client()
-        resp = db.table('dashboard_summary') \
-            .select('*') \
-            .eq('month', month) \
-            .eq('year', year) \
-            .execute()
+        resp = db.table('dashboard_summary').select('*').eq('month', month).eq('year', year).execute()
         items = resp.data or []
 
         result = calculators.dashboard_summary(items)
 
         prior_month = month - 1 if month > 0 else 11
         prior_year = year if month > 0 else year - 1
-        snap_resp = db.table('monthly_snapshots') \
-            .select('grand_total') \
-            .eq('month', prior_month) \
-            .eq('year', prior_year) \
-            .limit(1) \
+        snap_resp = (
+            db.table('monthly_snapshots')
+            .select('grand_total')
+            .eq('month', prior_month)
+            .eq('year', prior_year)
+            .limit(1)
             .execute()
+        )
         prior_total = float((snap_resp.data or [{}])[0].get('grand_total', 0) or 0)
 
         record = {
@@ -267,25 +270,16 @@ def save_snapshot():
             'saved_by': None,
         }
 
-        existing = db.table('monthly_snapshots') \
-            .select('id') \
-            .eq('month', month) \
-            .eq('year', year) \
-            .limit(1) \
-            .execute()
+        existing = db.table('monthly_snapshots').select('id').eq('month', month).eq('year', year).limit(1).execute()
 
         if existing.data:
-            db.table('monthly_snapshots') \
-                .update(record) \
-                .eq('month', month) \
-                .eq('year', year) \
-                .execute()
+            db.table('monthly_snapshots').update(record).eq('month', month).eq('year', year).execute()
         else:
             db.table('monthly_snapshots').insert(record).execute()
 
         return jsonify(record)
     except Exception as e:
-        logger.exception(f"Error in save_snapshot endpoint: {e}")
+        logger.exception(f'Error in save_snapshot endpoint: {e}')
         return jsonify(error='Internal server error'), 500
 
 
@@ -309,11 +303,7 @@ def rollover():
 
         db = get_client()
 
-        resp = db.table('dashboard_summary') \
-            .select('*') \
-            .eq('month', from_month) \
-            .eq('year', from_year) \
-            .execute()
+        resp = db.table('dashboard_summary').select('*').eq('month', from_month).eq('year', from_year).execute()
         items = resp.data or []
 
         result = calculators.dashboard_summary(items)
@@ -329,18 +319,11 @@ def rollover():
             'wk4_total': result['wk4_total'],
             'saved_by': None,
         }
-        existing = db.table('monthly_snapshots') \
-            .select('id') \
-            .eq('month', from_month) \
-            .eq('year', from_year) \
-            .limit(1) \
-            .execute()
+        existing = (
+            db.table('monthly_snapshots').select('id').eq('month', from_month).eq('year', from_year).limit(1).execute()
+        )
         if existing.data:
-            db.table('monthly_snapshots') \
-                .update(record) \
-                .eq('month', from_month) \
-                .eq('year', from_year) \
-                .execute()
+            db.table('monthly_snapshots').update(record).eq('month', from_month).eq('year', from_year).execute()
         else:
             db.table('monthly_snapshots').insert(record).execute()
 
@@ -354,35 +337,40 @@ def rollover():
                 'month': next_month,
                 'year': next_year,
                 'on_hand': ending_qty,
-                'w1_received': 0, 'w2_received': 0,
-                'w3_received': 0, 'w4_received': 0,
-                'w1_issued': 0, 'w2_issued': 0,
-                'w3_issued': 0, 'w4_issued': 0,
+                'w1_received': 0,
+                'w2_received': 0,
+                'w3_received': 0,
+                'w4_received': 0,
+                'w1_issued': 0,
+                'w2_issued': 0,
+                'w3_issued': 0,
+                'w4_issued': 0,
             }
-            existing_item = db.table('monthly_inventory') \
-                .select('id') \
-                .eq('item_id', i['item_id']) \
-                .eq('month', next_month) \
-                .eq('year', next_year) \
-                .limit(1) \
+            existing_item = (
+                db.table('monthly_inventory')
+                .select('id')
+                .eq('item_id', i['item_id'])
+                .eq('month', next_month)
+                .eq('year', next_year)
+                .limit(1)
                 .execute()
+            )
             if existing_item.data:
-                db.table('monthly_inventory') \
-                    .update(new_row) \
-                    .eq('item_id', i['item_id']) \
-                    .eq('month', next_month) \
-                    .eq('year', next_year) \
-                    .execute()
+                db.table('monthly_inventory').update(new_row).eq('item_id', i['item_id']).eq('month', next_month).eq(
+                    'year', next_year
+                ).execute()
             else:
                 db.table('monthly_inventory').insert(new_row).execute()
 
-        return jsonify({
-            'next_month': next_month,
-            'next_year': next_year,
-            'starting_total': round(result['grand_total'], 2),
-        })
+        return jsonify(
+            {
+                'next_month': next_month,
+                'next_year': next_year,
+                'starting_total': round(result['grand_total'], 2),
+            }
+        )
     except Exception as e:
-        logger.exception(f"Error in rollover endpoint: {e}")
+        logger.exception(f'Error in rollover endpoint: {e}')
         return jsonify(error='Internal server error'), 500
 
 
@@ -394,14 +382,10 @@ def history():
             return jsonify(error='Not authenticated'), 401
 
         db = get_client()
-        resp = db.table('monthly_snapshots') \
-            .select('*') \
-            .order('year', desc=True) \
-            .order('month', desc=True) \
-            .execute()
+        resp = db.table('monthly_snapshots').select('*').order('year', desc=True).order('month', desc=True).execute()
         return jsonify(resp.data or [])
     except Exception as e:
-        logger.exception(f"Error in history endpoint: {e}")
+        logger.exception(f'Error in history endpoint: {e}')
         return jsonify(error='Internal server error'), 500
 
 
@@ -413,12 +397,10 @@ def categories():
             return jsonify(error='Not authenticated'), 401
 
         db = get_client()
-        resp = db.table('inventory_categories') \
-            .select('*, inventory_items!inner(count)') \
-            .execute()
+        resp = db.table('inventory_categories').select('*, inventory_items!inner(count)').execute()
         return jsonify(resp.data or [])
     except Exception as e:
-        logger.exception(f"Error in categories endpoint: {e}")
+        logger.exception(f'Error in categories endpoint: {e}')
         return jsonify(error='Internal server error'), 500
 
 
@@ -448,22 +430,24 @@ def parse_invoice():
             return jsonify(error='text is required'), 400
 
         db = get_client()
-        cat_resp = db.table('dashboard_summary') \
-            .select('item_id, sku, description, unit_price') \
-            .eq('month', month) \
-            .eq('year', year) \
+        cat_resp = (
+            db.table('dashboard_summary')
+            .select('item_id, sku, description, unit_price')
+            .eq('month', month)
+            .eq('year', year)
             .execute()
+        )
         catalog_items = cat_resp.data or []
 
         try:
             result = parse_invoice_text(catalog_items, invoice_text)
         except Exception as e:
-            logger.exception(f"AI parsing failed: {e}")
+            logger.exception(f'AI parsing failed: {e}')
             return jsonify(error=f'AI parsing failed: {str(e)}'), 500
 
         return jsonify({'matches': result})
     except Exception as e:
-        logger.exception(f"Error in parse_invoice endpoint: {e}")
+        logger.exception(f'Error in parse_invoice endpoint: {e}')
         return jsonify(error='Internal server error'), 500
 
 
@@ -487,9 +471,8 @@ def apply_invoice():
         month = data.get('month')
         year = data.get('year')
 
-        FIELD_MAP = {'w1r': 'w1_received', 'w2r': 'w2_received',
-                     'w3r': 'w3_received', 'w4r': 'w4_received'}
-        db_field = FIELD_MAP.get(week_field)
+        field_map = {'w1r': 'w1_received', 'w2r': 'w2_received', 'w3r': 'w3_received', 'w4r': 'w4_received'}
+        db_field = field_map.get(week_field)
         if not db_field:
             return jsonify(error='week_field must be w1r, w2r, w3r, or w4r'), 400
 
@@ -504,42 +487,45 @@ def apply_invoice():
                 skipped.append(m)
                 continue
 
-            existing = db.table('monthly_inventory') \
-                .select('id') \
-                .eq('item_id', item_id) \
-                .eq('month', month) \
-                .eq('year', year) \
-                .limit(1) \
+            existing = (
+                db.table('monthly_inventory')
+                .select('id')
+                .eq('item_id', item_id)
+                .eq('month', month)
+                .eq('year', year)
+                .limit(1)
                 .execute()
+            )
 
             current_qty = 0
             if existing.data:
-                cur = db.table('monthly_inventory') \
-                    .select(db_field) \
-                    .eq('item_id', item_id) \
-                    .eq('month', month) \
-                    .eq('year', year) \
-                    .limit(1) \
+                cur = (
+                    db.table('monthly_inventory')
+                    .select(db_field)
+                    .eq('item_id', item_id)
+                    .eq('month', month)
+                    .eq('year', year)
+                    .limit(1)
                     .execute()
+                )
                 current_qty = float((cur.data or [{}])[0].get(db_field, 0) or 0)
 
-                db.table('monthly_inventory') \
-                    .update({db_field: current_qty + qty}) \
-                    .eq('item_id', item_id) \
-                    .eq('month', month) \
-                    .eq('year', year) \
-                    .execute()
+                db.table('monthly_inventory').update({db_field: current_qty + qty}).eq('item_id', item_id).eq(
+                    'month', month
+                ).eq('year', year).execute()
             else:
-                db.table('monthly_inventory').insert({
-                    'item_id': item_id,
-                    'month': month,
-                    'year': year,
-                    db_field: qty,
-                }).execute()
+                db.table('monthly_inventory').insert(
+                    {
+                        'item_id': item_id,
+                        'month': month,
+                        'year': year,
+                        db_field: qty,
+                    }
+                ).execute()
 
             applied.append({'item_id': item_id, 'qty': qty, 'field': db_field})
 
         return jsonify({'applied': applied, 'skipped': skipped})
     except Exception as e:
-        logger.exception(f"Error in apply_invoice endpoint: {e}")
+        logger.exception(f'Error in apply_invoice endpoint: {e}')
         return jsonify(error='Internal server error'), 500

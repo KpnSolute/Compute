@@ -1,6 +1,7 @@
 # Change Diary
 
 ## 2026-05-23 — v1.0.4 — Structure replan + AI providers + Tooling
+
 - Created `structure/` folder to centralize project planning
 - Refactored `ai_parser.py` to support Gemini + Groq dual provider
 - Removed `architect/` directory (docs consolidated into `structure/`)

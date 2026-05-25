@@ -1,14 +1,23 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Miami Job Corps Cafeteria — Inventory Dashboard</title>
-<script>
-(function(){fetch('/api/auth/me',{credentials:'include'}).then(r=>{if(!r.ok)window.location.replace('/');}).catch(()=>window.location.replace('/'));})();
-</script>
-</head>
-<body>
-<iframe src="/inventory_dashboard.html" style="width:100%;height:100vh;border:0;display:block"></iframe>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Miami Job Corps Cafeteria — Inventory Dashboard</title>
+    <script>
+      (function () {
+        fetch('/api/auth/me', { credentials: 'include' })
+          .then((r) => {
+            if (!r.ok) window.location.replace('/');
+          })
+          .catch(() => window.location.replace('/'));
+      })();
+    </script>
+  </head>
+  <body>
+    <iframe
+      src="/inventory_dashboard.html"
+      style="width: 100%; height: 100vh; border: 0; display: block"
+    ></iframe>
+  </body>
 </html>

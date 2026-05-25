@@ -1,6 +1,19 @@
+# Environments
+venv/
+.env
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
-venv/
-.env
+.ruff_cache/
+
+# Dependencies
 node_modules/
+
+# Personal
+opencode.json
+
+# OS
+.DS_Store
+Thumbs.db
