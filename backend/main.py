@@ -17,6 +17,7 @@ sys.path.insert(0, str(BASE_DIR))
 from backend.routes.auth import auth_bp  # noqa: E402
 from backend.routes.inventory import inventory_bp  # noqa: E402
 from backend.routes.users import users_bp  # noqa: E402
+from backend.routes.v1 import v1_bp  # noqa: E402
 
 FRONTEND_DIR = BASE_DIR / 'frontend'
 
@@ -57,6 +58,7 @@ def add_security_headers(response):
 app.register_blueprint(inventory_bp)
 app.register_blueprint(auth_bp)
 app.register_blueprint(users_bp)
+app.register_blueprint(v1_bp)
 
 logger.info(f'Starting application in {env} mode')
 

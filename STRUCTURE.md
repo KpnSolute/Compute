@@ -222,10 +222,10 @@ Roles are stored in `user_profiles.role`. All Row Level Security (RLS) policies 
 
 | Role | Description |
 |---|---|
-| `admin` | Full access. Can create and modify users. |
-| `manager` | Read/write inventory and invoices. Cannot create users. |
-| `staff` | Can submit staging batches and scan items. Cannot modify `inventory_master` directly. |
-| `corporate` | Global read-only across all centers. No writes anywhere. |
+| `admin` | Full access. Can create and modify any user (admin, manager, or staff). |
+| `manager` | Primary inventory controller for their center. Can create staff accounts, assign/change PINs, activate or deactivate staff. Cannot create admin or manager accounts. |
+| `staff` | Can submit staging batches and scan items. Cannot modify `inventory_master` directly. Uses PIN login only — no Supabase Auth account required. |
+| `corporate` | Global read-only across all centers. Can view Adaptive Screening reports and analytics. No writes anywhere. |
 
 ### Authentication Flows
 
@@ -253,7 +253,7 @@ Legend: S=SELECT, I=INSERT, U=UPDATE, D=DELETE, — =No access
 | inventory_master | SIUD | SIUD | S | S | — |
 | staging_area | SIUD | SIUD | SI (own rows) | S | — |
 | transaction_history | SI | SI | SI | S | — (NO UPDATE/DELETE for anyone) |
-| user_profiles | SIUD | S (own) | S (own) | — | — |
+| user_profiles | SIUD | SI (staff rows only) | S (own) | — | — |
 | barcodes | SIUD | SIUD | SIUD | — | S |
 | inventory_items | SIUD | SIUD | SIUD | — | S |
 | monthly_inventory | SIUD | SIUD | SIUD | — | S |
@@ -273,6 +273,148 @@ Legend: S=SELECT, I=INSERT, U=UPDATE, D=DELETE, — =No access
 | qr_codes | SIUD | SIUD | — | — | S |
 
 **Note on `transaction_history`:** UPDATE and DELETE are blocked by trigger for ALL roles including service_role. There are no UPDATE or DELETE RLS policies because the trigger fires before RLS can permit them.
+
+---
+
+## Section 5A — Adaptive Screening: Calculation Engine
+
+**File:** `backend/calculators.py`
+**System name:** Adaptive Screening
+
+Adaptive Screening is the analytics layer of the MJCC Inventory System. It surfaces items that need manager or corporate attention by comparing the current month against the prior month across four dimensions: stock levels, consumption demand, receiving volume, and price.
+
+---
+
+### Row-Level Calculations (per item, per month)
+
+These functions operate on a single item dict sourced from the `dashboard_summary` view.
+
+| Function | Formula | Notes |
+|---|---|---|
+| `ending_quantity(item)` | `max(0, on_hand + Σ(w1r..w4r) − Σ(w1i..w4i))` | Never goes below zero |
+| `item_total(item)` | `ending_quantity × unit_price` | Dollar value of ending stock |
+| `issued_rate(item)` | `Σ(issued) / active_weeks` | Weekly consumption rate. `active_weeks` = weeks where any issued or received > 0. If no activity: 0. |
+| `received_rate(item)` | `Σ(received) / active_weeks` | Weekly receiving rate, same denominator as issued_rate |
+| `weeks_of_supply(item)` | `ending_quantity / issued_rate` | How many weeks of stock remain. Returns `null` if issued_rate is 0 (no demand data) |
+| `consumption_cost(item)` | `Σ(issued) × unit_price` | Dollar value consumed this month |
+| `receive_cost(item)` | `Σ(received) × unit_price` | Dollar value received this month |
+| `suggested_par(item, safety_weeks=2)` | `round(issued_rate × safety_weeks)` | Adaptive par level based on actual demand with a 2-week buffer |
+
+**Why `active_weeks` instead of 4?**
+Not every item has data for all four weeks (deliveries vary, partial months). Dividing by 4 when only 2 weeks of data exist would halve the rate and distort forecasts. `active_weeks` corrects for this.
+
+**Why `ending_quantity` for par comparison, not `on_hand`?**
+`on_hand` is the opening balance at the start of the month. Comparing it to `par_level` mid-month is misleading — you need to know where you'll end up after all receipts and issues. The previous `reorder_alerts` function used `on_hand`; this has been fixed to use `ending_quantity`.
+
+---
+
+### Monthly Aggregate Calculations
+
+These functions operate on a list of items for a given month/year.
+
+| Function | Output |
+|---|---|
+| `grand_total(items)` | Sum of `item_total` across all items |
+| `week_value(items, N)` | Sum of `wN_received × unit_price` — dollar value of that week's deliveries |
+| `total_consumption_cost(items)` | Sum of `consumption_cost` — total dollar value consumed |
+| `total_receive_cost(items)` | Sum of `receive_cost` — total dollar value received |
+| `category_breakdown(items)` | Per-category: total value, item count, total issued, total received, consumption_cost, receive_cost |
+| `reorder_alerts(items)` | Items where `ending_quantity < par_level` (par_level > 0). Returns ending_qty, par_level, weeks_of_supply, unit_price per item. |
+
+`dashboard_summary()` runs all of the above and returns a single dict used by `GET /api/inventory/summary`.
+
+---
+
+### Rollover Calculation
+
+`rollover(items)` runs at month-end. For each item:
+- New `on_hand` = `ending_quantity` of the closing month
+- All weekly fields (`w1_received` .. `w4_issued`) reset to 0
+
+This becomes the opening state for the next month's `monthly_inventory` rows.
+
+---
+
+### Adaptive Screening Report
+
+`adaptive_screening(current_items, prior_items, demand_threshold_pct=25.0, low_supply_weeks=2.0)`
+
+Compares current month vs prior month and returns a ranked list of flagged items. Items with multiple triggers appear first.
+
+#### Trigger Conditions
+
+| Trigger | Condition | Count Field |
+|---|---|---|
+| `below_par` | `ending_qty < par_level` (and par_level > 0) | `below_par` |
+| `demand_spike` | `issued_rate` rose > `demand_threshold_pct`% vs prior month | `demand_changes` |
+| `demand_drop` | `issued_rate` fell > `demand_threshold_pct`% vs prior month | `demand_changes` |
+| `price_change` | `unit_price` changed from prior month (any direction) | `price_changes` |
+| `low_supply` | `weeks_of_supply < low_supply_weeks` | `low_supply` |
+
+Default thresholds: demand change > 25%, low supply < 2 weeks. Both are overridable per API call.
+
+#### Output Shape
+
+```
+{
+  "summary": {
+    "total_items": int,
+    "flagged_items": int,
+    "below_par": int,
+    "demand_changes": int,
+    "price_changes": int,
+    "low_supply": int
+  },
+  "flags": [
+    {
+      "item_id": uuid,
+      "barcode": string,
+      "description": string,
+      "category": string,
+      "reasons": ["below_par", "demand_spike", "price_change", "low_supply"],
+      "current": { ...item_metrics... },
+      "prior": { ...item_metrics or null if new item... },
+      "deltas": {
+        "demand_change_pct": float,
+        "price_change": float,
+        "price_change_pct": float
+      }
+    }
+  ]
+}
+```
+
+Flags are sorted by number of reasons descending — items flagged on 3+ dimensions appear first.
+
+#### What Managers See vs Corporate
+
+Both roles see the same report. The difference is context:
+- **Manager** uses it to action items: place orders, adjust par levels, investigate price changes with their vendor rep
+- **Corporate** uses it for oversight: confirming centers are managing stock correctly, identifying spending anomalies across locations
+
+---
+
+### `item_metrics()` — Full Row Payload
+
+Returns all row-level metrics for one item in a single dict. Used internally by `adaptive_screening()` and directly by `GET /api/v1/analytics/demand`.
+
+```
+{
+  "ending_qty": float,
+  "item_total": float,
+  "total_issued": float,
+  "total_received": float,
+  "issued_rate": float,
+  "received_rate": float,
+  "weeks_of_supply": float | null,
+  "consumption_cost": float,
+  "receive_cost": float,
+  "suggested_par": int,
+  "unit_price": float,
+  "par_level": float,
+  "on_hand": float
+}
+```
 
 ---
 

@@ -209,7 +209,7 @@ Clears the Flask session.
 
 **Auth required:** admin or manager
 
-Returns all user profiles ordered by `created_at`.
+Returns user profiles. **Managers see staff only** — they cannot list admin or manager accounts.
 
 **Response 200:**
 ```json
@@ -229,20 +229,33 @@ Returns all user profiles ordered by `created_at`.
 
 #### `POST /api/users` `[LIVE]`
 
-**Auth required:** admin only
+**Auth required:** admin or manager
 
-Creates a Supabase Auth user, then inserts a `user_profiles` row.
+**Admin** can create accounts of any role (admin, manager, staff).
+**Manager** can create staff accounts only.
 
-**Request Body:**
+Staff accounts use PIN login — no email or Supabase Auth account is needed for them.
+Admin/Manager accounts require email + password for Supabase Auth.
+
+**Request Body — creating a staff account (manager or admin):**
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| email | string | Yes | |
-| password | string | Yes | |
-| username | string | Yes | |
+| username | string | Yes | Lowercase, unique |
 | display_name | string | No | |
-| role | string | No | `admin`, `manager`, `staff` |
-| pin | string | No | 4-digit PIN for staff |
+| role | string | No | Must be `staff` when called by manager |
+| pin | string | Yes | 4-digit PIN |
+
+**Request Body — creating an admin or manager account (admin only):**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| username | string | Yes | |
+| email | string | Yes | Used for Supabase Auth |
+| password | string | Yes | |
+| display_name | string | No | |
+| role | string | Yes | `admin` or `manager` |
+| pin | string | No | Optional backup PIN |
 
 **Response 201:**
 ```json
@@ -259,30 +272,31 @@ Creates a Supabase Auth user, then inserts a `user_profiles` row.
 **Errors:**
 - `400` — Missing required fields
 - `400` — Invalid role value
-- `400` — Supabase Auth failure
+- `403` — Manager attempting to create a non-staff account
+- `400` — Supabase Auth failure (admin/manager accounts only)
 
 ---
 
 #### `PATCH /api/users/<user_id>` `[LIVE]`
 
-**Auth required:** admin only
+**Admin:** can update any user, any field.
+**Manager:** can update staff only, and only `display_name`, `active`, `pin`. Cannot change a staff member's role.
 
-Updates a user profile. Only the following fields are allowed in the body.
+**Request Body (any subset — fields depend on caller role):**
 
-**Request Body (any subset):**
-
-| Field | Type |
-|---|---|
-| display_name | string |
-| role | string |
-| active | boolean |
-| pin | string |
+| Field | Admin | Manager | Notes |
+|---|---|---|---|
+| display_name | ✓ | ✓ | |
+| active | ✓ | ✓ | Set false to revoke access |
+| pin | ✓ | ✓ | Reassign a staff PIN |
+| role | ✓ | — | Manager cannot change roles |
 
 **Response 200:** Updated `user_profiles` row
 
 **Errors:**
 - `400` — No valid fields provided
 - `400` — Invalid role value
+- `403` — Manager trying to modify a non-staff account
 - `404` — User not found
 
 ---
@@ -926,6 +940,144 @@ return send_file(
 
 ---
 
+#### `GET /api/v1/analytics/screening` `[LIVE]`
+
+**File:** `backend/routes/v1/analytics.py`
+**Auth required:** manager, admin, or corporate (staff NOT permitted)
+
+The core Adaptive Screening report. Compares the current month against the prior month and returns a ranked list of items that need attention. Items with multiple triggers appear first.
+
+**Query Parameters:**
+
+| Param | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| month | int | Yes | — | 0-indexed (0=Jan, 11=Dec) |
+| year | int | Yes | — | |
+| demand_threshold | float | No | 25.0 | % change in issued_rate that triggers a demand flag |
+| low_supply_weeks | float | No | 2.0 | Weeks of supply below which low_supply fires |
+| category | string | No | — | Limit report to one category |
+
+**Triggers:**
+
+| Reason | Condition |
+|---|---|
+| `below_par` | `ending_qty < par_level` (par_level > 0) |
+| `demand_spike` | `issued_rate` rose > `demand_threshold`% vs prior month |
+| `demand_drop` | `issued_rate` fell > `demand_threshold`% vs prior month |
+| `price_change` | `unit_price` changed from prior month (any direction) |
+| `low_supply` | `weeks_of_supply < low_supply_weeks` |
+
+**Response 200:**
+```json
+{
+  "period": {"month": 4, "year": 2026},
+  "prior_period": {"month": 3, "year": 2026},
+  "parameters": {"demand_threshold_pct": 25.0, "low_supply_weeks": 2.0},
+  "summary": {
+    "total_items": 316,
+    "flagged_items": 23,
+    "below_par": 8,
+    "demand_changes": 7,
+    "price_changes": 5,
+    "low_supply": 12
+  },
+  "flags": [
+    {
+      "item_id": "uuid",
+      "barcode": "10075500",
+      "description": "Chicken Breast 40lb",
+      "category": "Protein & Meat",
+      "reasons": ["below_par", "demand_spike", "low_supply"],
+      "current": {
+        "ending_qty": 3.0,
+        "item_total": 145.50,
+        "total_issued": 18.0,
+        "total_received": 10.0,
+        "issued_rate": 9.0,
+        "received_rate": 5.0,
+        "weeks_of_supply": 0.3,
+        "consumption_cost": 873.0,
+        "receive_cost": 485.0,
+        "suggested_par": 18,
+        "unit_price": 48.50,
+        "par_level": 10.0,
+        "on_hand": 11.0
+      },
+      "prior": { "...same keys..." },
+      "deltas": {
+        "demand_change_pct": 50.0,
+        "price_change": 2.50,
+        "price_change_pct": 5.43
+      }
+    }
+  ]
+}
+```
+
+**Errors:**
+- `400` — `month` or `year` missing or out of range
+- `401` — Not authenticated
+- `403` — Staff attempting access
+
+---
+
+#### `GET /api/v1/analytics/demand` `[LIVE]`
+
+**File:** `backend/routes/v1/analytics.py`
+**Auth required:** manager, admin, or corporate
+
+Per-item demand and cost breakdown for a given month. Returns the full `item_metrics` set for every item, sorted by `consumption_cost` descending (most expensive consumed items first). Useful for cost-of-goods analysis and vendor spend review.
+
+**Query Parameters:**
+
+| Param | Type | Required | Default |
+|---|---|---|---|
+| month | int | Yes | — |
+| year | int | Yes | — |
+| category | string | No | — |
+
+**Response 200:**
+```json
+{
+  "period": {"month": 4, "year": 2026},
+  "totals": {
+    "total_items": 316,
+    "total_consumption_cost": 42810.50,
+    "total_receive_cost": 38200.00,
+    "items_below_par": 8,
+    "items_with_demand": 291
+  },
+  "items": [
+    {
+      "item_id": "uuid",
+      "description": "Chicken Breast 40lb",
+      "category": "Protein & Meat",
+      "barcode": "10075500",
+      "ending_qty": 17.0,
+      "item_total": 824.50,
+      "total_issued": 18.0,
+      "total_received": 15.0,
+      "issued_rate": 6.0,
+      "received_rate": 5.0,
+      "weeks_of_supply": 2.8,
+      "consumption_cost": 873.0,
+      "receive_cost": 727.50,
+      "suggested_par": 12,
+      "unit_price": 48.50,
+      "par_level": 10.0,
+      "on_hand": 20.0
+    }
+  ]
+}
+```
+
+**Errors:**
+- `400` — `month` or `year` missing
+- `401` — Not authenticated
+- `403` — Staff attempting access
+
+---
+
 #### `GET /api/v1/analytics/timeline` `[PLANNED]`
 
 **Auth required:** manager, admin, or corporate (staff NOT permitted)
@@ -1077,14 +1229,16 @@ app.register_blueprint(v1_bp)
 
 | Route | File | Status |
 |---|---|---|
-| `POST /api/v1/spreadsheet/upload` | `spreadsheet.py` | Not started |
-| `GET /api/v1/staging` | `staging.py` | Not started |
-| `GET /api/v1/staging/<id>` | `staging.py` | Not started |
-| `POST /api/v1/spreadsheet/merge/<id>` | `spreadsheet.py` | RPC ready in DB, route not built |
-| `PATCH /api/v1/staging/<id>` | `staging.py` | Not started |
-| `GET /api/v1/spreadsheet/download/<center_id>` | `spreadsheet.py` | Not started |
-| `POST /api/v1/scanner/scan` | `scanner.py` | Not started |
-| `GET /api/v1/analytics/timeline` | `analytics.py` | Not started |
-| `GET /api/v1/inventory` | `inventory.py` | Not started |
+| `GET /api/v1/analytics/screening` | `v1/analytics.py` | **LIVE** |
+| `GET /api/v1/analytics/demand` | `v1/analytics.py` | **LIVE** |
+| `POST /api/v1/spreadsheet/upload` | `v1/spreadsheet.py` | Not started |
+| `GET /api/v1/staging` | `v1/staging.py` | Not started |
+| `GET /api/v1/staging/<id>` | `v1/staging.py` | Not started |
+| `POST /api/v1/spreadsheet/merge/<id>` | `v1/spreadsheet.py` | RPC ready in DB, route not built |
+| `PATCH /api/v1/staging/<id>` | `v1/staging.py` | Not started |
+| `GET /api/v1/spreadsheet/download/<center_id>` | `v1/spreadsheet.py` | Not started |
+| `POST /api/v1/scanner/scan` | `v1/scanner.py` | Not started |
+| `GET /api/v1/analytics/timeline` | `v1/analytics.py` | Not started |
+| `GET /api/v1/inventory` | `v1/inventory.py` | Not started |
 
 **Note:** The `execute_stage_merge()` PostgreSQL RPC that backs the merge route is fully deployed and tested in the database. Building the Flask route is the only remaining step for that endpoint.
