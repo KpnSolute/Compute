@@ -36,6 +36,8 @@ ALLOWED_FIELDS = {
 
 PRICE_FIELDS = {'unit_price', 'par_level'}
 
+MANAGER_ROLES = ('admin', 'manager')
+
 
 @inventory_bp.get('/summary')
 def summary():
@@ -147,6 +149,8 @@ def update_item(item_id):
         user = resolve_user()
         if not user:
             return jsonify(error='Not authenticated'), 401
+        if user['role'] not in MANAGER_ROLES:
+            return jsonify(error='Insufficient role'), 403
 
         # Validate request body
         is_valid, validated_data_or_error, status_code = validate_json(INVENTORY_ITEM_UPDATE_SCHEMA)
@@ -230,6 +234,8 @@ def save_snapshot():
         user = resolve_user()
         if not user:
             return jsonify(error='Not authenticated'), 401
+        if user['role'] not in MANAGER_ROLES:
+            return jsonify(error='Insufficient role'), 403
 
         # Validate request body
         is_valid, validated_data_or_error, status_code = validate_json(SAVE_SNAPSHOT_SCHEMA)
