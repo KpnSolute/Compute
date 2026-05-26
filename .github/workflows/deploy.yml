@@ -29,51 +29,15 @@ jobs:
         run: pytest
 
   deploy:
-    name: Deploy to Azure
+    name: Deploy to Render
     needs: lint-and-test
     runs-on: ubuntu-latest
     # Only deploy on push to main (not PRs)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    # Required GitHub secrets:
-    #   AZURE_CREDENTIALS  — service principal JSON (az ad sp create-for-rbac output)
-    #   ACR_USERNAME       — ACR admin username (kpncloud)
-    #   ACR_PASSWORD       — ACR admin password
+    # Required GitHub secret:
+    #   RENDER_DEPLOY_HOOK — found in Render dashboard: service → Settings → Deploy Hook
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Log in to Azure
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Log in to Azure Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: kpncloud.azurecr.io
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
-
-      - name: Build Docker image
-        run: docker build -t kpncloud.azurecr.io/mjcc-api:latest .
-
-      - name: Push Docker image to ACR
-        run: docker push kpncloud.azurecr.io/mjcc-api:latest
-
-      - name: Deploy image to App Service
+      - name: Trigger Render deploy
         run: |
-          az webapp config container set \
-            --name mjcc-api \
-            --resource-group rg-jeremiah \
-            --docker-custom-image-name kpncloud.azurecr.io/mjcc-api:latest \
-            --docker-registry-server-url https://kpncloud.azurecr.io \
-            --docker-registry-server-user ${{ secrets.ACR_USERNAME }} \
-            --docker-registry-server-password ${{ secrets.ACR_PASSWORD }}
-
-      - name: Configure App Service port
-        run: |
-          az webapp config appsettings set \
-            --name mjcc-api \
-            --resource-group rg-jeremiah \
-            --settings WEBSITES_PORT=5000
+          curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"
