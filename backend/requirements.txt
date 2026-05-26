@@ -6,6 +6,3 @@ supabase==2.30.0
 groq==0.9.0
 ollamafreeapi==0.1.4
 gunicorn==23.0.0
-# Dev / tooling
-pytest==8.3.5
-ruff==0.11.2

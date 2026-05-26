@@ -1,6 +1,10 @@
 import logging
 import os
 import sys
+import threading
+import time
+import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -97,6 +101,11 @@ def static_files(name):
     return send_from_directory(FRONTEND_DIR, name)
 
 
+@app.get('/ping')
+def ping():
+    return {'status': 'alive', 'timestamp': datetime.now(timezone.utc).isoformat()}, 200
+
+
 @app.errorhandler(404)
 def not_found(error):
     logger.warning(f'404 error: {error}')
@@ -113,6 +122,24 @@ def internal_error(error):
 def unhandled_exception(error):
     logger.exception(f'Unhandled exception: {error}')
     return {'error': 'Internal server error'}, 500
+
+
+def _keep_alive_worker():
+    """Ping this service every 14 minutes so Render free tier does not spin down."""
+    base_url = os.getenv('RENDER_EXTERNAL_URL', '').rstrip('/')
+    if not base_url:
+        return  # local dev — nothing to do
+    while True:
+        time.sleep(14 * 60)
+        try:
+            with urllib.request.urlopen(base_url + '/ping', timeout=10):
+                logger.debug('keep-alive ping ok')
+        except Exception as exc:
+            logger.warning('keep-alive ping failed: %s', exc)
+
+
+_keep_alive_thread = threading.Thread(target=_keep_alive_worker, daemon=True, name='keep-alive')
+_keep_alive_thread.start()
 
 
 if __name__ == '__main__':
