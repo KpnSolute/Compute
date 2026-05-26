@@ -65,7 +65,7 @@ jobs:
         run: |
           az webapp config container set \
             --name mjcc-api \
-            --resource-group jeremiah-rg \
+            --resource-group rg-jeremiah \
             --docker-custom-image-name kpncloud.azurecr.io/mjcc-api:latest \
             --docker-registry-server-url https://kpncloud.azurecr.io \
             --docker-registry-server-user ${{ secrets.ACR_USERNAME }} \
@@ -75,5 +75,5 @@ jobs:
         run: |
           az webapp config appsettings set \
             --name mjcc-api \
-            --resource-group jeremiah-rg \
+            --resource-group rg-jeremiah \
             --settings WEBSITES_PORT=5000
