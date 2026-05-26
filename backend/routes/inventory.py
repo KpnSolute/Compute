@@ -35,6 +35,7 @@ ALLOWED_FIELDS = {
 }
 
 PRICE_FIELDS = {'unit_price', 'par_level'}
+STAFF_ALLOWED_FIELDS = {'w1_issued', 'w2_issued', 'w3_issued', 'w4_issued'}
 
 
 @inventory_bp.get('/summary')
@@ -192,6 +193,9 @@ def update_item(item_id):
         if db_field in PRICE_FIELDS and user['role'] not in ('admin', 'manager'):
             return jsonify(error='Only admin/manager can change price or par_level'), 403
 
+        if user['role'] == 'staff' and db_field not in STAFF_ALLOWED_FIELDS:
+            return jsonify(error='Staff can only update weekly issued quantities'), 403
+
         db = get_client()
 
         if db_field == 'unit_price':
@@ -230,6 +234,8 @@ def save_snapshot():
         user = resolve_user()
         if not user:
             return jsonify(error='Not authenticated'), 401
+        if user['role'] not in ('admin', 'manager'):
+            return jsonify(error='Insufficient role'), 403
 
         # Validate request body
         is_valid, validated_data_or_error, status_code = validate_json(SAVE_SNAPSHOT_SCHEMA)
@@ -445,6 +451,26 @@ def parse_invoice():
             logger.exception(f'AI parsing failed: {e}')
             return jsonify(error=f'AI parsing failed: {str(e)}'), 500
 
+        matched_ids = [r['itemId'] for r in result if r.get('itemId') and r['itemId'] != 'NEW']
+        if matched_ids:
+            cur_resp = (
+                db.table('monthly_inventory')
+                .select('item_id,w1_received,w2_received,w3_received,w4_received')
+                .in_('item_id', matched_ids)
+                .eq('month', month)
+                .eq('year', year)
+                .execute()
+            )
+            cur_map = {r['item_id']: r for r in (cur_resp.data or [])}
+        else:
+            cur_map = {}
+        for r in result:
+            cur = cur_map.get(r.get('itemId'), {})
+            r['currentW1R'] = float(cur.get('w1_received') or 0)
+            r['currentW2R'] = float(cur.get('w2_received') or 0)
+            r['currentW3R'] = float(cur.get('w3_received') or 0)
+            r['currentW4R'] = float(cur.get('w4_received') or 0)
+
         return jsonify({'matches': result})
     except Exception as e:
         logger.exception(f'Error in parse_invoice endpoint: {e}')
@@ -476,7 +502,7 @@ def apply_invoice():
         if not db_field:
             return jsonify(error='week_field must be w1r, w2r, w3r, or w4r'), 400
 
-        db = get_client()
+        admin = get_client(admin=True)
         applied = []
         skipped = []
 
@@ -487,41 +513,21 @@ def apply_invoice():
                 skipped.append(m)
                 continue
 
-            existing = (
-                db.table('monthly_inventory')
-                .select('id')
-                .eq('item_id', item_id)
-                .eq('month', month)
-                .eq('year', year)
-                .limit(1)
-                .execute()
-            )
-
-            current_qty = 0
-            if existing.data:
-                cur = (
-                    db.table('monthly_inventory')
-                    .select(db_field)
-                    .eq('item_id', item_id)
-                    .eq('month', month)
-                    .eq('year', year)
-                    .limit(1)
-                    .execute()
-                )
-                current_qty = float((cur.data or [{}])[0].get(db_field, 0) or 0)
-
-                db.table('monthly_inventory').update({db_field: current_qty + qty}).eq('item_id', item_id).eq(
-                    'month', month
-                ).eq('year', year).execute()
-            else:
-                db.table('monthly_inventory').insert(
-                    {
-                        'item_id': item_id,
-                        'month': month,
-                        'year': year,
-                        db_field: qty,
-                    }
-                ).execute()
+            # Atomic upsert: INSERT … ON CONFLICT DO UPDATE SET field = field + qty.
+            # Eliminates the previous read-modify-write race condition where two
+            # concurrent invoice submissions could overwrite each other's qty.
+            # Requires the increment_inventory_field Postgres function
+            # (supabase/migrations/20260525_increment_inventory_field.sql).
+            admin.rpc(
+                'increment_inventory_field',
+                {
+                    'p_item_id': item_id,
+                    'p_month': month,
+                    'p_year': year,
+                    'p_field': db_field,
+                    'p_amount': qty,
+                },
+            ).execute()
 
             applied.append({'item_id': item_id, 'qty': qty, 'field': db_field})
 

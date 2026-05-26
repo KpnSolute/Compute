@@ -3,21 +3,1901 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Miami Job Corps Cafeteria — Inventory Dashboard</title>
-    <script>
-      (function () {
-        fetch('/api/auth/me', { credentials: 'include' })
-          .then((r) => {
-            if (!r.ok) window.location.replace('/');
-          })
-          .catch(() => window.location.replace('/'));
-      })();
-    </script>
+    <title>MJC Cafeteria — Inventory Dashboard</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: 'Segoe UI', Arial, sans-serif;
+        background: #0f1e35;
+        color: #e2e8f0;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      /* Nav */
+      nav {
+        background: #1a2f4a;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 0 20px;
+        height: 52px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex-shrink: 0;
+      }
+      .nav-brand {
+        font-size: 15px;
+        font-weight: 700;
+        color: #fff;
+        white-space: nowrap;
+      }
+      .nav-spacer {
+        flex: 1;
+      }
+      .month-selectors {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .month-selectors select {
+        background: #0f1e35;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        color: #e2e8f0;
+        padding: 5px 8px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-family: inherit;
+        cursor: pointer;
+      }
+      .nav-user {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.6);
+        white-space: nowrap;
+      }
+      .nav-user span {
+        color: #8ab4f8;
+        font-weight: 600;
+      }
+      .btn-logout {
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        color: rgba(255, 255, 255, 0.75);
+        padding: 5px 14px;
+        border-radius: 6px;
+        font-size: 12px;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .btn-logout:hover {
+        background: rgba(255, 255, 255, 0.08);
+      }
+      /* Stats bar */
+      .stats-bar {
+        background: #132540;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        padding: 10px 20px;
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        flex-shrink: 0;
+      }
+      .stat-card {
+        background: #1a2f4a;
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: 8px;
+        padding: 8px 14px;
+        min-width: 110px;
+        flex: 1;
+      }
+      .stat-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: rgba(255, 255, 255, 0.45);
+        font-weight: 600;
+        margin-bottom: 3px;
+      }
+      .stat-value {
+        font-size: 16px;
+        font-weight: 700;
+        color: #fff;
+        font-family: 'Courier New', monospace;
+      }
+      .stat-card.accent .stat-value {
+        color: #8ab4f8;
+      }
+      .stat-card.warn .stat-value {
+        color: #fbbf24;
+      }
+      /* Tabs */
+      .tabs {
+        display: flex;
+        gap: 0;
+        padding: 0 20px;
+        background: #132540;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        flex-shrink: 0;
+      }
+      .tab-btn {
+        padding: 11px 20px;
+        font-size: 13px;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.45);
+        background: transparent;
+        border: none;
+        border-bottom: 2px solid transparent;
+        cursor: pointer;
+        font-family: inherit;
+        transition: 0.15s;
+      }
+      .tab-btn.active {
+        color: #8ab4f8;
+        border-bottom-color: #8ab4f8;
+      }
+      .tab-btn:hover:not(.active) {
+        color: rgba(255, 255, 255, 0.7);
+      }
+      /* Tab panels */
+      .tab-panel {
+        display: none;
+        flex: 1;
+        overflow: auto;
+        padding: 16px 20px;
+      }
+      .tab-panel.active {
+        display: flex;
+        flex-direction: column;
+      }
+      /* Table wrapper */
+      .tbl-wrap {
+        overflow-x: auto;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.07);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+      thead th {
+        background: #1a2f4a;
+        color: rgba(255, 255, 255, 0.55);
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding: 9px 10px;
+        text-align: right;
+        white-space: nowrap;
+        position: sticky;
+        top: 0;
+        z-index: 2;
+      }
+      thead th:first-child,
+      thead th:nth-child(2),
+      thead th:nth-child(3) {
+        text-align: left;
+      }
+      tbody tr {
+        border-top: 1px solid rgba(255, 255, 255, 0.05);
+      }
+      tbody tr:hover {
+        background: rgba(138, 180, 248, 0.05);
+      }
+      tbody td {
+        padding: 7px 10px;
+        text-align: right;
+        white-space: nowrap;
+        font-family: 'Courier New', monospace;
+        font-size: 12px;
+      }
+      tbody td:first-child,
+      tbody td:nth-child(2),
+      tbody td:nth-child(3) {
+        text-align: left;
+        font-family: 'Segoe UI', Arial, sans-serif;
+      }
+      .td-desc {
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: #e2e8f0;
+      }
+      .td-sku {
+        color: rgba(255, 255, 255, 0.45);
+        font-size: 11px;
+      }
+      .cat-badge {
+        display: inline-block;
+        padding: 2px 7px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: 700;
+        background: #2d4a6f;
+        color: #8ab4f8;
+      }
+      /* Category header row */
+      .cat-row td {
+        background: #162236;
+        color: #8ab4f8;
+        font-size: 11px;
+        font-weight: 700;
+        text-align: left;
+        padding: 6px 10px;
+        cursor: pointer;
+        user-select: none;
+        border-top: 2px solid rgba(138, 180, 248, 0.15);
+      }
+      .cat-row td span {
+        float: right;
+        color: rgba(255, 255, 255, 0.4);
+        font-size: 10px;
+        font-family: 'Courier New', monospace;
+      }
+      /* Computed cells */
+      .end-qty {
+        color: #fbbf24;
+        font-weight: 700;
+      }
+      .row-total {
+        color: #34d399;
+        font-weight: 700;
+      }
+      /* Editable cells */
+      .editable {
+        cursor: text;
+        border-bottom: 1px dashed rgba(138, 180, 248, 0.4);
+      }
+      .editable:hover {
+        background: rgba(138, 180, 248, 0.1);
+        border-radius: 3px;
+      }
+      td input.cell-input {
+        width: 80px;
+        background: #0f1e35;
+        border: 1px solid #8ab4f8;
+        border-radius: 4px;
+        color: #fff;
+        font-family: 'Courier New', monospace;
+        font-size: 12px;
+        padding: 2px 5px;
+        text-align: right;
+        outline: none;
+      }
+      /* Invoice parser */
+      .invoice-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        max-width: 1100px;
+      }
+      .invoice-top {
+        display: flex;
+        gap: 14px;
+        align-items: flex-start;
+      }
+      .textarea-wrap {
+        flex: 1;
+      }
+      textarea {
+        width: 100%;
+        height: 220px;
+        background: #1a2f4a;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        color: #e2e8f0;
+        font-size: 12px;
+        font-family: 'Courier New', monospace;
+        padding: 12px;
+        resize: vertical;
+        outline: none;
+      }
+      .invoice-controls {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        min-width: 160px;
+      }
+      .week-btns {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .week-btn {
+        padding: 8px 12px;
+        background: #1a2f4a;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        color: rgba(255, 255, 255, 0.6);
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        font-family: inherit;
+        text-align: center;
+      }
+      .week-btn.active {
+        background: #2d4a7a;
+        border-color: #8ab4f8;
+        color: #8ab4f8;
+      }
+      .btn-primary {
+        padding: 10px 14px;
+        background: #059669;
+        border: none;
+        border-radius: 7px;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .btn-primary:hover {
+        background: #047857;
+      }
+      .btn-primary:disabled {
+        background: #1a3a2a;
+        color: rgba(255, 255, 255, 0.35);
+        cursor: not-allowed;
+      }
+      .btn-apply {
+        padding: 9px 18px;
+        background: #1d4ed8;
+        border: none;
+        border-radius: 7px;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .btn-apply:hover {
+        background: #1e40af;
+      }
+      /* Proposal table */
+      .proposal-section {
+        display: none;
+      }
+      .proposal-section.visible {
+        display: block;
+      }
+      .proposal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+      .proposal-header h3 {
+        font-size: 14px;
+        color: #8ab4f8;
+        font-weight: 700;
+      }
+      .badge-new {
+        display: inline-block;
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: 700;
+        background: rgba(251, 191, 36, 0.15);
+        color: #fbbf24;
+        border: 1px solid rgba(251, 191, 36, 0.3);
+        margin-left: 6px;
+      }
+      /* Reorder table */
+      .reorder-wrap h2 {
+        font-size: 14px;
+        color: #fbbf24;
+        font-weight: 700;
+        margin-bottom: 12px;
+      }
+      /* Toast */
+      #toast {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        padding: 12px 20px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #fff;
+        z-index: 9999;
+        opacity: 0;
+        transform: translateY(10px);
+        transition: 0.25s;
+        pointer-events: none;
+        max-width: 340px;
+      }
+      #toast.show {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      #toast.success {
+        background: #065f46;
+        border: 1px solid #059669;
+      }
+      #toast.error {
+        background: #7f1d1d;
+        border: 1px solid #dc2626;
+      }
+      /* Spinner */
+      .spinner-wrap {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: 1;
+        min-height: 200px;
+      }
+      .spinner {
+        width: 36px;
+        height: 36px;
+        border: 3px solid rgba(138, 180, 248, 0.2);
+        border-top-color: #8ab4f8;
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      /* Empty state */
+      .empty {
+        text-align: center;
+        padding: 60px 20px;
+        color: rgba(255, 255, 255, 0.3);
+        font-size: 13px;
+      }
+      /* Responsive */
+      @media (max-width: 700px) {
+        nav {
+          flex-wrap: wrap;
+          height: auto;
+          padding: 10px;
+        }
+        .stats-bar {
+          padding: 8px 12px;
+        }
+        .tab-btn {
+          padding: 9px 12px;
+          font-size: 12px;
+        }
+        .tab-panel {
+          padding: 12px;
+        }
+      }
+
+      /* ── Monthly Report styles ─────────────────────────────────────────── */
+      #tab-report {
+        background: #0f1e35;
+      }
+      .report-card {
+        background: #fff;
+        color: #1e293b;
+        border-radius: 10px;
+        padding: 32px 36px;
+        max-width: 1200px;
+        margin: 0 auto;
+        font-family: 'Segoe UI', Arial, sans-serif;
+      }
+      .report-toolbar {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 12px;
+        max-width: 1200px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+      .btn-print {
+        padding: 9px 20px;
+        background: #1e40af;
+        border: none;
+        border-radius: 7px;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .btn-print:hover {
+        background: #1d4ed8;
+      }
+      /* Report header */
+      .rpt-org {
+        font-size: 22px;
+        font-weight: 800;
+        color: #0f2044;
+        margin-bottom: 4px;
+      }
+      .rpt-title {
+        font-size: 16px;
+        font-weight: 700;
+        color: #1e3a6e;
+        margin-bottom: 3px;
+      }
+      .rpt-generated {
+        font-size: 11px;
+        color: #64748b;
+        margin-bottom: 16px;
+      }
+      .rpt-hr {
+        border: none;
+        border-top: 2px solid #e2e8f0;
+        margin-bottom: 20px;
+      }
+      /* Summary stat cards */
+      .rpt-stats {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin-bottom: 24px;
+      }
+      .rpt-stat {
+        flex: 1;
+        min-width: 140px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 12px 16px;
+        background: #f8fafc;
+      }
+      .rpt-stat-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: #64748b;
+        font-weight: 700;
+        margin-bottom: 4px;
+      }
+      .rpt-stat-value {
+        font-size: 19px;
+        font-weight: 800;
+        font-family: 'Courier New', monospace;
+        color: #0f2044;
+      }
+      .rpt-stat.accent .rpt-stat-value {
+        color: #1d4ed8;
+      }
+      .rpt-stat.warn .rpt-stat-value {
+        color: #b45309;
+      }
+      /* Section heading */
+      .rpt-section-title {
+        font-size: 13px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.7px;
+        color: #334155;
+        margin-bottom: 10px;
+        margin-top: 24px;
+      }
+      /* Report tables */
+      .rpt-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 11px;
+        margin-bottom: 6px;
+      }
+      .rpt-table thead th {
+        background: #1e3a6e;
+        color: #fff;
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        padding: 7px 9px;
+        text-align: right;
+        white-space: nowrap;
+        position: static;
+      }
+      .rpt-table thead th:first-child,
+      .rpt-table thead th:nth-child(2) {
+        text-align: left;
+      }
+      .rpt-table tbody tr {
+        border-bottom: 1px solid #f1f5f9;
+      }
+      .rpt-table tbody tr:nth-child(even) {
+        background: #f8fafc;
+      }
+      .rpt-table tbody td {
+        padding: 6px 9px;
+        text-align: right;
+        font-family: 'Courier New', monospace;
+        font-size: 11px;
+        color: #1e293b;
+        white-space: nowrap;
+      }
+      .rpt-table tbody td:first-child,
+      .rpt-table tbody td:nth-child(2) {
+        text-align: left;
+        font-family: 'Segoe UI', Arial, sans-serif;
+      }
+      .rpt-table tfoot td {
+        padding: 7px 9px;
+        text-align: right;
+        font-weight: 800;
+        font-family: 'Courier New', monospace;
+        font-size: 11px;
+        background: #e9f0fb;
+        color: #0f2044;
+        border-top: 2px solid #1e3a6e;
+      }
+      .rpt-table tfoot td:first-child {
+        text-align: left;
+        font-family: 'Segoe UI', Arial, sans-serif;
+      }
+      /* Category section */
+      .rpt-cat-block {
+        margin-bottom: 28px;
+      }
+      .rpt-cat-header {
+        border-left: 4px solid #1d4ed8;
+        padding: 6px 12px;
+        background: #f0f4ff;
+        border-radius: 0 6px 6px 0;
+        margin-bottom: 8px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .rpt-cat-name {
+        font-size: 14px;
+        font-weight: 800;
+        color: #1e3a6e;
+      }
+      .rpt-cat-meta {
+        font-size: 11px;
+        color: #64748b;
+        font-family: 'Courier New', monospace;
+      }
+      .rpt-status-ok {
+        color: #047857;
+        font-weight: 700;
+      }
+      .rpt-status-reorder {
+        color: #b45309;
+        font-weight: 700;
+      }
+      /* Reorder alert box */
+      .rpt-reorder-box {
+        background: #fffbeb;
+        border: 1px solid #fcd34d;
+        border-left: 4px solid #f59e0b;
+        border-radius: 6px;
+        padding: 14px 18px;
+        margin-top: 24px;
+      }
+      .rpt-reorder-box h3 {
+        font-size: 13px;
+        font-weight: 800;
+        color: #92400e;
+        margin-bottom: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .rpt-reorder-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .rpt-reorder-list li {
+        font-size: 12px;
+        color: #78350f;
+        padding: 3px 0;
+        font-family: 'Courier New', monospace;
+        border-bottom: 1px solid #fde68a;
+      }
+      .rpt-reorder-list li:last-child {
+        border-bottom: none;
+      }
+      /* Footer */
+      .rpt-footer {
+        margin-top: 28px;
+        padding-top: 12px;
+        border-top: 1px solid #e2e8f0;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        font-size: 11px;
+        color: #64748b;
+      }
+      .rpt-footer-total {
+        font-size: 15px;
+        font-weight: 800;
+        font-family: 'Courier New', monospace;
+        color: #0f2044;
+      }
+
+      /* ── Print media query ─────────────────────────────────────────────── */
+      @media print {
+        nav,
+        .stats-bar,
+        .tabs,
+        #toast {
+          display: none !important;
+        }
+        .tab-panel {
+          display: block !important;
+          padding: 0;
+        }
+        #tab-inventory,
+        #tab-invoice,
+        #tab-reorder {
+          display: none !important;
+        }
+        #tab-report {
+          display: block !important;
+        }
+        .no-print {
+          display: none !important;
+        }
+        body {
+          background: white !important;
+          color: #1e293b !important;
+        }
+      }
+    </style>
   </head>
   <body>
-    <iframe
-      src="/inventory_dashboard.html"
-      style="width: 100%; height: 100vh; border: 0; display: block"
-    ></iframe>
+    <!-- Nav -->
+    <nav>
+      <div class="nav-brand">MJC Cafeteria</div>
+      <div class="month-selectors">
+        <select id="sel-month">
+          <option value="0">January</option>
+          <option value="1">February</option>
+          <option value="2">March</option>
+          <option value="3">April</option>
+          <option value="4">May</option>
+          <option value="5">June</option>
+          <option value="6">July</option>
+          <option value="7">August</option>
+          <option value="8">September</option>
+          <option value="9">October</option>
+          <option value="10">November</option>
+          <option value="11">December</option>
+        </select>
+        <select id="sel-year"></select>
+      </div>
+      <div class="nav-spacer"></div>
+      <div class="nav-user" id="nav-user">Loading…</div>
+      <button class="btn-logout" id="btn-logout">Logout</button>
+    </nav>
+
+    <!-- Stats bar -->
+    <div class="stats-bar" id="stats-bar">
+      <div class="stat-card accent">
+        <div class="stat-label">Grand Total</div>
+        <div class="stat-value" id="st-grand">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Wk 1 Cost</div>
+        <div class="stat-value" id="st-w1">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Wk 2 Cost</div>
+        <div class="stat-value" id="st-w2">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Wk 3 Cost</div>
+        <div class="stat-value" id="st-w3">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Wk 4 Cost</div>
+        <div class="stat-value" id="st-w4">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Items</div>
+        <div class="stat-value" id="st-items">—</div>
+      </div>
+      <div class="stat-card warn">
+        <div class="stat-label">Reorder Alerts</div>
+        <div class="stat-value" id="st-reorder">—</div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="inventory">Inventory</button>
+      <button class="tab-btn" data-tab="invoice" id="tab-invoice-btn" style="display: none">
+        Invoice Parser
+      </button>
+      <button class="tab-btn" data-tab="reorder">Reorder Alerts</button>
+      <button class="tab-btn" data-tab="report">Monthly Report</button>
+    </div>
+
+    <!-- Inventory Tab -->
+    <div class="tab-panel active" id="tab-inventory">
+      <div class="spinner-wrap" id="inv-spinner"><div class="spinner"></div></div>
+      <div class="tbl-wrap" id="inv-table-wrap" style="display: none">
+        <table id="inv-table">
+          <thead>
+            <tr>
+              <th>Description</th>
+              <th>SKU</th>
+              <th>Category</th>
+              <th>On Hand</th>
+              <th>W1 Rcvd</th>
+              <th>W2 Rcvd</th>
+              <th>W3 Rcvd</th>
+              <th>W4 Rcvd</th>
+              <th>W1 Issued</th>
+              <th>W2 Issued</th>
+              <th>W3 Issued</th>
+              <th>W4 Issued</th>
+              <th>End Qty</th>
+              <th>Price</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody id="inv-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Invoice Parser Tab -->
+    <div class="tab-panel" id="tab-invoice">
+      <div class="invoice-wrap">
+        <div class="invoice-top">
+          <div class="textarea-wrap">
+            <textarea
+              id="invoice-text"
+              placeholder="Paste invoice text here — item descriptions, quantities, and prices will be parsed automatically…"
+            ></textarea>
+          </div>
+          <div class="invoice-controls">
+            <div
+              style="
+                font-size: 11px;
+                color: rgba(255, 255, 255, 0.45);
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin-bottom: 4px;
+              "
+            >
+              Week
+            </div>
+            <div class="week-btns">
+              <button class="week-btn active" data-week="w1r">Week 1</button>
+              <button class="week-btn" data-week="w2r">Week 2</button>
+              <button class="week-btn" data-week="w3r">Week 3</button>
+              <button class="week-btn" data-week="w4r">Week 4</button>
+            </div>
+            <button class="btn-primary" id="btn-parse">Parse Invoice</button>
+          </div>
+        </div>
+        <div class="proposal-section" id="proposal-section">
+          <div class="proposal-header">
+            <h3>
+              Parsed Results — Review &amp; Apply
+              <span
+                id="proposal-week-label"
+                style="
+                  font-size: 11px;
+                  font-weight: 400;
+                  color: rgba(255, 255, 255, 0.45);
+                  margin-left: 8px;
+                "
+              ></span>
+            </h3>
+            <button class="btn-apply" id="btn-apply">Apply Selected</button>
+          </div>
+          <div class="tbl-wrap">
+            <table id="proposal-table">
+              <thead>
+                <tr>
+                  <th style="text-align: center; width: 36px">✓</th>
+                  <th style="text-align: left">Invoice Item</th>
+                  <th style="text-align: left">Matched Catalog Item</th>
+                  <th>Current Qty in DB</th>
+                  <th>Proposed Add</th>
+                  <th>New Total</th>
+                  <th>Unit Price</th>
+                </tr>
+              </thead>
+              <tbody id="proposal-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reorder Tab -->
+    <div class="tab-panel" id="tab-reorder">
+      <div class="reorder-wrap">
+        <h2>Items Below Par Level</h2>
+        <div class="tbl-wrap" id="reorder-tbl-wrap" style="display: none">
+          <table>
+            <thead>
+              <tr>
+                <th style="text-align: left">Description</th>
+                <th style="text-align: left">SKU</th>
+                <th style="text-align: left">Category</th>
+                <th>On Hand</th>
+                <th>Par Level</th>
+                <th>Shortage</th>
+                <th>Unit Price</th>
+              </tr>
+            </thead>
+            <tbody id="reorder-tbody"></tbody>
+          </table>
+        </div>
+        <div class="empty" id="reorder-empty" style="display: none">
+          No items below par level — great job!
+        </div>
+        <div class="spinner-wrap" id="reorder-spinner" style="display: none">
+          <div class="spinner"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Monthly Report Tab -->
+    <div class="tab-panel" id="tab-report">
+      <div class="report-toolbar no-print">
+        <button class="btn-print" id="btn-print-report">&#x1F5A8; Print / Save PDF</button>
+      </div>
+      <div class="report-card" id="report-content">
+        <div class="empty" style="color: #94a3b8">
+          Click the Monthly Report tab to generate the report.
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast"></div>
+
+    <script>
+      // ── Module state ────────────────────────────────────────────────────────
+      let currentRole = null;
+      let currentUser = null;
+      let currentMonth = new Date().getMonth(); // 0-indexed
+      let currentYear = new Date().getFullYear();
+      let allItems = [];
+      let summaryData = {};
+      let proposalMatches = [];
+      let selectedWeek = 'w1r';
+      let collapsedCats = new Set();
+
+      // ── Utilities ───────────────────────────────────────────────────────────
+      const $ = (id) => document.getElementById(id);
+      const fmt$ = (n) => (n == null ? '—' : '$' + Number(n).toFixed(2));
+      const fmtN = (n) => (n == null ? '—' : Number(n).toFixed(0));
+
+      function showToast(msg, type = 'success') {
+        const t = $('toast');
+        t.textContent = msg;
+        t.className = 'show ' + type;
+        clearTimeout(t._tid);
+        t._tid = setTimeout(() => {
+          t.className = '';
+        }, 3500);
+      }
+
+      function setLoading(show) {
+        $('inv-spinner').style.display = show ? 'flex' : 'none';
+        $('inv-table-wrap').style.display = show ? 'none' : 'block';
+      }
+
+      // ── Auth guard ──────────────────────────────────────────────────────────
+      async function init() {
+        try {
+          const r = await fetch('/api/auth/me', { credentials: 'include' });
+          if (!r.ok) {
+            window.location.replace('/');
+            return;
+          }
+          const d = await r.json();
+          if (!d.authenticated) {
+            window.location.replace('/');
+            return;
+          }
+          currentRole = d.user.role;
+          currentUser = d.user;
+        } catch {
+          window.location.replace('/');
+          return;
+        }
+
+        // Update nav
+        const roleLabel =
+          currentRole === 'admin' ? 'Admin' : currentRole === 'manager' ? 'Manager' : 'Staff';
+        $('nav-user').innerHTML = `Welcome, <span>${
+          currentUser.display_name || currentUser.username
+        }</span> (${roleLabel})`;
+
+        // Show invoice tab for admin/manager
+        if (currentRole !== 'staff') {
+          $('tab-invoice-btn').style.display = 'inline-block';
+        }
+
+        // Populate year selector
+        const ySel = $('sel-year');
+        const nowY = new Date().getFullYear();
+        for (let y = nowY - 2; y <= nowY + 1; y++) {
+          const o = document.createElement('option');
+          o.value = y;
+          o.textContent = y;
+          if (y === currentYear) o.selected = true;
+          ySel.appendChild(o);
+        }
+        $('sel-month').value = currentMonth;
+
+        // Event: month/year change
+        $('sel-month').addEventListener('change', () => {
+          currentMonth = parseInt($('sel-month').value);
+          loadAll();
+        });
+        $('sel-year').addEventListener('change', () => {
+          currentYear = parseInt($('sel-year').value);
+          loadAll();
+        });
+
+        // Logout
+        $('btn-logout').addEventListener('click', async () => {
+          await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+          window.location.replace('/');
+        });
+
+        // Tabs
+        document.querySelectorAll('.tab-btn').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+            document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
+            btn.classList.add('active');
+            $('tab-' + btn.dataset.tab).classList.add('active');
+            if (btn.dataset.tab === 'report') renderReport();
+          });
+        });
+
+        // Print button
+        $('btn-print-report').addEventListener('click', () => window.print());
+
+        // Week selector
+        document.querySelectorAll('.week-btn').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            document.querySelectorAll('.week-btn').forEach((b) => b.classList.remove('active'));
+            btn.classList.add('active');
+            selectedWeek = btn.dataset.week;
+          });
+        });
+
+        // Parse button
+        $('btn-parse').addEventListener('click', parseInvoice);
+        $('btn-apply').addEventListener('click', applyInvoice);
+
+        await loadAll();
+      }
+
+      // ── Data loading ────────────────────────────────────────────────────────
+      async function loadAll() {
+        const [sumOk, invOk] = await Promise.all([loadSummary(), loadInventory()]);
+        if (!sumOk || !invOk) showToast('Failed to load data — check your connection', 'error');
+      }
+
+      async function loadSummary() {
+        try {
+          const r = await fetch(
+            `/api/inventory/summary?month=${currentMonth}&year=${currentYear}`,
+            { credentials: 'include' },
+          );
+          if (!r.ok) return false;
+          const d = await r.json();
+          summaryData = d;
+          $('st-grand').textContent = fmt$(d.grand_total);
+          $('st-w1').textContent = fmt$(d.wk1_total);
+          $('st-w2').textContent = fmt$(d.wk2_total);
+          $('st-w3').textContent = fmt$(d.wk3_total);
+          $('st-w4').textContent = fmt$(d.wk4_total);
+          $('st-items').textContent = d.total_items ?? '—';
+          $('st-reorder').textContent = d.reorder_count ?? '—';
+          renderReorderTable(d.reorder_alerts || []);
+          return true;
+        } catch {
+          renderReorderTable([]);
+          return false;
+        }
+      }
+
+      async function loadInventory() {
+        setLoading(true);
+        try {
+          const r = await fetch(
+            `/api/inventory/items?month=${currentMonth}&year=${currentYear}&per_page=500`,
+            { credentials: 'include' },
+          );
+          if (!r.ok) {
+            setLoading(false);
+            return false;
+          }
+          const d = await r.json();
+          allItems = d.items || [];
+          renderInventoryTable(allItems);
+          return true;
+        } catch {
+          setLoading(false);
+          return false;
+        }
+      }
+
+      // ── Inventory table ─────────────────────────────────────────────────────
+      function computeEndQty(item) {
+        const rcvd =
+          (item.w1_received || 0) +
+          (item.w2_received || 0) +
+          (item.w3_received || 0) +
+          (item.w4_received || 0);
+        const iss =
+          (item.w1_issued || 0) +
+          (item.w2_issued || 0) +
+          (item.w3_issued || 0) +
+          (item.w4_issued || 0);
+        return Math.max(0, (item.on_hand || 0) + rcvd - iss);
+      }
+
+      function renderInventoryTable(items) {
+        const tbody = $('inv-tbody');
+        tbody.innerHTML = '';
+
+        if (!items.length) {
+          tbody.innerHTML =
+            '<tr><td colspan="15" class="empty">No inventory items found for this period.</td></tr>';
+          setLoading(false);
+          return;
+        }
+
+        // Group by category
+        const groups = {};
+        items.forEach((it) => {
+          const cat = it.category || 'Uncategorized';
+          if (!groups[cat]) groups[cat] = [];
+          groups[cat].push(it);
+        });
+
+        Object.entries(groups).forEach(([cat, catItems]) => {
+          const collapsed = collapsedCats.has(cat);
+          // Category total
+          const catTotal = catItems.reduce((s, it) => {
+            const eq = computeEndQty(it);
+            return s + eq * (it.unit_price || 0);
+          }, 0);
+
+          // Category header row
+          const hdr = document.createElement('tr');
+          hdr.className = 'cat-row';
+          hdr.innerHTML = `<td colspan="15">${collapsed ? '▶' : '▼'} ${escH(cat)}<span>${fmt$(
+            catTotal,
+          )}</span></td>`;
+          hdr.addEventListener('click', () => {
+            if (collapsedCats.has(cat)) collapsedCats.delete(cat);
+            else collapsedCats.add(cat);
+            renderInventoryTable(allItems);
+          });
+          tbody.appendChild(hdr);
+
+          if (collapsed) return;
+
+          catItems.forEach((item) => {
+            const tr = buildItemRow(item);
+            tbody.appendChild(tr);
+          });
+        });
+
+        setLoading(false);
+      }
+
+      function buildItemRow(item) {
+        const tr = document.createElement('tr');
+        tr.dataset.itemId = item.item_id;
+
+        const endQty = computeEndQty(item);
+        const total = endQty * (item.unit_price || 0);
+
+        // Determine which fields are editable
+        const canEditAll = currentRole !== 'staff';
+
+        // Columns: desc, sku, cat, on_hand, w1r,w2r,w3r,w4r, w1i,w2i,w3i,w4i, endQty, price, total
+        const cells = [
+          { key: null, val: escH(item.description), cls: 'td-desc', edit: false },
+          { key: null, val: escH(item.sku || ''), cls: 'td-sku', edit: false },
+          {
+            key: null,
+            val: `<span class="cat-badge">${escH(item.category || '')}</span>`,
+            cls: '',
+            edit: false,
+          },
+          { key: 'on_hand', val: fmtN(item.on_hand), cls: '', edit: canEditAll },
+          { key: 'w1_received', val: fmtN(item.w1_received), cls: '', edit: canEditAll },
+          { key: 'w2_received', val: fmtN(item.w2_received), cls: '', edit: canEditAll },
+          { key: 'w3_received', val: fmtN(item.w3_received), cls: '', edit: canEditAll },
+          { key: 'w4_received', val: fmtN(item.w4_received), cls: '', edit: canEditAll },
+          { key: 'w1_issued', val: fmtN(item.w1_issued), cls: '', edit: true },
+          { key: 'w2_issued', val: fmtN(item.w2_issued), cls: '', edit: true },
+          { key: 'w3_issued', val: fmtN(item.w3_issued), cls: '', edit: true },
+          { key: 'w4_issued', val: fmtN(item.w4_issued), cls: '', edit: true },
+          { key: null, val: fmtN(endQty), cls: 'end-qty', edit: false },
+          { key: 'unit_price', val: fmt$(item.unit_price), cls: '', edit: canEditAll },
+          { key: null, val: fmt$(total), cls: 'row-total', edit: false },
+        ];
+
+        cells.forEach(({ key, val, cls, edit }) => {
+          const td = document.createElement('td');
+          if (cls) td.className = cls;
+          if (edit && key) {
+            td.classList.add('editable');
+            td.innerHTML = val;
+            td.addEventListener('click', () => startEdit(td, item, key));
+          } else {
+            td.innerHTML = val;
+          }
+          tr.appendChild(td);
+        });
+
+        return tr;
+      }
+
+      function startEdit(td, item, key) {
+        if (td.querySelector('input')) return; // already editing
+        const curText = td.textContent.replace('$', '').trim();
+        const inp = document.createElement('input');
+        inp.className = 'cell-input';
+        inp.type = 'number';
+        inp.step = key === 'unit_price' ? '0.01' : '1';
+        inp.value = curText === '—' ? '' : curText;
+        td.innerHTML = '';
+        td.appendChild(inp);
+        inp.focus();
+        inp.select();
+
+        inp.addEventListener('blur', () => commitEdit(td, item, key, inp.value));
+        inp.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') inp.blur();
+          if (e.key === 'Escape') {
+            // Replace the whole node to avoid stacking click listeners
+            const fresh = buildItemRow(item);
+            td.closest('tr').replaceWith(fresh);
+          }
+        });
+      }
+
+      async function commitEdit(td, item, key, rawVal) {
+        const val = rawVal === '' ? null : parseFloat(rawVal);
+        // Map field names to API field names
+        const fieldMap = {
+          on_hand: 'on_hand',
+          w1_received: 'w1_received',
+          w2_received: 'w2_received',
+          w3_received: 'w3_received',
+          w4_received: 'w4_received',
+          w1_issued: 'w1_issued',
+          w2_issued: 'w2_issued',
+          w3_issued: 'w3_issued',
+          w4_issued: 'w4_issued',
+          unit_price: 'unit_price',
+        };
+        try {
+          const r = await fetch(`/api/inventory/items/${item.item_id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              field: fieldMap[key],
+              value: val,
+              month: currentMonth,
+              year: currentYear,
+            }),
+          });
+          if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            showToast(err.error || 'Save failed', 'error');
+            // Restore
+            const orig = key === 'unit_price' ? fmt$(item[key]) : fmtN(item[key]);
+            td.innerHTML = orig;
+          } else {
+            item[key] = val;
+            showToast('Saved', 'success');
+            // Refresh entire row to recalculate End Qty / Total
+            const tr = td.closest('tr');
+            const fresh = buildItemRow(item);
+            tr.replaceWith(fresh);
+            // Refresh summary
+            loadSummary();
+          }
+        } catch {
+          showToast('Network error — not saved', 'error');
+          const orig = key === 'unit_price' ? fmt$(item[key]) : fmtN(item[key]);
+          td.innerHTML = orig;
+        }
+      }
+
+      // ── Reorder alerts ──────────────────────────────────────────────────────
+      function renderReorderTable(alerts) {
+        const tbody = $('reorder-tbody');
+        tbody.innerHTML = '';
+        $('reorder-spinner').style.display = 'none';
+        $('reorder-tbl-wrap').style.display = 'none';
+        $('reorder-empty').style.display = 'none';
+
+        if (!alerts || !alerts.length) {
+          $('reorder-empty').style.display = 'block';
+          return;
+        }
+
+        $('reorder-tbl-wrap').style.display = 'block';
+        $('reorder-empty').style.display = 'none';
+
+        alerts.forEach((it) => {
+          const shortage = (it.par_level || 0) - (it.on_hand || 0);
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td style="text-align:left;font-family:'Segoe UI',Arial,sans-serif">${escH(
+              it.description,
+            )}</td>
+            <td style="text-align:left;font-family:'Courier New',monospace;color:rgba(255,255,255,.45);font-size:11px">${escH(
+              it.sku || '',
+            )}</td>
+            <td style="text-align:left"><span class="cat-badge">${escH(
+              it.category || '',
+            )}</span></td>
+            <td style="color:#fbbf24;font-weight:700">${fmtN(it.on_hand)}</td>
+            <td>${fmtN(it.par_level)}</td>
+            <td style="color:#f87171;font-weight:700">${fmtN(shortage)}</td>
+            <td>${fmt$(it.unit_price)}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+
+      // ── Invoice parser ──────────────────────────────────────────────────────
+      async function parseInvoice() {
+        const text = $('invoice-text').value.trim();
+        if (!text) {
+          showToast('Paste invoice text first', 'error');
+          return;
+        }
+        const btn = $('btn-parse');
+        btn.disabled = true;
+        btn.textContent = 'Parsing…';
+        $('proposal-section').classList.remove('visible');
+
+        try {
+          const r = await fetch('/api/inventory/parse-invoice', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ text, month: currentMonth, year: currentYear }),
+          });
+          if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            showToast(err.error || 'Parse failed', 'error');
+            return;
+          }
+          const d = await r.json();
+          proposalMatches = d.matches || [];
+          const wkLabels = { w1r: 'Week 1', w2r: 'Week 2', w3r: 'Week 3', w4r: 'Week 4' };
+          $('proposal-week-label').textContent = `· adding to ${wkLabels[selectedWeek]}`;
+          renderProposal(proposalMatches);
+        } catch {
+          showToast('Network error', 'error');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'Parse Invoice';
+        }
+      }
+
+      function renderProposal(matches) {
+        const tbody = $('proposal-tbody');
+        tbody.innerHTML = '';
+
+        if (!matches.length) {
+          showToast('No matching items found in catalog', 'error');
+          return;
+        }
+
+        matches.forEach((m, idx) => {
+          const isNew = !m.itemId;
+          const tr = document.createElement('tr');
+          tr.dataset.idx = idx;
+
+          const curW =
+            { w1r: m.currentW1R, w2r: m.currentW2R, w3r: m.currentW3R, w4r: m.currentW4R }[
+              selectedWeek
+            ] ?? 0;
+          const newTotal = curW + (m.qty || 0);
+
+          if (isNew) {
+            tr.innerHTML = `
+              <td style="text-align:center">—</td>
+              <td style="text-align:left">${escH(
+                m.matchedDesc || '',
+              )} <span class="badge-new">NEW</span></td>
+              <td style="text-align:left;color:rgba(255,255,255,.4)">Not in catalog</td>
+              <td>—</td>
+              <td>${fmtN(m.qty)}</td>
+              <td>—</td>
+              <td>${fmt$(m.unitPrice)}</td>
+            `;
+          } else {
+            const qtyCell =
+              currentRole !== 'staff'
+                ? `<input class="cell-input" type="number" step="1" value="${
+                    m.qty || 0
+                  }" style="width:70px" data-idx="${idx}">`
+                : fmtN(m.qty);
+
+            tr.innerHTML = `
+              <td style="text-align:center"><input type="checkbox" checked data-idx="${idx}" class="prop-chk"></td>
+              <td style="text-align:left">${escH(m.matchedDesc || '')}</td>
+              <td style="text-align:left;color:#8ab4f8">${escH(
+                m.catalogDesc || m.matchedDesc || '',
+              )}</td>
+              <td>${fmtN(curW)}</td>
+              <td class="prop-qty-cell">${qtyCell}</td>
+              <td class="prop-new-total">${fmtN(newTotal)}</td>
+              <td>${fmt$(m.unitPrice)}</td>
+            `;
+
+            // Wire up qty input to update new total display
+            if (currentRole !== 'staff') {
+              const qtyInp = tr.querySelector(`input[data-idx="${idx}"]`);
+              if (qtyInp) {
+                qtyInp.addEventListener('input', () => {
+                  const newQty = parseFloat(qtyInp.value) || 0;
+                  proposalMatches[idx].qty = newQty;
+                  const nt = curW + newQty;
+                  tr.querySelector('.prop-new-total').textContent = fmtN(nt);
+                });
+              }
+            }
+          }
+
+          tbody.appendChild(tr);
+        });
+
+        $('proposal-section').classList.add('visible');
+      }
+
+      async function applyInvoice() {
+        const checkedMatches = [];
+        document.querySelectorAll('.prop-chk:checked').forEach((chk) => {
+          const idx = parseInt(chk.dataset.idx);
+          const m = proposalMatches[idx];
+          if (m && m.itemId) checkedMatches.push(m);
+        });
+
+        if (!checkedMatches.length) {
+          showToast('No items selected to apply', 'error');
+          return;
+        }
+
+        const btn = $('btn-apply');
+        btn.disabled = true;
+        btn.textContent = 'Applying…';
+
+        try {
+          const r = await fetch('/api/inventory/apply-invoice', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              matches: checkedMatches,
+              week_field: selectedWeek,
+              month: currentMonth,
+              year: currentYear,
+            }),
+          });
+          if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            showToast(err.error || 'Apply failed', 'error');
+            return;
+          }
+          showToast(`Applied ${checkedMatches.length} item(s) successfully`, 'success');
+          $('proposal-section').classList.remove('visible');
+          $('invoice-text').value = '';
+          proposalMatches = [];
+          await loadAll();
+        } catch {
+          showToast('Network error', 'error');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'Apply Selected';
+        }
+      }
+
+      // ── Monthly Report ───────────────────────────────────────────────────────
+      function renderReport() {
+        const MONTH_NAMES = [
+          'January',
+          'February',
+          'March',
+          'April',
+          'May',
+          'June',
+          'July',
+          'August',
+          'September',
+          'October',
+          'November',
+          'December',
+        ];
+        const monthName = MONTH_NAMES[currentMonth];
+        const container = $('report-content');
+
+        if (!allItems.length) {
+          container.innerHTML =
+            '<div class="empty" style="color:#94a3b8">No inventory data loaded. Please wait for data to finish loading.</div>';
+          return;
+        }
+
+        // ── Derived totals from allItems ──────────────────────────────────
+        let grandTotal = 0;
+        let totalReceivedCost = 0;
+        let totalIssuedCost = 0;
+        let reorderCount = 0;
+
+        // Weekly unit totals (for the weekly breakdown table)
+        let wk1Units = 0,
+          wk2Units = 0,
+          wk3Units = 0,
+          wk4Units = 0;
+
+        allItems.forEach((it) => {
+          const price = it.unit_price || 0;
+          const r1 = it.w1_received || 0;
+          const r2 = it.w2_received || 0;
+          const r3 = it.w3_received || 0;
+          const r4 = it.w4_received || 0;
+          const i1 = it.w1_issued || 0;
+          const i2 = it.w2_issued || 0;
+          const i3 = it.w3_issued || 0;
+          const i4 = it.w4_issued || 0;
+
+          const endQty = Math.max(0, (it.on_hand || 0) + r1 + r2 + r3 + r4 - i1 - i2 - i3 - i4);
+          grandTotal += endQty * price;
+          totalReceivedCost += (r1 + r2 + r3 + r4) * price;
+          totalIssuedCost += (i1 + i2 + i3 + i4) * price;
+          wk1Units += r1;
+          wk2Units += r2;
+          wk3Units += r3;
+          wk4Units += r4;
+          if ((it.on_hand || 0) < (it.par_level || 0)) reorderCount++;
+        });
+
+        // Use summary API weekly cost totals if available, else compute from items
+        const wk1Cost =
+          summaryData.wk1_total != null
+            ? summaryData.wk1_total
+            : allItems.reduce((s, it) => s + (it.w1_received || 0) * (it.unit_price || 0), 0);
+        const wk2Cost =
+          summaryData.wk2_total != null
+            ? summaryData.wk2_total
+            : allItems.reduce((s, it) => s + (it.w2_received || 0) * (it.unit_price || 0), 0);
+        const wk3Cost =
+          summaryData.wk3_total != null
+            ? summaryData.wk3_total
+            : allItems.reduce((s, it) => s + (it.w3_received || 0) * (it.unit_price || 0), 0);
+        const wk4Cost =
+          summaryData.wk4_total != null
+            ? summaryData.wk4_total
+            : allItems.reduce((s, it) => s + (it.w4_received || 0) * (it.unit_price || 0), 0);
+        const weeklyGrand = wk1Cost + wk2Cost + wk3Cost + wk4Cost;
+
+        // ── Group by category, sort by category total value desc ──────────
+        const catMap = {};
+        allItems.forEach((it) => {
+          const cat = it.category || 'Uncategorized';
+          if (!catMap[cat]) catMap[cat] = [];
+          catMap[cat].push(it);
+        });
+
+        const sortedCats = Object.entries(catMap).sort(([, aItems], [, bItems]) => {
+          const aTotal = aItems.reduce((s, it) => {
+            const eq = computeEndQty(it);
+            return s + eq * (it.unit_price || 0);
+          }, 0);
+          const bTotal = bItems.reduce((s, it) => {
+            const eq = computeEndQty(it);
+            return s + eq * (it.unit_price || 0);
+          }, 0);
+          return bTotal - aTotal;
+        });
+
+        // ── Build reorder items list ──────────────────────────────────────
+        const reorderItems = allItems.filter((it) => (it.on_hand || 0) < (it.par_level || 0));
+
+        // ── Generate HTML ─────────────────────────────────────────────────
+        const today = new Date();
+        const generatedStr = today.toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        });
+
+        // 1. Header
+        let html = `
+          <div class="rpt-org">Miami Job Corps Cafeteria</div>
+          <div class="rpt-title">Monthly Inventory Report &mdash; ${escH(
+            monthName,
+          )} ${currentYear}</div>
+          <div class="rpt-generated">Generated: ${escH(generatedStr)}</div>
+          <hr class="rpt-hr">
+        `;
+
+        // 2. Summary stat cards
+        html += `
+          <div class="rpt-stats">
+            <div class="rpt-stat accent">
+              <div class="rpt-stat-label">Grand Total Inventory Value</div>
+              <div class="rpt-stat-value">${fmt$(grandTotal)}</div>
+            </div>
+            <div class="rpt-stat">
+              <div class="rpt-stat-label">Total Received This Month</div>
+              <div class="rpt-stat-value">${fmt$(totalReceivedCost)}</div>
+            </div>
+            <div class="rpt-stat">
+              <div class="rpt-stat-label">Total Issued This Month</div>
+              <div class="rpt-stat-value">${fmt$(totalIssuedCost)}</div>
+            </div>
+            <div class="rpt-stat warn">
+              <div class="rpt-stat-label">Items Below Par (Reorder)</div>
+              <div class="rpt-stat-value">${reorderCount}</div>
+            </div>
+          </div>
+        `;
+
+        // 3. Weekly cost breakdown table
+        html += `
+          <div class="rpt-section-title">Weekly Cost Breakdown</div>
+          <table class="rpt-table" style="max-width:520px">
+            <thead>
+              <tr>
+                <th style="text-align:left">Week</th>
+                <th>Units Received</th>
+                <th>Estimated Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="text-align:left;font-family:'Segoe UI',Arial,sans-serif">Week 1</td>
+                <td>${wk1Units.toFixed(0)}</td>
+                <td>${fmt$(wk1Cost)}</td>
+              </tr>
+              <tr>
+                <td style="text-align:left;font-family:'Segoe UI',Arial,sans-serif">Week 2</td>
+                <td>${wk2Units.toFixed(0)}</td>
+                <td>${fmt$(wk2Cost)}</td>
+              </tr>
+              <tr>
+                <td style="text-align:left;font-family:'Segoe UI',Arial,sans-serif">Week 3</td>
+                <td>${wk3Units.toFixed(0)}</td>
+                <td>${fmt$(wk3Cost)}</td>
+              </tr>
+              <tr>
+                <td style="text-align:left;font-family:'Segoe UI',Arial,sans-serif">Week 4</td>
+                <td>${wk4Units.toFixed(0)}</td>
+                <td>${fmt$(wk4Cost)}</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>Total</td>
+                <td>${(wk1Units + wk2Units + wk3Units + wk4Units).toFixed(0)}</td>
+                <td>${fmt$(weeklyGrand)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        `;
+
+        // 4. Category breakdown
+        html += `<div class="rpt-section-title">Category Breakdown</div>`;
+
+        sortedCats.forEach(([cat, catItems]) => {
+          const catTotal = catItems.reduce((s, it) => {
+            const eq = computeEndQty(it);
+            return s + eq * (it.unit_price || 0);
+          }, 0);
+
+          // Color cycling for category left-borders
+          const catColors = [
+            '#1d4ed8',
+            '#0891b2',
+            '#059669',
+            '#7c3aed',
+            '#db2777',
+            '#d97706',
+            '#dc2626',
+          ];
+          const colorIdx = sortedCats.findIndex(([c]) => c === cat) % catColors.length;
+          const borderColor = catColors[colorIdx];
+
+          html += `
+            <div class="rpt-cat-block">
+              <div class="rpt-cat-header" style="border-left-color:${borderColor}">
+                <span class="rpt-cat-name">${escH(cat)}</span>
+                <span class="rpt-cat-meta">${catItems.length} item${
+                  catItems.length !== 1 ? 's' : ''
+                } &nbsp;|&nbsp; Category Total: ${fmt$(catTotal)}</span>
+              </div>
+              <table class="rpt-table">
+                <thead>
+                  <tr>
+                    <th style="text-align:left">Item Description</th>
+                    <th style="text-align:left">SKU</th>
+                    <th>On Hand</th>
+                    <th>W1 Rcvd</th>
+                    <th>W2 Rcvd</th>
+                    <th>W3 Rcvd</th>
+                    <th>W4 Rcvd</th>
+                    <th>Total Rcvd</th>
+                    <th>W1 Issued</th>
+                    <th>W2 Issued</th>
+                    <th>W3 Issued</th>
+                    <th>W4 Issued</th>
+                    <th>Total Issued</th>
+                    <th>End Qty</th>
+                    <th>Unit Price</th>
+                    <th>Item Total</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+          `;
+
+          let catSubtotalEndQty = 0;
+          let catSubtotalItemTotal = 0;
+          let catSubtotalR1 = 0,
+            catSubtotalR2 = 0,
+            catSubtotalR3 = 0,
+            catSubtotalR4 = 0;
+          let catSubtotalI1 = 0,
+            catSubtotalI2 = 0,
+            catSubtotalI3 = 0,
+            catSubtotalI4 = 0;
+          let catSubtotalTotalRcvd = 0,
+            catSubtotalTotalIssued = 0;
+
+          catItems.forEach((it) => {
+            const r1 = it.w1_received || 0;
+            const r2 = it.w2_received || 0;
+            const r3 = it.w3_received || 0;
+            const r4 = it.w4_received || 0;
+            const i1 = it.w1_issued || 0;
+            const i2 = it.w2_issued || 0;
+            const i3 = it.w3_issued || 0;
+            const i4 = it.w4_issued || 0;
+            const totalRcvd = r1 + r2 + r3 + r4;
+            const totalIssued = i1 + i2 + i3 + i4;
+            const endQty = computeEndQty(it);
+            const price = it.unit_price || 0;
+            const itemTotal = endQty * price;
+            const belowPar = (it.on_hand || 0) < (it.par_level || 0);
+
+            catSubtotalEndQty += endQty;
+            catSubtotalItemTotal += itemTotal;
+            catSubtotalR1 += r1;
+            catSubtotalR2 += r2;
+            catSubtotalR3 += r3;
+            catSubtotalR4 += r4;
+            catSubtotalI1 += i1;
+            catSubtotalI2 += i2;
+            catSubtotalI3 += i3;
+            catSubtotalI4 += i4;
+            catSubtotalTotalRcvd += totalRcvd;
+            catSubtotalTotalIssued += totalIssued;
+
+            const statusHtml = belowPar
+              ? `<span class="rpt-status-reorder">REORDER</span>`
+              : `<span class="rpt-status-ok">OK</span>`;
+
+            html += `
+              <tr>
+                <td style="text-align:left;font-family:'Segoe UI',Arial,sans-serif;max-width:160px;overflow:hidden;text-overflow:ellipsis">${escH(
+                  it.description || '',
+                )}</td>
+                <td style="text-align:left;font-family:'Courier New',monospace;color:#64748b;font-size:10px">${escH(
+                  it.sku || '',
+                )}</td>
+                <td>${fmtN(it.on_hand)}</td>
+                <td>${fmtN(r1)}</td>
+                <td>${fmtN(r2)}</td>
+                <td>${fmtN(r3)}</td>
+                <td>${fmtN(r4)}</td>
+                <td style="font-weight:700">${fmtN(totalRcvd)}</td>
+                <td>${fmtN(i1)}</td>
+                <td>${fmtN(i2)}</td>
+                <td>${fmtN(i3)}</td>
+                <td>${fmtN(i4)}</td>
+                <td style="font-weight:700">${fmtN(totalIssued)}</td>
+                <td style="color:#b45309;font-weight:700">${fmtN(endQty)}</td>
+                <td>${fmt$(price)}</td>
+                <td style="color:#0f2044;font-weight:700">${fmt$(itemTotal)}</td>
+                <td>${statusHtml}</td>
+              </tr>
+            `;
+          });
+
+          // Category subtotal row
+          html += `
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colspan="2">Category Subtotal &mdash; ${escH(cat)}</td>
+                    <td></td>
+                    <td>${catSubtotalR1.toFixed(0)}</td>
+                    <td>${catSubtotalR2.toFixed(0)}</td>
+                    <td>${catSubtotalR3.toFixed(0)}</td>
+                    <td>${catSubtotalR4.toFixed(0)}</td>
+                    <td>${catSubtotalTotalRcvd.toFixed(0)}</td>
+                    <td>${catSubtotalI1.toFixed(0)}</td>
+                    <td>${catSubtotalI2.toFixed(0)}</td>
+                    <td>${catSubtotalI3.toFixed(0)}</td>
+                    <td>${catSubtotalI4.toFixed(0)}</td>
+                    <td>${catSubtotalTotalIssued.toFixed(0)}</td>
+                    <td>${catSubtotalEndQty.toFixed(0)}</td>
+                    <td></td>
+                    <td>${fmt$(catSubtotalItemTotal)}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          `;
+        });
+
+        // 5. Reorder summary (only if there are items below par)
+        if (reorderItems.length > 0) {
+          html += `
+            <div class="rpt-reorder-box">
+              <h3>&#9888; Reorder Required &mdash; ${reorderItems.length} Item${
+                reorderItems.length !== 1 ? 's' : ''
+              } Below Par Level</h3>
+              <ul class="rpt-reorder-list">
+          `;
+          reorderItems.forEach((it) => {
+            const shortage = (it.par_level || 0) - (it.on_hand || 0);
+            const reorderCost = shortage * (it.unit_price || 0);
+            html += `
+              <li>&bull; ${escH(it.description)} &mdash; On Hand: ${fmtN(
+                it.on_hand,
+              )}, Par Level: ${fmtN(it.par_level)}, Shortage: ${shortage.toFixed(
+                0,
+              )} units, Est. cost to reorder: ${fmt$(reorderCost)}</li>
+            `;
+          });
+          html += `
+              </ul>
+            </div>
+          `;
+        }
+
+        // 6. Footer
+        html += `
+          <div class="rpt-footer">
+            <span>Miami Job Corps Cafeteria &middot; ${escH(monthName)} ${currentYear}</span>
+            <div style="text-align:right">
+              <div style="font-size:10px;color:#64748b;margin-bottom:2px">Grand Total Inventory Value</div>
+              <div class="rpt-footer-total">${fmt$(grandTotal)}</div>
+            </div>
+          </div>
+        `;
+
+        container.innerHTML = html;
+      }
+
+      // ── Helpers ─────────────────────────────────────────────────────────────
+      function escH(s) {
+        return String(s)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      // ── Boot ─────────────────────────────────────────────────────────────────
+      init();
+    </script>
   </body>
 </html>
