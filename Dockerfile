@@ -19,7 +19,7 @@ USER appuser
 ENV PYTHONPATH=/app
 ENV FLASK_ENV=production
 
-# Render sets $PORT automatically; default to 5000 for local Docker runs
+# Container listens on 5000; set WEBSITES_PORT=5000 in Azure App Service settings
 EXPOSE 5000
 
 # Health check — use Python so we don't need curl in the slim image
