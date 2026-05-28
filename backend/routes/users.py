@@ -98,8 +98,41 @@ def update_user(user_id):
         return jsonify(error='No valid fields to update'), 400
 
     db = get_client(admin=True)
+
+    # Handle password reset for admin/manager accounts
+    password = data.get('password')
+    if password:
+        try:
+            db.auth.admin.update_user_by_id(user_id, {'password': password})
+        except Exception as e:
+            return jsonify(error=f'Failed to update password: {str(e)}'), 400
+
     resp = db.table('user_profiles').update(updates).eq('id', user_id).execute()
 
     if not resp.data:
         return jsonify(error='User not found'), 404
     return jsonify(resp.data[0])
+
+
+@users_bp.delete('/<user_id>')
+def delete_user(user_id):
+    user = _require_superadmin()
+    if not user:
+        return jsonify(error='Admin role required'), 403
+
+    # Prevent self-deletion
+    if user['id'] == user_id:
+        return jsonify(error='Cannot delete your own account'), 400
+
+    db = get_client(admin=True)
+
+    try:
+        # Delete from Supabase Auth
+        db.auth.admin.delete_user(user_id)
+    except Exception as e:
+        return jsonify(error=f'Failed to delete auth user: {str(e)}'), 400
+
+    # Delete from user_profiles
+    db.table('user_profiles').delete().eq('id', user_id).execute()
+
+    return jsonify(success=True, message='User deleted'), 200

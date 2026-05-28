@@ -80,12 +80,25 @@ def index():
 
 @app.get('/dashboard')
 def dashboard():
+    if not session.get('user'):
+        return redirect('/')
+    return send_from_directory(FRONTEND_DIR, 'dashboard.html')
+
+
+@app.get('/dashboard-admin')
+def admin_dashboard():
     user = session.get('user')
     if not user:
         return redirect('/')
-    if user['role'] == 'staff':
-        return send_from_directory(FRONTEND_DIR, 'staff_dashboard.html')
     return send_from_directory(FRONTEND_DIR, 'admin_dashboard.html')
+
+
+@app.get('/dashboard-staff')
+def staff_dashboard():
+    user = session.get('user')
+    if not user:
+        return redirect('/')
+    return send_from_directory(FRONTEND_DIR, 'staff_dashboard.html')
 
 
 @app.get('/inventory_dashboard.html')
@@ -99,6 +112,12 @@ def inventory_dashboard():
 @app.get('/static/<path:name>')
 def static_files(name):
     return send_from_directory(FRONTEND_DIR, name)
+
+
+@app.get('/logo-shield.svg')
+def serve_logo():
+    return send_from_directory(BASE_DIR, 'logo-shield.svg')
+
 
 
 @app.get('/ping')

@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Miami Job Corps Cafeteria — Sign In</title>
+    <link rel="icon" type="image/svg+xml" href="/logo-shield.svg" />
     <style>
       * {
         box-sizing: border-box;
@@ -28,16 +29,19 @@
         margin-bottom: 32px;
       }
       .brand-icon {
-        width: 64px;
-        height: 64px;
-        background: #1a2b4a;
-        border: 2px solid rgba(255, 255, 255, 0.12);
-        border-radius: 16px;
+        width: 80px;
+        height: 80px;
+        border-radius: 18px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        font-size: 32px;
+        overflow: hidden;
         margin-bottom: 14px;
+      }
+      .brand-icon img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
       }
       .brand-name {
         color: #fff;
@@ -144,7 +148,7 @@
   <body>
     <div class="wrap">
       <div class="brand">
-        <div class="brand-icon">🏭</div>
+        <div class="brand-icon"><img src="/logo-shield.svg" alt="MJC Shield" /></div>
         <div class="brand-name">Miami Job Corps Cafeteria</div>
         <div class="brand-sub">Inventory Management Portal</div>
       </div>
@@ -249,9 +253,9 @@
           }
           // Redirect based on role
           if (data.user.role === 'staff') {
-            window.location.href = '/dashboard';
+            window.location.href = '/dashboard-staff';
           } else {
-            window.location.href = '/dashboard';
+            window.location.href = '/dashboard-admin';
           }
         } catch (e) {
           showError('Could not connect to server. Please try again.');

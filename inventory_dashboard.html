@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<link rel="icon" type="image/svg+xml" href="/logo-shield.svg">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Miami Job Corps Cafeteria — Inventory Dashboard</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/JsBarcode/3.11.5/JsBarcode.all.min.js"></script>
@@ -13,7 +14,8 @@
 body{font-family:'Segoe UI',Arial,sans-serif;font-size:13px;background:#F5F6F8;color:#1E293B}
 #header{background:#1A2B4A;color:white;padding:10px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
 .logo{display:flex;align-items:center;gap:10px}
-.logo-icon{width:32px;height:32px;background:#2D4A7A;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:16px}
+.logo-icon{width:36px;height:36px;border-radius:6px;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0}
+.logo-icon img{width:100%;height:100%;object-fit:contain}
 .hd-title{font-size:14px;font-weight:700;line-height:1.2}
 .hd-sub{font-size:10px;opacity:.7}
 .hd-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -202,14 +204,9 @@ textarea:focus{outline:none;border-color:#1A2B4A}
 </style>
 </head>
 <body>
-    <div class="modal-body" id="user-modal-body">Loading…</div>
-  </div>
-</div>
-
-
 <div id="header">
   <div class="logo">
-    <div class="logo-icon">🏭</div>
+    <div class="logo-icon"><img src="/logo-shield.svg" alt="MJC Shield"></div>
     <div>
       <div class="hd-title">Miami Job Corps Cafeteria</div>
       <div class="hd-sub" id="sync-status">Inventory Management System</div>
@@ -243,6 +240,7 @@ textarea:focus{outline:none;border-color:#1A2B4A}
   <button class="tab" onclick="showTab('inventory',this)">📋 Inventory</button>
   <button class="tab" onclick="showTab('invoice',this)">🧾 Invoice Entry</button>
   <button class="tab" onclick="showTab('report',this)">📄 Monthly Report</button>
+  <button class="tab" onclick="showTab('pullsheet',this)">📝 Pull Sheet</button>
   <button class="tab" onclick="showTab('history',this)">📅 History</button>
   <button class="tab" onclick="showTab('barcodes',this)">📦 Barcodes</button>
   <button class="tab" onclick="showTab('mobile',this)">📱 Mobile Sync</button>
@@ -253,6 +251,7 @@ textarea:focus{outline:none;border-color:#1A2B4A}
   <div id="pg-inventory" class="pg"></div>
   <div id="pg-invoice" class="pg"></div>
   <div id="pg-report" class="pg"></div>
+  <div id="pg-pullsheet" class="pg"></div>
   <div id="pg-history" class="pg"></div>
   <div id="pg-barcodes" class="pg"></div>
   <div id="pg-mobile" class="pg"></div>
@@ -630,6 +629,7 @@ function showTab(id,el){
   if(id==='dashboard')renderDash();
   else if(id==='inventory')renderInv();
   else if(id==='report')renderReport();
+  else if(id==='pullsheet')renderPullSheet();
   else if(id==='invoice')renderInvoiceTab();
   else if(id==='history')renderHistory();
   else if(id==='barcodes')renderBarcodes();
@@ -1364,7 +1364,149 @@ function renderHistory(){
 
   document.getElementById('pg-history').innerHTML=h;
 }
-function renderActive(){if(_curPg==='dashboard'||_curPg==='inventory'||_curPg==='report'){initDashboard();}}
+/* ── PULL SHEET — Real-time linked across all weeks ── */
+let _psCategory='All';
+
+function calcOH(it){ return it.onHand+(it.w1r+it.w2r+it.w3r+it.w4r)-(it.w1i+it.w2i+it.w3i+it.w4i); }
+
+function renderPullSheet(){
+  const showCats = _psCategory==='All' ? Object.keys(INV) : [_psCategory];
+  const catOpts  = ['All',...Object.keys(INV)].map(c=>`<option value="${c}"${_psCategory===c?' selected':''}>${c}</option>`).join('');
+  const allItems = showCats.flatMap(c=>INV[c]);
+  const totStart  = allItems.reduce((s,i)=>s+i.onHand*i.price,0);
+  const totRcvd   = allItems.reduce((s,i)=>s+(i.w1r+i.w2r+i.w3r+i.w4r)*i.price,0);
+  const totIssued = allItems.reduce((s,i)=>s+(i.w1i+i.w2i+i.w3i+i.w4i)*i.price,0);
+  const totBalance= totStart+totRcvd-totIssued;
+  const reorderCt = allItems.filter(i=>calcOH(i)<i.par&&i.par>0).length;
+
+  let h=`
+  <div style="background:#1E3A5F;color:white;border-radius:10px 10px 0 0;padding:14px 16px;margin-bottom:0">
+    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px">
+      <div>
+        <div style="font-size:16px;font-weight:700">📝 Pull Sheet — Running Balance</div>
+        <div style="font-size:11px;opacity:.75;margin-top:2px">Edits save instantly · All 4 weeks linked</div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+        <label style="font-size:12px;font-weight:600">Category:
+          <select onchange="_psCategory=this.value;renderPullSheet()" style="margin-left:4px;padding:4px 8px;border-radius:6px;border:none;font-size:12px;color:#0F172A">${catOpts}</select>
+        </label>
+        <button onclick="window.print()" style="background:#2563EB;color:white;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">🖨 Print Sheet</button>
+      </div>
+    </div>
+  </div>
+  <div id="ps-summary" style="display:grid;grid-template-columns:repeat(5,1fr);background:#0F172A;border-radius:0;padding:10px 16px;gap:8px;margin-bottom:8px">
+    <div style="text-align:center"><div style="font-size:9px;color:#94A3B8;text-transform:uppercase;letter-spacing:.5px">Starting OH</div><div style="font-size:15px;font-weight:700;color:#93C5FD;font-family:'Courier New',monospace">${$f(totStart)}</div></div>
+    <div style="text-align:center"><div style="font-size:9px;color:#94A3B8;text-transform:uppercase;letter-spacing:.5px">+ Total Received</div><div style="font-size:15px;font-weight:700;color:#6EE7B7;font-family:'Courier New',monospace" id="ps-sum-rcvd">${$f(totRcvd)}</div></div>
+    <div style="text-align:center"><div style="font-size:9px;color:#94A3B8;text-transform:uppercase;letter-spacing:.5px">− Total Pulled</div><div style="font-size:15px;font-weight:700;color:#FCA5A5;font-family:'Courier New',monospace" id="ps-sum-issued">${$f(totIssued)}</div></div>
+    <div style="text-align:center;border-left:2px solid #374151;padding-left:8px"><div style="font-size:9px;color:#94A3B8;text-transform:uppercase;letter-spacing:.5px">= Current Balance</div><div style="font-size:15px;font-weight:700;color:#FDE68A;font-family:'Courier New',monospace" id="ps-sum-balance">${$f(totBalance)}</div></div>
+    <div style="text-align:center"><div style="font-size:9px;color:#94A3B8;text-transform:uppercase;letter-spacing:.5px">⚠ Reorder Items</div><div style="font-size:15px;font-weight:700;color:${reorderCt>0?'#F97316':'#6EE7B7'}" id="ps-sum-reorder">${reorderCt}</div></div>
+  </div>
+  <div style="display:flex;gap:16px;padding:6px 14px;background:#F1F5F9;font-size:11px;color:#475569;border-bottom:1px solid #E2E8F0;flex-wrap:wrap">
+    <span>🟢 Received (from invoices)</span><span style="color:#7C3AED;font-weight:700">🟣 Pulled/Issued (enter here — saves instantly)</span>
+    <span>🟡 Running OH = Start + Received − Pulled</span><span style="color:#D97706">⚠ Below par level</span>
+  </div>
+  <div style="overflow-x:auto;background:white;border-radius:0 0 10px 10px;border:1px solid #E2E8F0;border-top:none">
+  <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:900px">
+    <thead>
+      <tr style="background:#F8FAFC;position:sticky;top:0;z-index:10">
+        <th style="padding:8px 10px;text-align:left;font-size:11px;color:#374151;border-bottom:2px solid #E2E8F0;min-width:180px">Item Description</th>
+        <th style="padding:8px 6px;text-align:center;color:#374151;border-bottom:2px solid #E2E8F0;width:50px">SKU</th>
+        <th style="padding:8px 6px;text-align:center;color:#374151;border-bottom:2px solid #E2E8F0;width:50px">Unit $</th>
+        <th style="padding:8px 6px;text-align:center;color:#374151;border-bottom:2px solid #E2E8F0;width:38px">Par</th>
+        <th style="padding:8px 6px;text-align:center;color:#374151;border-bottom:2px solid #E2E8F0;width:45px">Start OH</th>
+        <th colspan="2" style="padding:6px;text-align:center;background:#EFF6FF;border-bottom:2px solid #3B82F6;border-left:2px solid #3B82F6;font-size:10px;color:#1D4ED8">WEEK 1</th>
+        <th colspan="2" style="padding:6px;text-align:center;background:#F5F3FF;border-bottom:2px solid #7C3AED;border-left:2px solid #7C3AED;font-size:10px;color:#6D28D9">WEEK 2</th>
+        <th colspan="2" style="padding:6px;text-align:center;background:#F0FDF4;border-bottom:2px solid #059669;border-left:2px solid #059669;font-size:10px;color:#065F46">WEEK 3</th>
+        <th colspan="2" style="padding:6px;text-align:center;background:#FFFBEB;border-bottom:2px solid #D97706;border-left:2px solid #D97706;font-size:10px;color:#92400E">WEEK 4</th>
+        <th style="padding:8px 6px;text-align:center;background:#1E3A5F;color:white;border-bottom:2px solid #1E3A5F;width:60px;font-size:10px;border-left:3px solid #1E3A5F">CURRENT OH</th>
+        <th style="padding:8px 6px;text-align:center;background:#374151;color:#FDE68A;border-bottom:2px solid #374151;width:65px;font-size:10px">NEXT MO.</th>
+      </tr>
+      <tr style="background:#F8FAFC">
+        <th colspan="5" style="border-bottom:1px solid #E2E8F0"></th>
+        <th style="padding:5px;text-align:center;background:#EFF6FF;color:#2563EB;font-size:10px;border-left:2px solid #3B82F6">Rcvd</th>
+        <th style="padding:5px;text-align:center;background:#DBEAFE;color:#7C3AED;font-size:10px;font-weight:700">Pulled</th>
+        <th style="padding:5px;text-align:center;background:#F5F3FF;color:#7C3AED;font-size:10px;border-left:2px solid #7C3AED">Rcvd</th>
+        <th style="padding:5px;text-align:center;background:#EDE9FE;color:#7C3AED;font-size:10px;font-weight:700">Pulled</th>
+        <th style="padding:5px;text-align:center;background:#F0FDF4;color:#059669;font-size:10px;border-left:2px solid #059669">Rcvd</th>
+        <th style="padding:5px;text-align:center;background:#DCFCE7;color:#065F46;font-size:10px;font-weight:700">Pulled</th>
+        <th style="padding:5px;text-align:center;background:#FFFBEB;color:#D97706;font-size:10px;border-left:2px solid #D97706">Rcvd</th>
+        <th style="padding:5px;text-align:center;background:#FEF3C7;color:#92400E;font-size:10px;font-weight:700">Pulled</th>
+        <th style="background:#1E3A5F;border-bottom:1px solid #374151"></th>
+        <th style="background:#374151;border-bottom:1px solid #4B5563"></th>
+      </tr>
+    </thead>
+    <tbody>`;
+
+  showCats.forEach(cat=>{
+    const catColor = CCOLOR[cat]||'#64748B';
+    h+='<tr><td colspan="15" style="padding:7px 10px;background:'+catColor+'18;border-left:4px solid '+catColor+';font-weight:700;font-size:12px;color:'+catColor+';border-top:2px solid '+catColor+'22">'+cat+' <span style="font-weight:400;font-size:10px;color:#64748B">('+INV[cat].length+' items)</span></td></tr>';
+    INV[cat].forEach((it,idx)=>{
+      const oh = calcOH(it);
+      const isReorder = oh < it.par && it.par > 0;
+      const isCritical = oh <= 0;
+      const bg = isCritical?'#FEF2F2':isReorder?'#FFFBEB':idx%2===0?'white':'#F9FAFB';
+      const ohColor = isCritical?'#DC2626':isReorder?'#D97706':'#059669';
+      h+='<tr id="ps-row-'+it.id+'" style="background:'+bg+'">';
+      h+='<td style="padding:5px 10px;border-bottom:1px solid #F1F5F9">'+(isCritical?'🔴 ':isReorder?'⚠ ':'')+'<span style="font-weight:'+(isReorder?700:400)+'">'+it.desc+'</span></td>';
+      h+='<td style="padding:5px 6px;border-bottom:1px solid #F1F5F9;text-align:center;color:#94A3B8;font-size:10px">'+(it.sku||'—')+'</td>';
+      h+='<td style="padding:5px 6px;border-bottom:1px solid #F1F5F9;text-align:center;font-family:\'Courier New\',monospace">$'+it.price.toFixed(2)+'</td>';
+      h+='<td style="padding:5px 6px;border-bottom:1px solid #F1F5F9;text-align:center">'+(it.par||'—')+'</td>';
+      h+='<td style="padding:5px 6px;border-bottom:1px solid #F1F5F9;text-align:center;font-weight:700;color:#374151">'+it.onHand+'</td>';
+      h+='<td style="padding:4px 5px;border-bottom:1px solid #F1F5F9;text-align:center;background:#EFF6FF;border-left:2px solid #3B82F6;color:#2563EB;font-weight:'+(it.w1r?700:400)+'">'+(it.w1r||'—')+'</td>';
+      h+='<td style="padding:3px 4px;border-bottom:1px solid #F1F5F9;text-align:center;background:#DBEAFE"><input type="number" min="0" value="'+(it.w1i||'')+'" style="width:52px;padding:3px 4px;border:1px solid #93C5FD;border-radius:4px;text-align:center;font-size:11px;font-weight:700;background:#fff;color:#374151" placeholder="0" onchange="psLiveEdit(\''+it.id+'\',\'w1i\',this.value)"></td>';
+      h+='<td style="padding:4px 5px;border-bottom:1px solid #F1F5F9;text-align:center;background:#F5F3FF;border-left:2px solid #7C3AED;color:#7C3AED;font-weight:'+(it.w2r?700:400)+'">'+(it.w2r||'—')+'</td>';
+      h+='<td style="padding:3px 4px;border-bottom:1px solid #F1F5F9;text-align:center;background:#EDE9FE"><input type="number" min="0" value="'+(it.w2i||'')+'" style="width:52px;padding:3px 4px;border:1px solid #C4B5FD;border-radius:4px;text-align:center;font-size:11px;font-weight:700;background:#fff;color:#374151" placeholder="0" onchange="psLiveEdit(\''+it.id+'\',\'w2i\',this.value)"></td>';
+      h+='<td style="padding:4px 5px;border-bottom:1px solid #F1F5F9;text-align:center;background:#F0FDF4;border-left:2px solid #059669;color:#059669;font-weight:'+(it.w3r?700:400)+'">'+(it.w3r||'—')+'</td>';
+      h+='<td style="padding:3px 4px;border-bottom:1px solid #F1F5F9;text-align:center;background:#DCFCE7"><input type="number" min="0" value="'+(it.w3i||'')+'" style="width:52px;padding:3px 4px;border:1px solid #86EFAC;border-radius:4px;text-align:center;font-size:11px;font-weight:700;background:#fff;color:#374151" placeholder="0" onchange="psLiveEdit(\''+it.id+'\',\'w3i\',this.value)"></td>';
+      h+='<td style="padding:4px 5px;border-bottom:1px solid #F1F5F9;text-align:center;background:#FFFBEB;border-left:2px solid #D97706;color:#D97706;font-weight:'+(it.w4r?700:400)+'">'+(it.w4r||'—')+'</td>';
+      h+='<td style="padding:3px 4px;border-bottom:1px solid #F1F5F9;text-align:center;background:#FEF3C7"><input type="number" min="0" value="'+(it.w4i||'')+'" style="width:52px;padding:3px 4px;border:1px solid #FCD34D;border-radius:4px;text-align:center;font-size:11px;font-weight:700;background:#fff;color:#374151" placeholder="0" onchange="psLiveEdit(\''+it.id+'\',\'w4i\',this.value)"></td>';
+      h+='<td id="ps-oh-'+it.id+'" style="padding:5px 6px;border-bottom:1px solid #F1F5F9;text-align:center;font-weight:700;font-size:13px;color:'+ohColor+';background:#1E3A5F18;border-left:3px solid #1E3A5F">'+oh+'</td>';
+      h+='<td id="ps-nm-'+it.id+'" style="padding:5px 6px;border-bottom:1px solid #F1F5F9;text-align:center;font-weight:700;font-size:11px;color:#92400E;background:#FEF3C722;font-family:\'Courier New\',monospace">$'+(oh*it.price).toFixed(2)+'</td>';
+      h+='</tr>';
+    });
+  });
+
+  h+='</tbody></table></div>';
+  h+='<div style="margin-top:12px;background:#1E3A5F;color:white;border-radius:10px;padding:14px 18px"><div style="font-size:12px;font-weight:700;margin-bottom:10px;color:#FDE68A">📅 Month-End Closing Balance</div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px"><div><div style="font-size:10px;color:#94A3B8">Starting Inventory</div><div style="font-size:16px;font-weight:700;font-family:\'Courier New\',monospace;color:#93C5FD">'+$f(totStart)+'</div></div>';
+  h+='<div><div style="font-size:10px;color:#94A3B8">+ Total Received (Wk1–4)</div><div style="font-size:16px;font-weight:700;font-family:\'Courier New\',monospace;color:#6EE7B7" id="ps-ft-rcvd">'+$f(totRcvd)+'</div></div>';
+  h+='<div><div style="font-size:10px;color:#94A3B8">− Total Pulled (Wk1–4)</div><div style="font-size:16px;font-weight:700;font-family:\'Courier New\',monospace;color:#FCA5A5" id="ps-ft-issued">'+$f(totIssued)+'</div></div>';
+  h+='<div style="border-left:2px solid rgba(255,255,255,.2);padding-left:12px"><div style="font-size:10px;color:#FDE68A">= Next Month Starting Balance</div><div style="font-size:20px;font-weight:700;font-family:\'Courier New\',monospace;color:#FDE68A" id="ps-ft-balance">'+$f(totBalance)+'</div><div style="font-size:9px;color:#94A3B8;margin-top:2px">'+reorderCt+' item(s) need reorder before next month</div></div>';
+  h+='</div></div>';
+  document.getElementById('pg-pullsheet').innerHTML=h;
+}
+
+function psLiveEdit(id, field, val){
+  const v = Math.max(0, parseInt(val)||0);
+  let item=null;
+  Object.keys(INV).forEach(c=>INV[c].forEach(it=>{if(it.id===id){it[field]=v;item=it;}}));
+  if(!item) return;
+  try{localStorage.setItem('mjc_inv_live', JSON.stringify(INV));}catch(e){}
+  const oh = calcOH(item);
+  const ohCell = document.getElementById('ps-oh-'+id);
+  if(ohCell){
+    const isReorder = oh < item.par && item.par > 0;
+    const isCritical = oh <= 0;
+    ohCell.textContent = oh;
+    ohCell.style.color = isCritical?'#DC2626':isReorder?'#D97706':'#059669';
+  }
+  const nmCell = document.getElementById('ps-nm-'+id);
+  if(nmCell) nmCell.textContent = '$'+(oh*item.price).toFixed(2);
+  const showCats = _psCategory==='All'?Object.keys(INV):[_psCategory];
+  const ai = showCats.flatMap(c=>INV[c]);
+  const _r = ai.reduce((s,i)=>s+(i.w1r+i.w2r+i.w3r+i.w4r)*i.price,0);
+  const _is = ai.reduce((s,i)=>s+(i.w1i+i.w2i+i.w3i+i.w4i)*i.price,0);
+  const _st = ai.reduce((s,i)=>s+i.onHand*i.price,0);
+  const _bal = _st+_r-_is;
+  const _rc = ai.filter(i=>calcOH(i)<i.par&&i.par>0).length;
+  ['ps-sum-rcvd','ps-ft-rcvd'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=$f(_r);});
+  ['ps-sum-issued','ps-ft-issued'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=$f(_is);});
+  ['ps-sum-balance','ps-ft-balance'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=$f(_bal);});
+  const rc=document.getElementById('ps-sum-reorder');
+  if(rc){rc.textContent=_rc;rc.style.color=_rc>0?'#F97316':'#6EE7B7';}
+}
+
+function renderActive(){if(_curPg==='dashboard')renderDash();else if(_curPg==='inventory')renderInv();else if(_curPg==='report')renderReport();else if(_curPg==='pullsheet')renderPullSheet();}
 
 /* ── DASHBOARD ── */
 function renderDash(){
