@@ -174,3 +174,9 @@ ROLLOVER_SCHEMA = {
     'from_month': {'type': 'int', 'required': True, 'min': 0, 'max': 11},
     'from_year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030},
 }
+
+CREATE_VERSION_SCHEMA = {
+    'month': {'type': 'int', 'required': True, 'min': 0, 'max': 11},
+    'year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030},
+    'message': {'type': 'str', 'required': False},
+}

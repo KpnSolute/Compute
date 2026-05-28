@@ -372,6 +372,11 @@
             <div class="ql-label">Simple Dashboard</div>
             <div class="ql-desc">Quick inventory overview &amp; invoice parser</div>
           </a>
+          <a href="/pull-sheet" class="quick-link">
+            <div class="ql-icon">📝</div>
+            <div class="ql-label">Pull Sheet</div>
+            <div class="ql-desc">Printable sheet of items below par level needing reorder</div>
+          </a>
         </div>
       </div>
       <div class="card">
@@ -549,9 +554,14 @@
         document.getElementById('modal-title').textContent = `✏️ Edit User — ${u.username}`;
         document.getElementById('modal-content').innerHTML = `
           <div class="field-row">
+            <div class="field"><label>Username</label><input id="f-username" value="${esc(
+              u.username || '',
+            )}" placeholder="e.g. staff3"></div>
             <div class="field"><label>Display Name</label><input id="f-display" value="${esc(
               u.display_name || '',
             )}"></div>
+          </div>
+          <div class="field-row">
             <div class="field"><label>Role</label><select id="f-role"><option value="staff"${
               u.role === 'staff' ? ' selected' : ''
             }>Staff</option><option value="manager"${
@@ -559,13 +569,14 @@
             }>Manager</option><option value="admin"${
               u.role === 'admin' ? ' selected' : ''
             }>Admin</option></select></div>
-          </div>
-          <div class="field-row">
             <div class="field"><label>Status</label><select id="f-active"><option value="true"${
               u.active ? ' selected' : ''
             }>Active</option><option value="false"${
               !u.active ? ' selected' : ''
             }>Inactive</option></select></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>New Password</label><input id="f-password" type="password" placeholder="Leave blank to keep current"></div>
             <div class="field"><label>PIN (4 digits)</label><input id="f-pin" type="text" maxlength="4" value="${
               u.pin || ''
             }" placeholder="Leave blank to keep current"></div>
@@ -604,9 +615,13 @@
         const isEdit = !!editingUserId;
         const data = {};
         if (isEdit) {
+          const uname = document.getElementById('f-username').value.trim();
+          if (uname) data.username = uname;
           data.display_name = document.getElementById('f-display').value.trim();
           data.role = document.getElementById('f-role').value;
           data.active = document.getElementById('f-active').value === 'true';
+          const password = document.getElementById('f-password').value;
+          if (password) data.password = password;
           const pin = document.getElementById('f-pin').value.trim();
           if (pin) data.pin = pin;
           try {

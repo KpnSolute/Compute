@@ -114,10 +114,19 @@ def static_files(name):
     return send_from_directory(FRONTEND_DIR, name)
 
 
+@app.get('/pull-sheet')
+def pull_sheet():
+    user = session.get('user')
+    if not user:
+        return redirect('/')
+    if user.get('role') not in ('admin', 'manager'):
+        return redirect('/dashboard-staff')
+    return send_from_directory(FRONTEND_DIR, 'pull_sheet.html')
+
+
 @app.get('/logo-shield.svg')
 def serve_logo():
     return send_from_directory(BASE_DIR, 'logo-shield.svg')
-
 
 
 @app.get('/ping')

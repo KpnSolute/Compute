@@ -88,7 +88,7 @@ def update_user(user_id):
         return jsonify(error='Admin role required'), 403
 
     data = request.get_json(silent=True) or {}
-    allowed = {'display_name', 'role', 'active', 'pin'}
+    allowed = {'display_name', 'role', 'active', 'pin', 'username'}
     updates = {k: v for k, v in data.items() if k in allowed}
 
     if 'role' in updates and updates['role'] not in ('admin', 'manager', 'staff'):

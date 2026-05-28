@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/logo-shield.svg" />
     <title>MJC Cafeteria — Inventory Dashboard</title>
     <style>
       * {
@@ -743,6 +744,12 @@
   <body>
     <!-- Nav -->
     <nav>
+      <img
+        src="/logo-shield.svg"
+        class="nav-logo"
+        alt="MJC"
+        style="height: 28px; width: 28px; border-radius: 4px"
+      />
       <div class="nav-brand">MJC Cafeteria</div>
       <div class="month-selectors">
         <select id="sel-month">
@@ -762,6 +769,13 @@
         <select id="sel-year"></select>
       </div>
       <div class="nav-spacer"></div>
+      <a
+        href="/pull-sheet"
+        class="btn-logout"
+        style="text-decoration: none; margin-right: 6px"
+        id="btn-pullsheet"
+        >📝 Pull Sheet</a
+      >
       <div class="nav-user" id="nav-user">Loading…</div>
       <button class="btn-logout" id="btn-logout">Logout</button>
     </nav>
@@ -806,6 +820,9 @@
       </button>
       <button class="tab-btn" data-tab="reorder">Reorder Alerts</button>
       <button class="tab-btn" data-tab="report">Monthly Report</button>
+      <button class="tab-btn" data-tab="versions" id="tab-versions-btn" style="display: none">
+        Version History
+      </button>
     </div>
 
     <!-- Inventory Tab -->
@@ -946,6 +963,63 @@
       </div>
     </div>
 
+    <!-- Version History Tab -->
+    <div class="tab-panel" id="tab-versions">
+      <div
+        style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap"
+      >
+        <div style="flex: 1">
+          <h2 style="font-size: 16px; color: #8ab4f8; font-weight: 700">Version History</h2>
+          <p style="font-size: 11px; color: rgba(255, 255, 255, 0.45); margin-top: 2px">
+            Git-style snapshots — save, browse, and restore inventory states
+          </p>
+        </div>
+        <button
+          class="btn-primary"
+          id="btn-save-version"
+          style="font-size: 12px; padding: 8px 16px"
+        >
+          &#x1F4BE; Save Snapshot
+        </button>
+      </div>
+      <div
+        id="version-current"
+        style="
+          background: #132540;
+          border: 1px solid rgba(138, 180, 248, 0.15);
+          border-radius: 8px;
+          padding: 10px 14px;
+          margin-bottom: 14px;
+          font-size: 12px;
+          display: none;
+        "
+      >
+        <span style="color: rgba(255, 255, 255, 0.45)">Current version:</span>
+        <span id="version-current-label" style="color: #8ab4f8; font-weight: 700"></span>
+      </div>
+      <div class="spinner-wrap" id="versions-spinner" style="display: none; min-height: 100px">
+        <div class="spinner"></div>
+      </div>
+      <div class="tbl-wrap" id="versions-table-wrap" style="display: none">
+        <table id="versions-table">
+          <thead>
+            <tr>
+              <th style="text-align: left">Date</th>
+              <th style="text-align: left">Message</th>
+              <th style="text-align: left">Created By</th>
+              <th style="text-align: right">Grand Total</th>
+              <th style="text-align: center">Items</th>
+              <th style="text-align: center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="versions-tbody"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="versions-empty" style="display: none">
+        No snapshots saved yet. Use <strong>Save Snapshot</strong> to create the first version.
+      </div>
+    </div>
+
     <!-- Toast -->
     <div id="toast"></div>
 
@@ -1038,7 +1112,7 @@
         // Logout
         $('btn-logout').addEventListener('click', async () => {
           await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-          window.location.replace('/');
+          window.location.href = '/';
         });
 
         // Tabs
@@ -1895,6 +1969,154 @@
           .replace(/>/g, '&gt;')
           .replace(/"/g, '&quot;');
       }
+
+      // ── Version History (Git-like) ───────────────────────────────────────────
+      let versionsList = [];
+
+      async function loadVersions() {
+        $('versions-spinner').style.display = 'flex';
+        $('versions-table-wrap').style.display = 'none';
+        $('versions-empty').style.display = 'none';
+        try {
+          const r = await fetch(
+            `/api/inventory/versions?month=${currentMonth}&year=${currentYear}`,
+            { credentials: 'include' },
+          );
+          if (!r.ok) {
+            versionsList = [];
+          } else {
+            versionsList = await r.json();
+          }
+        } catch {
+          versionsList = [];
+        }
+        $('versions-spinner').style.display = 'none';
+
+        if (!versionsList.length) {
+          $('versions-empty').style.display = 'block';
+          return;
+        }
+
+        $('versions-table-wrap').style.display = 'block';
+        const tbody = $('versions-tbody');
+        tbody.innerHTML = '';
+
+        versionsList.forEach((v) => {
+          const dt = new Date(v.created_at).toLocaleString();
+          const summary = v.summary_data || {};
+          const total = summary.grand_total || 0;
+          const items = summary.total_items || 0;
+          const msg = v.message || 'Snapshot';
+          const author = v.created_by_name || v.created_by || 'System';
+          const isManager = currentRole === 'admin' || currentRole === 'manager';
+
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td style="text-align:left;font-size:11px;color:rgba(255,255,255,.6)">${escH(dt)}</td>
+            <td style="text-align:left;font-weight:600;color:#e2e8f0">${escH(msg)}</td>
+            <td style="text-align:left;font-size:11px;color:rgba(255,255,255,.6)">${escH(
+              author,
+            )}</td>
+            <td style="text-align:right;font-family:'Courier New',monospace;color:#34d399;font-weight:700">${fmt$(
+              total,
+            )}</td>
+            <td style="text-align:center">${items}</td>
+            <td style="text-align:center">
+              ${
+                isManager
+                  ? `<button class="btn-restore" data-id="${v.version_id}" style="padding:3px 10px;background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.3);color:#fbbf24;border-radius:4px;cursor:pointer;font-size:10px;font-weight:700;font-family:inherit">Restore</button>`
+                  : `<span style="color:rgba(255,255,255,.3);font-size:10px">View only</span>`
+              }
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+        // Wire restore buttons
+        tbody.querySelectorAll('.btn-restore').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const vid = btn.dataset.id;
+            const version = versionsList.find((v) => v.version_id === vid);
+            const msgText = version ? version.message || 'this snapshot' : 'this snapshot';
+            if (
+              !confirm(
+                `Restore inventory to "${msgText}"?\n\nThis will overwrite current monthly inventory data for ${
+                  currentMonth + 1
+                }/${currentYear}.`,
+              )
+            )
+              return;
+
+            btn.disabled = true;
+            btn.textContent = 'Restoring…';
+            try {
+              const r = await fetch(`/api/inventory/versions/${vid}/restore`, {
+                method: 'POST',
+                credentials: 'include',
+              });
+              if (!r.ok) {
+                const err = await r.json().catch(() => ({}));
+                showToast(err.error || 'Restore failed', 'error');
+                btn.disabled = false;
+                btn.textContent = 'Restore';
+                return;
+              }
+              showToast('Inventory restored to version snapshot', 'success');
+              await loadAll();
+              await loadVersions();
+            } catch {
+              showToast('Network error during restore', 'error');
+              btn.disabled = false;
+              btn.textContent = 'Restore';
+            }
+          });
+        });
+      }
+
+      // ── Save Snapshot button ─────────────────────────────────────────────────
+      $('btn-save-version').addEventListener('click', async () => {
+        const btn = $('btn-save-version');
+        btn.disabled = true;
+        btn.textContent = 'Saving…';
+        try {
+          const r = await fetch('/api/inventory/versions', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              month: currentMonth,
+              year: currentYear,
+              message: `Snapshot ${currentMonth + 1}/${currentYear}`,
+            }),
+          });
+          if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            showToast(err.error || 'Save failed', 'error');
+            return;
+          }
+          showToast('Snapshot saved!', 'success');
+          await loadVersions();
+        } catch {
+          showToast('Network error saving snapshot', 'error');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '💾 Save Snapshot';
+        }
+      });
+
+      // Show version tab for admin/manager
+      if (currentRole === 'admin' || currentRole === 'manager') {
+        $('tab-versions-btn').style.display = 'inline-block';
+      }
+
+      // Tab click handler for versions
+      document.querySelectorAll('.tab-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          if (btn.dataset.tab === 'versions') {
+            loadVersions();
+          }
+        });
+      });
 
       // ── Boot ─────────────────────────────────────────────────────────────────
       init();

@@ -7,6 +7,7 @@ from backend.ai_parser import parse_invoice_text
 from backend.auth_middleware import resolve_user
 from backend.supabase_client import get_client
 from backend.validation import (
+    CREATE_VERSION_SCHEMA,
     INVENTORY_ITEM_UPDATE_SCHEMA,
     INVOICE_APPLY_SCHEMA,
     INVOICE_PARSE_SCHEMA,
@@ -83,20 +84,6 @@ def items():
         if not user:
             return jsonify(error='Not authenticated'), 401
 
-        # Validate query parameters
-        is_valid, validated_data_or_error, status_code = validate_json(
-            {
-                'month': {'type': 'int', 'required': True, 'min': 0, 'max': 11},
-                'year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030},
-                'category': {'type': 'str', 'required': False},
-                'page': {'type': 'int', 'required': False, 'min': 1, 'default': 1},
-                'per_page': {'type': 'int', 'required': False, 'min': 1, 'max': 100, 'default': 50},
-            }
-        )
-        # For GET requests, we need to get data from args instead of JSON
-        if not is_valid:
-            return validated_data_or_error, status_code
-
         month = request.args.get('month', type=int)
         year = request.args.get('year', type=int)
         category = request.args.get('category')
@@ -105,6 +92,8 @@ def items():
 
         if month is None or year is None:
             return jsonify(error='month and year are required'), 400
+        if not (0 <= month <= 11 and 2020 <= year <= 2030):
+            return jsonify(error='month must be 0-11, year must be 2020-2030'), 400
 
         db = get_client()
         query = db.table('dashboard_summary').select('*').eq('month', month).eq('year', year)
@@ -534,4 +523,239 @@ def apply_invoice():
         return jsonify({'applied': applied, 'skipped': skipped})
     except Exception as e:
         logger.exception(f'Error in apply_invoice endpoint: {e}')
+        return jsonify(error='Internal server error'), 500
+
+
+# ── Version History / Rollback (Git-like) ────────────────────────────────────
+
+
+@inventory_bp.post('/versions')
+def create_version():
+    """Create a new inventory version snapshot (like a git commit)."""
+    try:
+        user = resolve_user()
+        if not user:
+            return jsonify(error='Not authenticated'), 401
+        if user['role'] not in ('admin', 'manager'):
+            return jsonify(error='Insufficient role'), 403
+
+        is_valid, validated_data_or_error, status_code = validate_json(CREATE_VERSION_SCHEMA)
+        if not is_valid:
+            return validated_data_or_error, status_code
+
+        data = validated_data_or_error
+        month = data.get('month')
+        year = data.get('year')
+        message = data.get('message', '')
+
+        db = get_client()
+
+        # Fetch full inventory state for this month/year
+        items_resp = db.table('dashboard_summary').select('*').eq('month', month).eq('year', year).execute()
+        items = items_resp.data or []
+
+        # Fetch the latest version to set as parent
+        parent_resp = (
+            db.table('inventory_versions')
+            .select('version_id')
+            .eq('month', month)
+            .eq('year', year)
+            .order('created_at', desc=True)
+            .limit(1)
+            .execute()
+        )
+        parent_id = parent_resp.data[0]['version_id'] if parent_resp.data else None
+
+        # Compute summary
+        summary = calculators.dashboard_summary(items)
+
+        version_record = {
+            'snapshot_data': {'items': items},
+            'summary_data': summary,
+            'created_by': user['id'],
+            'message': message or f'Snapshot {month + 1}/{year}',
+            'parent_version_id': parent_id,
+            'month': month,
+            'year': year,
+        }
+
+        result = db.table('inventory_versions').insert(version_record).execute()
+        created = result.data[0] if result.data else version_record
+
+        logger.info(f'Version created by {user["username"]}: {created.get("version_id")}')
+        return jsonify(created), 201
+
+    except Exception as e:
+        logger.exception(f'Error in create_version endpoint: {e}')
+        return jsonify(error='Internal server error'), 500
+
+
+@inventory_bp.get('/versions')
+def list_versions():
+    """List all inventory versions (like git log)."""
+    try:
+        user = resolve_user()
+        if not user:
+            return jsonify(error='Not authenticated'), 401
+
+        month = request.args.get('month', type=int)
+        year = request.args.get('year', type=int)
+
+        db = get_client()
+        query = db.table('inventory_versions').select(
+            'version_id, created_by, created_at, message, parent_version_id, month, year, summary_data'
+        )
+
+        if month is not None:
+            query = query.eq('month', month)
+        if year is not None:
+            query = query.eq('year', year)
+
+        # Also fetch creator display names
+        resp = query.order('created_at', desc=True).limit(100).execute()
+        versions = resp.data or []
+
+        # Enrich with creator info
+        if versions:
+            creator_ids = list(set(v.get('created_by') for v in versions if v.get('created_by')))
+            if creator_ids:
+                try:
+                    profiles = (
+                        db.table('user_profiles').select('id, display_name, username').in_('id', creator_ids).execute()
+                    )
+                    profile_map = {p['id']: p for p in (profiles.data or [])}
+                    for v in versions:
+                        creator = profile_map.get(v.get('created_by'))
+                        if creator:
+                            v['created_by_name'] = creator.get('display_name') or creator.get('username')
+                except Exception:
+                    pass
+
+        return jsonify(versions)
+
+    except Exception as e:
+        logger.exception(f'Error in list_versions endpoint: {e}')
+        return jsonify(error='Internal server error'), 500
+
+
+@inventory_bp.get('/versions/<version_id>')
+def get_version(version_id):
+    """Get a specific version's full snapshot data."""
+    try:
+        user = resolve_user()
+        if not user:
+            return jsonify(error='Not authenticated'), 401
+
+        db = get_client()
+        resp = db.table('inventory_versions').select('*').eq('version_id', version_id).limit(1).execute()
+        if not resp.data:
+            return jsonify(error='Version not found'), 404
+
+        return jsonify(resp.data[0])
+
+    except Exception as e:
+        logger.exception(f'Error in get_version endpoint: {e}')
+        return jsonify(error='Internal server error'), 500
+
+
+@inventory_bp.post('/versions/<version_id>/restore')
+def restore_version(version_id):
+    """Restore inventory to a previous version (manager only)."""
+    try:
+        user = resolve_user()
+        if not user:
+            return jsonify(error='Not authenticated'), 401
+        if user['role'] not in ('admin', 'manager'):
+            return jsonify(error='Insufficient role'), 403
+
+        db = get_client()
+
+        # Fetch the version to restore
+        version_resp = db.table('inventory_versions').select('*').eq('version_id', version_id).limit(1).execute()
+        if not version_resp.data:
+            return jsonify(error='Version not found'), 404
+
+        version = version_resp.data[0]
+        items = version.get('snapshot_data', {}).get('items', [])
+        month = version.get('month')
+        year = version.get('year')
+
+        if not items:
+            return jsonify(error='Version has no snapshot data'), 400
+
+        restored_count = 0
+        errors = []
+
+        for item in items:
+            item_id = item.get('item_id')
+            if not item_id:
+                continue
+
+            # Update inventory_items for price/par changes
+            price = item.get('unit_price')
+            par = item.get('par_level')
+            if price is not None or par is not None:
+                updates = {}
+                if price is not None:
+                    updates['unit_price'] = price
+                if par is not None:
+                    updates['par_level'] = par
+                if updates:
+                    try:
+                        db.table('inventory_items').update(updates).eq('id', item_id).execute()
+                    except Exception as e:
+                        errors.append(f'Item {item_id} price/par: {str(e)}')
+
+            # Update monthly_inventory
+            monthly_record = {
+                'on_hand': item.get('on_hand', 0),
+                'w1_received': item.get('w1_received', 0),
+                'w2_received': item.get('w2_received', 0),
+                'w3_received': item.get('w3_received', 0),
+                'w4_received': item.get('w4_received', 0),
+                'w1_issued': item.get('w1_issued', 0),
+                'w2_issued': item.get('w2_issued', 0),
+                'w3_issued': item.get('w3_issued', 0),
+                'w4_issued': item.get('w4_issued', 0),
+            }
+
+            existing = (
+                db.table('monthly_inventory')
+                .select('id')
+                .eq('item_id', item_id)
+                .eq('month', month)
+                .eq('year', year)
+                .limit(1)
+                .execute()
+            )
+
+            try:
+                if existing.data:
+                    db.table('monthly_inventory').update(monthly_record).eq('item_id', item_id).eq('month', month).eq(
+                        'year', year
+                    ).execute()
+                else:
+                    monthly_record['item_id'] = item_id
+                    monthly_record['month'] = month
+                    monthly_record['year'] = year
+                    db.table('monthly_inventory').insert(monthly_record).execute()
+                restored_count += 1
+            except Exception as e:
+                errors.append(f'Item {item_id} monthly: {str(e)}')
+
+        logger.info(
+            f'Version {version_id} restored by {user["username"]}: {restored_count} items, {len(errors)} errors'
+        )
+
+        return jsonify(
+            {
+                'restored_count': restored_count,
+                'errors': errors,
+                'version_id': version_id,
+                'message': version.get('message', ''),
+            }
+        )
+
+    except Exception as e:
+        logger.exception(f'Error in restore_version endpoint: {e}')
         return jsonify(error='Internal server error'), 500

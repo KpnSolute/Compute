@@ -13,33 +13,40 @@
       }
       body {
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: #0f1e35;
+        background: linear-gradient(135deg, #0a1628 0%, #0f1e35 50%, #132540 100%);
         color: #e2e8f0;
         min-height: 100vh;
         display: flex;
         flex-direction: column;
       }
       nav {
-        background: #1a2f4a;
+        background: rgba(26, 47, 74, 0.95);
+        backdrop-filter: blur(12px);
         padding: 0 1.5rem;
-        height: 56px;
+        height: 60px;
         display: flex;
         align-items: center;
         justify-content: space-between;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
         flex-shrink: 0;
+        position: sticky;
+        top: 0;
+        z-index: 100;
       }
       .nav-left {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 14px;
       }
       .nav-logo {
-        width: 32px;
-        height: 32px;
-        border-radius: 6px;
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
         overflow: hidden;
         flex-shrink: 0;
+        background: rgba(255, 255, 255, 0.1);
+        padding: 2px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
       }
       .nav-logo img {
         width: 100%;
@@ -47,7 +54,7 @@
         object-fit: contain;
       }
       .nav-title {
-        font-size: 15px;
+        font-size: 16px;
         font-weight: 700;
       }
       .nav-title span {
@@ -58,127 +65,203 @@
       .nav-right {
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 12px;
       }
       .btn {
         background: transparent;
-        border: 1px solid rgba(255, 255, 255, 0.25);
+        border: 1px solid rgba(255, 255, 255, 0.2);
         color: #e2e8f0;
-        padding: 6px 14px;
-        border-radius: 6px;
+        padding: 7px 16px;
+        border-radius: 8px;
         cursor: pointer;
         font-size: 12px;
         font-family: inherit;
-        transition: 0.2s;
+        transition: all 0.2s;
         text-decoration: none;
+        font-weight: 600;
       }
       .btn:hover {
         background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.3);
+        transform: translateY(-1px);
       }
+      .btn-primary {
+        background: #2563eb;
+        border-color: #2563eb;
+        color: #fff;
+      }
+      .btn-primary:hover {
+        background: #1d4ed8;
+      }
+
       main {
         flex: 1;
-        padding: 1.5rem;
-        max-width: 800px;
+        padding: 2rem;
+        max-width: 900px;
         margin: 0 auto;
         width: 100%;
         display: flex;
         flex-direction: column;
-        gap: 1rem;
+        gap: 1.25rem;
       }
       .welcome-card {
-        background: linear-gradient(135deg, #1a2f4a 0%, #243b66 100%);
-        border-radius: 14px;
-        padding: 1.5rem;
+        background: linear-gradient(135deg, #1e3a5f 0%, #2d4a7a 100%);
+        border-radius: 16px;
+        padding: 2rem;
         border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+        position: relative;
+        overflow: hidden;
+      }
+      .welcome-card::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        right: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(
+          circle at 70% 30%,
+          rgba(138, 180, 248, 0.06) 0%,
+          transparent 50%
+        );
+        pointer-events: none;
       }
       .welcome-card h1 {
-        font-size: 1.3rem;
-        margin-bottom: 4px;
+        font-size: 1.5rem;
+        margin-bottom: 6px;
+        position: relative;
+      }
+      .welcome-card h1 span {
+        color: #8ab4f8;
       }
       .welcome-card p {
         color: #94a3b8;
         font-size: 13px;
+        position: relative;
       }
+      .welcome-card .role-badge {
+        display: inline-block;
+        padding: 3px 12px;
+        border-radius: 20px;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        background: rgba(16, 185, 129, 0.15);
+        color: #6ee7b7;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        margin-top: 8px;
+      }
+
       .grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 14px;
       }
       .grid-card {
-        background: #1a2f4a;
+        background: rgba(26, 47, 74, 0.8);
+        backdrop-filter: blur(8px);
         border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 12px;
-        padding: 1.25rem;
+        border-radius: 14px;
+        padding: 1.5rem;
         text-align: center;
-        transition: 0.2s;
+        transition: all 0.25s;
         cursor: pointer;
         text-decoration: none;
         color: inherit;
+        position: relative;
+        overflow: hidden;
+      }
+      .grid-card::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: linear-gradient(90deg, #3b82f6, #8ab4f8);
+        transform: scaleX(0);
+        transition: transform 0.3s;
       }
       .grid-card:hover {
-        border-color: #3b82f6;
-        background: #243b66;
-        transform: translateY(-1px);
+        border-color: rgba(59, 130, 246, 0.4);
+        background: rgba(36, 59, 102, 0.9);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+      }
+      .grid-card:hover::after {
+        transform: scaleX(1);
       }
       .grid-card .icon {
-        font-size: 32px;
-        margin-bottom: 10px;
+        font-size: 36px;
+        margin-bottom: 12px;
       }
       .grid-card .label {
         font-weight: 700;
-        font-size: 14px;
-        margin-bottom: 4px;
+        font-size: 15px;
+        margin-bottom: 6px;
       }
       .grid-card .desc {
         font-size: 11px;
         color: #94a3b8;
-        line-height: 1.4;
+        line-height: 1.5;
       }
+
       .info-bar {
-        background: rgba(255, 255, 255, 0.04);
+        background: rgba(26, 47, 74, 0.6);
+        backdrop-filter: blur(8px);
         border: 1px solid rgba(255, 255, 255, 0.06);
-        border-radius: 10px;
-        padding: 14px 18px;
+        border-radius: 12px;
+        padding: 16px 20px;
         display: flex;
-        gap: 20px;
+        gap: 16px;
         flex-wrap: wrap;
       }
       .info-item {
         text-align: center;
         flex: 1;
-        min-width: 80px;
+        min-width: 100px;
       }
       .info-item .val {
-        font-size: 18px;
+        font-size: 20px;
         font-weight: 700;
         font-family: 'Courier New', monospace;
+        margin-bottom: 2px;
       }
       .info-item .lbl {
         font-size: 10px;
         color: #94a3b8;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.8px;
+        font-weight: 600;
       }
+
       .toast {
         position: fixed;
-        bottom: 20px;
-        right: 20px;
-        background: #059669;
+        bottom: 24px;
+        right: 24px;
+        background: #065f46;
         color: #fff;
-        padding: 10px 18px;
-        border-radius: 8px;
-        font-weight: 700;
+        padding: 12px 20px;
+        border-radius: 10px;
+        font-weight: 600;
         z-index: 9999;
-        font-size: 12px;
+        font-size: 13px;
         display: none;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.1);
       }
+
       @media (max-width: 500px) {
         main {
           padding: 1rem;
         }
         .grid {
           grid-template-columns: 1fr;
+        }
+        .nav-title {
+          font-size: 13px;
         }
       }
     </style>
@@ -190,7 +273,7 @@
         <div class="nav-title">MJC Cafeteria <span>Staff Portal</span></div>
       </div>
       <div class="nav-right">
-        <span id="nav-user" style="font-size: 12px; color: #94a3b8"></span>
+        <span id="nav-user" style="font-size: 12px; color: #94a3b8; font-weight: 600"></span>
         <button class="btn" id="logoutBtn">Logout</button>
       </div>
     </nav>
@@ -198,9 +281,9 @@
       <div class="welcome-card">
         <h1>Welcome, <span id="username">...</span>!</h1>
         <p>
-          You are logged in with <strong>staff</strong> access. Use the tools below to manage
-          cafeteria inventory.
+          You are logged in with staff access. Use the tools below to manage cafeteria inventory.
         </p>
+        <div class="role-badge">👤 Staff Member</div>
       </div>
 
       <div class="grid">
@@ -232,15 +315,15 @@
       <div class="info-bar">
         <div class="info-item">
           <div class="lbl">Role</div>
-          <div class="val" style="color: #6ee7b7; font-size: 14px">👤 Staff</div>
+          <div class="val" style="color: #6ee7b7; font-size: 16px">Staff</div>
         </div>
         <div class="info-item">
           <div class="lbl">Quick Access</div>
-          <div class="val" style="color: #93c5fd; font-size: 14px">Pull Sheet</div>
+          <div class="val" style="color: #93c5fd; font-size: 16px">Pull Sheet</div>
         </div>
         <div class="info-item">
           <div class="lbl">Support</div>
-          <div class="val" style="color: #fde68a; font-size: 14px">Contact Manager</div>
+          <div class="val" style="color: #fde68a; font-size: 16px">Contact Manager</div>
         </div>
       </div>
     </main>
