@@ -9,6 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',Arial,sans-serif;font-size:13px;background:#F5F6F8;color:#1E293B}
@@ -116,7 +117,8 @@ tfoot td{background:#F8FAFC;font-weight:700;border-top:1px solid #E2E8F0;border-
 .b-ok{background:#D1FAE5;color:#065F46;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700}
 .b-ro{background:#FEF3C7;color:#92400E;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700}
 .alert-g{background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:flex-start;gap:10px}
-.alert-g .ic{font-size:16px;flex-shrink:0;margin-top:1px}
+.alert-g .ic{font-size:16px;flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center;width:20px}
+.icon-btn{display:inline-flex;align-items:center;gap:6px}
 .alert-g .at{font-weight:700;color:#15803D;font-size:12px}
 .alert-g .as{font-size:10px;color:#166534;margin-top:2px}
 .alert-a{background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:10px 14px;margin-bottom:14px}
@@ -213,7 +215,7 @@ textarea:focus{outline:none;border-color:#1A2B4A}
     </div>
   </div>
   <div class="hd-right">
-    <span class="inv-badge">✓ US Foods #2312098 — Wk1</span><span class="inv-badge" style="background:#1D4ED8">✓ Multi-Flow #861848 #864172 #864236 — Wk1</span>
+    <span class="inv-badge"><i class="fas fa-check"></i> US Foods #2312098 — Wk1</span><span class="inv-badge" style="background:#1D4ED8"><i class="fas fa-check"></i> Multi-Flow #861848 #864172 #864236 — Wk1</span>
     <select id="selMonth" onchange="renderActive()">
       <option value="0">January</option><option value="1">February</option><option value="2">March</option>
       <option value="3">April</option><option value="4" selected>May</option><option value="5">June</option>
@@ -223,27 +225,27 @@ textarea:focus{outline:none;border-color:#1A2B4A}
     <select id="selYear" onchange="renderActive()">
       <option>2024</option><option>2025</option><option selected>2026</option><option>2027</option>
     </select>
-    <button class="btn-save" onclick="exportData()">⬇ Export data</button>
-    <label class="btn-save" style="cursor:pointer" title="Import previously exported data">⬆ Import data<input type="file" accept=".json" onchange="importData(event)" style="display:none"></label>
-    <button class="btn-save" onclick="saveSnapshot()">💾 Save Month</button>
-    <button class="btn-save" id="btn-rollover" onclick="rollToNextMonth()" style="background:linear-gradient(135deg,#059669,#0d9488);color:#fff;border-color:#059669" title="Close current month and roll inventory forward to next month">📅 Close Month →</button>
-    <span id="sync-badge" class="sync-badge" onclick="openSyncSetup()" title="Cloud sync settings" style="background:rgba(100,116,139,.25)">⚫ Cloud Sync</span><button class="btn-save" onclick="syncPush()" title="Push inventory to cloud">☁ Push</button><button class="btn-save" onclick="syncPull()" title="Pull inventory from cloud">⬇ Pull</button><button id="scan-btn" class="btn-save" onclick="toggleScanMode()" title="Activate barcode scanner">📡 Scan Mode</button>
-    <button class="btn-hdr" onclick="openCameraScan()" title="Scan barcodes with camera (Chrome/Android)">📷 Camera</button>
-    <button class="btn-hdr" onclick="window.print()">🖨 Print Report</button>
-    <button class="btn-hdr" onclick="(function(){try{sessionStorage.removeItem('mjc_auth');}catch(e){}window.location.replace('index.html');})()" title="Sign out" style="background:rgba(220,38,38,.2);border-color:rgba(220,38,38,.4)">🔓 Sign Out</button>
+    <button class="btn-save icon-btn" onclick="exportData()" title="Export inventory data"><i class="fas fa-download"></i> Export</button>
+    <label class="btn-save icon-btn" style="cursor:pointer" title="Import previously exported data"><i class="fas fa-upload"></i> Import<input type="file" accept=".json" onchange="importData(event)" style="display:none"></label>
+    <button class="btn-save icon-btn" onclick="saveSnapshot()" title="Save current month snapshot"><i class="fas fa-floppy-disk"></i> Save</button>
+    <button class="btn-save icon-btn" id="btn-rollover" onclick="rollToNextMonth()" style="background:linear-gradient(135deg,#059669,#0d9488);color:#fff;border-color:#059669" title="Close current month and roll inventory forward to next month"><i class="fas fa-calendar-check"></i> Close Month</button>
+    <span id="sync-badge" class="sync-badge icon-btn" onclick="openSyncSetup()" title="Cloud sync settings" style="background:rgba(100,116,139,.25)"><i class="fas fa-circle" style="font-size:6px"></i> Cloud Sync</span><button class="btn-save icon-btn" onclick="syncPush()" title="Push inventory to cloud"><i class="fas fa-cloud-upload-alt"></i> Push</button><button class="btn-save icon-btn" onclick="syncPull()" title="Pull inventory from cloud"><i class="fas fa-cloud-download-alt"></i> Pull</button><button id="scan-btn" class="btn-save icon-btn" onclick="toggleScanMode()" title="Activate barcode scanner"><i class="fas fa-barcode"></i> Scan</button>
+    <button class="btn-hdr icon-btn" onclick="openCameraScan()" title="Scan barcodes with camera (Chrome/Android)"><i class="fas fa-camera"></i> Camera</button>
+    <button class="btn-hdr icon-btn" onclick="window.print()"><i class="fas fa-print"></i> Print</button>
+    <button class="btn-hdr icon-btn" onclick="(function(){try{sessionStorage.removeItem('mjc_auth');}catch(e){}window.location.replace('index.html');})()" title="Sign out" style="background:rgba(220,38,38,.2);border-color:rgba(220,38,38,.4)"><i class="fas fa-sign-out-alt"></i> Sign Out</button>
   </div>
 </div>
-<div id="scan-active-bar">📡 SCANNER ACTIVE — Scan any barcode to update inventory · Click <a href="#" onclick="toggleScanMode();return false" style="color:white;font-weight:900">STOP</a> to exit</div>
+<div id="scan-active-bar"><i class="fas fa-barcode" style="margin-right:8px"></i>SCANNER ACTIVE — Scan any barcode to update inventory · Click <a href="#" onclick="toggleScanMode();return false" style="color:white;font-weight:900">STOP</a> to exit</div>
 
 <div id="tabs">
-  <button class="tab active" onclick="showTab('dashboard',this)">📊 Dashboard</button>
-  <button class="tab" onclick="showTab('inventory',this)">📋 Inventory</button>
-  <button class="tab" onclick="showTab('invoice',this)">🧾 Invoice Entry</button>
-  <button class="tab" onclick="showTab('report',this)">📄 Monthly Report</button>
-  <button class="tab" onclick="showTab('pullsheet',this)">📝 Pull Sheet</button>
-  <button class="tab" onclick="showTab('history',this)">📅 History</button>
-  <button class="tab" onclick="showTab('barcodes',this)">📦 Barcodes</button>
-  <button class="tab" onclick="showTab('mobile',this)">📱 Mobile Sync</button>
+  <button class="tab active icon-btn" onclick="showTab('dashboard',this)"><i class="fas fa-chart-line"></i> Dashboard</button>
+  <button class="tab icon-btn" onclick="showTab('inventory',this)"><i class="fas fa-list"></i> Inventory</button>
+  <button class="tab icon-btn" onclick="showTab('invoice',this)"><i class="fas fa-receipt"></i> Invoices</button>
+  <button class="tab icon-btn" onclick="showTab('report',this)"><i class="fas fa-file-alt"></i> Report</button>
+  <button class="tab icon-btn" onclick="showTab('pullsheet',this)"><i class="fas fa-clipboard-list"></i> Pull Sheet</button>
+  <button class="tab icon-btn" onclick="showTab('history',this)"><i class="fas fa-history"></i> History</button>
+  <button class="tab icon-btn" onclick="showTab('barcodes',this)"><i class="fas fa-box"></i> Barcodes</button>
+  <button class="tab icon-btn" onclick="showTab('mobile',this)"><i class="fas fa-mobile-alt"></i> Mobile</button>
 </div>
 
 <div id="page">
@@ -256,7 +258,7 @@ textarea:focus{outline:none;border-color:#1A2B4A}
   <div id="pg-barcodes" class="pg"></div>
   <div id="pg-mobile" class="pg"></div>
 </div>
-<div id="toast">✓ Applied to inventory</div>
+<div id="toast"><i class="fas fa-check"></i> Applied to inventory</div>
 
 <script>
 const MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -666,7 +668,7 @@ function renderBarcodes(){
   const filterCat=(document.getElementById('bcat-filter')||{value:''}).value||'';
   let h=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
     <div>
-      <div style="font-weight:700;font-size:14px">📦 Inventory Barcodes</div>
+      <div style="font-weight:700;font-size:14px"><i class="fas fa-box" style="color:#1A2B4A;margin-right:8px"></i>Inventory Barcodes</div>
       <div style="font-size:11px;color:#64748B;margin-top:2px">Every item has a unique Code 128 barcode. Print labels for shelves. Scan with USB/Bluetooth scanner or camera.</div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -674,8 +676,8 @@ function renderBarcodes(){
         <option value="">All categories</option>
         ${Object.keys(INV).map(c=>`<option value="${c}"${filterCat===c?' selected':''}>${c}</option>`).join('')}
       </select>
-      <button class="btn-p no-print" onclick="window.print()">🖨 Print Labels</button>
-      <button class="btn-s no-print" onclick="toggleScanMode()">📡 Scan Mode</button>
+      <button class="btn-p icon-btn no-print" onclick="window.print()"><i class="fas fa-print"></i> Print Labels</button>
+      <button class="btn-s icon-btn no-print" onclick="toggleScanMode()"><i class="fas fa-barcode"></i> Scan Mode</button>
     </div>
   </div>`;
   let g=0;
@@ -703,7 +705,7 @@ function renderBarcodes(){
   });
   h+=`<div style="margin-top:8px;padding:10px;background:#F8FAFC;border-radius:6px;font-size:11px;color:#64748B">
     <strong>Total: ${g} barcodes generated.</strong> Green-dot codes use your existing SKU. MJC-prefixed codes are system-generated.
-    USB/Bluetooth HID scanners work automatically — just click <strong>📡 Scan Mode</strong> and scan.
+    USB/Bluetooth HID scanners work automatically — just click <strong><i class="fas fa-barcode"></i> Scan Mode</strong> and scan.
   </div>`;
   document.getElementById('pg-barcodes').innerHTML=h;
   // Render barcodes after DOM settles
@@ -728,11 +730,11 @@ function toggleScanMode(){
   const btn=document.getElementById('scan-btn');
   const bar=document.getElementById('scan-active-bar');
   if(_scanActive){
-    btn.style.background='#059669';btn.textContent='🔴 Stop Scanning';
+    btn.style.background='#059669';btn.textContent='';btn.innerHTML='<i class="fas fa-stop-circle"></i> Stop Scanning';
     bar.style.display='block';
-    showToast('📡 Scanner active — scan any barcode');
+    showToast('<i class="fas fa-barcode"></i> Scanner active — scan any barcode');
   }else{
-    btn.style.background='';btn.textContent='📡 Scan Mode';
+    btn.style.background='';btn.textContent='';btn.innerHTML='<i class="fas fa-barcode"></i> Scan Mode';
     bar.style.display='none';
     _scanBuf='';
     showToast('Scanner stopped');
@@ -772,14 +774,14 @@ function showScanModal(code,item,cat){
     d.innerHTML=`<div class="scan-box">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
         <div>
-          <h3>✅ Item Found</h3>
+          <h3><i class="fas fa-check-circle" style="color:#059669"></i> Item Found</h3>
           <div class="scan-sub">${item.desc.substring(0,50)}<br><span style="color:${CCOLOR[cat]||'#888'}">${cat}</span> · ${$f(item.price)}/unit · On hand: <strong>${item.onHand}</strong></div>
         </div>
-        <button onclick="closeScanModal()" style="border:none;background:none;font-size:20px;cursor:pointer;color:#94A3B8">✕</button>
+        <button onclick="closeScanModal()" style="border:none;background:none;font-size:20px;cursor:pointer;color:#94A3B8"><i class="fas fa-times"></i></button>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
         <div style="background:#F0FDF4;border-radius:8px;padding:12px;text-align:center">
-          <div style="font-size:11px;font-weight:700;color:#064B3B;margin-bottom:8px">📦 Received</div>
+          <div style="font-size:11px;font-weight:700;color:#064B3B;margin-bottom:8px"><i class="fas fa-box" style="color:#059669"></i> Received</div>
           <div class="qty-row">
             <button class="qty-btn" onclick="scanAdj('r',-1)">−</button>
             <div class="qty-val" id="sr-qty">1</div>
@@ -797,13 +799,13 @@ function showScanModal(code,item,cat){
       </div>
       <div style="font-size:11px;color:#94A3B8;text-align:center;margin-bottom:12px">Applying to Week ${wkNum}</div>
       <div style="display:flex;gap:8px">
-        <button class="btn-p" style="flex:1" onclick="applyScan('${item.id}','${cat}')">✓ Apply to Inventory</button>
+        <button class="btn-p" style="flex:1" onclick="applyScan('${item.id}','${cat}')"><i class="fas fa-check"></i> Apply to Inventory</button>
         <button class="btn-s" onclick="closeScanModal()">Cancel</button>
       </div>
     </div>`;
   }else{
     d.innerHTML=`<div class="scan-box" style="text-align:center">
-      <div style="font-size:36px;margin-bottom:10px">❓</div>
+      <div style="font-size:36px;margin-bottom:10px"><i class="fas fa-question-circle"></i></div>
       <h3 style="margin-bottom:6px">Barcode Not Found</h3>
       <div class="scan-sub">Code: <code style="background:#F1F5F9;padding:2px 6px;border-radius:4px">${code}</code></div>
       <p style="font-size:11px;color:#64748B;margin:10px 0 14px">This barcode is not in the inventory. Add a new item in the Inventory tab and assign this code as the SKU.</p>
@@ -849,19 +851,19 @@ async function openCameraScan(){
     _camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1280},height:{ideal:720}}});
     showCamModal();
   }catch(e){
-    showToast('⚠ Camera access denied. Check browser permissions.');
+    showToast('<i class="fas fa-exclamation-triangle"></i> Camera access denied. Check browser permissions.');
   }
 }
 
 function showCamFallback(){
   const d=document.createElement('div');d.className='scan-overlay';d.id='cam-modal';
   d.innerHTML=`<div class="scan-box" style="text-align:center">
-    <div style="font-size:32px;margin-bottom:10px">📷</div>
+    <div style="font-size:32px;margin-bottom:10px"><i class="fas fa-camera"></i></div>
     <h3 style="margin-bottom:6px">Camera Scanning</h3>
     <div class="scan-sub">Your browser doesn't support the BarcodeDetector API.</div>
     <p style="font-size:11px;color:#64748B;margin:10px 0 14px">
       <strong>Supported:</strong> Chrome 83+ on Android, Chrome/Edge on Windows/Mac.<br>
-      <strong>Alternative:</strong> Use a USB or Bluetooth HID barcode scanner (works in any browser) or use the 📡 Scan Mode button.
+      <strong>Alternative:</strong> Use a USB or Bluetooth HID barcode scanner (works in any browser) or use the <i class="fas fa-barcode"></i> Scan Mode button.
     </p>
     <button class="btn-s" style="width:100%" onclick="closeCamModal()">Close</button>
   </div>`;
@@ -873,9 +875,9 @@ function showCamModal(){
   const d=document.createElement('div');d.className='scan-overlay';d.id='cam-modal';
   d.innerHTML=`<div class="scan-box" style="max-width:500px;padding:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <div><div style="font-weight:700;font-size:14px">📷 Camera Scanner</div>
+      <div><div style="font-weight:700;font-size:14px"><i class="fas fa-camera"></i> Camera Scanner</div>
       <div style="font-size:10px;color:#64748B">Point at any barcode label</div></div>
-      <button onclick="closeCamModal()" style="border:none;background:none;font-size:22px;cursor:pointer;color:#94A3B8">✕</button>
+      <button onclick="closeCamModal()" style="border:none;background:none;font-size:22px;cursor:pointer;color:#94A3B8"><i class="fas fa-times"></i></button>
     </div>
     <div class="cam-guide"><video id="cam-vid" autoplay playsinline muted style="width:100%;border-radius:8px;background:#000;max-height:280px;object-fit:cover"></video></div>
     <div id="cam-status" style="text-align:center;padding:10px;font-size:12px;color:#64748B;margin-top:6px">
@@ -896,7 +898,7 @@ function showCamModal(){
       if(codes.length>0){
         const code=codes[0].rawValue;
         const st=document.getElementById('cam-status');
-        if(st)st.innerHTML=`✅ Found: <strong>${code}</strong>`;
+        if(st)st.innerHTML=`<i class="fas fa-check-circle" style="color:#059669"></i> Found: <strong>${code}</strong>`;
         _camDetecting=false;
         setTimeout(()=>{closeCamModal();processScan(code);},400);
         return;
@@ -918,23 +920,23 @@ function closeCamModal(){
 ══════════════════════════════════════════════════════ */
 function renderMobileSync(){
   let h=`<div style="max-width:700px">
-    <div style="font-weight:700;font-size:14px;margin-bottom:4px">📱 Mobile & Cross-Device Sync</div>
+    <div style="font-weight:700;font-size:14px;margin-bottom:4px"><i class="fas fa-mobile-alt"></i> Mobile & Cross-Device Sync</div>
     <p style="color:#64748B;font-size:12px;margin-bottom:18px;line-height:1.6">Four ways to access and sync your inventory between desktop, tablet, and smartphone.</p>
 
     <!-- Method 1: HID Scanner -->
     <div class="section" style="margin-bottom:12px"><div style="padding:14px 16px">
       <div style="display:flex;align-items:flex-start;gap:12px">
-        <div style="font-size:28px;flex-shrink:0">📡</div>
+        <div style="font-size:28px;flex-shrink:0"><i class="fas fa-barcode"></i></div>
         <div style="flex:1">
           <div style="font-weight:700;font-size:13px;margin-bottom:3px">Method 1 — USB / Bluetooth HID Scanner <span style="background:#DCFCE7;color:#166534;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:700">Recommended</span></div>
           <div style="font-size:11px;color:#64748B;margin-bottom:10px;line-height:1.5">Any USB or Bluetooth barcode scanner (Zebra, Honeywell, Socket Mobile, etc.) works instantly — they appear as a keyboard. No app needed. Works on desktop AND smartphone browsers.</div>
           <div style="background:#F8FAFC;border-radius:6px;padding:10px;font-size:11px;margin-bottom:10px">
             <div style="font-weight:700;margin-bottom:4px">Setup:</div>
             1. Plug in USB scanner or pair Bluetooth scanner<br>
-            2. Click <strong>📡 Scan Mode</strong> in the header<br>
+            2. Click <strong><i class="fas fa-barcode"></i> Scan Mode</strong> in the header<br>
             3. Scan any item barcode — inventory updates instantly
           </div>
-          <button class="btn-p" onclick="toggleScanMode();showTab('dashboard',document.querySelector('.tab'))">📡 Activate Scan Mode</button>
+          <button class="btn-p icon-btn" onclick="toggleScanMode();showTab('dashboard',document.querySelector('.tab'))"><i class="fas fa-barcode"></i> Activate Scan Mode</button>
         </div>
       </div>
     </div></div>
@@ -942,11 +944,11 @@ function renderMobileSync(){
     <!-- Method 2: Camera -->
     <div class="section" style="margin-bottom:12px"><div style="padding:14px 16px">
       <div style="display:flex;align-items:flex-start;gap:12px">
-        <div style="font-size:28px;flex-shrink:0">📷</div>
+        <div style="font-size:28px;flex-shrink:0"><i class="fas fa-camera"></i></div>
         <div style="flex:1">
           <div style="font-weight:700;font-size:13px;margin-bottom:3px">Method 2 — Camera Scanning (Phone / Tablet)</div>
           <div style="font-size:11px;color:#64748B;margin-bottom:10px;line-height:1.5">Open this HTML file on your phone browser. Tap Camera to scan barcodes using the device camera. Requires Chrome on Android or Edge on mobile.</div>
-          <button class="btn-p" onclick="openCameraScan()">📷 Open Camera Scanner</button>
+          <button class="btn-p icon-btn" onclick="openCameraScan()"><i class="fas fa-camera"></i> Open Camera Scanner</button>
         </div>
       </div>
     </div></div>
@@ -954,11 +956,11 @@ function renderMobileSync(){
     <!-- Method 3: QR sync -->
     <div class="section" style="margin-bottom:12px"><div style="padding:14px 16px">
       <div style="display:flex;align-items:flex-start;gap:12px">
-        <div style="font-size:28px;flex-shrink:0">🔄</div>
+        <div style="font-size:28px;flex-shrink:0"><i class="fas fa-sync-alt"></i></div>
         <div style="flex:1">
           <div style="font-weight:700;font-size:13px;margin-bottom:3px">Method 3 — QR Sync Code</div>
           <div style="font-size:11px;color:#64748B;margin-bottom:10px;line-height:1.5">Generates a QR code containing compressed inventory quantities. Scan with phone to see a sync summary. For full data transfer use Method 4.</div>
-          <button class="btn-p" onclick="genSyncQR()" style="margin-bottom:12px">🔲 Generate Sync QR Code</button>
+          <button class="btn-p icon-btn" onclick="genSyncQR()" style="margin-bottom:12px"><i class="fas fa-qrcode"></i> Generate Sync QR Code</button>
           <div id="sync-qr-wrap" style="display:none;text-align:center">
             <div id="sync-qr-out"></div>
             <div style="font-size:10px;color:#94A3B8;margin-top:6px">Scan with phone camera</div>
@@ -971,7 +973,7 @@ function renderMobileSync(){
     <!-- Method 4: File share -->
     <div class="section" style="margin-bottom:12px"><div style="padding:14px 16px">
       <div style="display:flex;align-items:flex-start;gap:12px">
-        <div style="font-size:28px;flex-shrink:0">📤</div>
+        <div style="font-size:28px;flex-shrink:0"><i class="fas fa-share-alt"></i></div>
         <div style="flex:1">
           <div style="font-weight:700;font-size:13px;margin-bottom:3px">Method 4 — Full Data Export / Import</div>
           <div style="font-size:11px;color:#64748B;margin-bottom:10px;line-height:1.5">Export the complete inventory as a JSON file. Share via email, AirDrop, iMessage, WhatsApp, or cloud storage. Import on any device to get the exact same data.</div>
@@ -987,11 +989,11 @@ function renderMobileSync(){
     <!-- Barcode quick reference -->
     <div class="section"><div style="padding:14px 16px">
       <div style="display:flex;align-items:flex-start;gap:12px">
-        <div style="font-size:28px;flex-shrink:0">🏷</div>
+        <div style="font-size:28px;flex-shrink:0"><i class="fas fa-tag"></i></div>
         <div style="flex:1">
           <div style="font-weight:700;font-size:13px;margin-bottom:3px">Print Barcode Labels</div>
           <div style="font-size:11px;color:#64748B;margin-bottom:10px">Print barcode labels for all ${Object.values(INV).flat().length} inventory items. Attach to shelves, bins, or products. Scan to update quantities.</div>
-          <button class="btn-p" onclick="showTab('barcodes',document.querySelectorAll('.tab')[5])">📦 Go to Barcodes Tab</button>
+          <button class="btn-p icon-btn" onclick="showTab('barcodes',document.querySelectorAll('.tab')[5])"><i class="fas fa-box"></i> Go to Barcodes Tab</button>
         </div>
       </div>
     </div></div>
@@ -1018,7 +1020,7 @@ function genSyncQR(){
   }catch(e){payload=btoa(JSON.stringify(compact)).substring(0,2000);}
   const qrText='MJCINV:'+payload;
   if(qrText.length>2953){
-    msg.textContent='⚠ Data too large for QR ('+qrText.length+' chars). Use Method 4 (File Share) for full sync.';
+    msg.textContent='<i class="fas fa-exclamation-triangle"></i> Data too large for QR ('+qrText.length+' chars). Use Method 4 (File Share) for full sync.';
     wrap.style.display='none';return;
   }
   wrap.style.display='block';
@@ -1081,7 +1083,7 @@ function importData(event){
       renderActive();
       if(_curPg==='history')renderHistory();
     }catch(err){
-      showToast('⚠ Could not read file — make sure it is a valid export');
+      showToast('<i class="fas fa-exclamation-triangle"></i> Could not read file — make sure it is a valid export');
     }
     event.target.value='';
   };
@@ -1094,6 +1096,7 @@ function persistInv(){
     localStorage.setItem('mjc_inv_live', JSON.stringify(INV));
     localStorage.setItem('mjc_inv_version', INV_VERSION);
   }catch(e){}
+  updateDashboardStats();
 }
 
 /* ── SNAPSHOT / HISTORY ── */
@@ -1115,8 +1118,8 @@ function saveSnapshot(){
   };
   try{
     localStorage.setItem(snapKey(y,m),JSON.stringify(snap));
-    showToast('💾 '+MONTHS[m]+' '+y+' snapshot saved');
-  }catch(e){showToast('⚠ Storage unavailable — save the file to persist data');}
+    showToast('<i class="fas fa-floppy-disk"></i> '+MONTHS[m]+' '+y+' snapshot saved');
+  }catch(e){showToast('<i class="fas fa-exclamation-triangle"></i> Storage unavailable — save the file to persist data');}
   fetch('/api/inventory/save-snapshot', {
     method: 'POST',
     credentials: 'include',
@@ -1148,10 +1151,10 @@ function rollToNextMonth(){
     `  Total received:   $${$f(totalRcvd)}\n` +
     `  Total issued:     $${$f(totalIssd)}\n\n` +
     `This will:\n` +
-    `  ✓ Save ${curName} snapshot to history\n` +
-    `  ✓ Set ${nextName} starting on-hand from ${curName} ending values\n` +
-    `  ✓ Clear all weekly received & issued fields\n` +
-    `  ✓ Advance month selector to ${nextName}`
+    `  <i class="fas fa-check"></i> Save ${curName} snapshot to history\n` +
+    `  <i class="fas fa-check"></i> Set ${nextName} starting on-hand from ${curName} ending values\n` +
+    `  <i class="fas fa-check"></i> Clear all weekly received & issued fields\n` +
+    `  <i class="fas fa-check"></i> Advance month selector to ${nextName}`
   )) return;
 
   // 1. Save snapshot for the closing month
@@ -1235,11 +1238,11 @@ function renderHistory(){
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn-s" onclick="exportData()" style="font-size:12px">⬇ Export saved data</button>
       <label class="btn-s" style="cursor:pointer;font-size:12px">⬆ Import data<input type="file" accept=".json" onchange="importData(event)" style="display:none"></label>
-      <button class="btn-p" onclick="saveSnapshot()">💾 Save Current Month</button>
+      <button class="btn-p icon-btn" onclick="saveSnapshot()"><i class="fas fa-floppy-disk"></i> Save Current Month</button>
     </div>
   </div>
   <div style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:11px;color:#92400E">
-    <strong>⚠ Why app and desktop data look different:</strong> The 📊 Historical records (pre-loaded from Excel) are identical everywhere.
+    <strong><i class="fas fa-exclamation-triangle"></i> Why app and desktop data look different:</strong> The <i class="fas fa-chart-line"></i> Historical records (pre-loaded from Excel) are identical everywhere.
     But 💾 Saved snapshots use your browser's local storage — they only exist on the device and browser where you saved them.
     Use <strong>⬇ Export</strong> on one device and <strong>⬆ Import</strong> on another to keep them in sync.
   </div>`;
@@ -1298,7 +1301,7 @@ function renderHistory(){
             <th style="text-align:left;padding:4px 8px;color:#64748B;font-weight:700">Total inventory value</th>
             <th style="text-align:right;padding:4px 8px;color:#64748B;font-weight:700;width:110px">Value</th>
             <th style="text-align:center;padding:4px 8px;color:#64748B;font-weight:700;width:60px">Items</th>
-            <th style="text-align:center;padding:4px 8px;color:#64748B;font-weight:700;width:60px">⚠ Reorder</th>
+            <th style="text-align:center;padding:4px 8px;color:#64748B;font-weight:700;width:60px"><i class="fas fa-exclamation-triangle"></i> Reorder</th>
           </tr></thead>
           <tbody>`;
     snaps.forEach((s,i)=>{
@@ -1333,7 +1336,7 @@ function renderHistory(){
         </div>
         <div style="display:flex;align-items:center;gap:14px">
           <span style="font-family:'Courier New',monospace;font-weight:700;font-size:13px">${$f(s.grandTotal)}</span>
-          <button onclick="deleteSnap(${s.year},${s.month})" style="border:none;background:none;cursor:${s.preset?'not-allowed':'pointer'};color:${s.preset?'transparent':'#CBD5E1'};font-size:12px;padding:2px 6px" ${s.preset?'disabled title="Historical data — save this month to override"':'title="Delete snapshot"'}>🗑</button>
+          <button onclick="deleteSnap(${s.year},${s.month})" style="border:none;background:none;cursor:${s.preset?'not-allowed':'pointer'};color:${s.preset?'transparent':'#CBD5E1'};font-size:12px;padding:2px 6px" ${s.preset?'disabled title="Historical data — save this month to override"':'title="Delete snapshot"'}><i class="fas fa-trash"></i></button>
         </div>
       </div>
       <div style="padding:12px 16px">
@@ -1383,7 +1386,7 @@ function renderPullSheet(){
   <div style="background:#1E3A5F;color:white;border-radius:10px 10px 0 0;padding:14px 16px;margin-bottom:0">
     <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px">
       <div>
-        <div style="font-size:16px;font-weight:700">📝 Pull Sheet — Running Balance</div>
+        <div style="font-size:16px;font-weight:700"><i class="fas fa-clipboard-list"></i> Pull Sheet — Running Balance</div>
         <div style="font-size:11px;opacity:.75;margin-top:2px">Edits save instantly · All 4 weeks linked</div>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
@@ -1399,11 +1402,11 @@ function renderPullSheet(){
     <div style="text-align:center"><div style="font-size:9px;color:#94A3B8;text-transform:uppercase;letter-spacing:.5px">+ Total Received</div><div style="font-size:15px;font-weight:700;color:#6EE7B7;font-family:'Courier New',monospace" id="ps-sum-rcvd">${$f(totRcvd)}</div></div>
     <div style="text-align:center"><div style="font-size:9px;color:#94A3B8;text-transform:uppercase;letter-spacing:.5px">− Total Pulled</div><div style="font-size:15px;font-weight:700;color:#FCA5A5;font-family:'Courier New',monospace" id="ps-sum-issued">${$f(totIssued)}</div></div>
     <div style="text-align:center;border-left:2px solid #374151;padding-left:8px"><div style="font-size:9px;color:#94A3B8;text-transform:uppercase;letter-spacing:.5px">= Current Balance</div><div style="font-size:15px;font-weight:700;color:#FDE68A;font-family:'Courier New',monospace" id="ps-sum-balance">${$f(totBalance)}</div></div>
-    <div style="text-align:center"><div style="font-size:9px;color:#94A3B8;text-transform:uppercase;letter-spacing:.5px">⚠ Reorder Items</div><div style="font-size:15px;font-weight:700;color:${reorderCt>0?'#F97316':'#6EE7B7'}" id="ps-sum-reorder">${reorderCt}</div></div>
+    <div style="text-align:center"><div style="font-size:9px;color:#94A3B8;text-transform:uppercase;letter-spacing:.5px"><i class="fas fa-exclamation-triangle" style="color:#D97706"></i> Reorder Items</div><div style="font-size:15px;font-weight:700;color:${reorderCt>0?'#F97316':'#6EE7B7'}" id="ps-sum-reorder">${reorderCt}</div></div>
   </div>
   <div style="display:flex;gap:16px;padding:6px 14px;background:#F1F5F9;font-size:11px;color:#475569;border-bottom:1px solid #E2E8F0;flex-wrap:wrap">
     <span>🟢 Received (from invoices)</span><span style="color:#7C3AED;font-weight:700">🟣 Pulled/Issued (enter here — saves instantly)</span>
-    <span>🟡 Running OH = Start + Received − Pulled</span><span style="color:#D97706">⚠ Below par level</span>
+    <span><span style="color:#F59E0B"><i class="fas fa-circle" style="font-size:6px"></i></span> Running OH = Start + Received − Pulled</span><span style="color:#D97706"><i class="fas fa-exclamation-triangle"></i> Below par level</span>
   </div>
   <div style="overflow-x:auto;background:white;border-radius:0 0 10px 10px;border:1px solid #E2E8F0;border-top:none">
   <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:900px">
@@ -1447,7 +1450,7 @@ function renderPullSheet(){
       const bg = isCritical?'#FEF2F2':isReorder?'#FFFBEB':idx%2===0?'white':'#F9FAFB';
       const ohColor = isCritical?'#DC2626':isReorder?'#D97706':'#059669';
       h+='<tr id="ps-row-'+it.id+'" style="background:'+bg+'">';
-      h+='<td style="padding:5px 10px;border-bottom:1px solid #F1F5F9">'+(isCritical?'🔴 ':isReorder?'⚠ ':'')+'<span style="font-weight:'+(isReorder?700:400)+'">'+it.desc+'</span></td>';
+      h+='<td style="padding:5px 10px;border-bottom:1px solid #F1F5F9">'+(isCritical?'<i class="fas fa-circle-stop" style="color:#DC2626"></i> ':isReorder?'<i class="fas fa-exclamation-triangle" style="color:#D97706"></i> ':'')+'<span style="font-weight:'+(isReorder?700:400)+'">'+it.desc+'</span></td>';
       h+='<td style="padding:5px 6px;border-bottom:1px solid #F1F5F9;text-align:center;color:#94A3B8;font-size:10px">'+(it.sku||'—')+'</td>';
       h+='<td style="padding:5px 6px;border-bottom:1px solid #F1F5F9;text-align:center;font-family:\'Courier New\',monospace">$'+it.price.toFixed(2)+'</td>';
       h+='<td style="padding:5px 6px;border-bottom:1px solid #F1F5F9;text-align:center">'+(it.par||'—')+'</td>';
@@ -1515,11 +1518,11 @@ function renderDash(){
 
   // Live month (May 2026)
   const rr=reorders();const cats=Object.keys(INV);
-  let h=`<div class="alert-g"><div class="ic">✅</div><div>
+  let h=`<div class="alert-g"><div class="ic"><i class="fas fa-check-circle" style="color:#059669"></i></div><div>
     <div class="at">US Foods Invoice #39582 — Week 2 received applied (05/18/2026)</div>
     <div class="as">63 line items · Dry, Refrigerated &amp; Frozen · Invoice total: $5,512.92 · Net after VIZIENT: $5,457.28</div>
   </div></div>
-  <div class="alert-g"><div class="ic">✅</div><div>
+  <div class="alert-g"><div class="ic"><i class="fas fa-check-circle" style="color:#059669"></i></div><div>
     <div class="at">US Foods Invoice #2312098 — Week 1 received applied (04/30/2026)</div>
     <div class="as">185 line items · Dry, Refrigerated &amp; Frozen · Invoice total: $19,417.66 · Week 1 received value: ${$f(wk1Total())}</div>
   </div></div>
@@ -1540,6 +1543,16 @@ function renderDash(){
       <div class="stat-val" style="color:#7C3AED">${$f(wk2Total())}</div>
       <div style="font-size:9px;color:#94A3B8;margin-top:3px">05/18 delivery · VIZIENT −$60.64 · Paid: $5,457.28</div>
     </div>
+    <div class="stat-card">
+      <div class="stat-lbl">Week 3 received</div>
+      <div class="stat-val" style="color:#F59E0B">${$f(wk3Total())}</div>
+      <div style="font-size:9px;color:#94A3B8;margin-top:3px">Awaiting invoice entry</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-lbl">Week 4 received</div>
+      <div class="stat-val" style="color:#06B6D4">${$f(wk4Total())}</div>
+      <div style="font-size:9px;color:#94A3B8;margin-top:3px">Awaiting invoice entry</div>
+    </div>
     <div class="stat-card"><div class="stat-lbl">Items needing reorder</div><div class="stat-val" style="color:${rr.length?'#D97706':'#059669'}">${rr.length}</div></div>
     <div class="stat-card"><div class="stat-lbl">Total line items</div><div class="stat-val">${allItems().length}</div></div>
     <div class="stat-card"><div class="stat-lbl">Categories</div><div class="stat-val">${cats.length}</div></div>
@@ -1553,7 +1566,7 @@ function renderDash(){
   });
   h+=`</div>`;
   if(rr.length){
-    h+=`<div class="sec-lbl" style="color:#D97706">⚠ Items at or below par (${rr.length})</div>
+    h+=`<div class="sec-lbl" style="color:#D97706"><i class="fas fa-exclamation-triangle"></i> Items at or below par (${rr.length})</div>
     <div class="section"><table><thead><tr>
       <th class="tl" style="padding:6px 10px">Item</th><th style="width:80px">On hand</th><th style="width:60px">Par</th><th style="width:95px">Unit $</th>
     </tr></thead><tbody>`;
@@ -1565,11 +1578,43 @@ function renderDash(){
   document.getElementById('pg-dashboard').innerHTML=h;
 }
 
+/* ── LIVE DASHBOARD STATS SYNC ── */
+function updateDashboardStats(){
+  if(_curPg!=='dashboard')return; // Only update if dashboard is visible
+  const ctx=getMonthContext();
+  if(ctx)return; // Don't update if viewing historical month
+  
+  const rr=reorders();
+  const cats=Object.keys(INV);
+  
+  // Update each stat card value dynamically
+  const statUpdates=[
+    {selector:'[data-stat="starting"]',value:startingTotal()},
+    {selector:'[data-stat="grandtotal"]',value:grandTotal()},
+    {selector:'[data-stat="wk1"]',value:wk1Total()},
+    {selector:'[data-stat="wk2"]',value:wk2Total()},
+    {selector:'[data-stat="wk3"]',value:wk3Total()},
+    {selector:'[data-stat="wk4"]',value:wk4Total()},
+    {selector:'[data-stat="reorders"]',value:rr.length},
+    {selector:'[data-stat="items"]',value:allItems().length},
+    {selector:'[data-stat="categories"]',value:cats.length},
+  ];
+  
+  statUpdates.forEach(({selector,value})=>{
+    const el=document.querySelector(selector);
+    if(el)el.textContent=$f(value);
+  });
+  
+  // Update reorder items count color
+  const reorderEl=document.querySelector('[data-stat="reorders"]');
+  if(reorderEl)reorderEl.parentElement.style.color=rr.length?'#D97706':'#059669';
+}
+
 function renderHistDash(ctx){
   const mn=MONTHS[ctx.month],yr=ctx.year;
   const cats=ctx.categories||{};
   const maxCat=Math.max(...Object.values(cats).map(c=>c.total||0),1);
-  const src=ctx.userSaved?'<span style="background:#DCFCE7;color:#166534;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600">💾 Saved snapshot</span>':'<span style="background:#F1F5F9;color:#64748B;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600">📊 Historical record from Excel</span>';
+  const src=ctx.userSaved?'<span style="background:#DCFCE7;color:#166534;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600"><i class="fas fa-floppy-disk" style="margin-right:4px"></i>Saved snapshot</span>':'<span style="background:#F1F5F9;color:#64748B;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600"><i class="fas fa-chart-line" style="margin-right:4px"></i>Historical record from Excel</span>';
   let h=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
     <div>
       <div style="font-size:18px;font-weight:700">${mn} ${yr}</div>
@@ -1727,7 +1772,7 @@ function renderHistInv(ctx){
   const mn=MONTHS[ctx.month],yr=ctx.year;
   const cats=ctx.categories||{};
   const total=ctx.grandTotal;
-  const src=ctx.userSaved?'💾 Saved snapshot':'📊 Historical record from Excel';
+  const src=ctx.userSaved?'<i class="fas fa-floppy-disk"></i> Saved snapshot':'<i class="fas fa-chart-line"></i> Historical record from Excel';
   let h=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
     <div>
       <div style="font-weight:700;font-size:14px">${mn} ${yr} — Inventory Summary</div>
@@ -1739,7 +1784,7 @@ function renderHistInv(ctx){
     </div>
   </div>
   <div class="alert-g" style="margin-bottom:14px">
-    <div class="ic">📊</div>
+    <div class="ic"><i class="fas fa-chart-line"></i></div>
     <div>
       <div class="at">${mn} ${yr} — Grand Total: ${$f(total)}</div>
       <div class="as">Item-level detail is available for May 2026 (current month). Historical months show category totals from your inventory Excel file.</div>
@@ -1803,7 +1848,7 @@ function renderInvoiceTab(){
     <div style="font-weight:700;font-size:13px;margin-bottom:6px">Invoice entry</div>
     <p style="color:#64748B;font-size:12px;margin-bottom:12px;line-height:1.6">Paste any invoice or delivery receipt. AI will match items to inventory and update received quantities for the selected week.</p>
     <div class="alert-g" style="margin-bottom:12px">
-      <div class="ic">✅</div>
+      <div class="ic"><i class="fas fa-check-circle" style="color:#059669"></i></div>
       <div><div class="at">US Foods Invoice #2312098 (04/30/2026) already applied as Week 1.</div>
       <div class="as">Paste additional invoices below to update Weeks 2-4.</div></div>
     </div>
@@ -1868,12 +1913,12 @@ function renderParsed(){
   </tr>`;});
   h+=`</tbody></table></div>
   <div style="display:flex;gap:8px;margin-top:10px">
-    <button class="btn-g" onclick="applyParsed()">✓ Apply to inventory</button>
+    <button class="btn-g icon-btn" onclick="applyParsed()"><i class="fas fa-check"></i> Apply to inventory</button>
     <button class="btn-s" onclick="document.getElementById('parsed-out').innerHTML=''">Discard</button>
   </div>`;
   document.getElementById('parsed-out').innerHTML=h;
 }
-function showToast(msg='✓ Applied to inventory'){
+function showToast(msg='<i class="fas fa-check"></i> Applied to inventory'){
   const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';
   setTimeout(()=>t.style.display='none',2800);
 }
@@ -1951,7 +1996,7 @@ function renderReport(){
     </tr></tfoot></table></div>`;
   });
   if(rr.length){
-    h+=`<div class="alert-a"><div style="font-weight:700;font-size:11px;color:#92400E;margin-bottom:4px">⚠ Reorder required: ${rr.length} items</div>`;
+    h+=`<div class="alert-a"><div style="font-weight:700;font-size:11px;color:#92400E;margin-bottom:4px"><i class="fas fa-exclamation-triangle"></i> Reorder required: ${rr.length} items</div>`;
     rr.forEach(it=>{h+=`<div style="font-size:10px;color:#78350F;margin-bottom:1px">• ${it.desc} — on hand: ${it.onHand}, par: ${it.par}</div>`;});
     h+=`</div>`;
   }
@@ -2078,7 +2123,7 @@ function updateSyncBadge(){
     syncing:   {dot:'🔄',label:'Syncing…',       bg:'rgba(37,99,235,.3)'},
     connected: {dot:'🟢',label:'Synced',         bg:'rgba(5,150,105,.3)'},
     realtime:  {dot:'🟢',label:'Live Sync',       bg:'rgba(5,150,105,.4)'},
-    error:     {dot:'🔴',label:'Sync Error',      bg:'rgba(220,38,38,.3)'}
+    error:     {dot:'<i class="fas fa-circle-stop" style="color:#DC2626"></i>',label:'Sync Error',      bg:'rgba(220,38,38,.3)'}
   };
   const s=cfg[_syncStat]||cfg.none;
   b.textContent=s.dot+' '+s.label;b.style.background=s.bg;
@@ -2099,7 +2144,7 @@ async function syncPush(){
     showToast('☁ Pushed to Supabase — other devices can now Pull');
   }catch(e){
     _syncStat='error';
-    showToast('⚠ Push failed: '+(e.message||'Check URL, key & table setup'));
+    showToast('<i class="fas fa-exclamation-triangle"></i> Push failed: '+(e.message||'Check URL, key & table setup'));
   }
   updateSyncBadge();
 }
@@ -2125,7 +2170,7 @@ async function syncPull(){
     }
   }catch(e){
     _syncStat='error';
-    showToast('⚠ Pull failed: '+(e.message||'Check table name & RLS settings'));
+    showToast('<i class="fas fa-exclamation-triangle"></i> Pull failed: '+(e.message||'Check table name & RLS settings'));
   }
   updateSyncBadge();
 }
@@ -2207,7 +2252,7 @@ INSERT INTO inventory_sync (id) VALUES (1)
         </div>
       </div>
       <div style="background:#EFF6FF;border-radius:8px;padding:10px">
-        <div style="font-size:20px">📱</div>
+        <div style="font-size:20px"><i class="fas fa-mobile-alt"></i></div>
         <div style="font-size:10px;font-weight:700;margin-top:4px">Phone / Tablet</div>
         <div style="font-size:9px;color:#64748B">Pulls instantly</div>
       </div>
@@ -2231,7 +2276,7 @@ INSERT INTO inventory_sync (id) VALUES (1)
       <div style="position:relative">
         <textarea readonly style="width:100%;height:110px;font-family:'Courier New',monospace;font-size:10px;padding:8px;border:1px solid #E2E8F0;border-radius:6px;background:#F8FAFC;resize:none;color:#1E293B">${SQL_SETUP}</textarea>
         <button onclick="navigator.clipboard.writeText(document.querySelector('textarea').value);showToast('SQL copied!')"
-          style="position:absolute;top:6px;right:6px;padding:3px 8px;border:1px solid #E2E8F0;border-radius:4px;background:white;cursor:pointer;font-size:10px">📋 Copy</button>
+          style="position:absolute;top:6px;right:6px;padding:3px 8px;border:1px solid #E2E8F0;border-radius:4px;background:white;cursor:pointer;font-size:10px"><i class="fas fa-copy"></i> Copy</button>
       </div>
     </div>
 
@@ -2270,10 +2315,10 @@ INSERT INTO inventory_sync (id) VALUES (1)
       <button class="btn-p" style="background:${_supaCh?'#DC2626':'#7C3AED'};font-size:11px"
         onclick="${_supaCh?'stopAutoSync':'startAutoSync'}();closeSyncSetup()">${_supaCh?'⏹ Stop Auto':'🔄 Auto-Sync'}</button>
     </div>
-    <button class="btn-s" style="width:100%;color:#DC2626;font-size:11px" onclick="disconnectSync()">🗑 Disconnect Supabase</button>`:''}
+    <button class="btn-s" style="width:100%;color:#DC2626;font-size:11px" onclick="disconnectSync()"><i class="fas fa-trash"></i> Disconnect Supabase</button>`:''}
 
     <div style="margin-top:12px;font-size:10px;color:#94A3B8;text-align:center">
-      Free plan: 500MB PostgreSQL · 2GB bandwidth · 200MB file storage · Unlimited API requests ✓
+      Free plan: 500MB PostgreSQL · 2GB bandwidth · 200MB file storage · Unlimited API requests <i class="fas fa-check" style="color:#059669"></i>
     </div>
   </div>`;
   document.body.appendChild(d);
@@ -2283,13 +2328,13 @@ INSERT INTO inventory_sync (id) VALUES (1)
 async function connectSupabase(){
   const url=(document.getElementById('supa-url-inp')||{value:''}).value.trim();
   const key=(document.getElementById('supa-key-inp')||{value:''}).value.trim();
-  if(!url.includes('supabase.co')){showToast('⚠ Enter a valid Supabase project URL (ends in .supabase.co)');return;}
-  if(!key.startsWith('eyJ')){showToast('⚠ Enter the anon/public key (starts with eyJ...)');return;}
+  if(!url.includes('supabase.co')){showToast('<i class="fas fa-exclamation-triangle"></i> Enter a valid Supabase project URL (ends in .supabase.co)');return;}
+  if(!key.startsWith('eyJ')){showToast('<i class="fas fa-exclamation-triangle"></i> Enter the anon/public key (starts with eyJ...)');return;}
   _supaUrl=url;_supaKey=key;_supaDb=null;
   try{localStorage.setItem('mjc_supa_url',url);localStorage.setItem('mjc_supa_key',key);}catch(e){}
-  if(!await _initSupa()){showToast('⚠ Could not initialise Supabase client');return;}
+  if(!await _initSupa()){showToast('<i class="fas fa-exclamation-triangle"></i> Could not initialise Supabase client');return;}
   _syncStat='disconnected';updateSyncBadge();closeSyncSetup();
-  showToast('✓ Supabase connected! Click ☁ Push to upload your data now.');
+  showToast('<i class="fas fa-check" style="color:#059669"></i> Supabase connected! Click <i class="fas fa-cloud-upload-alt"></i> Push to upload your data now.');
   try{if(localStorage.getItem('mjc_auto_sync')==='1')startAutoSync();}catch(e){}
 }
 
@@ -2367,11 +2412,11 @@ try{
     // EDIT_FIELDS so invoice received quantities survive the merge untouched.
     persistInv();
     localStorage.setItem('mjc_inv_version', INV_VERSION);
-    showToast('✓ Inventory restored and merged with latest item list');
+    showToast('<i class="fas fa-check" style="color:#059669"></i> Inventory restored and merged with latest item list');
   }
-  document.getElementById('sync-status').textContent='✓ Auto-saving to this browser';
+  document.getElementById('sync-status').textContent='<i class="fas fa-check" style="color:#059669"></i> Auto-saving to this browser';
 }catch(e){
-  document.getElementById('sync-status').innerHTML='⚠ Storage unavailable — use ⬇ Export to sync data';
+  document.getElementById('sync-status').innerHTML='<i class="fas fa-exclamation-triangle"></i> Storage unavailable — use <i class="fas fa-download"></i> Export to sync data';
   document.getElementById('sync-status').style.color='#FCD34D';
 }
 
