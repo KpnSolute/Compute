@@ -2453,8 +2453,15 @@ async function initDashboard() {
     }
     const apiItems = await itemsRes.json();
     const apiHistory = await histRes.json();
-    if (Array.isArray(apiItems) && apiItems.length > 0) {
-      INV = apiItemsToINV(apiItems);
+    const itemsArray = Array.isArray(apiItems)
+      ? apiItems
+      : apiItems && Array.isArray(apiItems.items)
+      ? apiItems.items
+      : null;
+    if (itemsArray && itemsArray.length > 0) {
+      INV = apiItemsToINV(itemsArray);
+      persistInv();
+      document.getElementById('sync-status').textContent = '✓ Loaded inventory from Supabase';
     }
     if (Array.isArray(apiHistory) && apiHistory.length > 0) {
       const apiHist = apiHistory.map(apiSnapshotToHist);
