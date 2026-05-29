@@ -122,7 +122,7 @@ def inventory_dashboard():
 
 @app.get('/static/<path:name>')
 def static_files(name):
-    return send_from_directory(FRONTEND_DIR, name)
+    return send_from_directory(FRONTEND_DIR / 'static', name)
 
 
 @app.get('/pull-sheet')
