@@ -180,3 +180,51 @@ CREATE_VERSION_SCHEMA = {
     'year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030},
     'message': {'type': 'str', 'required': False},
 }
+
+MONTH_SCHEMA = {
+    'month': {'type': 'int', 'required': True, 'min': 0, 'max': 11},
+    'year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030},
+}
+
+WEEK_SCHEMA = {
+    'month': {'type': 'int', 'required': True, 'min': 0, 'max': 11},
+    'year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030},
+    'week': {'type': 'int', 'required': True, 'min': 1, 'max': 4},
+}
+
+PENDING_SUBMIT_SCHEMA = {
+    'item_id': {'type': 'str', 'required': True},
+    'month': {'type': 'int', 'required': True, 'min': 0, 'max': 11},
+    'year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030},
+    'week_number': {'type': 'int', 'required': True, 'min': 1, 'max': 4},
+    'field': {'type': 'str', 'required': True, 'enum': ['received', 'issued']},
+    'action': {'type': 'str', 'required': True, 'enum': ['pull', 'enter']},
+    'value': {'type': 'float', 'required': True, 'min': 0},
+}
+
+PENDING_REVIEW_SCHEMA = {
+    'review_note': {'type': 'str', 'required': False},
+}
+
+PUBLISH_SCHEMA = {
+    'month': {'type': 'int', 'required': True, 'min': 0, 'max': 11},
+    'year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030},
+}
+
+ITEM_CREATE_SCHEMA = {
+    'sku': {'type': 'str', 'required': True},
+    'description': {'type': 'str', 'required': True},
+    'unit_price': {'type': 'float', 'required': True, 'min': 0},
+    'category_id': {'type': 'str', 'required': False},
+    'par_level': {'type': 'float', 'required': False, 'min': 0},
+    'unit': {'type': 'str', 'required': False},
+}
+
+USER_CREATE_SCHEMA = {
+    'username': {'type': 'str', 'required': True, 'min': 1},
+    'display_name': {'type': 'str', 'required': True, 'min': 1},
+    'role': {'type': 'str', 'required': True, 'enum': ['staff', 'assistant', 'manager', 'admin']},
+    'password': {'type': 'str', 'required': True, 'min': 4},
+    'pin': {'type': 'str', 'required': False},
+    'last_name': {'type': 'str', 'required': False},
+}

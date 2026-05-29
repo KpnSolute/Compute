@@ -4,22 +4,23 @@ from flask import Blueprint, jsonify, request
 
 from backend import calculators
 from backend.ai_parser import parse_invoice_text
-from backend.auth_middleware import resolve_user
+from backend.rbac import resolve_user
+from backend.response import api_response, created_response, error_response
 from backend.supabase_client import get_client
 from backend.validation import (
     CREATE_VERSION_SCHEMA,
     INVENTORY_ITEM_UPDATE_SCHEMA,
     INVOICE_APPLY_SCHEMA,
     INVOICE_PARSE_SCHEMA,
+    ITEM_CREATE_SCHEMA,
+    PENDING_SUBMIT_SCHEMA,
+    PUBLISH_SCHEMA,
     ROLLOVER_SCHEMA,
-    SAVE_SNAPSHOT_SCHEMA,
     validate_json,
 )
 
 inventory_bp = Blueprint('inventory', __name__, url_prefix='/api/inventory')
 logger = logging.getLogger(__name__)
-
-# Note: Rate limiter is initialized in main.py and shared via app.extensions
 
 ALLOWED_FIELDS = {
     'on_hand',
@@ -37,6 +38,13 @@ ALLOWED_FIELDS = {
 
 PRICE_FIELDS = {'unit_price', 'par_level'}
 STAFF_ALLOWED_FIELDS = {'w1_issued', 'w2_issued', 'w3_issued', 'w4_issued'}
+
+
+def _is_manager(user):
+    return user.get('role') in ('admin', 'manager')
+
+
+# ── Existing Endpoints ───────────────────────────────────────────────
 
 
 @inventory_bp.get('/summary')
@@ -100,19 +108,16 @@ def items():
         if category:
             query = query.eq('category', category)
 
-        # Get total count for pagination metadata
         count_query = db.table('dashboard_summary').select('*', count='exact').eq('month', month).eq('year', year)
         if category:
             count_query = count_query.eq('category', category)
         count_resp = count_query.execute()
         total_count = count_resp.count if hasattr(count_resp, 'count') else len(count_resp.data or [])
 
-        # Apply pagination
         offset = (page - 1) * per_page
         query = query.range(offset, offset + per_page - 1)
         resp = query.execute()
 
-        # Return paginated response
         return jsonify(
             {
                 'items': resp.data or [],
@@ -138,7 +143,6 @@ def update_item(item_id):
         if not user:
             return jsonify(error='Not authenticated'), 401
 
-        # Validate request body
         is_valid, validated_data_or_error, status_code = validate_json(INVENTORY_ITEM_UPDATE_SCHEMA)
         if not is_valid:
             return validated_data_or_error, status_code
@@ -179,7 +183,7 @@ def update_item(item_id):
             return jsonify(error=f'Unknown field: {field}'), 400
         if db_field not in ALLOWED_FIELDS:
             return jsonify(error=f'field must be one of: {",".join(ALLOWED_FIELDS)}'), 400
-        if db_field in PRICE_FIELDS and user['role'] not in ('admin', 'manager'):
+        if db_field in PRICE_FIELDS and not _is_manager(user):
             return jsonify(error='Only admin/manager can change price or par_level'), 403
 
         if user['role'] == 'staff' and db_field not in STAFF_ALLOWED_FIELDS:
@@ -217,77 +221,15 @@ def update_item(item_id):
         return jsonify(error='Internal server error'), 500
 
 
-@inventory_bp.post('/save-snapshot')
-def save_snapshot():
-    try:
-        user = resolve_user()
-        if not user:
-            return jsonify(error='Not authenticated'), 401
-        if user['role'] not in ('admin', 'manager'):
-            return jsonify(error='Insufficient role'), 403
-
-        # Validate request body
-        is_valid, validated_data_or_error, status_code = validate_json(SAVE_SNAPSHOT_SCHEMA)
-        if not is_valid:
-            return validated_data_or_error, status_code
-
-        data = validated_data_or_error
-        month = data.get('month')
-        year = data.get('year')
-
-        db = get_client()
-        resp = db.table('dashboard_summary').select('*').eq('month', month).eq('year', year).execute()
-        items = resp.data or []
-
-        result = calculators.dashboard_summary(items)
-
-        prior_month = month - 1 if month > 0 else 11
-        prior_year = year if month > 0 else year - 1
-        snap_resp = (
-            db.table('monthly_snapshots')
-            .select('grand_total')
-            .eq('month', prior_month)
-            .eq('year', prior_year)
-            .limit(1)
-            .execute()
-        )
-        prior_total = float((snap_resp.data or [{}])[0].get('grand_total', 0) or 0)
-
-        record = {
-            'month': month,
-            'year': year,
-            'grand_total': result['grand_total'],
-            'starting_total': round(prior_total, 2),
-            'wk1_total': result['wk1_total'],
-            'wk2_total': result['wk2_total'],
-            'wk3_total': result['wk3_total'],
-            'wk4_total': result['wk4_total'],
-            'saved_by': None,
-        }
-
-        existing = db.table('monthly_snapshots').select('id').eq('month', month).eq('year', year).limit(1).execute()
-
-        if existing.data:
-            db.table('monthly_snapshots').update(record).eq('month', month).eq('year', year).execute()
-        else:
-            db.table('monthly_snapshots').insert(record).execute()
-
-        return jsonify(record)
-    except Exception as e:
-        logger.exception(f'Error in save_snapshot endpoint: {e}')
-        return jsonify(error='Internal server error'), 500
-
-
 @inventory_bp.post('/rollover')
 def rollover():
     try:
         user = resolve_user()
         if not user:
             return jsonify(error='Not authenticated'), 401
-        if user['role'] not in ('admin', 'manager'):
+        if not _is_manager(user):
             return jsonify(error='Insufficient role'), 403
 
-        # Validate request body
         is_valid, validated_data_or_error, status_code = validate_json(ROLLOVER_SCHEMA)
         if not is_valid:
             return validated_data_or_error, status_code
@@ -405,10 +347,9 @@ def parse_invoice():
         user = resolve_user()
         if not user:
             return jsonify(error='Not authenticated'), 401
-        if user['role'] not in ('admin', 'manager'):
+        if not _is_manager(user):
             return jsonify(error='Insufficient role'), 403
 
-        # Validate request body
         is_valid, validated_data_or_error, status_code = validate_json(INVOICE_PARSE_SCHEMA)
         if not is_valid:
             return validated_data_or_error, status_code
@@ -472,10 +413,9 @@ def apply_invoice():
         user = resolve_user()
         if not user:
             return jsonify(error='Not authenticated'), 401
-        if user['role'] not in ('admin', 'manager'):
+        if not _is_manager(user):
             return jsonify(error='Insufficient role'), 403
 
-        # Validate request body
         is_valid, validated_data_or_error, status_code = validate_json(INVOICE_APPLY_SCHEMA)
         if not is_valid:
             return validated_data_or_error, status_code
@@ -491,7 +431,7 @@ def apply_invoice():
         if not db_field:
             return jsonify(error='week_field must be w1r, w2r, w3r, or w4r'), 400
 
-        admin = get_client(admin=True)
+        db = get_client()
         applied = []
         skipped = []
 
@@ -502,12 +442,7 @@ def apply_invoice():
                 skipped.append(m)
                 continue
 
-            # Atomic upsert: INSERT … ON CONFLICT DO UPDATE SET field = field + qty.
-            # Eliminates the previous read-modify-write race condition where two
-            # concurrent invoice submissions could overwrite each other's qty.
-            # Requires the increment_inventory_field Postgres function
-            # (supabase/migrations/20260525_increment_inventory_field.sql).
-            admin.rpc(
+            db.rpc(
                 'increment_inventory_field',
                 {
                     'p_item_id': item_id,
@@ -526,17 +461,16 @@ def apply_invoice():
         return jsonify(error='Internal server error'), 500
 
 
-# ── Version History / Rollback (Git-like) ────────────────────────────────────
+# ── Version History / Rollback ──────────────────────────────────────
 
 
 @inventory_bp.post('/versions')
 def create_version():
-    """Create a new inventory version snapshot (like a git commit)."""
     try:
         user = resolve_user()
         if not user:
             return jsonify(error='Not authenticated'), 401
-        if user['role'] not in ('admin', 'manager'):
+        if not _is_manager(user):
             return jsonify(error='Insufficient role'), 403
 
         is_valid, validated_data_or_error, status_code = validate_json(CREATE_VERSION_SCHEMA)
@@ -550,11 +484,9 @@ def create_version():
 
         db = get_client()
 
-        # Fetch full inventory state for this month/year
         items_resp = db.table('dashboard_summary').select('*').eq('month', month).eq('year', year).execute()
         items = items_resp.data or []
 
-        # Fetch the latest version to set as parent
         parent_resp = (
             db.table('inventory_versions')
             .select('version_id')
@@ -566,7 +498,6 @@ def create_version():
         )
         parent_id = parent_resp.data[0]['version_id'] if parent_resp.data else None
 
-        # Compute summary
         summary = calculators.dashboard_summary(items)
 
         version_record = {
@@ -592,7 +523,6 @@ def create_version():
 
 @inventory_bp.get('/versions')
 def list_versions():
-    """List all inventory versions (like git log)."""
     try:
         user = resolve_user()
         if not user:
@@ -611,11 +541,9 @@ def list_versions():
         if year is not None:
             query = query.eq('year', year)
 
-        # Also fetch creator display names
         resp = query.order('created_at', desc=True).limit(100).execute()
         versions = resp.data or []
 
-        # Enrich with creator info
         if versions:
             creator_ids = list(set(v.get('created_by') for v in versions if v.get('created_by')))
             if creator_ids:
@@ -640,7 +568,6 @@ def list_versions():
 
 @inventory_bp.get('/versions/<version_id>')
 def get_version(version_id):
-    """Get a specific version's full snapshot data."""
     try:
         user = resolve_user()
         if not user:
@@ -660,17 +587,15 @@ def get_version(version_id):
 
 @inventory_bp.post('/versions/<version_id>/restore')
 def restore_version(version_id):
-    """Restore inventory to a previous version (manager only)."""
     try:
         user = resolve_user()
         if not user:
             return jsonify(error='Not authenticated'), 401
-        if user['role'] not in ('admin', 'manager'):
+        if not _is_manager(user):
             return jsonify(error='Insufficient role'), 403
 
         db = get_client()
 
-        # Fetch the version to restore
         version_resp = db.table('inventory_versions').select('*').eq('version_id', version_id).limit(1).execute()
         if not version_resp.data:
             return jsonify(error='Version not found'), 404
@@ -691,7 +616,6 @@ def restore_version(version_id):
             if not item_id:
                 continue
 
-            # Update inventory_items for price/par changes
             price = item.get('unit_price')
             par = item.get('par_level')
             if price is not None or par is not None:
@@ -706,7 +630,6 @@ def restore_version(version_id):
                     except Exception as e:
                         errors.append(f'Item {item_id} price/par: {str(e)}')
 
-            # Update monthly_inventory
             monthly_record = {
                 'on_hand': item.get('on_hand', 0),
                 'w1_received': item.get('w1_received', 0),
@@ -759,3 +682,571 @@ def restore_version(version_id):
     except Exception as e:
         logger.exception(f'Error in restore_version endpoint: {e}')
         return jsonify(error='Internal server error'), 500
+
+
+# ── New Endpoints ──────────────────────────────────────────────────
+
+
+@inventory_bp.get('/current-month')
+def current_month():
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+
+        db = get_client()
+        resp = db.table('month_status').select('*').eq('status', 'open').limit(1).execute()
+        if not resp.data:
+            from datetime import datetime, timezone
+
+            now = datetime.now(timezone.utc)
+            return api_response({'month': now.month - 1, 'year': now.year, 'status': 'open'})
+        return api_response(resp.data[0])
+    except Exception as e:
+        logger.exception(f'Error in current_month: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.get('/current-week')
+def current_week():
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        day = now.day
+        if day <= 7:
+            week = 1
+        elif day <= 14:
+            week = 2
+        elif day <= 21:
+            week = 3
+        else:
+            week = 4
+
+        month = now.month - 1
+        year = now.year
+
+        return api_response(
+            {
+                'current_week': week,
+                'month': month,
+                'year': year,
+                'weeks': list(range(1, 5)),
+            }
+        )
+    except Exception as e:
+        logger.exception(f'Error in current_week: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.get('/months/<int:month>/<int:year>')
+def month_inventory(month, year):
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+
+        if not (0 <= month <= 11 and 2020 <= year <= 2030):
+            return error_response('month must be 0-11, year must be 2020-2030', status_code=400)
+
+        db = get_client()
+        resp = db.table('dashboard_summary').select('*').eq('month', month).eq('year', year).execute()
+        return api_response(resp.data or [])
+    except Exception as e:
+        logger.exception(f'Error in month_inventory: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.get('/months/<int:month>/<int:year>/weeks/<int:week>')
+def week_inventory(month, year, week):
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+
+        if not (0 <= month <= 11 and 2020 <= year <= 2030):
+            return error_response('month must be 0-11, year must be 2020-2030', status_code=400)
+        if not (1 <= week <= 4):
+            return error_response('week must be 1-4', status_code=400)
+
+        db = get_client()
+        field = f'w{week}'
+        resp = (
+            db.table('dashboard_summary')
+            .select(f'*, {field}_received, {field}_issued')
+            .eq('month', month)
+            .eq('year', year)
+            .execute()
+        )
+        return api_response(resp.data or [])
+    except Exception as e:
+        logger.exception(f'Error in week_inventory: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.get('/items/<item_id>')
+def get_item(item_id):
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+
+        month = request.args.get('month', type=int)
+        year = request.args.get('year', type=int)
+
+        db = get_client()
+
+        item_resp = db.table('inventory_items').select('*').eq('id', item_id).limit(1).execute()
+        if not item_resp.data:
+            return error_response('Item not found', status_code=404)
+
+        item = item_resp.data[0]
+
+        if month is not None and year is not None:
+            monthly_resp = (
+                db.table('monthly_inventory')
+                .select('*')
+                .eq('item_id', item_id)
+                .eq('month', month)
+                .eq('year', year)
+                .limit(1)
+                .execute()
+            )
+            if monthly_resp.data:
+                item.update(monthly_resp.data[0])
+
+        return api_response(item)
+    except Exception as e:
+        logger.exception(f'Error in get_item: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.post('/items')
+def create_item():
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+        if not _is_manager(user):
+            return error_response('Insufficient role', status_code=403)
+
+        is_valid, validated_data_or_error, status_code = validate_json(ITEM_CREATE_SCHEMA)
+        if not is_valid:
+            return validated_data_or_error, status_code
+
+        data = validated_data_or_error
+
+        db = get_client()
+
+        item_record = {
+            'sku': data['sku'],
+            'description': data['description'],
+            'unit_price': data['unit_price'],
+            'category_id': data.get('category_id'),
+            'par_level': data.get('par_level', 0),
+            'unit': data.get('unit', ''),
+            'active': True,
+        }
+
+        result = db.table('inventory_items').insert(item_record).execute()
+        created_item = result.data[0] if result.data else item_record
+
+        month = request.args.get('month', type=int)
+        year = request.args.get('year', type=int)
+        if month is not None and year is not None:
+            monthly = {
+                'item_id': created_item['id'],
+                'month': month,
+                'year': year,
+                'on_hand': 0,
+                'w1_received': 0,
+                'w2_received': 0,
+                'w3_received': 0,
+                'w4_received': 0,
+                'w1_issued': 0,
+                'w2_issued': 0,
+                'w3_issued': 0,
+                'w4_issued': 0,
+            }
+            db.table('monthly_inventory').insert(monthly).execute()
+
+        return created_response(created_item)
+    except Exception as e:
+        logger.exception(f'Error in create_item: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.delete('/items/<item_id>')
+def delete_item(item_id):
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+        if not _is_manager(user):
+            return error_response('Insufficient role', status_code=403)
+
+        db = get_client()
+        db.table('inventory_items').update({'active': False}).eq('id', item_id).execute()
+        return api_response({'deleted': True, 'item_id': item_id})
+    except Exception as e:
+        logger.exception(f'Error in delete_item: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.post('/submit')
+def submit_staging():
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+
+        is_valid, validated_data_or_error, status_code = validate_json(PENDING_SUBMIT_SCHEMA)
+        if not is_valid:
+            return validated_data_or_error, status_code
+
+        data = validated_data_or_error
+        db = get_client()
+
+        monthly_resp = (
+            db.table('monthly_inventory')
+            .select(data['field'])
+            .eq('item_id', data['item_id'])
+            .eq('month', data['month'])
+            .eq('year', data['year'])
+            .limit(1)
+            .execute()
+        )
+        previous_value = float((monthly_resp.data or [{}])[0].get(data['field'], 0) or 0)
+
+        entry = {
+            'item_id': data['item_id'],
+            'month': data['month'],
+            'year': data['year'],
+            'week_number': data['week_number'],
+            'field': data['field'],
+            'action': data['action'],
+            'submitted_value': data['value'],
+            'previous_value': previous_value,
+            'status': 'pending',
+            'submitted_by': user['id'],
+        }
+
+        if user['role'] == 'assistant':
+            entry['status'] = 'merged'
+            result = db.table('staging_entries').insert(entry).execute()
+            created = result.data[0] if result.data else entry
+            try:
+                db.rpc(
+                    'merge_single_staging',
+                    {
+                        'p_entry_id': created['entry_id'],
+                        'p_reviewed_by': user['id'],
+                        'p_review_note': 'Auto-merged by assistant',
+                    },
+                ).execute()
+            except Exception as rpc_err:
+                logger.warning(f'merge_single_staging RPC failed for assistant: {rpc_err}')
+            return api_response({'entry_id': created.get('entry_id'), 'status': 'merged', 'auto_merged': True})
+        else:
+            result = db.table('staging_entries').insert(entry).execute()
+            created = result.data[0] if result.data else entry
+            return api_response({'entry_id': created.get('entry_id'), 'status': 'pending'})
+    except Exception as e:
+        logger.exception(f'Error in submit_staging: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.get('/pending')
+def list_pending():
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+        if user['role'] not in ('admin', 'manager', 'assistant'):
+            return error_response('Insufficient role', status_code=403)
+
+        db = get_client()
+        query = (
+            db.table('staging_entries')
+            .select('*, inventory_items!inner(sku, description)')
+            .eq('status', 'pending')
+            .order('created_at', desc=True)
+        )
+        resp = query.execute()
+
+        entries = resp.data or []
+        return api_response(entries)
+    except Exception as e:
+        logger.exception(f'Error in list_pending: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.get('/pending/<entry_id>')
+def get_pending(entry_id):
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+        if user['role'] not in ('admin', 'manager', 'assistant'):
+            return error_response('Insufficient role', status_code=403)
+
+        db = get_client()
+        resp = (
+            db.table('staging_entries')
+            .select('*, inventory_items!inner(sku, description)')
+            .eq('entry_id', entry_id)
+            .limit(1)
+            .execute()
+        )
+        if not resp.data:
+            return error_response('Entry not found', status_code=404)
+        return api_response(resp.data[0])
+    except Exception as e:
+        logger.exception(f'Error in get_pending: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.patch('/pending/<entry_id>')
+def revise_pending(entry_id):
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+        if user['role'] not in ('admin', 'manager', 'assistant'):
+            return error_response('Insufficient role', status_code=403)
+
+        data = request.get_json(silent=True) or {}
+        allowed = {'submitted_value', 'field', 'action', 'week_number'}
+        updates = {k: v for k, v in data.items() if k in allowed}
+
+        if not updates:
+            return error_response('No valid fields to update', status_code=400)
+
+        db = get_client()
+        resp = db.table('staging_entries').update(updates).eq('entry_id', entry_id).execute()
+        if not resp.data:
+            return error_response('Entry not found', status_code=404)
+        return api_response(resp.data[0])
+    except Exception as e:
+        logger.exception(f'Error in revise_pending: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.post('/pending/<entry_id>/approve')
+def approve_pending(entry_id):
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+        if not _is_manager(user):
+            return error_response('Insufficient role', status_code=403)
+
+        data = request.get_json(silent=True) or {}
+        review_note = data.get('review_note', '')
+
+        db = get_client()
+        try:
+            result = db.rpc(
+                'merge_single_staging',
+                {
+                    'p_entry_id': entry_id,
+                    'p_reviewed_by': user['id'],
+                    'p_review_note': review_note,
+                },
+            ).execute()
+            return api_response({'entry_id': entry_id, 'status': 'merged', 'result': result.data})
+        except Exception as rpc_err:
+            logger.warning(f'merge_single_staging RPC failed, falling back: {rpc_err}')
+            entry_resp = db.table('staging_entries').select('*').eq('entry_id', entry_id).limit(1).execute()
+            if not entry_resp.data:
+                return error_response('Entry not found', status_code=404)
+            entry = entry_resp.data[0]
+
+            monthly_resp = (
+                db.table('monthly_inventory')
+                .select('*')
+                .eq('item_id', entry['item_id'])
+                .eq('month', entry['month'])
+                .eq('year', entry['year'])
+                .limit(1)
+                .execute()
+            )
+            if monthly_resp.data:
+                db.table('monthly_inventory').update({entry['field']: entry['submitted_value']}).eq(
+                    'item_id', entry['item_id']
+                ).eq('month', entry['month']).eq('year', entry['year']).execute()
+            else:
+                db.table('monthly_inventory').insert(
+                    {
+                        'item_id': entry['item_id'],
+                        'month': entry['month'],
+                        'year': entry['year'],
+                        entry['field']: entry['submitted_value'],
+                    }
+                ).execute()
+
+            db.table('staging_entries').update(
+                {
+                    'status': 'merged',
+                    'reviewed_by': user['id'],
+                    'review_note': review_note,
+                    'reviewed_at': 'now()',
+                }
+            ).eq('entry_id', entry_id).execute()
+
+            return api_response({'entry_id': entry_id, 'status': 'merged'})
+    except Exception as e:
+        logger.exception(f'Error in approve_pending: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.post('/pending/<entry_id>/reject')
+def reject_pending(entry_id):
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+        if not _is_manager(user):
+            return error_response('Insufficient role', status_code=403)
+
+        data = request.get_json(silent=True) or {}
+        review_note = data.get('review_note', '')
+
+        db = get_client()
+        resp = (
+            db.table('staging_entries')
+            .update(
+                {
+                    'status': 'rejected',
+                    'reviewed_by': user['id'],
+                    'review_note': review_note,
+                    'reviewed_at': 'now()',
+                }
+            )
+            .eq('entry_id', entry_id)
+            .execute()
+        )
+
+        if not resp.data:
+            return error_response('Entry not found', status_code=404)
+        return api_response({'entry_id': entry_id, 'status': 'rejected'})
+    except Exception as e:
+        logger.exception(f'Error in reject_pending: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.post('/publish')
+def publish_month():
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+        if not _is_manager(user):
+            return error_response('Insufficient role', status_code=403)
+
+        is_valid, validated_data_or_error, status_code = validate_json(PUBLISH_SCHEMA)
+        if not is_valid:
+            return validated_data_or_error, status_code
+
+        data = validated_data_or_error
+        month = data.get('month')
+        year = data.get('year')
+
+        db = get_client()
+        try:
+            result = db.rpc(
+                'publish_month',
+                {
+                    'p_month': month,
+                    'p_year': year,
+                },
+            ).execute()
+            return api_response({'month': month, 'year': year, 'published': True, 'result': result.data})
+        except Exception as rpc_err:
+            logger.warning(f'publish_month RPC failed, falling back: {rpc_err}')
+            db.table('month_status').upsert(
+                {
+                    'month': month,
+                    'year': year,
+                    'status': 'published',
+                    'published_by': user['id'],
+                    'published_at': 'now()',
+                }
+            ).execute()
+            return api_response({'month': month, 'year': year, 'published': True})
+    except Exception as e:
+        logger.exception(f'Error in publish_month: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.post('/items/<item_id>/barcode')
+def get_item_barcode(item_id):
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+
+        db = get_client()
+        resp = db.table('item_barcodes').select('*').eq('item_id', item_id).limit(1).execute()
+        if resp.data:
+            return api_response(resp.data[0])
+
+        item_resp = db.table('inventory_items').select('id, sku').eq('id', item_id).limit(1).execute()
+        if not item_resp.data:
+            return error_response('Item not found', status_code=404)
+
+        barcode = {
+            'item_id': item_id,
+            'barcode_data': item_resp.data[0]['sku'],
+            'format': 'CODE128',
+        }
+        result = db.table('item_barcodes').insert(barcode).execute()
+        return api_response(result.data[0] if result.data else barcode)
+    except Exception as e:
+        logger.exception(f'Error in get_item_barcode: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.post('/items/<item_id>/barcode/regenerate')
+def regenerate_barcode(item_id):
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+        if not _is_manager(user):
+            return error_response('Insufficient role', status_code=403)
+
+        db = get_client()
+        item_resp = db.table('inventory_items').select('id, sku').eq('id', item_id).limit(1).execute()
+        if not item_resp.data:
+            return error_response('Item not found', status_code=404)
+
+        import uuid
+
+        new_barcode_data = str(uuid.uuid4())[:12].upper()
+
+        existing = db.table('item_barcodes').select('*').eq('item_id', item_id).limit(1).execute()
+        if existing.data:
+            db.table('item_barcodes').update(
+                {
+                    'barcode_data': new_barcode_data,
+                    'format': 'CODE128',
+                }
+            ).eq('item_id', item_id).execute()
+        else:
+            db.table('item_barcodes').insert(
+                {
+                    'item_id': item_id,
+                    'barcode_data': new_barcode_data,
+                    'format': 'CODE128',
+                }
+            ).execute()
+
+        return api_response({'item_id': item_id, 'barcode_data': new_barcode_data, 'format': 'CODE128'})
+    except Exception as e:
+        logger.exception(f'Error in regenerate_barcode: {e}')
+        return error_response('Internal server error', status_code=500)

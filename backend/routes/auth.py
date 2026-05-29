@@ -1,3 +1,4 @@
+import bcrypt as bcrypt_lib
 from flask import Blueprint, jsonify, request, session
 
 from backend.supabase_client import get_client
@@ -7,10 +8,10 @@ auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
 def _get_profile(username: str) -> dict | None:
     try:
-        admin = get_client(admin=True)
+        db = get_client()
         result = (
-            admin.table('user_profiles')
-            .select('id, username, display_name, role, pin, active')
+            db.table('user_profiles')
+            .select('id, username, display_name, last_name, role, pin, active')
             .eq('username', username)
             .single()
             .execute()
@@ -49,13 +50,18 @@ def login():
         pin = str(data.get('pin') or '').strip()
         if not pin:
             return jsonify(error='PIN is required.'), 400
-        if pin != str(profile.get('pin') or ''):
+        stored = str(profile.get('pin') or '')
+        if stored.startswith('$2'):
+            if not bcrypt_lib.checkpw(pin.encode(), stored.encode()):
+                return jsonify(error='Incorrect PIN. Please try again.'), 401
+        elif pin != stored:
             return jsonify(error='Incorrect PIN. Please try again.'), 401
 
         session['user'] = {
             'id': profile['id'],
             'username': profile['username'],
             'display_name': profile.get('display_name', ''),
+            'last_name': profile.get('last_name', ''),
             'role': profile['role'],
         }
         return jsonify(
@@ -63,13 +69,14 @@ def login():
             user={
                 'username': profile['username'],
                 'display_name': profile.get('display_name', ''),
+                'last_name': profile.get('last_name', ''),
                 'role': profile['role'],
             },
         )
 
-    # ── ADMIN / MANAGER PASSWORD FLOW ────────────────────────
+    # ── ADMIN / MANAGER / ASSISTANT PASSWORD FLOW ────────────
     elif login_type == 'admin':
-        if profile['role'] not in ('admin', 'manager'):
+        if profile['role'] not in ('admin', 'manager', 'assistant'):
             return jsonify(error='Staff accounts must use the Staff login.'), 401
         password = str(data.get('password') or '').strip()
         if not password:
@@ -89,6 +96,7 @@ def login():
                 'id': profile['id'],
                 'username': profile['username'],
                 'display_name': profile.get('display_name', ''),
+                'last_name': profile.get('last_name', ''),
                 'role': profile['role'],
                 'access_token': access_token,
             }
@@ -98,6 +106,7 @@ def login():
                 user={
                     'username': profile['username'],
                     'display_name': profile.get('display_name', ''),
+                    'last_name': profile.get('last_name', ''),
                     'role': profile['role'],
                 },
             )
@@ -118,6 +127,7 @@ def me():
         user={
             'username': user.get('username'),
             'display_name': user.get('display_name'),
+            'last_name': user.get('last_name'),
             'role': user.get('role'),
         },
     )

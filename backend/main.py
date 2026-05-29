@@ -19,7 +19,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
 from backend.routes.auth import auth_bp  # noqa: E402
+from backend.routes.files import files_bp  # noqa: E402
 from backend.routes.inventory import inventory_bp  # noqa: E402
+from backend.routes.settings import settings_bp  # noqa: E402
 from backend.routes.users import users_bp  # noqa: E402
 
 FRONTEND_DIR = BASE_DIR / 'frontend'
@@ -61,6 +63,8 @@ def add_security_headers(response):
 app.register_blueprint(inventory_bp)
 app.register_blueprint(auth_bp)
 app.register_blueprint(users_bp)
+app.register_blueprint(files_bp)
+app.register_blueprint(settings_bp)
 
 logger.info(f'Starting application in {env} mode')
 
@@ -83,6 +87,13 @@ def dashboard():
     if not session.get('user'):
         return redirect('/')
     return send_from_directory(FRONTEND_DIR, 'dashboard.html')
+
+
+@app.get('/app')
+def app_shell():
+    if not session.get('user'):
+        return redirect('/')
+    return send_from_directory(FRONTEND_DIR, 'app.html')
 
 
 @app.get('/dashboard-admin')

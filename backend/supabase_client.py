@@ -2,23 +2,20 @@ import os
 
 from dotenv import load_dotenv
 
-from supabase import Client, create_client
+from supabase import create_client
 
 load_dotenv()
 
 SUPABASE_URL = os.getenv('SUPABASE_URL', '')
-SUPABASE_ANON_KEY = os.getenv('SUPABASE_ANON_KEY', '')
 SUPABASE_SERVICE_KEY = os.getenv('SUPABASE_SERVICE_KEY', '')
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY) if SUPABASE_URL and SUPABASE_ANON_KEY else None
-
-supabase_admin: Client = (
-    create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_URL and SUPABASE_SERVICE_KEY else None
-)
+_client = None
 
 
-def get_client(admin=False) -> Client:
-    client = supabase_admin if admin else supabase
-    if not client:
-        raise RuntimeError('Supabase not configured. Check .env for SUPABASE_URL and keys.')
-    return client
+def get_client():
+    global _client
+    if _client is None:
+        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+            raise RuntimeError('Supabase not configured. Check .env for SUPABASE_URL and SUPABASE_SERVICE_KEY.')
+        _client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    return _client
