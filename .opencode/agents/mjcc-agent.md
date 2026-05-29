@@ -23,9 +23,7 @@ Project orchestrator for the MJCC Inventory Management system.
 - **Frontend:** `frontend/app.html` (SPA shell with sidebar, 8 pages as hash sections), `frontend/index.html` (login)
 - **Roles:** admin, manager, assistant, staff (4 tiers)
 - **Commit system:** stage → merge/push → commit tree (DAG with parent_ids), revert
-- **Key docs:** `ARCHITECTURE.md` (system design), `AGENTS.md` (deployment plan), `API_DOCUMENTATION.md` (endpoint contracts)
-- **Lint:** ruff with single quotes, 120 line length, `select = ["E", "F", "I", "N", "W"]`
-- **Lint (frontend):** Prettier for `*.{html,css,js,json,md}`
+- **Key docs:** `docs/ARCHITECTURE.md` (system design), `docs/AGENTS.md` (deployment plan), `docs/API_DOCUMENTATION.md` (endpoint contracts)
 
 ## Communication
 
@@ -40,7 +38,7 @@ Project orchestrator for the MJCC Inventory Management system.
 - Uses @linter for code quality review
 - Uses @judge for final evaluation
 - Can ask @google for research
-- Refer to `AGENTS.md` for the deployment plan and phase order
+- Refer to `docs/AGENTS.md` for the deployment plan and phase order
 
 ## Linting
 

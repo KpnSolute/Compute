@@ -6,15 +6,16 @@ This refactor standardizes the MJCC backend on the `inventory_items` + `monthly_
 
 ## What Was Consolidated
 
-| Old Table(s) | New Table | Action |
-|---|---|---|
-| `inventory_master` | — | Renamed to `inventory_master_deprecated` |
-| `barcodes` | `item_barcodes` | Renamed to `barcodes_deprecated`; data migrated to `item_barcodes` |
-| `staging_area` | `pending_submissions` | Renamed to `staging_area_deprecated` |
-| `pending_changes` | `pending_submissions` | Renamed to `pending_changes_deprecated` |
-| `transaction_history` | `audit_log` | Renamed to `transaction_history_deprecated` |
+| Old Table(s)          | New Table             | Action                                                             |
+| --------------------- | --------------------- | ------------------------------------------------------------------ |
+| `inventory_master`    | —                     | Renamed to `inventory_master_deprecated`                           |
+| `barcodes`            | `item_barcodes`       | Renamed to `barcodes_deprecated`; data migrated to `item_barcodes` |
+| `staging_area`        | `pending_submissions` | Renamed to `staging_area_deprecated`                               |
+| `pending_changes`     | `pending_submissions` | Renamed to `pending_changes_deprecated`                            |
+| `transaction_history` | `audit_log`           | Renamed to `transaction_history_deprecated`                        |
 
 **New tables created:**
+
 - `item_barcodes` — canonical barcode mapping (one primary barcode per active item)
 - `audit_log` — append-only audit trail for all inventory mutations
 - `month_status` — month lifecycle tracking (open → published)
@@ -35,7 +36,9 @@ Backup tables are created as `*_backup_20260528` before any data migration.
 ## Migration Order (Cutover)
 
 ### Phase 1: Apply Schema Migrations
+
 Run migrations in this order:
+
 1. `20260528_schema_consolidation.sql` — backup, item_barcodes, audit_log, deprecate old tables
 2. `20260528_month_lifecycle.sql` — month_status, pending_submissions, publish/commit RPCs
 3. `20260528_barcode_backfill.sql` — generate barcodes for items without one
@@ -43,6 +46,7 @@ Run migrations in this order:
 5. `20260528_rls_lockdown.sql` — drop permissive policies, lock to service_role
 
 ### Phase 2: Deploy Backend
+
 - Deploy the refactored Flask API
 - Verify all endpoints work with service_role client
 - Test the staging pipeline: staff submit → manager approve → data appears in monthly_inventory
@@ -50,6 +54,7 @@ Run migrations in this order:
 - Test barcode: each active item has exactly one barcode; regeneration creates a new one
 
 ### Phase 3: Lock Down
+
 - Run `20260528_rls_lockdown.sql` last
 - Verify that direct anon/authenticated access to inventory tables is denied
 - Verify the app still works through Flask (which uses service_role)
@@ -57,10 +62,12 @@ Run migrations in this order:
 ## Key Backend Changes
 
 ### New Files
+
 - `backend/rbac.py` — centralized RBAC with bcrypt PIN support
 - `backend/response.py` — consistent API response envelope
 
 ### Modified Files
+
 - `backend/supabase_client.py` — always uses service_role key
 - `backend/config.py` — production SECRET_KEY must be set (no fallback)
 - `backend/auth_middleware.py` — thin re-export wrapper around rbac.py
@@ -83,6 +90,7 @@ Run migrations in this order:
 ## API Response Envelope
 
 All endpoints now return a consistent envelope:
+
 ```json
 {
   "data": <response_data>,
@@ -92,6 +100,7 @@ All endpoints now return a consistent envelope:
 ```
 
 Error responses:
+
 ```json
 {
   "data": null,
@@ -102,9 +111,9 @@ Error responses:
 
 ## Role-Based Access Control
 
-| Role | Permissions |
-|---|---|
-| **staff** | Submit weekly counts to pending queue, read own data, read current month |
-| **manager** | Review/approve/reject pending submissions, edit item catalog, publish months, create versions |
-| **admin** | Everything manager can + user management |
-| **corporate** | Read-only across all data |
+| Role          | Permissions                                                                                   |
+| ------------- | --------------------------------------------------------------------------------------------- |
+| **staff**     | Submit weekly counts to pending queue, read own data, read current month                      |
+| **manager**   | Review/approve/reject pending submissions, edit item catalog, publish months, create versions |
+| **admin**     | Everything manager can + user management                                                      |
+| **corporate** | Read-only across all data                                                                     |

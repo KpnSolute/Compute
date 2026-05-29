@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Miami Job Corps Cafeteria — Sign In</title>
     <link rel="icon" type="image/svg+xml" href="/logo-shield.svg" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+    />
     <style>
       * {
         box-sizing: border-box;
@@ -156,10 +160,10 @@
         <div class="card-title">Sign In</div>
         <div class="type-row">
           <button class="type-btn active" onclick="setType('staff')" id="btn-staff">
-            👤 Staff
+            <i class="fas fa-user"></i> Staff
           </button>
           <button class="type-btn" onclick="setType('admin')" id="btn-admin">
-            🔑 Admin / Manager
+            <i class="fas fa-key"></i> Admin / Manager
           </button>
         </div>
         <div id="error-msg" class="error-msg"></div>

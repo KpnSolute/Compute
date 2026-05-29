@@ -44,4 +44,4 @@ Owns all Python backend code for the MJCC Inventory Management system.
 - Reports to @mjcc-agent
 - Uses @mjcc-db for schema questions and migrations
 - Uses @supa to apply Supabase migrations
-- Refer to `ARCHITECTURE.md` for full API structure
+- Refer to `docs/ARCHITECTURE.md` for full API structure

@@ -27,12 +27,12 @@ Owns all frontend HTML/JS/CSS for the MJCC Inventory Management system.
 
 ## Key libraries
 
-| Library     | Version | Purpose                     |
-| ----------- | ------- | --------------------------- |
-| Alpine.js   | 3.x     | Reactive UI framework       |
-| Tailwind    | 4.x     | Utility CSS (CDN)           |
-| JsBarcode   | 3.11.5  | Barcode generation          |
-| qrcodejs    | 1.0.0   | QR code generation          |
+| Library   | Version | Purpose               |
+| --------- | ------- | --------------------- |
+| Alpine.js | 3.x     | Reactive UI framework |
+| Tailwind  | 4.x     | Utility CSS (CDN)     |
+| JsBarcode | 3.11.5  | Barcode generation    |
+| qrcodejs  | 1.0.0   | QR code generation    |
 
 ## Key patterns
 
@@ -51,4 +51,4 @@ Owns all frontend HTML/JS/CSS for the MJCC Inventory Management system.
 
 - Reports to @mjcc-agent
 - Coordinates with @mjcc-backend to match API contracts
-- Refer to `ARCHITECTURE.md` for full page structure and component specs
+- Refer to `docs/ARCHITECTURE.md` for full page structure and component specs

@@ -30,7 +30,7 @@ Owns the Supabase (Postgres) database layer for the MJCC Inventory Management sy
 | `user_profiles`     | id, username, display_name, last_name, role, pin, active                                               |
 | `commits`           | Git-style commit tree (commit_id, parent_ids[], message, author, status, branch)                       |
 | `commit_changes`    | Per-commit field changes (item_id, month, year, week, field, action(pull/enter), old/new values)       |
-| `staging_entries`   | Temp queue with 15-day TTL (replaces pending_submissions)                                             |
+| `staging_entries`   | Temp queue with 15-day TTL (replaces pending_submissions)                                              |
 | `dashboard_summary` | Per-item inventory rows (month, year, category, on_hand, wk1–4 issued/received, unit_price, par_level) |
 | `monthly_snapshots` | Month-end snapshots for rollover                                                                       |
 | `uploads`           | File tracking (invoice PDFs, delivery photos, receipts)                                                |
@@ -46,16 +46,16 @@ Owns the Supabase (Postgres) database layer for the MJCC Inventory Management sy
 
 ## RPC functions
 
-| RPC | Description |
-|-----|-------------|
-| `merge_single_staging` | Merge one staging entry → commit + monthly_inventory + snapshot |
-| `push_all_staging` | Push ALL staging as single commit → tree node + snapshot |
-| `revert_to_commit` | Revert inventory to state at given commit |
-| `cleanup_expired_staging` | Delete expired staging entries |
+| RPC                       | Description                                                     |
+| ------------------------- | --------------------------------------------------------------- |
+| `merge_single_staging`    | Merge one staging entry → commit + monthly_inventory + snapshot |
+| `push_all_staging`        | Push ALL staging as single commit → tree node + snapshot        |
+| `revert_to_commit`        | Revert inventory to state at given commit                       |
+| `cleanup_expired_staging` | Delete expired staging entries                                  |
 
 ## Communication
 
 - Reports to @mjcc-agent
 - Works with @mjcc-backend on query shape
 - Uses @supa to apply schema changes to the live project
-- Refer to `ARCHITECTURE.md` for full data model
+- Refer to `docs/ARCHITECTURE.md` for full data model
