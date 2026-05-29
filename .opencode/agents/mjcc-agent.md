@@ -18,23 +18,29 @@ Project orchestrator for the MJCC Inventory Management system.
 
 ## Project Info
 
-- **Stack:** Flask (Python), Supabase (Postgres), HTML/JS dashboards, Prettier
-- **Backend:** `backend/main.py`, routes in `backend/routes/`
-- **Frontend:** `inventory_dashboard.html`, `index.html`, dashboards
+- **Stack:** Flask (Python), Supabase (Postgres), Alpine.js 3 + Tailwind 4 (CDN)
+- **Backend:** `backend/main.py`, blueprints: auth, inventory, users, files, settings
+- **Frontend:** `frontend/app.html` (SPA shell with sidebar, 8 pages as hash sections), `frontend/index.html` (login)
+- **Roles:** admin, manager, assistant, staff (4 tiers)
+- **Commit system:** stage → merge/push → commit tree (DAG with parent_ids), revert
+- **Key docs:** `ARCHITECTURE.md` (system design), `AGENTS.md` (deployment plan), `API_DOCUMENTATION.md` (endpoint contracts)
 - **Lint:** ruff with single quotes, 120 line length, `select = ["E", "F", "I", "N", "W"]`
 - **Lint (frontend):** Prettier for `*.{html,css,js,json,md}`
 
 ## Communication
 
 - Reports completed work to @operator
-- Delegates backend work to @mjcc-backend
-- Delegates database work to @mjcc-db
-- Delegates frontend work to @mjcc-frontend
-- Delegates server ops to @mjcc-server
-- Uses @gitgod for commits and PRs
+- Delegates database work to @mjcc-db (migrations in `supabase/migrations/`)
+- Delegates backend work to @mjcc-backend (routes, rbac, validation)
+- Delegates frontend work to @mjcc-frontend (app.html, stores, components)
+- Delegates server ops to @mjcc-server (Docker, Azure)
+- Uses @supa to apply migrations to live Supabase project
+- Uses @gitgod for commits and PRs (convention: `X.Y.Z` version numbers)
 - Uses @envy for venv/dependency management
-- Uses @supa for database schema changes
-- Can ask @google for research help
+- Uses @linter for code quality review
+- Uses @judge for final evaluation
+- Can ask @google for research
+- Refer to `AGENTS.md` for the deployment plan and phase order
 
 ## Linting
 
