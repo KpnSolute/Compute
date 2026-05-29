@@ -267,6 +267,19 @@
     </style>
   </head>
   <body>
+    <div
+      style="
+        background: #fef3c7;
+        border-bottom: 2px solid #f59e0b;
+        padding: 8px 16px;
+        text-align: center;
+        font-size: 13px;
+        font-weight: 600;
+        color: #92400e;
+      "
+    >
+      ⚠️ This page has moved. <a href="/app" style="color: #1d4ed8">Go to the new app</a>
+    </div>
     <nav>
       <div class="nav-left">
         <div class="nav-logo"><img src="/logo-shield.svg" alt="MJC Shield" /></div>
@@ -362,6 +375,11 @@
         await fetch('/api/auth/logout', { method: 'POST' });
         window.location.href = '/';
       });
+    </script>
+    <script>
+      setTimeout(function () {
+        window.location.href = '/app';
+      }, 3000);
     </script>
   </body>
 </html>

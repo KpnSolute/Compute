@@ -252,11 +252,7 @@
             return;
           }
           // Redirect based on role
-          if (data.user.role === 'staff') {
-            window.location.href = '/dashboard-staff';
-          } else {
-            window.location.href = '/dashboard-admin';
-          }
+          window.location.href = '/app';
         } catch (e) {
           showError('Could not connect to server. Please try again.');
         }

@@ -1,0 +1,1748 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MJCC Inventory</title>
+    <link rel="icon" type="image/svg+xml" href="/logo-shield.svg" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+      body {
+        font-family: 'Inter', system-ui, sans-serif;
+      }
+      .sidebar-link {
+        transition: all 0.15s ease;
+      }
+      .sidebar-link:hover {
+        background: #f1f5f9;
+      }
+      .sidebar-link.active {
+        background: #eff6ff;
+        color: #2563eb;
+      }
+      .sidebar-link.active svg {
+        color: #2563eb;
+      }
+      .table-cell {
+        padding: 6px 12px;
+        font-size: 13px;
+        border-bottom: 1px solid #f1f5f9;
+      }
+      .num {
+        font-family: 'Inter', monospace;
+        text-align: right;
+      }
+      .toast-enter {
+        animation: slideIn 0.3s ease-out;
+      }
+      .toast-leave {
+        animation: slideOut 0.3s ease-in;
+      }
+      @keyframes slideIn {
+        from {
+          transform: translateX(100%);
+          opacity: 0;
+        }
+        to {
+          transform: translateX(0);
+          opacity: 1;
+        }
+      }
+      @keyframes slideOut {
+        from {
+          transform: translateX(0);
+          opacity: 1;
+        }
+        to {
+          transform: translateX(100%);
+          opacity: 0;
+        }
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 8px;
+        border-radius: 9999px;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      @media print {
+        .no-print {
+          display: none !important;
+        }
+      }
+      .fade-in {
+        animation: fadeIn 0.2s ease-out;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+      [x-cloak] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body class="bg-gray-50 text-slate-800 antialiased">
+    <div x-data="app()" x-init="init()" class="min-h-screen flex">
+      <div
+        x-show="$store.auth.loading"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-white/80"
+      >
+        <div class="flex items-center gap-3 text-slate-500 text-sm">Loading...</div>
+      </div>
+
+      <div x-cloak x-show="!$store.auth.loading" class="flex w-full">
+        <aside
+          class="fixed inset-y-0 left-0 z-40 w-56 bg-white border-r border-slate-200 flex flex-col transform transition-transform duration-200 md:translate-x-0"
+          :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
+        >
+          <div class="flex items-center gap-2 h-14 px-4 border-b border-slate-200">
+            <div
+              class="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0"
+            >
+              M
+            </div>
+            <span class="text-sm font-bold text-slate-800 truncate">MJCC Inventory</span>
+          </div>
+          <nav class="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
+            <template x-for="item in $store.sidebar.filteredItems" :key="item.id">
+              <a
+                href="#"
+                x-on:click.prevent="$store.sidebar.setActive(item.id)"
+                class="sidebar-link flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-600"
+                :class="$store.sidebar.active === item.id ? 'active' : ''"
+              >
+                <span class="text-base shrink-0" x-text="item.icon"></span>
+                <span x-text="item.label"></span>
+              </a>
+            </template>
+          </nav>
+          <div class="p-3 border-t border-slate-200">
+            <div class="flex items-center gap-2 mb-2">
+              <div
+                class="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold shrink-0"
+                x-text="($store.auth.user?.display_name || '?')[0]"
+              ></div>
+              <div class="min-w-0 flex-1">
+                <div
+                  class="text-xs font-semibold text-slate-700 truncate"
+                  x-text="$store.auth.user?.display_name || ''"
+                ></div>
+                <div
+                  class="text-[10px] text-slate-400 capitalize"
+                  x-text="$store.auth.user?.role || ''"
+                ></div>
+              </div>
+            </div>
+            <button
+              x-on:click="$store.auth.logout()"
+              class="w-full text-xs text-slate-400 hover:text-red-500 font-medium text-left px-1 py-1 transition-colors"
+            >
+              Sign out
+            </button>
+          </div>
+        </aside>
+
+        <div
+          x-show="sidebarOpen"
+          x-on:click="sidebarOpen = false"
+          class="fixed inset-0 z-30 bg-black/30 md:hidden"
+        ></div>
+
+        <div class="flex-1 flex flex-col md:ml-56 min-h-screen">
+          <header
+            class="sticky top-0 z-20 bg-white border-b border-slate-200 h-14 flex items-center gap-3 px-4 no-print"
+          >
+            <button
+              x-on:click="sidebarOpen = !sidebarOpen"
+              class="md:hidden p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"
+            >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 6h16M4 12h16M4 18h16"
+                />
+              </svg>
+            </button>
+            <div class="flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <span x-text="pageTitle"></span>
+            </div>
+            <div class="flex-1"></div>
+            <div class="hidden sm:flex items-center gap-2 text-xs text-slate-400">
+              <span class="hidden sm:inline" x-text="$store.auth.user?.display_name || ''"></span>
+              <span
+                class="badge bg-blue-50 text-blue-600 border border-blue-200 capitalize"
+                x-text="$store.auth.user?.role || ''"
+              ></span>
+            </div>
+            <button
+              x-on:click="$store.auth.logout()"
+              class="text-xs text-slate-400 hover:text-red-500 font-medium transition-colors"
+            >
+              Sign out
+            </button>
+          </header>
+
+          <main class="flex-1 p-4 md:p-6 max-w-7xl mx-auto w-full">
+            <div
+              x-show="$store.sidebar.active === 'inventory'"
+              x-data="inventoryPage()"
+              x-init="initPage()"
+              class="fade-in"
+            >
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                <h2 class="text-lg font-bold text-slate-800">Inventory</h2>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <select
+                    x-model="selMonth"
+                    x-on:change="loadData()"
+                    class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-slate-700"
+                  >
+                    <template x-for="(name, idx) in monthNames" :key="idx">
+                      <option :value="idx" x-text="name"></option>
+                    </template>
+                  </select>
+                  <select
+                    x-model="selYear"
+                    x-on:change="loadData()"
+                    class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-slate-700"
+                  >
+                    <template x-for="y in years" :key="y">
+                      <option :value="y" x-text="y"></option>
+                    </template>
+                  </select>
+                  <template x-if="canWrite">
+                    <button
+                      x-on:click="openCommitModal()"
+                      class="text-xs font-semibold bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      Commit Change
+                    </button>
+                  </template>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <div class="bg-white rounded-xl border border-slate-200 p-3">
+                  <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                    Grand Total
+                  </div>
+                  <div
+                    class="text-lg font-bold text-slate-800 mt-1"
+                    x-text="'$' + number(summary.grand_total)"
+                  ></div>
+                </div>
+                <div class="bg-white rounded-xl border border-slate-200 p-3">
+                  <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                    Items
+                  </div>
+                  <div
+                    class="text-lg font-bold text-slate-800 mt-1"
+                    x-text="summary.item_count || 0"
+                  ></div>
+                </div>
+                <div class="bg-white rounded-xl border border-slate-200 p-3">
+                  <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                    Low Stock
+                  </div>
+                  <div
+                    class="text-lg font-bold text-amber-600 mt-1"
+                    x-text="summary.low_stock || 0"
+                  ></div>
+                </div>
+                <div class="bg-white rounded-xl border border-slate-200 p-3">
+                  <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                    Categories
+                  </div>
+                  <div
+                    class="text-lg font-bold text-slate-800 mt-1"
+                    x-text="categories.length"
+                  ></div>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2 mb-4">
+                <template x-for="w in 4" :key="w">
+                  <button
+                    x-on:click="selWeek = w; filterItems()"
+                    class="text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors"
+                    :class="selWeek === w ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'"
+                  >
+                    Week <span x-text="w"></span>
+                  </button>
+                </template>
+                <select
+                  x-model="selCategory"
+                  x-on:change="filterItems()"
+                  class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-slate-700 ml-2"
+                >
+                  <option value="">All Categories</option>
+                  <template x-for="cat in categories" :key="cat.id">
+                    <option :value="cat.id" x-text="cat.name"></option>
+                  </template>
+                </select>
+              </div>
+
+              <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div class="overflow-x-auto">
+                  <table class="w-full text-sm">
+                    <thead>
+                      <tr
+                        class="bg-slate-50 text-[11px] text-slate-500 uppercase tracking-wider font-semibold"
+                      >
+                        <th class="text-left px-3 py-2.5">Description</th>
+                        <th class="text-left px-3 py-2.5">SKU</th>
+                        <th class="text-left px-3 py-2.5">Category</th>
+                        <th class="text-right px-3 py-2.5">On Hand</th>
+                        <th class="text-right px-3 py-2.5">Received</th>
+                        <th class="text-right px-3 py-2.5">Issued</th>
+                        <th class="text-right px-3 py-2.5">End Qty</th>
+                        <th class="text-right px-3 py-2.5">Price</th>
+                        <th class="text-right px-3 py-2.5">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-for="item in filtered" :key="item.id">
+                        <tr class="hover:bg-slate-50 transition-colors">
+                          <td
+                            class="table-cell font-medium text-slate-700"
+                            x-text="item.description"
+                          ></td>
+                          <td
+                            class="table-cell text-slate-500 font-mono text-xs"
+                            x-text="item.sku"
+                          ></td>
+                          <td class="table-cell text-slate-500">
+                            <span
+                              class="badge bg-slate-100 text-slate-600"
+                              x-text="item.category_name || '—'"
+                            ></span>
+                          </td>
+                          <td class="table-cell num" x-text="number(item.on_hand)"></td>
+                          <td
+                            class="table-cell num"
+                            x-text="number(getWeekField(item, 'received'))"
+                          ></td>
+                          <td
+                            class="table-cell num"
+                            x-text="number(getWeekField(item, 'issued'))"
+                          ></td>
+                          <td
+                            class="table-cell num font-semibold"
+                            :class="getWeekField(item, 'ending_qty') <= 0 ? 'text-red-500' : 'text-slate-700'"
+                            x-text="number(getWeekField(item, 'ending_qty'))"
+                          ></td>
+                          <td
+                            class="table-cell num text-slate-500"
+                            x-text="'$' + number(item.unit_price)"
+                          ></td>
+                          <td
+                            class="table-cell num font-semibold"
+                            x-text="'$' + number(getWeekField(item, 'ending_qty') * item.unit_price)"
+                          ></td>
+                        </tr>
+                      </template>
+                      <tr x-show="filtered.length === 0">
+                        <td colspan="9" class="text-center py-8 text-slate-400 text-sm">
+                          No items found
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div
+                x-show="commitModalOpen"
+                class="fixed inset-0 z-50 flex items-center justify-center p-4"
+              >
+                <div
+                  x-on:click="commitModalOpen = false"
+                  class="absolute inset-0 bg-black/40"
+                ></div>
+                <div
+                  class="relative bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 fade-in"
+                >
+                  <h3 class="text-base font-bold text-slate-800 mb-4">Commit Change</h3>
+                  <div class="space-y-3">
+                    <div>
+                      <label class="block text-xs font-semibold text-slate-500 mb-1">Item</label>
+                      <input
+                        x-model="commitForm.search"
+                        x-on:input="searchItems()"
+                        type="text"
+                        placeholder="Search items by name or SKU..."
+                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                      />
+                      <div
+                        x-show="commitForm.search.length > 0 && commitForm.search !== (commitForm.selectedItem?.description || '')"
+                        class="mt-1 border border-slate-200 rounded-lg max-h-40 overflow-y-auto bg-white shadow-sm"
+                      >
+                        <template x-for="item in commitForm.searchResults" :key="item.id">
+                          <button
+                            x-on:click="selectCommitItem(item)"
+                            class="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 border-b border-slate-100 last:border-b-0"
+                          >
+                            <span class="font-medium" x-text="item.description"></span>
+                            <span class="text-slate-400 ml-2 text-xs" x-text="item.sku"></span>
+                          </button>
+                        </template>
+                        <div
+                          x-show="commitForm.searchResults.length === 0"
+                          class="px-3 py-2 text-sm text-slate-400"
+                        >
+                          No results
+                        </div>
+                      </div>
+                      <div
+                        x-show="commitForm.selectedItem"
+                        class="mt-1 text-xs text-blue-600 font-medium"
+                        x-text="commitForm.selectedItem.description + ' (' + commitForm.selectedItem.sku + ')'"
+                      ></div>
+                    </div>
+                    <div>
+                      <label class="block text-xs font-semibold text-slate-500 mb-1">Week</label>
+                      <div class="flex gap-1">
+                        <template x-for="w in 4" :key="w">
+                          <button
+                            x-on:click="commitForm.week = w"
+                            class="flex-1 text-xs font-medium py-2 rounded-lg border transition-colors"
+                            :class="commitForm.week === w ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'"
+                            x-text="'W' + w"
+                          ></button>
+                        </template>
+                      </div>
+                    </div>
+                    <div>
+                      <label class="block text-xs font-semibold text-slate-500 mb-1">Field</label>
+                      <div class="flex gap-1">
+                        <button
+                          x-on:click="commitForm.field = 'received'"
+                          class="flex-1 text-xs font-medium py-2 rounded-lg border transition-colors"
+                          :class="commitForm.field === 'received' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'"
+                        >
+                          Received
+                        </button>
+                        <button
+                          x-on:click="commitForm.field = 'issued'"
+                          class="flex-1 text-xs font-medium py-2 rounded-lg border transition-colors"
+                          :class="commitForm.field === 'issued' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'"
+                        >
+                          Issued
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label class="block text-xs font-semibold text-slate-500 mb-1">Action</label>
+                      <div class="flex gap-1">
+                        <button
+                          x-on:click="commitForm.action = 'pull'"
+                          class="flex-1 text-xs font-medium py-2 rounded-lg border transition-colors"
+                          :class="commitForm.action === 'pull' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'"
+                        >
+                          Pull (Import)
+                        </button>
+                        <button
+                          x-on:click="commitForm.action = 'enter'"
+                          class="flex-1 text-xs font-medium py-2 rounded-lg border transition-colors"
+                          :class="commitForm.action === 'enter' ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'"
+                        >
+                          Enter (Export)
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label class="block text-xs font-semibold text-slate-500 mb-1">Value</label>
+                      <input
+                        x-model.number="commitForm.value"
+                        type="number"
+                        min="0"
+                        step="1"
+                        placeholder="0"
+                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div class="flex justify-end gap-2 mt-6">
+                    <button
+                      x-on:click="commitModalOpen = false"
+                      class="text-xs font-medium px-4 py-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      x-on:click="submitCommit()"
+                      :disabled="!commitForm.selectedItem || !commitForm.value"
+                      class="text-xs font-semibold px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Submit
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div
+              x-show="$store.sidebar.active === 'source-control'"
+              x-data="sourceControlPage()"
+              x-init="initPage()"
+              class="fade-in"
+            >
+              <h2 class="text-lg font-bold text-slate-800 mb-4">Source Control</h2>
+
+              <div x-show="canWrite" class="bg-white rounded-xl border border-slate-200 p-4 mb-4">
+                <h3 class="text-sm font-semibold text-slate-700 mb-3">Staging Area</h3>
+                <div x-show="staged.length === 0" class="text-sm text-slate-400 py-4 text-center">
+                  No pending changes
+                </div>
+                <div x-show="staged.length > 0" class="overflow-x-auto">
+                  <table class="w-full text-sm">
+                    <thead>
+                      <tr
+                        class="bg-slate-50 text-[11px] text-slate-500 uppercase tracking-wider font-semibold"
+                      >
+                        <th class="text-left px-3 py-2">Item</th>
+                        <th class="text-left px-3 py-2">Week</th>
+                        <th class="text-left px-3 py-2">Field</th>
+                        <th class="text-left px-3 py-2">Action</th>
+                        <th class="text-right px-3 py-2">Value</th>
+                        <th class="text-left px-3 py-2">Submitted</th>
+                        <th class="text-left px-3 py-2">TTL</th>
+                        <th class="text-right px-3 py-2">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-for="entry in staged" :key="entry.id || entry.entry_id">
+                        <tr class="hover:bg-slate-50 transition-colors">
+                          <td
+                            class="table-cell font-medium text-slate-700"
+                            x-text="entry.item_name || entry.description || '—'"
+                          ></td>
+                          <td
+                            class="table-cell"
+                            x-text="'W' + (entry.week_number || entry.week)"
+                          ></td>
+                          <td class="table-cell capitalize" x-text="entry.field"></td>
+                          <td class="table-cell">
+                            <span
+                              class="badge"
+                              :class="entry.action === 'pull' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-amber-50 text-amber-600 border border-amber-200'"
+                              x-text="entry.action === 'pull' ? 'Import' : 'Export'"
+                            ></span>
+                          </td>
+                          <td
+                            class="table-cell num font-semibold"
+                            x-text="number(entry.submitted_value || entry.value)"
+                          ></td>
+                          <td
+                            class="table-cell text-slate-400 text-xs"
+                            x-text="entry.submitted_by_name || entry.submitter_name || '—'"
+                          ></td>
+                          <td class="table-cell text-xs" x-text="entry.ttl || '—'"></td>
+                          <td class="table-cell text-right">
+                            <div class="flex justify-end gap-1">
+                              <button
+                                x-on:click="mergeEntry(entry)"
+                                class="text-xs px-2 py-1 rounded bg-emerald-50 text-emerald-600 hover:bg-emerald-100 font-medium"
+                              >
+                                Merge
+                              </button>
+                              <button
+                                x-on:click="rejectEntry(entry)"
+                                class="text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 font-medium"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+                <div x-show="staged.length > 0" class="mt-3 flex items-center gap-2">
+                  <input
+                    x-model="pushMessage"
+                    type="text"
+                    placeholder="Commit message..."
+                    class="flex-1 border border-slate-300 rounded-lg px-3 py-1.5 text-xs focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                  />
+                  <button
+                    x-on:click="pushAll()"
+                    :disabled="!pushMessage"
+                    class="text-xs font-semibold bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                  >
+                    Push All
+                  </button>
+                </div>
+              </div>
+
+              <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <h3 class="text-sm font-semibold text-slate-700 mb-3">Commit History</h3>
+                <div x-show="commits.length === 0" class="text-sm text-slate-400 py-4 text-center">
+                  No commits yet
+                </div>
+                <div class="space-y-2">
+                  <template x-for="c in commits" :key="c.commit_id || c.id">
+                    <div
+                      class="flex items-start gap-3 py-2 border-b border-slate-100 last:border-b-0"
+                    >
+                      <div
+                        class="w-2 h-2 mt-1.5 rounded-full shrink-0"
+                        :class="(c.status || 'merged') === 'reverted' ? 'bg-red-400' : 'bg-emerald-400'"
+                      ></div>
+                      <div class="flex-1 min-w-0">
+                        <div
+                          class="text-sm font-medium text-slate-700 truncate"
+                          x-text="c.message || 'Commit'"
+                        ></div>
+                        <div class="text-xs text-slate-400 mt-0.5">
+                          <span x-text="c.author_name || c.author || '—'"></span>
+                          <span x-text="timeAgo(c.created_at)"></span>
+                        </div>
+                      </div>
+                      <span
+                        class="badge bg-slate-100 text-slate-500 text-[10px]"
+                        x-text="(c.status || 'merged')"
+                      ></span>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+
+            <div
+              x-show="$store.sidebar.active === 'reports'"
+              x-data="reportsPage()"
+              x-init="initPage()"
+              class="fade-in"
+            >
+              <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-bold text-slate-800">Reports</h2>
+                <div class="flex items-center gap-2">
+                  <select
+                    x-model="repMonth"
+                    x-on:change="loadReport()"
+                    class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-slate-700"
+                  >
+                    <template x-for="(name, idx) in monthNames" :key="idx">
+                      <option :value="idx" x-text="name"></option>
+                    </template>
+                  </select>
+                  <select
+                    x-model="repYear"
+                    x-on:change="loadReport()"
+                    class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-slate-700"
+                  >
+                    <template x-for="y in years" :key="y">
+                      <option :value="y" x-text="y"></option>
+                    </template>
+                  </select>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <div class="bg-white rounded-xl border border-slate-200 p-3">
+                  <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                    Grand Total
+                  </div>
+                  <div
+                    class="text-lg font-bold text-slate-800 mt-1"
+                    x-text="'$' + number(summary.grand_total)"
+                  ></div>
+                </div>
+                <div class="bg-white rounded-xl border border-slate-200 p-3">
+                  <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                    Starting Total
+                  </div>
+                  <div
+                    class="text-lg font-bold text-slate-800 mt-1"
+                    x-text="'$' + number(summary.starting_total)"
+                  ></div>
+                </div>
+                <div class="bg-white rounded-xl border border-slate-200 p-3">
+                  <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                    Items
+                  </div>
+                  <div
+                    class="text-lg font-bold text-slate-800 mt-1"
+                    x-text="summary.item_count || 0"
+                  ></div>
+                </div>
+                <div class="bg-white rounded-xl border border-slate-200 p-3">
+                  <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                    Reorder Alerts
+                  </div>
+                  <div
+                    class="text-lg font-bold text-amber-600 mt-1"
+                    x-text="summary.reorder_count || 0"
+                  ></div>
+                </div>
+              </div>
+
+              <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4">
+                <h3 class="text-sm font-semibold text-slate-700 mb-3">Weekly Totals</h3>
+                <div class="grid grid-cols-4 gap-3">
+                  <template x-for="w in 4" :key="w">
+                    <div class="text-center p-2 bg-slate-50 rounded-lg">
+                      <div class="text-[10px] text-slate-400 font-semibold uppercase">
+                        Week <span x-text="w"></span>
+                      </div>
+                      <div
+                        class="text-sm font-bold text-slate-700 mt-0.5"
+                        x-text="'$' + number(summary['week' + w + '_total'] || 0)"
+                      ></div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <div
+                x-show="reorderItems.length > 0"
+                class="bg-white rounded-xl border border-slate-200 p-4 mb-4"
+              >
+                <h3 class="text-sm font-semibold text-slate-700 mb-3">Reorder Alerts</h3>
+                <table class="w-full text-sm">
+                  <thead>
+                    <tr
+                      class="bg-slate-50 text-[11px] text-slate-500 uppercase tracking-wider font-semibold"
+                    >
+                      <th class="text-left px-3 py-2">Item</th>
+                      <th class="text-left px-3 py-2">SKU</th>
+                      <th class="text-right px-3 py-2">On Hand</th>
+                      <th class="text-right px-3 py-2">Reorder Point</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="item in reorderItems" :key="item.id">
+                      <tr class="hover:bg-slate-50">
+                        <td class="table-cell font-medium" x-text="item.description"></td>
+                        <td
+                          class="table-cell text-slate-500 font-mono text-xs"
+                          x-text="item.sku"
+                        ></td>
+                        <td
+                          class="table-cell num text-red-500 font-semibold"
+                          x-text="number(item.on_hand)"
+                        ></td>
+                        <td class="table-cell num" x-text="number(item.reorder_point || 0)"></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <h3 class="text-sm font-semibold text-slate-700 mb-3">Category Breakdown</h3>
+                <div
+                  x-show="categoryData.length === 0"
+                  class="text-sm text-slate-400 py-4 text-center"
+                >
+                  No category data
+                </div>
+                <table x-show="categoryData.length > 0" class="w-full text-sm">
+                  <thead>
+                    <tr
+                      class="bg-slate-50 text-[11px] text-slate-500 uppercase tracking-wider font-semibold"
+                    >
+                      <th class="text-left px-3 py-2">Category</th>
+                      <th class="text-right px-3 py-2">Items</th>
+                      <th class="text-right px-3 py-2">Total Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="cat in categoryData" :key="cat.name">
+                      <tr class="hover:bg-slate-50">
+                        <td
+                          class="table-cell font-medium"
+                          x-text="cat.name || 'Uncategorized'"
+                        ></td>
+                        <td class="table-cell num" x-text="cat.count || 0"></td>
+                        <td
+                          class="table-cell num font-semibold"
+                          x-text="'$' + number(cat.total || 0)"
+                        ></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div
+              x-show="$store.sidebar.active === 'users'"
+              x-data="usersPage()"
+              x-init="initPage()"
+              class="fade-in"
+            >
+              <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-bold text-slate-800">Users</h2>
+                <button
+                  x-on:click="openUserModal()"
+                  class="text-xs font-semibold bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Add User
+                </button>
+              </div>
+
+              <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div class="overflow-x-auto">
+                  <table class="w-full text-sm">
+                    <thead>
+                      <tr
+                        class="bg-slate-50 text-[11px] text-slate-500 uppercase tracking-wider font-semibold"
+                      >
+                        <th class="text-left px-3 py-2.5">Name</th>
+                        <th class="text-left px-3 py-2.5">Username</th>
+                        <th class="text-left px-3 py-2.5">Role</th>
+                        <th class="text-left px-3 py-2.5">Active</th>
+                        <th class="text-left px-3 py-2.5">Created</th>
+                        <th class="text-right px-3 py-2.5">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-for="u in users" :key="u.id">
+                        <tr class="hover:bg-slate-50 transition-colors">
+                          <td
+                            class="table-cell font-medium text-slate-700"
+                            x-text="(u.display_name || '') + (u.last_name ? ' ' + u.last_name : '')"
+                          ></td>
+                          <td
+                            class="table-cell text-slate-500 font-mono text-xs"
+                            x-text="u.username"
+                          ></td>
+                          <td class="table-cell">
+                            <span
+                              class="badge capitalize"
+                              :class="roleBadgeClass(u.role)"
+                              x-text="u.role"
+                            ></span>
+                          </td>
+                          <td class="table-cell">
+                            <span
+                              class="text-xs"
+                              :class="u.active !== false ? 'text-emerald-600' : 'text-red-400'"
+                              x-text="u.active !== false ? 'Active' : 'Inactive'"
+                            ></span>
+                          </td>
+                          <td
+                            class="table-cell text-slate-400 text-xs"
+                            x-text="u.created_at ? formatDate(u.created_at) : '—'"
+                          ></td>
+                          <td class="table-cell text-right">
+                            <div class="flex justify-end gap-1">
+                              <button
+                                x-on:click="editUser(u)"
+                                class="text-xs px-2 py-1 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 font-medium"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                x-on:click="openPinModal(u)"
+                                class="text-xs px-2 py-1 rounded bg-amber-50 text-amber-600 hover:bg-amber-100 font-medium"
+                              >
+                                PIN
+                              </button>
+                              <button
+                                x-on:click="deleteUser(u)"
+                                class="text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 font-medium"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      </template>
+                      <tr x-show="users.length === 0">
+                        <td colspan="6" class="text-center py-8 text-slate-400 text-sm">
+                          No users found
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div
+                x-show="userModalOpen"
+                class="fixed inset-0 z-50 flex items-center justify-center p-4"
+              >
+                <div x-on:click="userModalOpen = false" class="absolute inset-0 bg-black/40"></div>
+                <div
+                  class="relative bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6 fade-in"
+                >
+                  <h3
+                    class="text-base font-bold text-slate-800 mb-4"
+                    x-text="editingUser ? 'Edit User' : 'Add User'"
+                  ></h3>
+                  <div class="space-y-3">
+                    <div>
+                      <label class="block text-xs font-semibold text-slate-500 mb-1"
+                        >Username</label
+                      >
+                      <input
+                        x-model="form.username"
+                        type="text"
+                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-xs font-semibold text-slate-500 mb-1"
+                        >Display Name</label
+                      >
+                      <input
+                        x-model="form.display_name"
+                        type="text"
+                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-xs font-semibold text-slate-500 mb-1"
+                        >Last Name</label
+                      >
+                      <input
+                        x-model="form.last_name"
+                        type="text"
+                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-xs font-semibold text-slate-500 mb-1">Role</label>
+                      <select
+                        x-model="form.role"
+                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                      >
+                        <option value="staff">Staff</option>
+                        <option value="assistant">Assistant</option>
+                        <option value="manager">Manager</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="block text-xs font-semibold text-slate-500 mb-1"
+                        >Password
+                        <span x-show="editingUser" class="text-slate-300 font-normal"
+                          >(leave blank to keep)</span
+                        ></label
+                      >
+                      <input
+                        x-model="form.password"
+                        type="password"
+                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-xs font-semibold text-slate-500 mb-1"
+                        >PIN <span class="text-slate-300 font-normal">(4 digits)</span></label
+                      >
+                      <input
+                        x-model="form.pin"
+                        type="text"
+                        maxlength="4"
+                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                      />
+                    </div>
+                    <div x-show="editingUser" class="flex items-center gap-2">
+                      <input
+                        x-model="form.active"
+                        type="checkbox"
+                        id="user-active"
+                        class="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <label for="user-active" class="text-xs text-slate-600">Active</label>
+                    </div>
+                  </div>
+                  <div class="flex justify-end gap-2 mt-6">
+                    <button
+                      x-on:click="userModalOpen = false"
+                      class="text-xs font-medium px-4 py-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      x-on:click="saveUser()"
+                      class="text-xs font-semibold px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                x-show="pinModalOpen"
+                class="fixed inset-0 z-50 flex items-center justify-center p-4"
+              >
+                <div x-on:click="pinModalOpen = false" class="absolute inset-0 bg-black/40"></div>
+                <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 fade-in">
+                  <h3 class="text-base font-bold text-slate-800 mb-1">Reset PIN</h3>
+                  <p
+                    class="text-xs text-slate-400 mb-4"
+                    x-text="'Set new PIN for ' + (editingUser?.display_name || editingUser?.username || '')"
+                  ></p>
+                  <input
+                    x-model="pinForm.pin"
+                    type="text"
+                    maxlength="4"
+                    placeholder="4-digit PIN"
+                    class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                  />
+                  <div class="flex justify-end gap-2 mt-4">
+                    <button
+                      x-on:click="pinModalOpen = false"
+                      class="text-xs font-medium px-4 py-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      x-on:click="savePin()"
+                      class="text-xs font-semibold px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                    >
+                      Save PIN
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div
+              x-show="$store.sidebar.active === 'barcodes'"
+              x-data="barcodesPage()"
+              x-init="initPage()"
+              class="fade-in"
+            >
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                <h2 class="text-lg font-bold text-slate-800">Barcodes</h2>
+                <div class="flex items-center gap-2">
+                  <input
+                    x-model="barcodeSearch"
+                    x-on:input="filterBarcodes()"
+                    type="text"
+                    placeholder="Search items..."
+                    class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-slate-700 w-48 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                  />
+                  <button
+                    x-on:click="exportSelected()"
+                    :disabled="selectedBarcodes.length === 0"
+                    class="text-xs font-semibold bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                  >
+                    Download Selected
+                  </button>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                <template x-for="item in filteredBarcodes" :key="item.id">
+                  <div
+                    class="bg-white rounded-xl border border-slate-200 p-3 flex flex-col items-center text-center"
+                  >
+                    <input
+                      type="checkbox"
+                      :value="item.id"
+                      x-model="selectedBarcodes"
+                      class="self-end rounded border-slate-300 text-blue-600 focus:ring-blue-500 mb-2"
+                    />
+                    <div
+                      class="text-xs font-semibold text-slate-700 mb-1 truncate w-full"
+                      x-text="item.description"
+                    ></div>
+                    <div class="text-[10px] text-slate-400 font-mono mb-2" x-text="item.sku"></div>
+                    <div
+                      class="w-full max-w-[160px] h-12 bg-slate-50 rounded flex items-center justify-center font-mono text-[8px] text-slate-300 tracking-[3px] overflow-hidden"
+                      x-text="item.sku"
+                    ></div>
+                  </div>
+                </template>
+                <template x-for="i in (filteredBarcodes.length === 0 ? 1 : 0)" :key="'empty'">
+                  <div class="col-span-full text-center py-8 text-slate-400 text-sm">
+                    No items found
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <div
+              x-show="$store.sidebar.active === 'settings'"
+              x-data="settingsPage()"
+              x-init="initPage()"
+              class="fade-in"
+            >
+              <h2 class="text-lg font-bold text-slate-800 mb-4">Settings</h2>
+              <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4">
+                <h3 class="text-sm font-semibold text-slate-700 mb-3">AI Configuration</h3>
+                <div class="space-y-3">
+                  <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1"
+                      >AI Provider</label
+                    >
+                    <select
+                      x-model="settings.ai_provider"
+                      x-on:change="saveSetting('AI_PROVIDER', settings.ai_provider)"
+                      class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    >
+                      <option value="ollama">Ollama</option>
+                      <option value="groq">Groq</option>
+                      <option value="gemini">Gemini</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1">AI Model</label>
+                    <input
+                      x-model="settings.ai_model"
+                      x-on:change="saveSetting('AI_MODEL', settings.ai_model)"
+                      type="text"
+                      class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1">API Key</label>
+                    <input
+                      x-model="settings.ai_api_key"
+                      x-on:change="saveSetting('AI_API_KEY', settings.ai_api_key)"
+                      type="password"
+                      class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <h3 class="text-sm font-semibold text-slate-700 mb-3">System Info</h3>
+                <div class="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span class="text-slate-400 text-xs">Version</span>
+                    <div class="font-medium">1.3.2</div>
+                  </div>
+                  <div>
+                    <span class="text-slate-400 text-xs">Environment</span>
+                    <div class="font-medium" x-text="systemInfo.env || '—'"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div x-show="$store.sidebar.active === 'files'" class="fade-in">
+              <h2 class="text-lg font-bold text-slate-800 mb-4">Files</h2>
+              <div
+                class="bg-white rounded-xl border-2 border-dashed border-slate-300 p-8 text-center mb-4"
+              >
+                <div class="text-3xl mb-2">📁</div>
+                <div class="text-sm text-slate-400 mb-1">Drag and drop files here</div>
+                <div class="text-xs text-slate-300">or click to browse</div>
+              </div>
+              <div class="bg-white rounded-xl border border-slate-200 p-8 text-center">
+                <div class="text-sm text-slate-400">Files and uploads coming soon.</div>
+              </div>
+            </div>
+
+            <div x-show="$store.sidebar.active === 'qr-portal'" class="fade-in">
+              <div class="max-w-md mx-auto mt-12 text-center">
+                <div class="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
+                  <div class="text-4xl mb-3">📷</div>
+                  <h2 class="text-lg font-bold text-slate-800 mb-2">MJCC QR Portal</h2>
+                  <p class="text-sm text-slate-400 mb-6">
+                    Coming soon — install the MJCC mobile app for barcode scanning and inventory
+                    tracking on the go.
+                  </p>
+                  <div class="flex justify-center gap-3">
+                    <span
+                      class="inline-block px-4 py-2 text-xs font-semibold border border-slate-300 text-slate-400 rounded-lg"
+                      >App Store</span
+                    >
+                    <span
+                      class="inline-block px-4 py-2 text-xs font-semibold border border-slate-300 text-slate-400 rounded-lg"
+                      >Google Play</span
+                    >
+                  </div>
+                </div>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+
+      <div x-show="$store.toast.show" class="fixed bottom-4 right-4 z-50 max-w-sm toast-enter">
+        <div
+          class="rounded-xl shadow-lg px-4 py-3 text-sm font-medium text-white flex items-center gap-2"
+          :class="$store.toast.type === 'success' ? 'bg-emerald-600' : $store.toast.type === 'error' ? 'bg-red-500' : 'bg-blue-500'"
+        >
+          <span
+            x-text="$store.toast.type === 'success' ? '✓' : $store.toast.type === 'error' ? '✕' : 'ℹ'"
+          ></span>
+          <span x-text="$store.toast.message"></span>
+          <button x-on:click="$store.toast.hide()" class="ml-2 opacity-70 hover:opacity-100">
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <div
+        x-show="$store.confirm.show"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+      >
+        <div x-on:click="$store.confirm.cancel()" class="absolute inset-0 bg-black/40"></div>
+        <div
+          class="relative bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 fade-in text-center"
+        >
+          <p class="text-sm text-slate-700 mb-4" x-text="$store.confirm.message"></p>
+          <div class="flex justify-center gap-2">
+            <button
+              x-on:click="$store.confirm.cancel()"
+              class="text-xs font-medium px-4 py-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              x-on:click="$store.confirm.confirm()"
+              class="text-xs font-semibold px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600"
+            >
+              Confirm
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="/static/js/stores.js"></script>
+    <script src="/static/js/api.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js" defer></script>
+    <script>
+      function app() {
+        return {
+          sidebarOpen: false,
+          pageTitle: 'Inventory',
+          monthNames: [
+            'January',
+            'February',
+            'March',
+            'April',
+            'May',
+            'June',
+            'July',
+            'August',
+            'September',
+            'October',
+            'November',
+            'December',
+          ],
+          years: [2024, 2025, 2026, 2027],
+          init() {
+            this.$watch('$store.sidebar.active', (val) => {
+              const labels = {
+                inventory: 'Inventory',
+                'source-control': 'Source Control',
+                reports: 'Reports',
+                users: 'Users',
+                barcodes: 'Barcodes',
+                settings: 'Settings',
+                files: 'Files',
+                'qr-portal': 'QR Portal',
+              };
+              this.pageTitle = labels[val] || 'Inventory';
+              this.sidebarOpen = false;
+            });
+            if (window.location.hash) {
+              const hash = window.location.hash.replace('#', '');
+              if (this.$store.sidebar.filteredItems.some((i) => i.id === hash)) {
+                this.$store.sidebar.active = hash;
+              }
+            }
+          },
+        };
+      }
+
+      function inventoryPage() {
+        return {
+          selMonth: new Date().getMonth(),
+          selYear: new Date().getFullYear(),
+          selWeek: 1,
+          selCategory: '',
+          items: [],
+          allItems: [],
+          filtered: [],
+          categories: [],
+          summary: {},
+          loading: true,
+          canWrite: false,
+          monthNames: [
+            'January',
+            'February',
+            'March',
+            'April',
+            'May',
+            'June',
+            'July',
+            'August',
+            'September',
+            'October',
+            'November',
+            'December',
+          ],
+          years: [2024, 2025, 2026, 2027],
+          commitModalOpen: false,
+          commitForm: {
+            search: '',
+            selectedItem: null,
+            searchResults: [],
+            week: 1,
+            field: 'received',
+            action: 'pull',
+            value: 0,
+          },
+          async initPage() {
+            this.canWrite = ['admin', 'manager', 'assistant'].includes(
+              Alpine.store('auth')?.user?.role || '',
+            );
+            await this.loadData();
+          },
+          async loadData() {
+            this.loading = true;
+            try {
+              const [itemsRes, catsRes] = await Promise.all([
+                API.getItems(this.selMonth, this.selYear).catch(() => ({ items: [] })),
+                API.getCategories().catch(() => []),
+              ]);
+              this.allItems = Array.isArray(itemsRes) ? itemsRes : itemsRes.items || [];
+              this.categories = Array.isArray(catsRes) ? catsRes : catsRes.categories || [];
+              try {
+                this.summary = await API.getSummary(this.selMonth, this.selYear);
+              } catch {
+                this.summary = {};
+              }
+              this.filterItems();
+            } catch (e) {
+              Alpine.store('toast').showToast('Failed to load inventory data', 'error');
+            } finally {
+              this.loading = false;
+            }
+          },
+          filterItems() {
+            let result = this.allItems;
+            if (this.selCategory) {
+              result = result.filter(
+                (i) =>
+                  i.category_id === this.selCategory ||
+                  i.category_name === this.categories.find((c) => c.id === this.selCategory)?.name,
+              );
+            }
+            this.filtered = result;
+          },
+          getWeekField(item, field) {
+            const w = this.selWeek;
+            if (field === 'received') return item[`week${w}_received`] ?? 0;
+            if (field === 'issued') return item[`week${w}_issued`] ?? 0;
+            if (field === 'ending_qty') {
+              if (item[`week${w}_ending_qty`] !== undefined) return item[`week${w}_ending_qty`];
+              const onHand = item.on_hand || 0;
+              let totalRec = 0,
+                totalIss = 0;
+              for (let i = 1; i <= w; i++) {
+                totalRec += item[`week${i}_received`] || 0;
+                totalIss += item[`week${i}_issued`] || 0;
+              }
+              return onHand + totalRec - totalIss;
+            }
+            return 0;
+          },
+          number(v) {
+            return typeof v === 'number' ? Math.round(v).toLocaleString() : v || '0';
+          },
+          openCommitModal() {
+            this.commitForm = {
+              search: '',
+              selectedItem: null,
+              searchResults: [],
+              week: this.selWeek,
+              field: 'received',
+              action: 'pull',
+              value: 0,
+            };
+            this.commitModalOpen = true;
+          },
+          async searchItems() {
+            if (!this.commitForm.search.trim()) {
+              this.commitForm.searchResults = [];
+              return;
+            }
+            const q = this.commitForm.search.toLowerCase();
+            this.commitForm.searchResults = this.allItems
+              .filter(
+                (i) =>
+                  (i.description || '').toLowerCase().includes(q) ||
+                  (i.sku || '').toLowerCase().includes(q),
+              )
+              .slice(0, 10);
+          },
+          selectCommitItem(item) {
+            this.commitForm.selectedItem = item;
+            this.commitForm.search = item.description;
+            this.commitForm.searchResults = [];
+          },
+          async submitCommit() {
+            const f = this.commitForm;
+            if (!f.selectedItem || !f.value) return;
+            try {
+              await API.stageCommit({
+                item_id: f.selectedItem.id,
+                month: this.selMonth,
+                year: this.selYear,
+                week_number: f.week,
+                field: f.field,
+                action: f.action,
+                value: f.value,
+              });
+              Alpine.store('toast').showToast('Change submitted for review', 'success');
+              this.commitModalOpen = false;
+              await this.loadData();
+            } catch (e) {
+              Alpine.store('toast').showToast(e.message, 'error');
+            }
+          },
+        };
+      }
+
+      function sourceControlPage() {
+        return {
+          staged: [],
+          commits: [],
+          pushMessage: '',
+          canWrite: false,
+          async initPage() {
+            this.canWrite = ['admin', 'manager', 'assistant'].includes(
+              Alpine.store('auth')?.user?.role || '',
+            );
+            await Promise.all([this.loadStaged(), this.loadCommits()]);
+          },
+          async loadStaged() {
+            try {
+              const res = await API.getStaged();
+              this.staged = Array.isArray(res) ? res : res.entries || [];
+            } catch {
+              this.staged = [];
+            }
+          },
+          async loadCommits() {
+            try {
+              const res = await API.getCommits(new Date().getMonth(), new Date().getFullYear());
+              this.commits = Array.isArray(res) ? res : res.commits || [];
+            } catch {
+              this.commits = [];
+            }
+          },
+          async mergeEntry(entry) {
+            try {
+              await API.mergeStaged(entry.id || entry.entry_id);
+              Alpine.store('toast').showToast('Entry merged', 'success');
+              await this.loadStaged();
+            } catch (e) {
+              Alpine.store('toast').showToast(e.message, 'error');
+            }
+          },
+          async rejectEntry(entry) {
+            Alpine.store('confirm').open('Reject this entry?', async () => {
+              try {
+                await API.rejectStaged(entry.id || entry.entry_id, {});
+                Alpine.store('toast').showToast('Entry rejected', 'success');
+                await this.loadStaged();
+              } catch (e) {
+                Alpine.store('toast').showToast(e.message, 'error');
+              }
+            });
+          },
+          async pushAll() {
+            if (!this.pushMessage) return;
+            try {
+              await API.pushCommits(this.pushMessage);
+              Alpine.store('toast').showToast('All changes pushed', 'success');
+              this.pushMessage = '';
+              await Promise.all([this.loadStaged(), this.loadCommits()]);
+            } catch (e) {
+              Alpine.store('toast').showToast(e.message, 'error');
+            }
+          },
+          number(v) {
+            return typeof v === 'number' ? Math.round(v).toLocaleString() : v || '0';
+          },
+          timeAgo(ts) {
+            if (!ts) return '';
+            const diff = Date.now() - new Date(ts).getTime();
+            const mins = Math.floor(diff / 60000);
+            if (mins < 1) return 'just now';
+            if (mins < 60) return mins + 'm ago';
+            const hrs = Math.floor(mins / 60);
+            if (hrs < 24) return hrs + 'h ago';
+            const days = Math.floor(hrs / 24);
+            return days + 'd ago';
+          },
+        };
+      }
+
+      function reportsPage() {
+        return {
+          repMonth: new Date().getMonth(),
+          repYear: new Date().getFullYear(),
+          summary: {},
+          reorderItems: [],
+          categoryData: [],
+          monthNames: [
+            'January',
+            'February',
+            'March',
+            'April',
+            'May',
+            'June',
+            'July',
+            'August',
+            'September',
+            'October',
+            'November',
+            'December',
+          ],
+          years: [2024, 2025, 2026, 2027],
+          async initPage() {
+            await this.loadReport();
+          },
+          async loadReport() {
+            try {
+              const [sumRes, itemsRes] = await Promise.all([
+                API.getSummary(this.repMonth, this.repYear).catch(() => ({})),
+                API.getItems(this.repMonth, this.repYear).catch(() => ({})),
+              ]);
+              this.summary = sumRes;
+              const items = Array.isArray(itemsRes) ? itemsRes : itemsRes.items || [];
+              this.reorderItems = items.filter(
+                (i) => i.is_low || (i.on_hand || 0) <= (i.reorder_point || 0),
+              );
+              const catMap = {};
+              items.forEach((i) => {
+                const name = i.category_name || 'Uncategorized';
+                if (!catMap[name]) catMap[name] = { name, count: 0, total: 0 };
+                catMap[name].count++;
+                catMap[name].total += (this.getEndQty(i) || 0) * (i.unit_price || 0);
+              });
+              this.categoryData = Object.values(catMap);
+            } catch {
+              Alpine.store('toast').showToast('Failed to load report', 'error');
+            }
+          },
+          getEndQty(item) {
+            let ending = item.on_hand || 0;
+            for (let w = 1; w <= 4; w++) {
+              if (item[`week${w}_ending_qty`] !== undefined) return item[`week${w}_ending_qty`];
+              ending += (item[`week${w}_received`] || 0) - (item[`week${w}_issued`] || 0);
+            }
+            return ending;
+          },
+          number(v) {
+            return typeof v === 'number' ? Math.round(v).toLocaleString() : v || '0';
+          },
+        };
+      }
+
+      function usersPage() {
+        return {
+          users: [],
+          editingUser: null,
+          userModalOpen: false,
+          pinModalOpen: false,
+          pinForm: { pin: '' },
+          form: {
+            username: '',
+            display_name: '',
+            last_name: '',
+            password: '',
+            pin: '',
+            role: 'staff',
+            active: true,
+          },
+          async initPage() {
+            await this.loadUsers();
+          },
+          async loadUsers() {
+            try {
+              const res = await API.getUsers();
+              this.users = Array.isArray(res) ? res : res.users || [];
+            } catch {
+              this.users = [];
+            }
+          },
+          openUserModal() {
+            this.editingUser = null;
+            this.form = {
+              username: '',
+              display_name: '',
+              last_name: '',
+              password: '',
+              pin: '',
+              role: 'staff',
+              active: true,
+            };
+            this.userModalOpen = true;
+          },
+          editUser(u) {
+            this.editingUser = u;
+            this.form = {
+              username: u.username || '',
+              display_name: u.display_name || '',
+              last_name: u.last_name || '',
+              password: '',
+              pin: '',
+              role: u.role || 'staff',
+              active: u.active !== false,
+            };
+            this.userModalOpen = true;
+          },
+          async saveUser() {
+            try {
+              if (this.editingUser) {
+                const payload = {};
+                if (this.form.username !== this.editingUser.username)
+                  payload.username = this.form.username;
+                if (this.form.display_name !== this.editingUser.display_name)
+                  payload.display_name = this.form.display_name;
+                if (this.form.last_name !== (this.editingUser.last_name || ''))
+                  payload.last_name = this.form.last_name;
+                if (this.form.password) payload.password = this.form.password;
+                if (this.form.pin) payload.pin = this.form.pin;
+                if (this.form.role !== this.editingUser.role) payload.role = this.form.role;
+                if (this.form.active !== (this.editingUser.active !== false))
+                  payload.active = this.form.active;
+                if (Object.keys(payload).length > 0)
+                  await API.updateUser(this.editingUser.id, payload);
+                Alpine.store('toast').showToast('User updated', 'success');
+              } else {
+                await API.createUser({
+                  username: this.form.username,
+                  display_name: this.form.display_name,
+                  last_name: this.form.last_name,
+                  password: this.form.password,
+                  pin: this.form.pin || undefined,
+                  role: this.form.role,
+                });
+                Alpine.store('toast').showToast('User created', 'success');
+              }
+              this.userModalOpen = false;
+              await this.loadUsers();
+            } catch (e) {
+              Alpine.store('toast').showToast(e.message, 'error');
+            }
+          },
+          openPinModal(u) {
+            this.editingUser = u;
+            this.pinForm = { pin: '' };
+            this.pinModalOpen = true;
+          },
+          async savePin() {
+            if (!this.pinForm.pin || this.pinForm.pin.length !== 4) {
+              Alpine.store('toast').showToast('Enter a valid 4-digit PIN', 'error');
+              return;
+            }
+            try {
+              await API.resetPin(this.editingUser.id, { pin: this.pinForm.pin });
+              Alpine.store('toast').showToast('PIN reset successfully', 'success');
+              this.pinModalOpen = false;
+            } catch (e) {
+              Alpine.store('toast').showToast(e.message, 'error');
+            }
+          },
+          async deleteUser(u) {
+            Alpine.store('confirm').open(
+              'Delete user "' + (u.display_name || u.username) + '"?',
+              async () => {
+                try {
+                  await API.deleteUser(u.id);
+                  Alpine.store('toast').showToast('User deleted', 'success');
+                  await this.loadUsers();
+                } catch (e) {
+                  Alpine.store('toast').showToast(e.message, 'error');
+                }
+              },
+            );
+          },
+          roleBadgeClass(role) {
+            const map = {
+              admin: 'bg-red-50 text-red-600 border border-red-200',
+              manager: 'bg-blue-50 text-blue-600 border border-blue-200',
+              assistant: 'bg-purple-50 text-purple-600 border border-purple-200',
+              staff: 'bg-slate-100 text-slate-600 border border-slate-200',
+            };
+            return map[role] || 'bg-slate-100 text-slate-600';
+          },
+          formatDate(d) {
+            if (!d) return '';
+            const dt = new Date(d);
+            return dt.getMonth() + 1 + '/' + dt.getDate() + '/' + dt.getFullYear();
+          },
+        };
+      }
+
+      function barcodesPage() {
+        return {
+          allItems: [],
+          filteredBarcodes: [],
+          selectedBarcodes: [],
+          barcodeSearch: '',
+          async initPage() {
+            try {
+              const res = await API.getItems(new Date().getMonth(), new Date().getFullYear(), 500);
+              this.allItems = Array.isArray(res) ? res : res.items || [];
+              this.filterBarcodes();
+            } catch {
+              this.allItems = [];
+              this.filteredBarcodes = [];
+            }
+          },
+          filterBarcodes() {
+            const q = this.barcodeSearch.toLowerCase();
+            this.filteredBarcodes = this.allItems.filter(
+              (i) =>
+                (i.description || '').toLowerCase().includes(q) ||
+                (i.sku || '').toLowerCase().includes(q),
+            );
+          },
+          exportSelected() {
+            if (this.selectedBarcodes.length === 0) return;
+            Alpine.store('toast').showToast('Barcode export coming soon', 'info');
+          },
+        };
+      }
+
+      function settingsPage() {
+        return {
+          settings: { ai_provider: 'ollama', ai_model: '', ai_api_key: '' },
+          systemInfo: { env: 'loading...' },
+          async initPage() {
+            try {
+              const res = await API.getSettings();
+              const s = Array.isArray(res) ? res : res.settings || [];
+              s.forEach((item) => {
+                if (item.setting_key === 'AI_PROVIDER')
+                  this.settings.ai_provider = item.setting_value || 'ollama';
+                if (item.setting_key === 'AI_MODEL')
+                  this.settings.ai_model = item.setting_value || '';
+                if (item.setting_key === 'AI_API_KEY')
+                  this.settings.ai_api_key = item.setting_value || '';
+              });
+            } catch {}
+            this.systemInfo = { env: 'production' };
+          },
+          async saveSetting(key, value) {
+            try {
+              await API.updateSettings({ key, value });
+              Alpine.store('toast').showToast('Setting saved', 'success');
+            } catch (e) {
+              Alpine.store('toast').showToast(e.message, 'error');
+            }
+          },
+        };
+      }
+    </script>
+  </body>
+</html>
