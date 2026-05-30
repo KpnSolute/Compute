@@ -57,6 +57,12 @@ document.addEventListener('alpine:init', () => {
     active: 'inventory',
     items: [
       {
+        id: 'home',
+        label: 'Home',
+        icon: '<i class="fas fa-home"></i>',
+        roles: ['assistant', 'manager', 'admin'],
+      },
+      {
         id: 'inventory',
         label: 'Inventory',
         icon: '<i class="fas fa-chart-bar"></i>',
@@ -101,8 +107,9 @@ document.addEventListener('alpine:init', () => {
       },
     ],
     get filteredItems() {
+      const items = this.items || [];
       const role = Alpine.store('auth')?.user?.role || 'staff';
-      return this.items.filter((i) => i.roles.includes(role));
+      return items.filter((i) => i.roles.includes(role));
     },
     toggle() {
       this.collapsed = !this.collapsed;
@@ -122,6 +129,16 @@ document.addEventListener('alpine:init', () => {
         const data = await res.json();
         if (data.authenticated) {
           this.user = data.user;
+          const role = data.user?.role || 'staff';
+          const hash = window.location.hash.replace('#', '');
+          const sidebar = Alpine.store('sidebar');
+          if (hash && sidebar.items.some((i) => i.id === hash && i.roles.includes(role))) {
+            sidebar.active = hash;
+          } else if (role === 'staff') {
+            sidebar.active = 'inventory';
+          } else {
+            sidebar.active = 'home';
+          }
         } else {
           window.location.href = '/';
         }

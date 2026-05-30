@@ -141,6 +141,19 @@
         margin-bottom: 14px;
         display: none;
       }
+      .expired-msg {
+        background: rgba(250, 204, 21, 0.15);
+        border: 1px solid rgba(250, 204, 21, 0.4);
+        border-radius: 7px;
+        color: #fde68a;
+        font-size: 12px;
+        padding: 9px 12px;
+        margin-bottom: 14px;
+        display: none;
+      }
+      .expired-msg i {
+        margin-right: 6px;
+      }
       .footer {
         text-align: center;
         color: rgba(255, 255, 255, 0.2);
@@ -157,6 +170,9 @@
         <div class="brand-sub">Inventory Management Portal</div>
       </div>
       <div class="card">
+        <div id="expired-banner" class="expired-msg" style="display: none">
+          <i class="fas fa-clock"></i> Your session expired, please sign in again
+        </div>
         <div class="card-title">Sign In</div>
         <div class="type-row">
           <button class="type-btn active" onclick="setType('staff')" id="btn-staff">
@@ -264,6 +280,10 @@
       document.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') doLogin();
       });
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('expired') === '1') {
+        document.getElementById('expired-banner').style.display = 'block';
+      }
       setType('staff');
     </script>
   </body>

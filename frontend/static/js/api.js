@@ -5,6 +5,10 @@ const API = {
       headers: { 'Content-Type': 'application/json', ...opts.headers },
       ...opts,
     });
+    if (res.status === 401) {
+      window.location.href = '/?expired=1';
+      throw new Error('Session expired');
+    }
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Request failed');
     return data;
@@ -26,8 +30,10 @@ const API = {
   getCurrentWeek() {
     return this.request('/api/inventory/current-week');
   },
-  getItems(month, year, perPage = 500) {
-    return this.request(`/api/inventory/items?month=${month}&year=${year}&per_page=${perPage}`);
+  getItems(month, year, perPage = 100, page = 1) {
+    return this.request(
+      `/api/inventory/items?month=${month}&year=${year}&per_page=${perPage}&page=${page}`,
+    );
   },
   getItem(id) {
     return this.request(`/api/inventory/items/${id}`);
@@ -144,6 +150,9 @@ const API = {
   },
   getItemBarcode(id) {
     return this.request(`/api/inventory/items/${id}/barcode`, { method: 'POST' });
+  },
+  regenerateBarcode(id) {
+    return this.request(`/api/inventory/items/${id}/barcode/regenerate`, { method: 'POST' });
   },
 
   getActivity(from, to) {
