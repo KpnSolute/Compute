@@ -28,6 +28,7 @@ function sourceControlPage() {
     diffData: null,
     diffLoading: false,
     publishLoading: false,
+    pollInterval: null,
     async initPage() {
       this.canWrite = ['admin', 'manager', 'assistant'].includes(
         Alpine.store('auth')?.user?.role || '',
@@ -39,6 +40,10 @@ function sourceControlPage() {
         this.monthNames[now.getMonth()]
       } ${now.getFullYear()}`;
       await Promise.all([this.loadStaged(), this.loadCommits()]);
+      this.pollInterval = setInterval(() => this.loadStaged(), 30000);
+    },
+    destroy() {
+      if (this.pollInterval) clearInterval(this.pollInterval);
     },
     async loadStaged() {
       this.stagedLoading = true;
@@ -68,7 +73,7 @@ function sourceControlPage() {
       try {
         await API.mergeStaged(entry.id || entry.entry_id);
         Alpine.store('toast').showToast('Entry merged', 'success');
-        await this.loadStaged();
+        await Promise.all([this.loadStaged(), this.loadCommits()]);
       } catch (e) {
         Alpine.store('toast').showToast(e.message, 'error');
       }

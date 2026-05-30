@@ -108,6 +108,7 @@ function inventoryPage() {
         this.selWeek = wk.week || 1;
       }
       await this.loadData();
+      this.$watch('selWeek', () => this.filterItems());
     },
     destroy() {
       if (this.chartInstance) {
@@ -166,6 +167,7 @@ function inventoryPage() {
         });
       }
       this.filtered = result;
+      this.$nextTick(() => this.renderChart());
     },
     toggleSort(field) {
       if (this.sortField === field) {
@@ -270,6 +272,7 @@ function inventoryPage() {
           year: this.selYear,
         });
         this.cellSaveStatus[key] = 'saved';
+        this.$nextTick(() => this.renderChart());
         this.ensureBarcode(item.item_id, item.description);
         setTimeout(() => {
           if (this.cellSaveStatus[key] === 'saved') delete this.cellSaveStatus[key];
@@ -288,8 +291,9 @@ function inventoryPage() {
       if (this.chartInstance) this.chartInstance.destroy();
       const el = document.getElementById('category-chart');
       if (!el) return;
+      const source = this.selCategory || this.searchQuery ? this.filtered : this.allItems;
       const catMap = {};
-      this.allItems.forEach((i) => {
+      source.forEach((i) => {
         const name = i.category || 'Uncategorized';
         if (!catMap[name]) catMap[name] = 0;
         catMap[name] += (this.getEndQty(i) || 0) * (i.unit_price || 0);
@@ -323,6 +327,7 @@ function inventoryPage() {
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          animation: { duration: 300 },
           plugins: { legend: { display: false } },
           scales: {
             y: { beginAtZero: true, ticks: { callback: (v) => '$' + v.toLocaleString() } },
