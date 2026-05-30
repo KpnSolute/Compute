@@ -1862,9 +1862,8 @@ function renderHistReport(ctx){
    CLOUD SYNC — Supabase (PostgreSQL + Realtime)
    Free tier: 500MB DB · 2GB bandwidth · unlimited devices
 ══════════════════════════════════════════════════════ */
-// Only load saved Supabase credentials if the user explicitly enabled auto-sync.
-// Without this guard, leftover credentials cause "Failed to fetch" on every load.
-const _autoSyncEnabled=(function(){try{return localStorage.getItem('mjc_auto_sync')==='1';}catch(e){return false;}})();
+// Cloud sync retired — offline dashboard is localStorage-only (model A: server-mediated).
+const _autoSyncEnabled=false;
 let _supaUrl  = (function(){
   try{return _autoSyncEnabled?(localStorage.getItem('mjc_supa_url')||''):'';} catch(e){return '';}
 })();

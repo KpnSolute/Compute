@@ -1058,10 +1058,17 @@
                       class="text-xs font-semibold text-slate-700 mb-1 truncate w-full"
                       x-text="item.description"
                     ></div>
-                    <div class="text-[10px] text-slate-400 font-mono mb-2" x-text="item.sku"></div>
+                    <div
+                      class="text-[10px] text-slate-400 font-mono mb-1"
+                      x-text="item.barcode_id"
+                    ></div>
+                    <div
+                      class="text-[10px] text-slate-300 mb-2"
+                      x-text="item.sku ? 'SKU: ' + item.sku : ''"
+                    ></div>
                     <div
                       class="w-full max-w-[160px] h-12 bg-slate-50 rounded flex items-center justify-center font-mono text-[8px] text-slate-300 tracking-[3px] overflow-hidden"
-                      x-text="item.sku"
+                      x-text="item.barcode_id"
                     ></div>
                   </div>
                 </template>
@@ -1695,8 +1702,8 @@
           barcodeSearch: '',
           async initPage() {
             try {
-              const res = await API.getItems(new Date().getMonth(), new Date().getFullYear(), 500);
-              this.allItems = Array.isArray(res) ? res : res.items || [];
+              const res = await API.getBarcodes();
+              this.allItems = Array.isArray(res) ? res : res.barcodes || res.data || [];
               this.filterBarcodes();
             } catch {
               this.allItems = [];
@@ -1708,6 +1715,7 @@
             this.filteredBarcodes = this.allItems.filter(
               (i) =>
                 (i.description || '').toLowerCase().includes(q) ||
+                (i.barcode_id || '').toLowerCase().includes(q) ||
                 (i.sku || '').toLowerCase().includes(q),
             );
           },

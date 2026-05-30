@@ -45,6 +45,8 @@ class ProductionConfig(Config):
     DEBUG = False
     SESSION_COOKIE_SECURE = True
     LOG_LEVEL = 'WARNING'
+    SECRET_KEY = os.environ['SECRET_KEY']  # hard-fail if unset in production
+    CORS_ORIGINS = os.environ['CORS_ORIGINS'].split(',')  # hard-fail if unset
 
 
 class TestingConfig(Config):

@@ -40,13 +40,7 @@ app.config.from_object(app_config)
 logging.basicConfig(level=getattr(logging, app_config.LOG_LEVEL), format=app_config.LOG_FORMAT)
 logger = logging.getLogger(__name__)
 
-# Configure CORS with more specific settings for production
-if app_config.DEBUG:
-    # Development: allow all origins
-    CORS(app, supports_credentials=True, origins=app_config.CORS_ORIGINS)
-else:
-    # Production: restrict origins
-    CORS(app, supports_credentials=True, origins=app_config.CORS_ORIGINS)
+CORS(app, supports_credentials=True, origins=app_config.CORS_ORIGINS)
 
 
 # Add security headers
