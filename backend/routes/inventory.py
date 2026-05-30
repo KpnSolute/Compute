@@ -1,4 +1,6 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 
 from flask import Blueprint, jsonify, request
 
@@ -77,8 +79,21 @@ def summary():
         )
         prior_total = float((snap_resp.data or [{}])[0].get('grand_total', 0) or 0)
 
-        result = calculators.dashboard_summary(items, prior_total)
-        result['data_source'] = 'LIVE_SUPABASE'
+        executor = ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(calculators.dashboard_summary, items, prior_total)
+        try:
+            result = future.result(timeout=25)
+        except FuturesTimeout:
+            result = {
+                'total_items': len(items),
+                'grand_total': calculators.grand_total(items),
+                'reorder_count': len(calculators.reorder_alerts(items)),
+                'data_source': 'LIVE_SUPABASE_PARTIAL',
+                'note': 'Full computation timed out — showing partial summary.',
+            }
+        finally:
+            executor.shutdown(wait=False)
+        result['data_source'] = result.get('data_source', 'LIVE_SUPABASE')
         return jsonify(result)
     except Exception as e:
         logger.exception(f'Error in summary endpoint: {e}')

@@ -77,11 +77,11 @@ function inventoryPage() {
       }
       let count = 0;
       for (const item of this.allItems) {
-        if (!item.id) continue;
+        if (!item.item_id) continue;
         try {
-          const res = await API.getItemBarcode(item.id);
+          const res = await API.getItemBarcode(item.item_id);
           if (!res || !res.barcode_id) {
-            await API.regenerateBarcode(item.id);
+            await API.regenerateBarcode(item.item_id);
             count++;
           }
         } catch {
@@ -230,7 +230,7 @@ function inventoryPage() {
     },
     startEdit(item, field, week) {
       if (!this.canEditField(item, field)) return;
-      this.editingCell = { id: item.id, field, week };
+      this.editingCell = { id: item.item_id, field, week };
       this.editValue = String(this.getCellValue(item, field, week));
       this.$nextTick(() => {
         const el = document.querySelector('.cell-input');
@@ -253,21 +253,21 @@ function inventoryPage() {
         return;
       }
       const apiField = this.fieldToApiField(field, week);
-      const key = this.getCellKey(item.id, field, week);
+      const key = this.getCellKey(item.item_id, field, week);
       this.cellSaveStatus[key] = 'saving';
       const col =
         apiField === 'on_hand' || apiField === 'unit_price' ? apiField : `w${week}_${field}`;
       item[col] = newVal;
       this.editingCell = null;
       try {
-        await API.updateItem(item.id, {
+        await API.updateItem(item.item_id, {
           field: apiField,
           value: newVal,
           month: this.selMonth,
           year: this.selYear,
         });
         this.cellSaveStatus[key] = 'saved';
-        this.ensureBarcode(item.id, item.description);
+        this.ensureBarcode(item.item_id, item.description);
         setTimeout(() => {
           if (this.cellSaveStatus[key] === 'saved') delete this.cellSaveStatus[key];
         }, 2000);
@@ -375,7 +375,7 @@ function inventoryPage() {
       if (!f.selectedItem || !f.value) return;
       try {
         await API.stageCommit({
-          item_id: f.selectedItem.id,
+          item_id: f.selectedItem.item_id,
           month: this.selMonth,
           year: this.selYear,
           week_number: f.week,

@@ -549,7 +549,7 @@
               </div>
 
               <div class="md:hidden space-y-2 mb-4">
-                <template x-for="item in filtered" :key="item.id">
+                <template x-for="item in filtered" :key="item.item_id">
                   <div class="bg-white rounded-xl border border-slate-200 p-3">
                     <div class="flex justify-between items-start mb-2">
                       <div>
@@ -572,7 +572,7 @@
                       <div>
                         <div class="text-[10px] text-slate-400">Issued</div>
                         <div
-                          x-show="!isEditing(item.id, 'issued', selWeek)"
+                          x-show="!isEditing(item.item_id, 'issued', selWeek)"
                           x-on:click="startEdit(item, 'issued', selWeek)"
                           class="text-xs font-bold cursor-pointer group inline-flex items-center gap-1"
                         >
@@ -582,7 +582,7 @@
                           ></i>
                         </div>
                         <input
-                          x-show="isEditing(item.id, 'issued', selWeek)"
+                          x-show="isEditing(item.item_id, 'issued', selWeek)"
                           x-model="editValue"
                           x-on:keydown.enter="saveEdit(item, 'issued', selWeek)"
                           x-on:keydown.escape="cancelEdit()"
@@ -593,12 +593,12 @@
                           class="cell-input w-16 text-center px-1 py-0.5 outline-none border-2 border-blue-500 rounded text-xs"
                         />
                         <span
-                          x-show="cellStatus(item.id, 'issued', selWeek) === 'saved'"
+                          x-show="cellStatus(item.item_id, 'issued', selWeek) === 'saved'"
                           class="text-[10px] text-emerald-500"
                           ><i class="fas fa-check"></i
                         ></span>
                         <span
-                          x-show="cellStatus(item.id, 'issued', selWeek) === 'error'"
+                          x-show="cellStatus(item.item_id, 'issued', selWeek) === 'error'"
                           class="text-[10px] text-red-500"
                           ><i class="fas fa-exclamation-triangle"></i
                         ></span>
@@ -690,7 +690,7 @@
                       </tr>
                     </thead>
                     <tbody>
-                      <template x-for="item in filtered" :key="item.id">
+                      <template x-for="item in filtered" :key="item.item_id">
                         <tr class="hover:bg-slate-50 transition-colors">
                           <td
                             class="table-cell font-medium text-slate-700"
@@ -708,7 +708,7 @@
                           </td>
                           <td class="table-cell num relative">
                             <div
-                              x-show="!isEditing(item.id, 'on_hand', 0)"
+                              x-show="!isEditing(item.item_id, 'on_hand', 0)"
                               x-on:click="startEdit(item, 'on_hand', 0)"
                               class="cursor-pointer inline-flex items-center gap-1 group"
                             >
@@ -718,7 +718,7 @@
                               ></i>
                             </div>
                             <input
-                              x-show="isEditing(item.id, 'on_hand', 0)"
+                              x-show="isEditing(item.item_id, 'on_hand', 0)"
                               x-model="editValue"
                               x-on:keydown.enter="saveEdit(item, 'on_hand', 0)"
                               x-on:keydown.escape="cancelEdit()"
@@ -730,24 +730,24 @@
                               class="cell-input w-20 text-right px-1.5 py-0.5 outline-none border-2 border-blue-500 rounded text-xs"
                             />
                             <span
-                              x-show="cellStatus(item.id, 'on_hand', 0) === 'saving'"
+                              x-show="cellStatus(item.item_id, 'on_hand', 0) === 'saving'"
                               class="text-[10px] text-blue-400 ml-1"
                               ><i class="fas fa-spinner fa-spin"></i
                             ></span>
                             <span
-                              x-show="cellStatus(item.id, 'on_hand', 0) === 'saved'"
+                              x-show="cellStatus(item.item_id, 'on_hand', 0) === 'saved'"
                               class="text-[10px] text-emerald-500 ml-1"
                               ><i class="fas fa-check"></i
                             ></span>
                             <span
-                              x-show="cellStatus(item.id, 'on_hand', 0) === 'error'"
+                              x-show="cellStatus(item.item_id, 'on_hand', 0) === 'error'"
                               class="text-[10px] text-red-500 ml-1"
                               ><i class="fas fa-exclamation-triangle"></i
                             ></span>
                           </td>
                           <td class="table-cell num relative">
                             <div
-                              x-show="!isEditing(item.id, 'received', selWeek)"
+                              x-show="!isEditing(item.item_id, 'received', selWeek)"
                               x-on:click="canEditField(item, 'received') ? startEdit(item, 'received', selWeek) : null"
                               class="cursor-pointer inline-flex items-center gap-1 group"
                             >
@@ -758,7 +758,7 @@
                               ></i>
                             </div>
                             <input
-                              x-show="isEditing(item.id, 'received', selWeek)"
+                              x-show="isEditing(item.item_id, 'received', selWeek)"
                               x-model="editValue"
                               x-on:keydown.enter="saveEdit(item, 'received', selWeek)"
                               x-on:keydown.escape="cancelEdit()"
@@ -769,24 +769,24 @@
                               class="cell-input w-20 text-right px-1.5 py-0.5 outline-none border-2 border-blue-500 rounded text-xs"
                             />
                             <span
-                              x-show="cellStatus(item.id, 'received', selWeek) === 'saving'"
+                              x-show="cellStatus(item.item_id, 'received', selWeek) === 'saving'"
                               class="text-[10px] text-blue-400 ml-1"
                               ><i class="fas fa-spinner fa-spin"></i
                             ></span>
                             <span
-                              x-show="cellStatus(item.id, 'received', selWeek) === 'saved'"
+                              x-show="cellStatus(item.item_id, 'received', selWeek) === 'saved'"
                               class="text-[10px] text-emerald-500 ml-1"
                               ><i class="fas fa-check"></i
                             ></span>
                             <span
-                              x-show="cellStatus(item.id, 'received', selWeek) === 'error'"
+                              x-show="cellStatus(item.item_id, 'received', selWeek) === 'error'"
                               class="text-[10px] text-red-500 ml-1"
                               ><i class="fas fa-exclamation-triangle"></i
                             ></span>
                           </td>
                           <td class="table-cell num relative">
                             <div
-                              x-show="!isEditing(item.id, 'issued', selWeek)"
+                              x-show="!isEditing(item.item_id, 'issued', selWeek)"
                               x-on:click="startEdit(item, 'issued', selWeek)"
                               class="cursor-pointer inline-flex items-center gap-1 group"
                             >
@@ -796,7 +796,7 @@
                               ></i>
                             </div>
                             <input
-                              x-show="isEditing(item.id, 'issued', selWeek)"
+                              x-show="isEditing(item.item_id, 'issued', selWeek)"
                               x-model="editValue"
                               x-on:keydown.enter="saveEdit(item, 'issued', selWeek)"
                               x-on:keydown.escape="cancelEdit()"
@@ -807,17 +807,17 @@
                               class="cell-input w-20 text-right px-1.5 py-0.5 outline-none border-2 border-blue-500 rounded text-xs"
                             />
                             <span
-                              x-show="cellStatus(item.id, 'issued', selWeek) === 'saving'"
+                              x-show="cellStatus(item.item_id, 'issued', selWeek) === 'saving'"
                               class="text-[10px] text-blue-400 ml-1"
                               ><i class="fas fa-spinner fa-spin"></i
                             ></span>
                             <span
-                              x-show="cellStatus(item.id, 'issued', selWeek) === 'saved'"
+                              x-show="cellStatus(item.item_id, 'issued', selWeek) === 'saved'"
                               class="text-[10px] text-emerald-500 ml-1"
                               ><i class="fas fa-check"></i
                             ></span>
                             <span
-                              x-show="cellStatus(item.id, 'issued', selWeek) === 'error'"
+                              x-show="cellStatus(item.item_id, 'issued', selWeek) === 'error'"
                               class="text-[10px] text-red-500 ml-1"
                               ><i class="fas fa-exclamation-triangle"></i
                             ></span>
@@ -829,7 +829,7 @@
                           ></td>
                           <td class="table-cell num text-slate-500 relative">
                             <div
-                              x-show="!isEditing(item.id, 'unit_price', 0)"
+                              x-show="!isEditing(item.item_id, 'unit_price', 0)"
                               x-on:click="canEditField(item, 'unit_price') ? startEdit(item, 'unit_price', 0) : null"
                               class="cursor-pointer inline-flex items-center gap-1 group"
                             >
@@ -840,7 +840,7 @@
                               ></i>
                             </div>
                             <input
-                              x-show="isEditing(item.id, 'unit_price', 0)"
+                              x-show="isEditing(item.item_id, 'unit_price', 0)"
                               x-model="editValue"
                               x-on:keydown.enter="saveEdit(item, 'unit_price', 0)"
                               x-on:keydown.escape="cancelEdit()"
@@ -851,17 +851,17 @@
                               class="cell-input w-20 text-right px-1.5 py-0.5 outline-none border-2 border-blue-500 rounded text-xs"
                             />
                             <span
-                              x-show="cellStatus(item.id, 'unit_price', 0) === 'saving'"
+                              x-show="cellStatus(item.item_id, 'unit_price', 0) === 'saving'"
                               class="text-[10px] text-blue-400 ml-1"
                               ><i class="fas fa-spinner fa-spin"></i
                             ></span>
                             <span
-                              x-show="cellStatus(item.id, 'unit_price', 0) === 'saved'"
+                              x-show="cellStatus(item.item_id, 'unit_price', 0) === 'saved'"
                               class="text-[10px] text-emerald-500 ml-1"
                               ><i class="fas fa-check"></i
                             ></span>
                             <span
-                              x-show="cellStatus(item.id, 'unit_price', 0) === 'error'"
+                              x-show="cellStatus(item.item_id, 'unit_price', 0) === 'error'"
                               class="text-[10px] text-red-500 ml-1"
                               ><i class="fas fa-exclamation-triangle"></i
                             ></span>
@@ -935,7 +935,7 @@
                         x-show="commitForm.search.length > 0 && commitForm.search !== (commitForm.selectedItem?.description || '')"
                         class="mt-1 border border-slate-200 rounded-lg max-h-40 overflow-y-auto bg-white shadow-sm"
                       >
-                        <template x-for="item in commitForm.searchResults" :key="item.id">
+                        <template x-for="item in commitForm.searchResults" :key="item.item_id">
                           <button
                             x-on:click="selectCommitItem(item)"
                             class="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 border-b border-slate-100 last:border-b-0"
@@ -1261,7 +1261,7 @@
                       </tr>
                     </thead>
                     <tbody>
-                      <template x-for="item in reorderItems" :key="item.id">
+                      <template x-for="item in reorderItems" :key="item.item_id">
                         <tr class="hover:bg-slate-50">
                           <td class="table-cell font-medium" x-text="item.description"></td>
                           <td
@@ -1506,7 +1506,7 @@
                         </tr>
                       </thead>
                       <tbody>
-                        <template x-for="item in itemsSortedByCost" :key="item.id">
+                        <template x-for="item in itemsSortedByCost" :key="item.item_id">
                           <tr class="hover:bg-slate-50 transition-colors">
                             <td
                               class="table-cell font-medium text-slate-700"

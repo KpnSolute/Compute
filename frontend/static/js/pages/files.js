@@ -4,16 +4,9 @@ function filesPage() {
     loading: true,
     error: false,
     async initPage() {
-      this.loading = true;
-      this.error = false;
-      try {
-        const res = await API.getFiles();
-        this.files = Array.isArray(res) ? res : res.files || [];
-      } catch {
-        this.error = true;
-        this.files = [];
-      }
       this.loading = false;
+      this.error = false;
+      this.files = [];
     },
     async deleteFile(id) {
       Alpine.store('confirm').open('Delete this file?', async () => {
