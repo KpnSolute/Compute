@@ -145,11 +145,7 @@ function inventoryPage() {
     filterItems() {
       let result = this.allItems;
       if (this.selCategory) {
-        result = result.filter(
-          (i) =>
-            i.category_id === this.selCategory ||
-            i.category_name === this.categories.find((c) => c.id === this.selCategory)?.name,
-        );
+        result = result.filter((i) => i.category === this.selCategory);
       }
       if (this.searchQuery) {
         const q = this.searchQuery.toLowerCase();
@@ -180,16 +176,15 @@ function inventoryPage() {
     },
     getWeekField(item, field) {
       const w = this.selWeek;
-      if (field === 'received') return item[`week${w}_received`] ?? 0;
-      if (field === 'issued') return item[`week${w}_issued`] ?? 0;
+      if (field === 'received') return item[`w${w}_received`] ?? 0;
+      if (field === 'issued') return item[`w${w}_issued`] ?? 0;
       if (field === 'ending_qty') {
-        if (item[`week${w}_ending_qty`] !== undefined) return item[`week${w}_ending_qty`];
-        const onHand = item.on_hand || 0;
+        const onHand = parseFloat(item.on_hand) || 0;
         let totalRec = 0,
           totalIss = 0;
         for (let i = 1; i <= w; i++) {
-          totalRec += item[`week${i}_received`] || 0;
-          totalIss += item[`week${i}_issued`] || 0;
+          totalRec += parseFloat(item[`w${i}_received`]) || 0;
+          totalIss += parseFloat(item[`w${i}_issued`]) || 0;
         }
         return onHand + totalRec - totalIss;
       }
@@ -220,10 +215,10 @@ function inventoryPage() {
       return true;
     },
     getCellValue(item, field, week) {
-      if (field === 'on_hand') return item.on_hand || 0;
-      if (field === 'unit_price') return item.unit_price || 0;
-      if (field === 'received') return item[`week${week}_received`] ?? 0;
-      if (field === 'issued') return item[`week${week}_issued`] ?? 0;
+      if (field === 'on_hand') return parseFloat(item.on_hand) || 0;
+      if (field === 'unit_price') return parseFloat(item.unit_price) || 0;
+      if (field === 'received') return parseFloat(item[`w${week}_received`]) || 0;
+      if (field === 'issued') return parseFloat(item[`w${week}_issued`]) || 0;
       return 0;
     },
     fieldToApiField(field, week) {
@@ -261,7 +256,7 @@ function inventoryPage() {
       const key = this.getCellKey(item.id, field, week);
       this.cellSaveStatus[key] = 'saving';
       const col =
-        apiField === 'on_hand' || apiField === 'unit_price' ? apiField : `week${week}_${field}`;
+        apiField === 'on_hand' || apiField === 'unit_price' ? apiField : `w${week}_${field}`;
       item[col] = newVal;
       this.editingCell = null;
       try {
@@ -292,7 +287,7 @@ function inventoryPage() {
       if (!el) return;
       const catMap = {};
       this.allItems.forEach((i) => {
-        const name = i.category_name || 'Uncategorized';
+        const name = i.category || 'Uncategorized';
         if (!catMap[name]) catMap[name] = 0;
         catMap[name] += (this.getEndQty(i) || 0) * (i.unit_price || 0);
       });
@@ -334,10 +329,10 @@ function inventoryPage() {
       });
     },
     getEndQty(item) {
-      let ending = item.on_hand || 0;
+      let ending = parseFloat(item.on_hand) || 0;
       for (let w = 1; w <= 4; w++) {
-        if (item[`week${w}_ending_qty`] !== undefined) return item[`week${w}_ending_qty`];
-        ending += (item[`week${w}_received`] || 0) - (item[`week${w}_issued`] || 0);
+        ending +=
+          (parseFloat(item[`w${w}_received`]) || 0) - (parseFloat(item[`w${w}_issued`]) || 0);
       }
       return ending;
     },

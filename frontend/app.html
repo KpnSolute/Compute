@@ -530,7 +530,7 @@
                 >
                   <option value="">All Categories</option>
                   <template x-for="cat in categories" :key="cat.id">
-                    <option :value="cat.id" x-text="cat.name"></option>
+                    <option :value="cat.name" x-text="cat.name"></option>
                   </template>
                 </select>
                 <div class="flex-1"></div>
@@ -561,7 +561,7 @@
                       </div>
                       <span
                         class="badge bg-slate-100 text-slate-600 text-[10px]"
-                        x-text="item.category_name || ''"
+                        x-text="item.category || ''"
                       ></span>
                     </div>
                     <div class="grid grid-cols-3 gap-2 text-center">
@@ -703,7 +703,7 @@
                           <td class="table-cell text-slate-500">
                             <span
                               class="badge bg-slate-100 text-slate-600"
-                              x-text="item.category_name || '\u2014'"
+                              x-text="item.category || '\u2014'"
                             ></span>
                           </td>
                           <td class="table-cell num relative">
@@ -1272,7 +1272,7 @@
                             class="table-cell num text-red-500 font-semibold"
                             x-text="number(item.on_hand)"
                           ></td>
-                          <td class="table-cell num" x-text="number(item.reorder_point || 0)"></td>
+                          <td class="table-cell num" x-text="number(item.par_level || 0)"></td>
                         </tr>
                       </template>
                     </tbody>
@@ -1368,7 +1368,7 @@
                             <td class="table-cell text-slate-500">
                               <span
                                 class="badge bg-slate-100 text-slate-600"
-                                x-text="row.category_name || '\u2014'"
+                                x-text="row.category || '\u2014'"
                               ></span>
                             </td>
                             <template x-for="w in pullWeeks" :key="'d' + w + '-' + row.id">

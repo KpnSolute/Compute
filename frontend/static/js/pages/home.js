@@ -40,7 +40,9 @@ function homePage() {
       ]);
       this.summary = sumRes;
       const items = Array.isArray(itemsRes) ? itemsRes : itemsRes.items || [];
-      this.lowStock = items.filter((i) => (i.on_hand || 0) <= (i.reorder_point || 0)).length;
+      this.lowStock = items.filter(
+        (i) => parseFloat(i.on_hand || 0) < parseFloat(i.par_level || 0),
+      ).length;
       const staged = Array.isArray(stagedRes) ? stagedRes : stagedRes.entries || [];
       this.pendingCount = staged.length;
       this.recentStaged = staged.slice(-3);

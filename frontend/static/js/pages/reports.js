@@ -58,7 +58,7 @@ function reportsPage() {
         // overview: category breakdown
         const catMap = {};
         raw.forEach((i) => {
-          const name = i.category_name || 'Uncategorized';
+          const name = i.category || 'Uncategorized';
           if (!catMap[name]) catMap[name] = { name, count: 0, total: 0 };
           catMap[name].count++;
           catMap[name].total += (this.getEndQty(i) || 0) * (i.unit_price || 0);
@@ -67,7 +67,7 @@ function reportsPage() {
 
         // overview: low stock
         this.reorderItems = raw.filter(
-          (i) => i.is_low || (i.on_hand || 0) <= (i.reorder_point || 0),
+          (i) => i.is_low || parseFloat(i.on_hand || 0) < parseFloat(i.par_level || 0),
         );
 
         // costs tab: category value breakdown
@@ -116,13 +116,9 @@ function reportsPage() {
     },
 
     getEndQty(item) {
-      for (let w = 4; w >= 1; w--) {
-        const eq = item[`week${w}_ending_qty`];
-        if (eq !== undefined && eq !== null) return eq;
-      }
-      let qty = item.on_hand || 0;
+      let qty = parseFloat(item.on_hand) || 0;
       for (let w = 1; w <= 4; w++) {
-        qty += (item[`week${w}_received`] || 0) - (item[`week${w}_issued`] || 0);
+        qty += (parseFloat(item[`w${w}_received`]) || 0) - (parseFloat(item[`w${w}_issued`]) || 0);
       }
       return qty;
     },
