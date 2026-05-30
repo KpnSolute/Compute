@@ -227,19 +227,28 @@
               x-destroy="destroy()"
               class="fade-in"
             >
-              <div class="flex items-center justify-between mb-4">
-                <h2 class="text-lg font-bold text-slate-800">
-                  Welcome, <span x-text="$store.auth.user?.display_name || ''"></span>
-                </h2>
-                <div
-                  class="text-xs text-slate-400"
+              <!-- ── Header row ── -->
+              <div class="flex items-center justify-between mb-5">
+                <div>
+                  <h2 class="text-lg font-bold text-slate-800">
+                    Welcome, <span x-text="$store.auth.user?.display_name || ''"></span>
+                  </h2>
+                  <p
+                    class="text-xs text-slate-400 mt-0.5"
+                    x-text="monthNames[currentMonth] + ' ' + currentYear + ' — inventory in progress'"
+                  ></p>
+                </div>
+                <span
+                  class="text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded-full px-3 py-1"
                   x-text="monthNames[currentMonth] + ' ' + currentYear"
-                ></div>
+                ></span>
               </div>
 
-              <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              <!-- ── 4 KPI cards ── -->
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+                <!-- Grand Total → Reports Cost Manager -->
                 <div
-                  x-on:click="navigate('reports', 'costs')"
+                  x-on:click="navigate('reports','costs')"
                   class="bg-white rounded-xl border border-slate-200 p-4 cursor-pointer hover:shadow-md hover:border-blue-300 transition-all"
                 >
                   <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
@@ -247,18 +256,26 @@
                   </div>
                   <div
                     class="text-xl font-bold text-slate-800 mt-1"
-                    x-text="'$' + number(summary.grand_total)"
+                    x-text="currency(summary.grand_total || 0)"
                   ></div>
+                  <div class="text-[10px] text-slate-400 mt-1">
+                    ↑ from <span x-text="currency(summary.starting_total || 0)"></span> starting
+                  </div>
                 </div>
+                <!-- Items Below Par → Reports Overview -->
                 <div
-                  x-on:click="navigate('reports', 'overview')"
-                  class="bg-white rounded-xl border border-slate-200 p-4 cursor-pointer hover:shadow-md hover:border-blue-300 transition-all"
+                  x-on:click="navigate('reports','overview')"
+                  class="bg-white rounded-xl border border-slate-200 p-4 cursor-pointer hover:shadow-md hover:border-amber-300 transition-all"
                 >
                   <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
                     Items Below Par
                   </div>
                   <div class="text-xl font-bold text-amber-600 mt-1" x-text="lowStock"></div>
+                  <div class="text-[10px] text-slate-400 mt-1">
+                    <span x-text="criticalAlerts.length"></span> at zero stock
+                  </div>
                 </div>
+                <!-- Pending Staging → Source Control -->
                 <div
                   x-on:click="navigate('source-control')"
                   class="bg-white rounded-xl border border-slate-200 p-4 cursor-pointer hover:shadow-md hover:border-blue-300 transition-all"
@@ -267,7 +284,9 @@
                     Pending Staging
                   </div>
                   <div class="text-xl font-bold text-blue-600 mt-1" x-text="pendingCount"></div>
+                  <div class="text-[10px] text-slate-400 mt-1">entries awaiting review</div>
                 </div>
+                <!-- Total Items → Inventory -->
                 <div
                   x-on:click="navigate('inventory')"
                   class="bg-white rounded-xl border border-slate-200 p-4 cursor-pointer hover:shadow-md hover:border-blue-300 transition-all"
@@ -277,12 +296,145 @@
                   </div>
                   <div
                     class="text-xl font-bold text-slate-800 mt-1"
-                    x-text="summary.total_items || 0"
+                    x-text="summary.total_items || items.length || 0"
                   ></div>
+                  <div class="text-[10px] text-slate-400 mt-1">active SKUs tracked</div>
                 </div>
               </div>
 
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <!-- ── Weekly overview strip ── -->
+              <div class="bg-white rounded-xl border border-slate-200 p-4 mb-5">
+                <div class="flex items-center justify-between mb-3">
+                  <h3 class="text-sm font-semibold text-slate-700">Weekly Receiving Overview</h3>
+                  <span
+                    class="text-[10px] text-slate-400"
+                    x-text="monthNames[currentMonth] + ' ' + currentYear"
+                  ></span>
+                </div>
+                <div class="grid grid-cols-4 gap-3">
+                  <template x-for="wk in weeklyTotals" :key="wk.week">
+                    <div
+                      class="text-center p-3 rounded-lg"
+                      :class="wk.total > 0 ? 'bg-blue-50 border border-blue-200' : 'bg-slate-50 border border-slate-200'"
+                    >
+                      <div class="text-[10px] font-semibold uppercase text-slate-400">
+                        Week <span x-text="wk.week"></span>
+                      </div>
+                      <div
+                        class="text-sm font-bold mt-1"
+                        :class="wk.total > 0 ? 'text-blue-700' : 'text-slate-300'"
+                        x-text="wk.total > 0 ? currency(wk.total) : '—'"
+                      ></div>
+                      <div x-show="wk.total > 0" class="text-[10px] text-blue-500 mt-0.5">
+                        received
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <!-- ── Critical Alerts + Category Breakdown side by side ── -->
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+                <!-- Critical Alerts (zero stock) -->
+                <div class="bg-white rounded-xl border border-amber-200 p-4">
+                  <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                      <span
+                        class="w-2 h-2 rounded-full bg-red-500 animate-pulse inline-block"
+                      ></span>
+                      Critical Alerts
+                    </h3>
+                    <button
+                      x-on:click="navigate('reports','overview')"
+                      class="text-[10px] text-blue-600 font-medium hover:underline"
+                    >
+                      View all →
+                    </button>
+                  </div>
+                  <div
+                    x-show="criticalAlerts.length === 0"
+                    class="text-xs text-emerald-600 font-medium py-3 text-center bg-emerald-50 rounded-lg"
+                  >
+                    ✓ No items at zero stock
+                  </div>
+                  <div x-show="criticalAlerts.length > 0" class="space-y-1.5">
+                    <template x-for="item in criticalAlerts" :key="item.item_id">
+                      <div
+                        class="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-b-0"
+                      >
+                        <div
+                          class="text-xs font-medium text-slate-700 truncate flex-1 min-w-0 mr-2"
+                          x-text="item.description"
+                        ></div>
+                        <div class="flex items-center gap-2 shrink-0">
+                          <span
+                            class="text-[10px] text-slate-400 font-mono"
+                            x-text="item.sku || ''"
+                          ></span>
+                          <span
+                            class="text-[10px] font-bold text-red-500 bg-red-50 border border-red-200 rounded px-1.5 py-0.5"
+                            >0 / <span x-text="item.par_level || 0"></span
+                          ></span>
+                        </div>
+                      </div>
+                    </template>
+                    <div
+                      x-show="lowStock > criticalAlerts.length"
+                      class="text-[10px] text-amber-600 font-medium pt-1"
+                    >
+                      + <span x-text="lowStock - criticalAlerts.length"></span> more items below par
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Category Breakdown -->
+                <div class="bg-white rounded-xl border border-slate-200 p-4">
+                  <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-slate-700">Category Breakdown</h3>
+                    <button
+                      x-on:click="navigate('reports','costs')"
+                      class="text-[10px] text-blue-600 font-medium hover:underline"
+                    >
+                      Full report →
+                    </button>
+                  </div>
+                  <div
+                    x-show="categoryData.length === 0"
+                    class="text-xs text-slate-400 py-3 text-center"
+                  >
+                    Loading...
+                  </div>
+                  <div class="space-y-2">
+                    <template x-for="cat in categoryData" :key="cat.name">
+                      <div class="flex items-center gap-2">
+                        <div
+                          class="text-xs font-medium text-slate-600 w-28 truncate shrink-0"
+                          x-text="cat.name"
+                        ></div>
+                        <div class="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                          <div
+                            class="h-1.5 rounded-full bg-blue-500 transition-all"
+                            :style="'width:' + (categoryData[0].total > 0 ? Math.round((cat.total / categoryData[0].total)*100) : 0) + '%'"
+                          ></div>
+                        </div>
+                        <div
+                          class="text-xs font-semibold text-slate-700 w-20 text-right shrink-0"
+                          x-text="currency(cat.total)"
+                        ></div>
+                        <div
+                          x-show="cat.belowPar > 0"
+                          class="text-[10px] text-amber-600 font-bold w-8 text-right shrink-0"
+                          x-text="'⚠' + cat.belowPar"
+                        ></div>
+                        <div x-show="cat.belowPar === 0" class="w-8 shrink-0"></div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ── Quick nav cards ── -->
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
                 <div
                   x-on:click="navigate('inventory')"
                   class="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl border border-blue-200 p-5 cursor-pointer hover:shadow-md transition-all"
@@ -291,30 +443,34 @@
                   <h3 class="text-sm font-bold text-slate-800 mb-1">Inventory</h3>
                   <p
                     class="text-xs text-slate-500"
-                    x-text="'$' + number(summary.grand_total) + ' \u00b7 ' + number(summary.total_items) + ' items'"
+                    x-text="currency(summary.grand_total || 0) + ' · ' + number(summary.total_items || items.length) + ' items'"
                   ></p>
                 </div>
                 <div
-                  x-on:click="navigate('reports')"
+                  x-on:click="navigate('reports','overview')"
                   class="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-xl border border-emerald-200 p-5 cursor-pointer hover:shadow-md transition-all"
                 >
                   <div class="text-emerald-600 text-lg mb-2"><i class="fas fa-chart-line"></i></div>
                   <h3 class="text-sm font-bold text-slate-800 mb-1">Reports</h3>
                   <p
                     class="text-xs text-slate-500"
-                    x-text="monthNames[currentMonth] + ' \u2014 ' + (summary.month_status || 'in progress')"
+                    x-text="monthNames[currentMonth] + ' — in progress'"
                   ></p>
                 </div>
                 <div
-                  x-on:click="navigate('users')"
+                  x-on:click="navigate('source-control')"
                   class="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl border border-purple-200 p-5 cursor-pointer hover:shadow-md transition-all"
                 >
-                  <div class="text-purple-600 text-lg mb-2"><i class="fas fa-users"></i></div>
-                  <h3 class="text-sm font-bold text-slate-800 mb-1">Users</h3>
-                  <p class="text-xs text-slate-500">Manage team access & permissions</p>
+                  <div class="text-purple-600 text-lg mb-2"><i class="fas fa-code-branch"></i></div>
+                  <h3 class="text-sm font-bold text-slate-800 mb-1">Source Control</h3>
+                  <p
+                    class="text-xs text-slate-500"
+                    x-text="pendingCount + ' pending · ' + recentCommits.length + ' recent commits'"
+                  ></p>
                 </div>
               </div>
 
+              <!-- ── Recent Activity ── -->
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="bg-white rounded-xl border border-slate-200 p-4">
                   <h3 class="text-sm font-semibold text-slate-700 mb-3">Recent Commits</h3>
@@ -360,7 +516,7 @@
                       <div class="flex-1 min-w-0">
                         <div
                           class="text-xs font-medium text-slate-700 truncate"
-                          x-text="(e.item_name || e.description || 'Item') + ' \u2014 ' + (e.submitted_value || e.value)"
+                          x-text="(e.item_name || e.description || 'Item') + ' — ' + (e.submitted_value || e.value)"
                         ></div>
                         <div class="text-[10px] text-slate-400">
                           <span x-text="e.submitted_by_name || e.submitter_name || ''"></span>
@@ -1112,7 +1268,7 @@
               x-data="reportsPage()"
               x-init="initPage()"
               x-on:keydown.escape.window="activeTab = activeTab"
-              x-on:set-report-tab.window="activeTab = $event.detail; $nextTick(() => { if ($event.detail === 'overview') ($el.querySelector('.rpt-reorder-box, [x-show*=reorderItems]') || document.querySelector('[x-show*=reorderItems]'))?.scrollIntoView({behavior:'smooth', block:'start'}) })"
+              x-on:set-report-tab.window="activeTab = $event.detail"
               class="fade-in"
             >
               <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
