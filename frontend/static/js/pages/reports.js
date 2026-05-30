@@ -120,7 +120,7 @@ function reportsPage() {
       for (let w = 1; w <= 4; w++) {
         qty += (parseFloat(item[`w${w}_received`]) || 0) - (parseFloat(item[`w${w}_issued`]) || 0);
       }
-      return qty;
+      return Math.max(0, qty);
     },
 
     // --- pullsheet helpers ---
@@ -133,11 +133,9 @@ function reportsPage() {
       return this.items.map((i) => {
         const weeks = {};
         for (let w = 1; w <= 4; w++) {
-          weeks[w] = {
-            received: i[`week${w}_received`] || 0,
-            issued: i[`week${w}_issued`] || 0,
-            ending: i[`week${w}_ending_qty`] ?? (i.on_hand || 0),
-          };
+          const rec = parseFloat(i[`w${w}_received`]) || 0;
+          const iss = parseFloat(i[`w${w}_issued`]) || 0;
+          weeks[w] = { received: rec, issued: iss, ending: rec - iss };
         }
         return { ...i, weeks };
       });
@@ -150,9 +148,11 @@ function reportsPage() {
       }
       this.items.forEach((i) => {
         for (let w = 1; w <= 4; w++) {
-          totals[w].received += i[`week${w}_received`] || 0;
-          totals[w].issued += i[`week${w}_issued`] || 0;
-          totals[w].ending += i[`week${w}_ending_qty`] ?? (i.on_hand || 0);
+          const rec = parseFloat(i[`w${w}_received`]) || 0;
+          const iss = parseFloat(i[`w${w}_issued`]) || 0;
+          totals[w].received += rec;
+          totals[w].issued += iss;
+          totals[w].ending += rec - iss;
         }
       });
       return totals;

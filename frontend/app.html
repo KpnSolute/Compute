@@ -277,7 +277,7 @@
                   </div>
                   <div
                     class="text-xl font-bold text-slate-800 mt-1"
-                    x-text="summary.item_count || 0"
+                    x-text="summary.total_items || 0"
                   ></div>
                 </div>
               </div>
@@ -291,7 +291,7 @@
                   <h3 class="text-sm font-bold text-slate-800 mb-1">Inventory</h3>
                   <p
                     class="text-xs text-slate-500"
-                    x-text="'$' + number(summary.grand_total) + ' \u00b7 ' + number(summary.item_count) + ' items'"
+                    x-text="'$' + number(summary.grand_total) + ' \u00b7 ' + number(summary.total_items) + ' items'"
                   ></p>
                 </div>
                 <div
@@ -460,7 +460,7 @@
                   </div>
                   <div
                     class="text-lg font-bold text-slate-800 mt-1"
-                    x-text="summary.item_count || 0"
+                    x-text="summary.total_items || 0"
                   ></div>
                 </div>
                 <div
@@ -1213,7 +1213,7 @@
                     </div>
                     <div
                       class="text-lg font-bold text-slate-800 mt-1"
-                      x-text="number(summary.item_count)"
+                      x-text="number(summary.total_items)"
                     ></div>
                   </div>
                   <div class="bg-white rounded-xl border border-slate-200 p-3">
@@ -1237,7 +1237,7 @@
                         </div>
                         <div
                           class="text-sm font-bold text-slate-700 mt-0.5"
-                          x-text="currency(summary['week' + w + '_total'] || 0)"
+                          x-text="currency(summary['wk' + w + '_total'] || 0)"
                         ></div>
                       </div>
                     </template>
@@ -1257,7 +1257,7 @@
                         <th class="text-left px-3 py-2">Item</th>
                         <th class="text-left px-3 py-2">SKU</th>
                         <th class="text-right px-3 py-2">On Hand</th>
-                        <th class="text-right px-3 py-2">Reorder Point</th>
+                        <th class="text-right px-3 py-2">Par Level</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1355,7 +1355,7 @@
                         </tr>
                       </thead>
                       <tbody>
-                        <template x-for="row in pullRows" :key="row.id">
+                        <template x-for="row in pullRows" :key="row.item_id">
                           <tr class="hover:bg-slate-50 transition-colors">
                             <td
                               class="table-cell font-medium text-slate-700"

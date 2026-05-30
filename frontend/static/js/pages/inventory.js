@@ -27,6 +27,9 @@ function inventoryPage() {
     ],
     years: [2024, 2025, 2026, 2027],
     commitModalOpen: false,
+    diffModalOpen: false,
+    diffData: null,
+    diffLoading: false,
     commitForm: {
       search: '',
       selectedItem: null,
@@ -334,7 +337,24 @@ function inventoryPage() {
         ending +=
           (parseFloat(item[`w${w}_received`]) || 0) - (parseFloat(item[`w${w}_issued`]) || 0);
       }
-      return ending;
+      return Math.max(0, ending);
+    },
+    async openDiff(commit) {
+      this.diffData = null;
+      this.diffModalOpen = true;
+      this.diffLoading = true;
+      try {
+        const res = await API.getCommitDiff(commit.commit_id || commit.id);
+        this.diffData = Array.isArray(res) ? res : res.diff || res.changes || [];
+      } catch {
+        this.diffData = [];
+        Alpine.store('toast').showToast('Failed to load diff', 'error');
+      }
+      this.diffLoading = false;
+    },
+    closeDiff() {
+      this.diffModalOpen = false;
+      this.diffData = null;
     },
     openPullSheet() {
       window.open('/pull_sheet', 'pullsheet', 'width=1000,height=800');
