@@ -50,8 +50,13 @@ function homePage() {
       this.recentCommits = commits.slice(-5).reverse();
       this.loading = false;
     },
-    navigate(page) {
+    navigate(page, tab) {
       Alpine.store('sidebar').setActive(page);
+      if (tab) {
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('set-report-tab', { detail: tab }));
+        }, 100);
+      }
     },
     number(v) {
       return typeof v === 'number' ? Math.round(v).toLocaleString() : v || '0';

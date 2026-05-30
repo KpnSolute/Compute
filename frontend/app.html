@@ -239,7 +239,7 @@
 
               <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
                 <div
-                  x-on:click="navigate('inventory')"
+                  x-on:click="navigate('reports', 'costs')"
                   class="bg-white rounded-xl border border-slate-200 p-4 cursor-pointer hover:shadow-md hover:border-blue-300 transition-all"
                 >
                   <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
@@ -251,7 +251,7 @@
                   ></div>
                 </div>
                 <div
-                  x-on:click="navigate('inventory')"
+                  x-on:click="navigate('reports', 'overview')"
                   class="bg-white rounded-xl border border-slate-200 p-4 cursor-pointer hover:shadow-md hover:border-blue-300 transition-all"
                 >
                   <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
@@ -269,7 +269,7 @@
                   <div class="text-xl font-bold text-blue-600 mt-1" x-text="pendingCount"></div>
                 </div>
                 <div
-                  x-on:click="navigate('source-control')"
+                  x-on:click="navigate('inventory')"
                   class="bg-white rounded-xl border border-slate-200 p-4 cursor-pointer hover:shadow-md hover:border-blue-300 transition-all"
                 >
                   <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
@@ -1112,6 +1112,7 @@
               x-data="reportsPage()"
               x-init="initPage()"
               x-on:keydown.escape.window="activeTab = activeTab"
+              x-on:set-report-tab.window="activeTab = $event.detail; $nextTick(() => { if ($event.detail === 'overview') ($el.querySelector('.rpt-reorder-box, [x-show*=reorderItems]') || document.querySelector('[x-show*=reorderItems]'))?.scrollIntoView({behavior:'smooth', block:'start'}) })"
               class="fade-in"
             >
               <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
