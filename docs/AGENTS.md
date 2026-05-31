@@ -197,7 +197,6 @@
 **Read before starting:**
 
 - `docs/ARCHITECTURE.md` — Navigation (§3), Page Structure (§7), Components
-
   - `docs/API_DOCUMENTATION.md` — endpoint contracts
 
 **Order of changes:**

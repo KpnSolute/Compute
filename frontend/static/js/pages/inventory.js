@@ -58,6 +58,13 @@ function inventoryPage() {
     chartInstance: null,
     generatingBarcodes: {},
 
+    pendingChanges: [],
+    saveState: 'clean',
+    pushModalOpen: false,
+    pushMessage: '',
+    isSaving: false,
+    isPushing: false,
+
     async ensureBarcode(itemId, itemDescript) {
       if (this.generatingBarcodes[itemId]) return;
       this.generatingBarcodes[itemId] = true;
@@ -199,6 +206,36 @@ function inventoryPage() {
       return typeof v === 'number' ? Math.round(v).toLocaleString() : v || '0';
     },
 
+    get groupedFiltered() {
+      const groups = {};
+      this.filtered.forEach((i) => {
+        const cat = i.category || 'Uncategorized';
+        if (!groups[cat])
+          groups[cat] = { name: cat, items: [], total: 0, wkReceived: [0, 0, 0, 0] };
+        groups[cat].items.push(i);
+        groups[cat].total += (this.getEndQty(i) || 0) * (parseFloat(i.unit_price) || 0);
+        for (let w = 1; w <= 4; w++) {
+          groups[cat].wkReceived[w - 1] += parseFloat(i[`w${w}_received`]) || 0;
+        }
+      });
+      return Object.values(groups).sort((a, b) => b.total - a.total);
+    },
+
+    categoryColor(name) {
+      const colors = {
+        Dairy: '#3b82f6',
+        Cereal: '#f59e0b',
+        Beverages: '#06b6d4',
+        Snacks: '#8b5cf6',
+        'Dry Goods': '#10b981',
+        'Produce & Fresh': '#22c55e',
+        'Protein & Meat': '#ef4444',
+        'Frozen Foods': '#6366f1',
+        Supplies: '#f97316',
+      };
+      return colors[name] || '#94a3b8';
+    },
+
     isEditing(id, field, week) {
       return (
         this.editingCell &&
@@ -246,7 +283,7 @@ function inventoryPage() {
       this.editingCell = null;
       this.editValue = '';
     },
-    async saveEdit(item, field, week) {
+    saveEdit(item, field, week) {
       const newVal = parseFloat(this.editValue);
       if (isNaN(newVal) || newVal < 0) {
         this.cancelEdit();
@@ -257,34 +294,31 @@ function inventoryPage() {
         this.cancelEdit();
         return;
       }
-      const apiField = this.fieldToApiField(field, week);
-      const key = this.getCellKey(item.item_id, field, week);
-      this.cellSaveStatus[key] = 'saving';
-      const col =
-        apiField === 'on_hand' || apiField === 'unit_price' ? apiField : `w${week}_${field}`;
+      const col = this.fieldToApiField(field, week);
       item[col] = newVal;
       this.editingCell = null;
-      try {
-        await API.updateItem(item.item_id, {
-          field: apiField,
-          value: newVal,
-          month: this.selMonth,
-          year: this.selYear,
-        });
-        this.cellSaveStatus[key] = 'saved';
-        this.$nextTick(() => this.renderChart());
-        this.ensureBarcode(item.item_id, item.description);
-        setTimeout(() => {
-          if (this.cellSaveStatus[key] === 'saved') delete this.cellSaveStatus[key];
-        }, 2000);
-      } catch (e) {
-        item[col] = oldVal;
-        this.cellSaveStatus[key] = 'error';
-        Alpine.store('toast').showToast(e.message || 'Save failed', 'error');
-        setTimeout(() => {
-          if (this.cellSaveStatus[key] === 'error') delete this.cellSaveStatus[key];
-        }, 3000);
+      this.editValue = '';
+      const existing = this.pendingChanges.findIndex(
+        (c) => c.item_id === item.item_id && c.field === field && c.week === week,
+      );
+      const change = {
+        item_id: item.item_id,
+        item_name: item.description,
+        sku: item.sku,
+        field,
+        week,
+        apiField: col,
+        oldVal,
+        newVal,
+        timestamp: Date.now(),
+      };
+      if (existing >= 0) {
+        this.pendingChanges[existing] = change;
+      } else {
+        this.pendingChanges.push(change);
       }
+      this.saveState = 'dirty';
+      this.filterItems();
     },
     renderChart() {
       if (typeof Chart === 'undefined') return;
@@ -416,10 +450,133 @@ function inventoryPage() {
       }
     },
     jumpToCurrent() {
-      this.selMonth = new Date().getMonth();
-      this.selYear = new Date().getFullYear();
+      const now = new Date();
+      this.selMonth = now.getMonth();
+      this.selYear = now.getFullYear();
+      this.page = 1;
       this.loadData();
     },
+
+    async saveLocal() {
+      if (!this.pendingChanges.length) return;
+      this.isSaving = true;
+      try {
+        await Promise.all(
+          this.pendingChanges.map((c) =>
+            API.updateItem(c.item_id, {
+              field: c.apiField,
+              value: c.newVal,
+              month: this.selMonth,
+              year: this.selYear,
+            }),
+          ),
+        );
+        this.saveState = 'saved';
+        this.pendingChanges = [];
+        Alpine.store('toast').showToast('Changes saved locally', 'success');
+        await this.loadData();
+      } catch (e) {
+        Alpine.store('toast').showToast('Save failed: ' + e.message, 'error');
+      }
+      this.isSaving = false;
+    },
+
+    openPushModal() {
+      const now = new Date();
+      const monthNames = [
+        'January',
+        'February',
+        'March',
+        'April',
+        'May',
+        'June',
+        'July',
+        'August',
+        'September',
+        'October',
+        'November',
+        'December',
+      ];
+      this.pushMessage = `Week ${this.selWeek} updates — ${monthNames[this.selMonth]} ${
+        this.selYear
+      }`;
+      this.pushModalOpen = true;
+    },
+
+    async submitPush() {
+      if (!this.pendingChanges.length || !this.pushMessage.trim()) return;
+      this.isPushing = true;
+      try {
+        await Promise.all(
+          this.pendingChanges.map((c) =>
+            API.updateItem(c.item_id, {
+              field: c.apiField,
+              value: c.newVal,
+              month: this.selMonth,
+              year: this.selYear,
+            }),
+          ),
+        );
+        await Promise.all(
+          this.pendingChanges.map((c) =>
+            API.stageCommit({
+              item_id: c.item_id,
+              month: this.selMonth,
+              year: this.selYear,
+              week_number: c.week || 0,
+              field: c.field,
+              action: 'enter',
+              value: c.newVal,
+              message: this.pushMessage,
+            }),
+          ),
+        );
+        await API.pushCommits(this.pushMessage);
+        this.saveState = 'pushed';
+        this.pendingChanges = [];
+        this.pushModalOpen = false;
+        Alpine.store('toast').showToast('Changes pushed to source control', 'success');
+        await this.loadData();
+      } catch (e) {
+        Alpine.store('toast').showToast('Push failed: ' + e.message, 'error');
+      }
+      this.isPushing = false;
+    },
+
+    discardChanges() {
+      Alpine.store('confirm').open(
+        'Discard all ' + this.pendingChanges.length + ' pending changes?',
+        async () => {
+          this.pendingChanges = [];
+          this.saveState = 'clean';
+          await this.loadData();
+        },
+      );
+    },
+
+    addParsedChanges(parsedItems, source, fileRef) {
+      parsedItems.forEach((p) => {
+        const existing = this.pendingChanges.findIndex(
+          (c) => c.item_id === p.item_id && c.field === p.field && c.week === p.week,
+        );
+        const change = {
+          ...p,
+          source,
+          fileRef,
+          timestamp: Date.now(),
+          apiField: this.fieldToApiField(p.field, p.week),
+        };
+        if (existing >= 0) {
+          this.pendingChanges[existing] = change;
+        } else {
+          this.pendingChanges.push(change);
+        }
+      });
+      this.saveState = 'dirty';
+      if (fileRef) this.pushMessage = 'File import: ' + fileRef;
+      this.filterItems();
+    },
+
     prevPage() {
       if (this.page > 1) this.loadData(this.page - 1);
     },
