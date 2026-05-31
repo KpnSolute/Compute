@@ -702,7 +702,8 @@
               <div class="md:hidden space-y-2 mb-4">
                 <template x-for="(row, idx) in flatRows" :key="'m'+idx">
                   <div
-                    :class="row._type !== 'header' ? 'hidden' : 'flex items-center gap-2 px-1 py-2 mt-3 mb-1 border-b border-slate-200'"
+                    :class="row._type !== 'header' ? 'hidden' : 'flex items-center gap-2 px-1 py-2 mt-3 mb-1 border-b border-slate-200 cursor-pointer select-none'"
+                    x-on:click="toggleCategory(row.name)"
                   >
                     <span
                       class="w-2 h-2 rounded-full shrink-0"
@@ -713,6 +714,10 @@
                       class="text-[10px] bg-slate-200 text-slate-600 rounded-full px-2 py-0.5 font-semibold"
                       x-text="(row.count || 0) + ' items'"
                     ></span>
+                    <i
+                      class="fas ml-1 text-[10px] text-slate-400 transition-transform duration-200"
+                      :class="row.collapsed ? 'fa-chevron-right' : 'fa-chevron-down'"
+                    ></i>
                     <span
                       class="ml-auto text-xs font-bold text-slate-600"
                       x-text="'$' + number(row.total)"
@@ -842,7 +847,8 @@
                     <tbody>
                       <template x-for="(row, idx) in flatRows" :key="idx">
                         <tr
-                          :class="row._type !== 'header' ? 'hidden' : 'bg-slate-50 border-t-2 border-slate-200'"
+                          :class="row._type !== 'header' ? 'hidden' : 'bg-slate-50 border-t-2 border-slate-200 cursor-pointer select-none'"
+                          x-on:click="toggleCategory(row.name)"
                         >
                           <td colspan="9" class="px-3 py-2">
                             <div class="flex items-center gap-2 flex-wrap">
@@ -858,6 +864,10 @@
                                 class="text-[10px] bg-slate-200 text-slate-600 rounded-full px-2 py-0.5 font-semibold"
                                 x-text="(row.count || 0) + ' items'"
                               ></span>
+                              <i
+                                class="fas ml-1 text-[10px] text-slate-400 transition-transform duration-200"
+                                :class="row.collapsed ? 'fa-chevron-right' : 'fa-chevron-down'"
+                              ></i>
                               <template x-if="row.wkReceived && row.wkReceived[0] > 0">
                                 <span
                                   class="text-[10px] bg-blue-100 text-blue-700 rounded-full px-2 py-0.5 font-semibold flex items-center gap-1"

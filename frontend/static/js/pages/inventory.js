@@ -1,9 +1,10 @@
 function inventoryPage() {
   return {
-    selMonth: Alpine.store('now').month,
-    selYear: Alpine.store('now').year,
+    selMonth: Alpine.store('now')?.month ?? new Date().getMonth(),
+    selYear: Alpine.store('now')?.year ?? new Date().getFullYear(),
     selWeek: 1,
     selCategory: '',
+    collapsedCategories: {},
     items: [],
     allItems: [],
     filtered: [],
@@ -226,19 +227,27 @@ function inventoryPage() {
       return Object.values(groups).sort((a, b) => b.total - a.total);
     },
 
+    toggleCategory(name) {
+      this.collapsedCategories[name] = !this.collapsedCategories[name];
+    },
+
     get flatRows() {
       const rows = [];
       this.groupedFiltered.forEach((group) => {
+        const collapsed = !!this.collapsedCategories[group.name];
         rows.push({
           _type: 'header',
           name: group.name,
           count: group.items.length,
           total: group.total,
           wkReceived: group.wkReceived,
+          collapsed,
         });
-        group.items.forEach((item) => {
-          rows.push({ _type: 'item', ...item });
-        });
+        if (!collapsed) {
+          group.items.forEach((item) => {
+            rows.push({ _type: 'item', ...item });
+          });
+        }
       });
       return rows;
     },
