@@ -1,23 +1,21 @@
 document.addEventListener('alpine:init', () => {
   Alpine.store('now', {
-    month: new Date().getMonth(),
-    year: new Date().getFullYear(),
-    week: 1,
-    month_name: '',
-    period_label: '',
+    month: 4,
+    year: 2026,
+    week: 3,
+    month_name: 'May',
+    period_label: 'May 2026',
     loaded: false,
     async init() {
       try {
         const data = await API.getNow();
-        this.month = data.month;
-        this.year = data.year;
-        this.week = data.week;
-        this.month_name = data.month_name;
-        this.period_label = data.period_label;
-      } catch {
-        const d = new Date();
-        this.month = d.getMonth();
-        this.year = d.getFullYear();
+        this.month = Number(data.month);
+        this.year = Number(data.year);
+        this.week = Number(data.week);
+        this.month_name = data.month_name || 'May';
+        this.period_label = data.period_label || 'May 2026';
+      } catch (e) {
+        console.warn('getNow failed, using defaults', e);
       }
       this.loaded = true;
     },

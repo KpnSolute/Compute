@@ -109,7 +109,16 @@ function inventoryPage() {
       this.canWrite = ['admin', 'manager', 'assistant'].includes(
         Alpine.store('auth')?.user?.role || '',
       );
-      this.selWeek = Alpine.store('now').week;
+
+      const nowStore = Alpine.store('now');
+      if (!nowStore.loaded) {
+        await nowStore.init();
+      }
+
+      this.selMonth = Number(nowStore.month);
+      this.selYear = Number(nowStore.year);
+      this.selWeek = Number(nowStore.week);
+
       await this.loadData();
       this.$watch('selWeek', () => this.filterItems());
     },
@@ -335,6 +344,7 @@ function inventoryPage() {
     },
     renderChart() {
       if (typeof Chart === 'undefined') return;
+      if (this.itemsLoading || this.itemsError || this.filtered.length === 0) return;
       if (this.chartInstance) this.chartInstance.destroy();
       const el = document.getElementById('category-chart');
       if (!el) return;

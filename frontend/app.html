@@ -545,7 +545,7 @@
                     class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-slate-700"
                   >
                     <template x-for="(name, idx) in monthNames" :key="idx">
-                      <option :value="idx" x-text="name"></option>
+                      <option :value="Number(idx)" x-text="name"></option>
                     </template>
                   </select>
                   <select
@@ -553,9 +553,10 @@
                     x-on:change="loadData()"
                     class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-slate-700"
                   >
-                    <template x-for="y in years" :key="y">
-                      <option :value="Number(y)" x-text="y"></option>
-                    </template>
+                    <option :value="2024" :selected="Number(selYear) === 2024">2024</option>
+                    <option :value="2025" :selected="Number(selYear) === 2025">2025</option>
+                    <option :value="2026" :selected="Number(selYear) === 2026">2026</option>
+                    <option :value="2027" :selected="Number(selYear) === 2027">2027</option>
                   </select>
                   <button
                     x-on:click="jumpToCurrent()"
@@ -700,70 +701,70 @@
 
               <div class="md:hidden space-y-2 mb-4">
                 <template x-for="(row, idx) in flatRows" :key="'m'+idx">
-                  <div
-                    x-show="row._type === 'header'"
-                    class="flex items-center gap-2 px-1 py-2 mt-3 mb-1 border-b border-slate-200"
-                  >
-                    <span
-                      class="w-2 h-2 rounded-full shrink-0"
-                      :style="'background:' + categoryColor(row.name)"
-                    ></span>
-                    <span class="text-xs font-bold text-slate-700" x-text="row.name"></span>
-                    <span
-                      class="text-[10px] bg-slate-200 text-slate-600 rounded-full px-2 py-0.5 font-semibold"
-                      x-text="(row.count || 0) + ' items'"
-                    ></span>
-                    <span
-                      class="ml-auto text-xs font-bold text-slate-600"
-                      x-text="'$' + number(row.total)"
-                    ></span>
-                  </div>
-                  <div
-                    x-show="row._type === 'item'"
-                    class="bg-white rounded-xl border border-slate-200 p-3"
-                  >
-                    <div class="flex justify-between items-start mb-2">
-                      <div>
-                        <div
-                          class="text-sm font-semibold text-slate-700"
-                          x-text="row.description"
-                        ></div>
-                        <div
-                          class="text-[10px] text-slate-400 font-mono"
-                          x-text="row.sku || ''"
-                        ></div>
-                      </div>
+                  <template x-if="row._type === 'header'">
+                    <div
+                      class="flex items-center gap-2 px-1 py-2 mt-3 mb-1 border-b border-slate-200"
+                    >
                       <span
-                        :class="row.on_hand === 0 ? 'text-red-500 font-bold text-xs' : 'text-[10px] text-slate-400'"
-                        x-text="row.on_hand === 0 ? '\u26A0 OUT' : ''"
+                        class="w-2 h-2 rounded-full shrink-0"
+                        :style="'background:' + categoryColor(row.name)"
+                      ></span>
+                      <span class="text-xs font-bold text-slate-700" x-text="row.name"></span>
+                      <span
+                        class="text-[10px] bg-slate-200 text-slate-600 rounded-full px-2 py-0.5 font-semibold"
+                        x-text="(row.count || 0) + ' items'"
+                      ></span>
+                      <span
+                        class="ml-auto text-xs font-bold text-slate-600"
+                        x-text="'$' + number(row.total)"
                       ></span>
                     </div>
-                    <div class="grid grid-cols-3 gap-2 text-center">
-                      <div>
-                        <div class="text-[10px] text-slate-400">On Hand</div>
-                        <div
-                          class="text-xs font-bold"
-                          :class="row.on_hand === 0 ? 'text-red-500' : ''"
-                          x-text="number(row.on_hand)"
-                        ></div>
+                  </template>
+                  <template x-if="row._type === 'item'">
+                    <div class="bg-white rounded-xl border border-slate-200 p-3">
+                      <div class="flex justify-between items-start mb-2">
+                        <div>
+                          <div
+                            class="text-sm font-semibold text-slate-700"
+                            x-text="row.description"
+                          ></div>
+                          <div
+                            class="text-[10px] text-slate-400 font-mono"
+                            x-text="row.sku || ''"
+                          ></div>
+                        </div>
+                        <span
+                          :class="row.on_hand === 0 ? 'text-red-500 font-bold text-xs' : 'text-[10px] text-slate-400'"
+                          x-text="row.on_hand === 0 ? '\u26A0 OUT' : ''"
+                        ></span>
                       </div>
-                      <div>
-                        <div class="text-[10px] text-slate-400">Received</div>
-                        <div
-                          class="text-xs font-bold"
-                          x-text="number(getWeekField(row, 'received'))"
-                        ></div>
-                      </div>
-                      <div>
-                        <div class="text-[10px] text-slate-400">End Qty</div>
-                        <div
-                          class="text-xs font-bold"
-                          :class="getWeekField(row, 'ending_qty') <= 0 ? 'text-red-500' : ''"
-                          x-text="number(getWeekField(row, 'ending_qty'))"
-                        ></div>
+                      <div class="grid grid-cols-3 gap-2 text-center">
+                        <div>
+                          <div class="text-[10px] text-slate-400">On Hand</div>
+                          <div
+                            class="text-xs font-bold"
+                            :class="row.on_hand === 0 ? 'text-red-500' : ''"
+                            x-text="number(row.on_hand)"
+                          ></div>
+                        </div>
+                        <div>
+                          <div class="text-[10px] text-slate-400">Received</div>
+                          <div
+                            class="text-xs font-bold"
+                            x-text="number(getWeekField(row, 'received'))"
+                          ></div>
+                        </div>
+                        <div>
+                          <div class="text-[10px] text-slate-400">End Qty</div>
+                          <div
+                            class="text-xs font-bold"
+                            :class="getWeekField(row, 'ending_qty') <= 0 ? 'text-red-500' : ''"
+                            x-text="number(getWeekField(row, 'ending_qty'))"
+                          ></div>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  </template>
                 </template>
                 <div
                   x-show="filtered.length === 0 && !itemsLoading"
@@ -842,233 +843,233 @@
                     </thead>
                     <tbody>
                       <template x-for="(row, idx) in flatRows" :key="idx">
-                        <tr
-                          x-show="row._type === 'header'"
-                          class="bg-slate-50 border-t-2 border-slate-200"
-                        >
-                          <td colspan="9" class="px-3 py-2">
-                            <div class="flex items-center gap-2 flex-wrap">
-                              <span
-                                class="w-2.5 h-2.5 rounded-full shrink-0"
-                                :style="'background:' + categoryColor(row.name)"
-                              ></span>
-                              <span
-                                class="text-xs font-bold text-slate-700"
-                                x-text="row.name"
-                              ></span>
-                              <span
-                                class="text-[10px] bg-slate-200 text-slate-600 rounded-full px-2 py-0.5 font-semibold"
-                                x-text="(row.count || 0) + ' items'"
-                              ></span>
-                              <template x-if="row.wkReceived && row.wkReceived[0] > 0">
+                        <template x-if="row._type === 'header'">
+                          <tr class="bg-slate-50 border-t-2 border-slate-200">
+                            <td colspan="9" class="px-3 py-2">
+                              <div class="flex items-center gap-2 flex-wrap">
                                 <span
-                                  class="text-[10px] bg-blue-100 text-blue-700 rounded-full px-2 py-0.5 font-semibold flex items-center gap-1"
-                                >
-                                  <i class="fas fa-truck text-[8px]"></i> Wk1 rcvd
-                                </span>
-                              </template>
-                              <template x-if="row.wkReceived && row.wkReceived[1] > 0">
+                                  class="w-2.5 h-2.5 rounded-full shrink-0"
+                                  :style="'background:' + categoryColor(row.name)"
+                                ></span>
                                 <span
-                                  class="text-[10px] bg-blue-100 text-blue-700 rounded-full px-2 py-0.5 font-semibold flex items-center gap-1"
-                                >
-                                  <i class="fas fa-truck text-[8px]"></i> Wk2 rcvd
-                                </span>
-                              </template>
-                              <template x-if="row.wkReceived && row.wkReceived[2] > 0">
+                                  class="text-xs font-bold text-slate-700"
+                                  x-text="row.name"
+                                ></span>
                                 <span
-                                  class="text-[10px] bg-blue-100 text-blue-700 rounded-full px-2 py-0.5 font-semibold flex items-center gap-1"
-                                >
-                                  <i class="fas fa-truck text-[8px]"></i> Wk3 rcvd
-                                </span>
-                              </template>
-                              <template x-if="row.wkReceived && row.wkReceived[3] > 0">
+                                  class="text-[10px] bg-slate-200 text-slate-600 rounded-full px-2 py-0.5 font-semibold"
+                                  x-text="(row.count || 0) + ' items'"
+                                ></span>
+                                <template x-if="row.wkReceived && row.wkReceived[0] > 0">
+                                  <span
+                                    class="text-[10px] bg-blue-100 text-blue-700 rounded-full px-2 py-0.5 font-semibold flex items-center gap-1"
+                                  >
+                                    <i class="fas fa-truck text-[8px]"></i> Wk1 rcvd
+                                  </span>
+                                </template>
+                                <template x-if="row.wkReceived && row.wkReceived[1] > 0">
+                                  <span
+                                    class="text-[10px] bg-blue-100 text-blue-700 rounded-full px-2 py-0.5 font-semibold flex items-center gap-1"
+                                  >
+                                    <i class="fas fa-truck text-[8px]"></i> Wk2 rcvd
+                                  </span>
+                                </template>
+                                <template x-if="row.wkReceived && row.wkReceived[2] > 0">
+                                  <span
+                                    class="text-[10px] bg-blue-100 text-blue-700 rounded-full px-2 py-0.5 font-semibold flex items-center gap-1"
+                                  >
+                                    <i class="fas fa-truck text-[8px]"></i> Wk3 rcvd
+                                  </span>
+                                </template>
+                                <template x-if="row.wkReceived && row.wkReceived[3] > 0">
+                                  <span
+                                    class="text-[10px] bg-blue-100 text-blue-700 rounded-full px-2 py-0.5 font-semibold flex items-center gap-1"
+                                  >
+                                    <i class="fas fa-truck text-[8px]"></i> Wk4 rcvd
+                                  </span>
+                                </template>
                                 <span
-                                  class="text-[10px] bg-blue-100 text-blue-700 rounded-full px-2 py-0.5 font-semibold flex items-center gap-1"
-                                >
-                                  <i class="fas fa-truck text-[8px]"></i> Wk4 rcvd
-                                </span>
-                              </template>
+                                  class="ml-auto text-xs font-bold text-slate-700"
+                                  x-text="'$' + number(row.total)"
+                                ></span>
+                              </div>
+                            </td>
+                          </tr>
+                        </template>
+                        <template x-if="row._type === 'item'">
+                          <tr
+                            class="hover:bg-slate-50 transition-colors"
+                            :class="row.on_hand < row.par_level && row.par_level > 0 ? 'bg-red-50/30' : ''"
+                          >
+                            <td
+                              class="table-cell font-medium text-slate-700"
+                              x-text="row.description"
+                            ></td>
+                            <td
+                              class="table-cell text-slate-500 font-mono text-xs"
+                              x-text="row.sku || '—'"
+                            ></td>
+                            <td class="table-cell">
                               <span
-                                class="ml-auto text-xs font-bold text-slate-700"
-                                x-text="'$' + number(row.total)"
+                                class="badge text-[10px] px-1.5"
+                                :style="'background:' + categoryColor(row.category) + '20; color:' + categoryColor(row.category)"
+                                x-text="row.category || '—'"
                               ></span>
-                            </div>
-                          </td>
-                        </tr>
-                        <tr
-                          x-show="row._type === 'item'"
-                          class="hover:bg-slate-50 transition-colors"
-                          :class="row.on_hand < row.par_level && row.par_level > 0 ? 'bg-red-50/30' : ''"
-                        >
-                          <td
-                            class="table-cell font-medium text-slate-700"
-                            x-text="row.description"
-                          ></td>
-                          <td
-                            class="table-cell text-slate-500 font-mono text-xs"
-                            x-text="row.sku || '—'"
-                          ></td>
-                          <td class="table-cell">
-                            <span
-                              class="badge text-[10px] px-1.5"
-                              :style="'background:' + categoryColor(row.category) + '20; color:' + categoryColor(row.category)"
-                              x-text="row.category || '—'"
-                            ></span>
-                          </td>
-                          <td class="table-cell num relative">
-                            <div
-                              x-show="!isEditing(row.item_id, 'on_hand', 0)"
-                              x-on:click="canEditField(row, 'on_hand') ? startEdit(row, 'on_hand', 0) : null"
-                              class="cursor-pointer inline-flex items-center gap-1 group"
-                            >
+                            </td>
+                            <td class="table-cell num relative">
+                              <div
+                                x-show="!isEditing(row.item_id, 'on_hand', 0)"
+                                x-on:click="canEditField(row, 'on_hand') ? startEdit(row, 'on_hand', 0) : null"
+                                class="cursor-pointer inline-flex items-center gap-1 group"
+                              >
+                                <span
+                                  :class="row.on_hand === 0 ? 'text-red-500 font-bold' : ''"
+                                  x-text="number(row.on_hand)"
+                                ></span>
+                                <i
+                                  x-show="canEditField(row, 'on_hand')"
+                                  class="fas fa-pen text-[8px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                                ></i>
+                              </div>
+                              <input
+                                x-show="isEditing(row.item_id, 'on_hand', 0)"
+                                x-model="editValue"
+                                x-on:keydown.enter="saveEdit(row, 'on_hand', 0)"
+                                x-on:keydown.escape="cancelEdit()"
+                                x-on:click.stop
+                                x-init="$el.focus()"
+                                type="number"
+                                min="0"
+                                step="1"
+                                class="cell-input w-20 text-right px-1.5 py-0.5 outline-none border-2 border-blue-500 rounded text-xs"
+                              />
                               <span
-                                :class="row.on_hand === 0 ? 'text-red-500 font-bold' : ''"
-                                x-text="number(row.on_hand)"
+                                x-show="cellStatus(row.item_id, 'on_hand', 0) === 'saving'"
+                                class="text-[10px] text-blue-400 ml-1"
+                                ><i class="fas fa-spinner fa-spin"></i
                               ></span>
-                              <i
-                                x-show="canEditField(row, 'on_hand')"
-                                class="fas fa-pen text-[8px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
-                              ></i>
-                            </div>
-                            <input
-                              x-show="isEditing(row.item_id, 'on_hand', 0)"
-                              x-model="editValue"
-                              x-on:keydown.enter="saveEdit(row, 'on_hand', 0)"
-                              x-on:keydown.escape="cancelEdit()"
-                              x-on:click.stop
-                              x-init="$el.focus()"
-                              type="number"
-                              min="0"
-                              step="1"
-                              class="cell-input w-20 text-right px-1.5 py-0.5 outline-none border-2 border-blue-500 rounded text-xs"
-                            />
-                            <span
-                              x-show="cellStatus(row.item_id, 'on_hand', 0) === 'saving'"
-                              class="text-[10px] text-blue-400 ml-1"
-                              ><i class="fas fa-spinner fa-spin"></i
-                            ></span>
-                            <span
-                              x-show="cellStatus(row.item_id, 'on_hand', 0) === 'saved'"
-                              class="text-[10px] text-emerald-500 ml-1"
-                              ><i class="fas fa-check"></i
-                            ></span>
-                            <span
-                              x-show="cellStatus(row.item_id, 'on_hand', 0) === 'error'"
-                              class="text-[10px] text-red-500 ml-1"
-                              ><i class="fas fa-exclamation-triangle"></i
-                            ></span>
-                          </td>
-                          <td class="table-cell num relative">
-                            <div
-                              x-show="!isEditing(row.item_id, 'received', selWeek)"
-                              x-on:click="canEditField(row, 'received') ? startEdit(row, 'received', selWeek) : null"
-                              class="cursor-pointer inline-flex items-center gap-1 group"
-                            >
-                              <span x-text="number(getWeekField(row, 'received'))"></span>
-                              <i
-                                x-show="canEditField(row, 'received')"
-                                class="fas fa-pen text-[8px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
-                              ></i>
-                            </div>
-                            <input
-                              x-show="isEditing(row.item_id, 'received', selWeek)"
-                              x-model="editValue"
-                              x-on:keydown.enter="saveEdit(row, 'received', selWeek)"
-                              x-on:keydown.escape="cancelEdit()"
-                              x-on:click.stop
-                              type="number"
-                              min="0"
-                              step="1"
-                              class="cell-input w-20 text-right px-1.5 py-0.5 outline-none border-2 border-blue-500 rounded text-xs"
-                            />
-                            <span
-                              x-show="cellStatus(row.item_id, 'received', selWeek) === 'saved'"
-                              class="text-[10px] text-emerald-500 ml-1"
-                              ><i class="fas fa-check"></i
-                            ></span>
-                            <span
-                              x-show="cellStatus(row.item_id, 'received', selWeek) === 'error'"
-                              class="text-[10px] text-red-500 ml-1"
-                              ><i class="fas fa-exclamation-triangle"></i
-                            ></span>
-                          </td>
-                          <td class="table-cell num relative">
-                            <div
-                              x-show="!isEditing(row.item_id, 'issued', selWeek)"
-                              x-on:click="startEdit(row, 'issued', selWeek)"
-                              class="cursor-pointer inline-flex items-center gap-1 group"
-                            >
-                              <span x-text="number(getWeekField(row, 'issued'))"></span>
-                              <i
-                                class="fas fa-pen text-[8px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
-                              ></i>
-                            </div>
-                            <input
-                              x-show="isEditing(row.item_id, 'issued', selWeek)"
-                              x-model="editValue"
-                              x-on:keydown.enter="saveEdit(row, 'issued', selWeek)"
-                              x-on:keydown.escape="cancelEdit()"
-                              x-on:click.stop
-                              type="number"
-                              min="0"
-                              step="1"
-                              class="cell-input w-20 text-right px-1.5 py-0.5 outline-none border-2 border-blue-500 rounded text-xs"
-                            />
-                            <span
-                              x-show="cellStatus(row.item_id, 'issued', selWeek) === 'saved'"
-                              class="text-[10px] text-emerald-500 ml-1"
-                              ><i class="fas fa-check"></i
-                            ></span>
-                            <span
-                              x-show="cellStatus(row.item_id, 'issued', selWeek) === 'error'"
-                              class="text-[10px] text-red-500 ml-1"
-                              ><i class="fas fa-exclamation-triangle"></i
-                            ></span>
-                          </td>
-                          <td
-                            class="table-cell num font-semibold"
-                            :class="getWeekField(row, 'ending_qty') <= 0 ? 'text-red-500' : 'text-slate-700'"
-                            x-text="number(getWeekField(row, 'ending_qty'))"
-                          ></td>
-                          <td class="table-cell num text-slate-500 relative">
-                            <div
-                              x-show="!isEditing(row.item_id, 'unit_price', 0)"
-                              x-on:click="canEditField(row, 'unit_price') ? startEdit(row, 'unit_price', 0) : null"
-                              class="cursor-pointer inline-flex items-center gap-1 group"
-                            >
-                              <span x-text="'$' + number(row.unit_price)"></span>
-                              <i
-                                x-show="canEditField(row, 'unit_price')"
-                                class="fas fa-pen text-[8px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
-                              ></i>
-                            </div>
-                            <input
-                              x-show="isEditing(row.item_id, 'unit_price', 0)"
-                              x-model="editValue"
-                              x-on:keydown.enter="saveEdit(row, 'unit_price', 0)"
-                              x-on:keydown.escape="cancelEdit()"
-                              x-on:click.stop
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              class="cell-input w-20 text-right px-1.5 py-0.5 outline-none border-2 border-blue-500 rounded text-xs"
-                            />
-                            <span
-                              x-show="cellStatus(row.item_id, 'unit_price', 0) === 'saved'"
-                              class="text-[10px] text-emerald-500 ml-1"
-                              ><i class="fas fa-check"></i
-                            ></span>
-                            <span
-                              x-show="cellStatus(row.item_id, 'unit_price', 0) === 'error'"
-                              class="text-[10px] text-red-500 ml-1"
-                              ><i class="fas fa-exclamation-triangle"></i
-                            ></span>
-                          </td>
-                          <td
-                            class="table-cell num font-semibold text-slate-700"
-                            x-text="'$' + number(getWeekField(row, 'ending_qty') * (row.unit_price || 0))"
-                          ></td>
-                        </tr>
+                              <span
+                                x-show="cellStatus(row.item_id, 'on_hand', 0) === 'saved'"
+                                class="text-[10px] text-emerald-500 ml-1"
+                                ><i class="fas fa-check"></i
+                              ></span>
+                              <span
+                                x-show="cellStatus(row.item_id, 'on_hand', 0) === 'error'"
+                                class="text-[10px] text-red-500 ml-1"
+                                ><i class="fas fa-exclamation-triangle"></i
+                              ></span>
+                            </td>
+                            <td class="table-cell num relative">
+                              <div
+                                x-show="!isEditing(row.item_id, 'received', selWeek)"
+                                x-on:click="canEditField(row, 'received') ? startEdit(row, 'received', selWeek) : null"
+                                class="cursor-pointer inline-flex items-center gap-1 group"
+                              >
+                                <span x-text="number(getWeekField(row, 'received'))"></span>
+                                <i
+                                  x-show="canEditField(row, 'received')"
+                                  class="fas fa-pen text-[8px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                                ></i>
+                              </div>
+                              <input
+                                x-show="isEditing(row.item_id, 'received', selWeek)"
+                                x-model="editValue"
+                                x-on:keydown.enter="saveEdit(row, 'received', selWeek)"
+                                x-on:keydown.escape="cancelEdit()"
+                                x-on:click.stop
+                                type="number"
+                                min="0"
+                                step="1"
+                                class="cell-input w-20 text-right px-1.5 py-0.5 outline-none border-2 border-blue-500 rounded text-xs"
+                              />
+                              <span
+                                x-show="cellStatus(row.item_id, 'received', selWeek) === 'saved'"
+                                class="text-[10px] text-emerald-500 ml-1"
+                                ><i class="fas fa-check"></i
+                              ></span>
+                              <span
+                                x-show="cellStatus(row.item_id, 'received', selWeek) === 'error'"
+                                class="text-[10px] text-red-500 ml-1"
+                                ><i class="fas fa-exclamation-triangle"></i
+                              ></span>
+                            </td>
+                            <td class="table-cell num relative">
+                              <div
+                                x-show="!isEditing(row.item_id, 'issued', selWeek)"
+                                x-on:click="startEdit(row, 'issued', selWeek)"
+                                class="cursor-pointer inline-flex items-center gap-1 group"
+                              >
+                                <span x-text="number(getWeekField(row, 'issued'))"></span>
+                                <i
+                                  class="fas fa-pen text-[8px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                                ></i>
+                              </div>
+                              <input
+                                x-show="isEditing(row.item_id, 'issued', selWeek)"
+                                x-model="editValue"
+                                x-on:keydown.enter="saveEdit(row, 'issued', selWeek)"
+                                x-on:keydown.escape="cancelEdit()"
+                                x-on:click.stop
+                                type="number"
+                                min="0"
+                                step="1"
+                                class="cell-input w-20 text-right px-1.5 py-0.5 outline-none border-2 border-blue-500 rounded text-xs"
+                              />
+                              <span
+                                x-show="cellStatus(row.item_id, 'issued', selWeek) === 'saved'"
+                                class="text-[10px] text-emerald-500 ml-1"
+                                ><i class="fas fa-check"></i
+                              ></span>
+                              <span
+                                x-show="cellStatus(row.item_id, 'issued', selWeek) === 'error'"
+                                class="text-[10px] text-red-500 ml-1"
+                                ><i class="fas fa-exclamation-triangle"></i
+                              ></span>
+                            </td>
+                            <td
+                              class="table-cell num font-semibold"
+                              :class="getWeekField(row, 'ending_qty') <= 0 ? 'text-red-500' : 'text-slate-700'"
+                              x-text="number(getWeekField(row, 'ending_qty'))"
+                            ></td>
+                            <td class="table-cell num text-slate-500 relative">
+                              <div
+                                x-show="!isEditing(row.item_id, 'unit_price', 0)"
+                                x-on:click="canEditField(row, 'unit_price') ? startEdit(row, 'unit_price', 0) : null"
+                                class="cursor-pointer inline-flex items-center gap-1 group"
+                              >
+                                <span x-text="'$' + number(row.unit_price)"></span>
+                                <i
+                                  x-show="canEditField(row, 'unit_price')"
+                                  class="fas fa-pen text-[8px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                                ></i>
+                              </div>
+                              <input
+                                x-show="isEditing(row.item_id, 'unit_price', 0)"
+                                x-model="editValue"
+                                x-on:keydown.enter="saveEdit(row, 'unit_price', 0)"
+                                x-on:keydown.escape="cancelEdit()"
+                                x-on:click.stop
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                class="cell-input w-20 text-right px-1.5 py-0.5 outline-none border-2 border-blue-500 rounded text-xs"
+                              />
+                              <span
+                                x-show="cellStatus(row.item_id, 'unit_price', 0) === 'saved'"
+                                class="text-[10px] text-emerald-500 ml-1"
+                                ><i class="fas fa-check"></i
+                              ></span>
+                              <span
+                                x-show="cellStatus(row.item_id, 'unit_price', 0) === 'error'"
+                                class="text-[10px] text-red-500 ml-1"
+                                ><i class="fas fa-exclamation-triangle"></i
+                              ></span>
+                            </td>
+                            <td
+                              class="table-cell num font-semibold text-slate-700"
+                              x-text="'$' + number(getWeekField(row, 'ending_qty') * (row.unit_price || 0))"
+                            ></td>
+                          </tr>
+                        </template>
                       </template>
                       <tr x-show="filtered.length === 0 && !itemsLoading">
                         <td colspan="9" class="text-center py-8 text-slate-400 text-sm">
@@ -1325,7 +1326,7 @@
                     class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-slate-700"
                   >
                     <template x-for="(name, idx) in monthNames" :key="idx">
-                      <option :value="idx" x-text="name"></option>
+                      <option :value="Number(idx)" x-text="name"></option>
                     </template>
                   </select>
                   <select
@@ -1333,9 +1334,10 @@
                     x-on:change="changeMonth()"
                     class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-slate-700"
                   >
-                    <template x-for="y in years" :key="y">
-                      <option :value="Number(y)" x-text="y"></option>
-                    </template>
+                    <option :value="2024" :selected="Number(repYear) === 2024">2024</option>
+                    <option :value="2025" :selected="Number(repYear) === 2025">2025</option>
+                    <option :value="2026" :selected="Number(repYear) === 2026">2026</option>
+                    <option :value="2027" :selected="Number(repYear) === 2027">2027</option>
                   </select>
                   <button
                     x-on:click="jumpToCurrent()"
