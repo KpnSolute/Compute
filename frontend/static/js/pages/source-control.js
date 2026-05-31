@@ -8,8 +8,8 @@ function sourceControlPage() {
     stagedError: false,
     commitsLoading: true,
     commitsError: false,
-    currentMonth: new Date().getMonth(),
-    currentYear: new Date().getFullYear(),
+    currentMonth: Alpine.store('now').month,
+    currentYear: Alpine.store('now').year,
     monthNames: [
       'January',
       'February',
@@ -33,12 +33,9 @@ function sourceControlPage() {
       this.canWrite = ['admin', 'manager', 'assistant'].includes(
         Alpine.store('auth')?.user?.role || '',
       );
-      const now = new Date();
-      const wk = await API.getCurrentWeek().catch(() => ({ week: 1 }));
-      const weekNum = wk.week || 1;
-      this.pushMessage = `Week ${weekNum} updates — ${
-        this.monthNames[now.getMonth()]
-      } ${now.getFullYear()}`;
+      this.pushMessage = `Week ${Alpine.store('now').week} updates — ${
+        Alpine.store('now').period_label
+      }`;
       await Promise.all([this.loadStaged(), this.loadCommits()]);
       this.pollInterval = setInterval(() => this.loadStaged(), 30000);
     },

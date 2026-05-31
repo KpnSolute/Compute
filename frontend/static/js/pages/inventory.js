@@ -1,7 +1,7 @@
 function inventoryPage() {
   return {
-    selMonth: new Date().getMonth(),
-    selYear: new Date().getFullYear(),
+    selMonth: Alpine.store('now').month,
+    selYear: Alpine.store('now').year,
     selWeek: 1,
     selCategory: '',
     items: [],
@@ -109,11 +109,7 @@ function inventoryPage() {
       this.canWrite = ['admin', 'manager', 'assistant'].includes(
         Alpine.store('auth')?.user?.role || '',
       );
-      const role = Alpine.store('auth')?.user?.role || 'staff';
-      if (role === 'staff') {
-        const wk = await API.getCurrentWeek().catch(() => ({ week: 1 }));
-        this.selWeek = wk.week || 1;
-      }
+      this.selWeek = Alpine.store('now').week;
       await this.loadData();
       this.$watch('selWeek', () => this.filterItems());
     },
@@ -219,6 +215,23 @@ function inventoryPage() {
         }
       });
       return Object.values(groups).sort((a, b) => b.total - a.total);
+    },
+
+    get flatRows() {
+      const rows = [];
+      this.groupedFiltered.forEach((group) => {
+        rows.push({
+          _type: 'header',
+          name: group.name,
+          count: group.items.length,
+          total: group.total,
+          wkReceived: group.wkReceived,
+        });
+        group.items.forEach((item) => {
+          rows.push({ _type: 'item', ...item });
+        });
+      });
+      return rows;
     },
 
     categoryColor(name) {
@@ -450,9 +463,8 @@ function inventoryPage() {
       }
     },
     jumpToCurrent() {
-      const now = new Date();
-      this.selMonth = now.getMonth();
-      this.selYear = now.getFullYear();
+      this.selMonth = Alpine.store('now').month;
+      this.selYear = Alpine.store('now').year;
       this.page = 1;
       this.loadData();
     },
@@ -482,24 +494,7 @@ function inventoryPage() {
     },
 
     openPushModal() {
-      const now = new Date();
-      const monthNames = [
-        'January',
-        'February',
-        'March',
-        'April',
-        'May',
-        'June',
-        'July',
-        'August',
-        'September',
-        'October',
-        'November',
-        'December',
-      ];
-      this.pushMessage = `Week ${this.selWeek} updates — ${monthNames[this.selMonth]} ${
-        this.selYear
-      }`;
+      this.pushMessage = `Week ${this.selWeek} updates — ${Alpine.store('now').period_label}`;
       this.pushModalOpen = true;
     },
 

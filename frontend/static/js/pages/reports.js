@@ -1,7 +1,7 @@
 function reportsPage() {
   return {
-    repMonth: new Date().getMonth(),
-    repYear: new Date().getFullYear(),
+    repMonth: Alpine.store('now').month,
+    repYear: Alpine.store('now').year,
     monthNames: [
       'January',
       'February',
@@ -93,8 +93,8 @@ function reportsPage() {
     },
 
     jumpToCurrent() {
-      this.repMonth = new Date().getMonth();
-      this.repYear = new Date().getFullYear();
+      this.repMonth = Alpine.store('now').month;
+      this.repYear = Alpine.store('now').year;
       this.loadReport(this.repMonth, this.repYear);
     },
 

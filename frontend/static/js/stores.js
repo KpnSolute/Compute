@@ -1,4 +1,29 @@
 document.addEventListener('alpine:init', () => {
+  Alpine.store('now', {
+    month: new Date().getMonth(),
+    year: new Date().getFullYear(),
+    week: 1,
+    month_name: '',
+    period_label: '',
+    loaded: false,
+    async init() {
+      try {
+        const data = await API.getNow();
+        this.month = data.month;
+        this.year = data.year;
+        this.week = data.week;
+        this.month_name = data.month_name;
+        this.period_label = data.period_label;
+      } catch {
+        const d = new Date();
+        this.month = d.getMonth();
+        this.year = d.getFullYear();
+      }
+      this.loaded = true;
+    },
+  });
+  Alpine.store('now').init();
+
   Alpine.store('toast', {
     show: false,
     message: '',

@@ -1,7 +1,7 @@
 function homePage() {
   return {
-    currentMonth: new Date().getMonth(),
-    currentYear: new Date().getFullYear(),
+    currentMonth: Alpine.store('now').month,
+    currentYear: Alpine.store('now').year,
     summary: {},
     items: [],
     lowStock: 0,

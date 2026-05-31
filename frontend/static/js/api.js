@@ -24,6 +24,9 @@ const API = {
     return this.request('/api/auth/logout', { method: 'POST' });
   },
 
+  getNow() {
+    return this.request('/api/inventory/now');
+  },
   getCurrentMonth() {
     return this.request('/api/inventory/current-month');
   },

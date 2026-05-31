@@ -702,6 +702,30 @@ def restore_version(version_id):
 # ── New Endpoints ──────────────────────────────────────────────────
 
 
+@inventory_bp.get('/now')
+def get_now():
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+
+        db = get_client()
+        resp = db.rpc('get_current_period').execute()
+        row = resp.data[0] if resp.data else {}
+        return api_response(
+            {
+                'month': row.get('current_month', 4),
+                'year': row.get('current_year', 2026),
+                'week': row.get('current_week', 1),
+                'month_name': (row.get('month_name') or 'May').strip(),
+                'period_label': (row.get('period_label') or 'May 2026').strip(),
+            }
+        )
+    except Exception as e:
+        logger.exception(f'Error in get_now: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
 @inventory_bp.get('/current-month')
 def current_month():
     try:
