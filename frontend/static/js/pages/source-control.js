@@ -30,12 +30,12 @@ function sourceControlPage() {
     publishLoading: false,
     pollInterval: null,
     async initPage() {
+      const nowStore = Alpine.store('now');
+      if (!nowStore.loaded) await nowStore.init();
       this.canWrite = ['admin', 'manager', 'assistant'].includes(
         Alpine.store('auth')?.user?.role || '',
       );
-      this.pushMessage = `Week ${Alpine.store('now').week} updates — ${
-        Alpine.store('now').period_label
-      }`;
+      this.pushMessage = `Week ${nowStore.week} updates — ${nowStore.period_label}`;
       await Promise.all([this.loadStaged(), this.loadCommits()]);
       this.pollInterval = setInterval(() => this.loadStaged(), 30000);
     },

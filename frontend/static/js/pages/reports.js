@@ -38,6 +38,10 @@ function reportsPage() {
     costsByCategory: [],
 
     async initPage() {
+      const nowStore = Alpine.store('now');
+      if (!nowStore.loaded) await nowStore.init();
+      this.repMonth = Number(nowStore.month);
+      this.repYear = Number(nowStore.year);
       await this.loadReport(this.repMonth, this.repYear);
     },
 

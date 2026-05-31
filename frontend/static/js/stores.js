@@ -1,10 +1,27 @@
 document.addEventListener('alpine:init', () => {
+  const _d = new Date();
+  const _m = _d.getMonth();
+  const _y = _d.getFullYear();
+  const _names = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
   Alpine.store('now', {
-    month: 4,
-    year: 2026,
-    week: 3,
-    month_name: 'May',
-    period_label: 'May 2026',
+    month: _m,
+    year: _y,
+    week: Math.min(4, Math.max(1, Math.ceil(_d.getDate() / 7))),
+    month_name: _names[_m],
+    period_label: `${_names[_m]} ${_y}`,
     loaded: false,
     async init() {
       try {
@@ -12,15 +29,14 @@ document.addEventListener('alpine:init', () => {
         this.month = Number(data.month);
         this.year = Number(data.year);
         this.week = Number(data.week);
-        this.month_name = data.month_name || 'May';
-        this.period_label = data.period_label || 'May 2026';
+        this.month_name = data.month_name || this.month_name;
+        this.period_label = data.period_label || this.period_label;
       } catch (e) {
-        console.warn('getNow failed, using defaults', e);
+        console.warn('getNow failed', e);
       }
       this.loaded = true;
     },
   });
-  Alpine.store('now').init();
 
   Alpine.store('toast', {
     show: false,

@@ -27,6 +27,10 @@ function homePage() {
     ],
 
     async initPage() {
+      const nowStore = Alpine.store('now');
+      if (!nowStore.loaded) await nowStore.init();
+      this.currentMonth = Number(nowStore.month);
+      this.currentYear = Number(nowStore.year);
       await this.loadAll();
       this.liveInterval = setInterval(() => this.loadAll(), 60000);
     },
