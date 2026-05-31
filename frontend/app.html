@@ -106,6 +106,9 @@
       [x-cloak] {
         display: none !important;
       }
+      tr[x-show] {
+        display: table-row;
+      }
     </style>
   </head>
   <body class="bg-gray-50 text-slate-800 antialiased">
@@ -700,9 +703,13 @@
               </div>
 
               <div class="md:hidden space-y-2 mb-4">
-                <template x-for="(row, idx) in flatRows" :key="'m'+idx">
+                <template
+                  x-for="row in flatRows"
+                  :key="'mob-' + row._type + '-' + (row.name || row.item_id)"
+                >
                   <div
-                    :class="row._type !== 'header' ? 'hidden' : 'flex items-center gap-2 px-1 py-2 mt-3 mb-1 border-b border-slate-200 cursor-pointer select-none'"
+                    x-show="row._type === 'header'"
+                    class="flex items-center gap-2 px-1 py-2 mt-3 mb-1 border-b border-slate-200 cursor-pointer select-none"
                     x-on:click="toggleCategory(row.name)"
                   >
                     <span
@@ -724,7 +731,8 @@
                     ></span>
                   </div>
                   <div
-                    :class="row._type !== 'item' ? 'hidden' : 'bg-white rounded-xl border border-slate-200 p-3'"
+                    x-show="row._type === 'item'"
+                    class="bg-white rounded-xl border border-slate-200 p-3"
                   >
                     <div class="flex justify-between items-start mb-2">
                       <div>
@@ -845,9 +853,13 @@
                       </tr>
                     </thead>
                     <tbody>
-                      <template x-for="(row, idx) in flatRows" :key="idx">
+                      <template
+                        x-for="row in flatRows"
+                        :key="row._type + '-' + (row.name || row.item_id || row.description)"
+                      >
                         <tr
-                          :class="row._type !== 'header' ? 'hidden' : 'bg-slate-50 border-t-2 border-slate-200 cursor-pointer select-none'"
+                          x-show="row._type === 'header'"
+                          class="bg-slate-50 border-t-2 border-slate-200 cursor-pointer select-none"
                           x-on:click="toggleCategory(row.name)"
                         >
                           <td colspan="9" class="px-3 py-2">
@@ -904,7 +916,9 @@
                           </td>
                         </tr>
                         <tr
-                          :class="[row._type !== 'item' ? 'hidden' : '', row.on_hand < row.par_level && row.par_level > 0 ? 'bg-red-50/30' : '', 'hover:bg-slate-50 transition-colors']"
+                          x-show="row._type === 'item'"
+                          class="hover:bg-slate-50 transition-colors"
+                          :class="row.on_hand < row.par_level && row.par_level > 0 ? 'bg-red-50/30' : ''"
                         >
                           <td
                             class="table-cell font-medium text-slate-700"

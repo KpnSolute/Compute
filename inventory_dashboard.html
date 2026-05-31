@@ -217,12 +217,12 @@ textarea:focus{outline:none;border-color:#1A2B4A}
     <span class="inv-badge"><i class="fas fa-check"></i> US Foods #2312098 — Wk1</span><span class="inv-badge" style="background:#1D4ED8"><i class="fas fa-check"></i> Multi-Flow #861848 #864172 #864236 — Wk1</span>
     <select id="selMonth" onchange="renderActive()">
       <option value="0">January</option><option value="1">February</option><option value="2">March</option>
-      <option value="3">April</option><option value="4" selected>May</option><option value="5">June</option>
+      <option value="3">April</option><option value="4">May</option><option value="5">June</option>
       <option value="6">July</option><option value="7">August</option><option value="8">September</option>
       <option value="9">October</option><option value="10">November</option><option value="11">December</option>
     </select>
     <select id="selYear" onchange="renderActive()">
-      <option>2024</option><option>2025</option><option selected>2026</option><option>2027</option>
+      <option>2024</option><option>2025</option><option>2026</option><option>2027</option>
     </select>
     <button class="btn-save icon-btn" onclick="exportData()" title="Export inventory data"><i class="fas fa-download"></i> Export</button>
     <label class="btn-save icon-btn" style="cursor:pointer" title="Import previously exported data"><i class="fas fa-upload"></i> Import<input type="file" accept=".json" onchange="importData(event)" style="display:none"></label>
@@ -505,6 +505,7 @@ let _coll={};
 let _curPg='dashboard';
 let _parsedCache=[];
 function $f(n){return"$"+n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,",")}
+function escA(s){return String(s).replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;')}
 function num(v){const n=parseFloat(v);return isNaN(n)?0:Math.max(0,n)}
 function iTotal(it){return Math.max(0,it.onHand+(it.w1r+it.w2r+it.w3r+it.w4r)-(it.w1i+it.w2i+it.w3i+it.w4i))*it.price}
 function allItems(){return Object.values(INV).flat()}
@@ -529,11 +530,12 @@ function startingTotal(){
 }
 function reorders(){return allItems().filter(i=>i.onHand<i.par&&i.par>0)}
 
-// Returns HIST_DATA record for the selected month, or null if it's the live month (May 2026)
+// Returns HIST_DATA record for the selected month, or null if it's the live month
 function getMonthContext(){
   const m=+document.getElementById('selMonth').value;
   const y=+document.getElementById('selYear').value;
-  if(m===4&&y===2026)return null; // live editable month
+  const now=new Date();
+  if(m===now.getMonth()&&y===now.getFullYear())return null; // live editable month
   // Return historical data from server-loaded preset
   return HIST_DATA.find(h=>h.month===m&&h.year===y)||null;
 }
@@ -957,7 +959,8 @@ async function shareExport(){
 }
 
 function buildExportObj(){
-  const out={version:2,exportedAt:new Date().toISOString(),liveMonth:{month:4,year:2026},liveInventory:INV,snapshots:{}};
+  const now=new Date();
+  const out={version:2,exportedAt:now.toISOString(),liveMonth:{month:now.getMonth(),year:now.getFullYear()},liveInventory:INV,snapshots:{}};
   return out;
 }
 
@@ -1413,46 +1416,37 @@ function renderDash(){
   const ctx=getMonthContext();
   if(ctx){renderHistDash(ctx);return;}
 
-  // Live month (May 2026)
+  // Live month
   const rr=reorders();const cats=Object.keys(INV);
   let h=`<div class="alert-g"><div class="ic"><i class="fas fa-check-circle" style="color:#059669"></i></div><div>
     <div class="at">US Foods Invoice #39582 — Week 2 received applied (05/18/2026)</div>
     <div class="as">63 line items · Dry, Refrigerated &amp; Frozen · Invoice total: $5,512.92 · Net after VIZIENT: $5,457.28</div>
   </div></div>
-  <div class="alert-g"><div class="ic"><i class="fas fa-check-circle" style="color:#059669"></i></div><div>
-    <div class="at">US Foods Invoice #2312098 — Week 1 received applied (04/30/2026)</div>
-    <div class="as">185 line items · Dry, Refrigerated &amp; Frozen · Invoice total: $19,417.66 · Week 1 received value: ${$f(wk1Total())}</div>
-  </div></div>
   <div class="card-grid">
     <div class="stat-card">
-      <div class="stat-lbl">Starting on-hand (= April ending)</div>
-      <div class="stat-val" style="color:#374151">${$f(startingTotal())}</div>
-      <div style="font-size:9px;color:#94A3B8;margin-top:3px">Previous month ending value — should match $7,539.83</div>
+      <div class="stat-lbl">Starting on-hand (= prior month ending)</div>
+      <div class="stat-val" style="color:#374151" data-stat="starting">${$f(startingTotal())}</div>
     </div>
-    <div class="stat-card"><div class="stat-lbl">Total inventory value (incl. received)</div><div class="stat-val" style="color:#059669">${$f(grandTotal())}</div></div>
+    <div class="stat-card"><div class="stat-lbl">Total inventory value (incl. received)</div><div class="stat-val" style="color:#059669" data-stat="grandtotal">${$f(grandTotal())}</div></div>
     <div class="stat-card">
-      <div class="stat-lbl">Week 1 received (US Foods #2312098 + Multi-Flow)</div>
-      <div class="stat-val" style="color:#2563EB">${$f(wk1Total())}</div>
-      <div style="font-size:9px;color:#94A3B8;margin-top:3px">04/30 delivery · VIZIENT −$215.97 · Paid: $19,417.66</div>
+      <div class="stat-lbl">Week 1 received</div>
+      <div class="stat-val" style="color:#2563EB" data-stat="wk1">${$f(wk1Total())}</div>
     </div>
     <div class="stat-card">
-      <div class="stat-lbl">Week 2 received (US Foods #39582)</div>
-      <div class="stat-val" style="color:#7C3AED">${$f(wk2Total())}</div>
-      <div style="font-size:9px;color:#94A3B8;margin-top:3px">05/18 delivery · VIZIENT −$60.64 · Paid: $5,457.28</div>
+      <div class="stat-lbl">Week 2 received</div>
+      <div class="stat-val" style="color:#7C3AED" data-stat="wk2">${$f(wk2Total())}</div>
     </div>
     <div class="stat-card">
       <div class="stat-lbl">Week 3 received</div>
-      <div class="stat-val" style="color:#F59E0B">${$f(wk3Total())}</div>
-      <div style="font-size:9px;color:#94A3B8;margin-top:3px">Awaiting invoice entry</div>
+      <div class="stat-val" style="color:#F59E0B" data-stat="wk3">${$f(wk3Total())}</div>
     </div>
     <div class="stat-card">
       <div class="stat-lbl">Week 4 received</div>
-      <div class="stat-val" style="color:#06B6D4">${$f(wk4Total())}</div>
-      <div style="font-size:9px;color:#94A3B8;margin-top:3px">Awaiting invoice entry</div>
+      <div class="stat-val" style="color:#06B6D4" data-stat="wk4">${$f(wk4Total())}</div>
     </div>
-    <div class="stat-card"><div class="stat-lbl">Items needing reorder</div><div class="stat-val" style="color:${rr.length?'#D97706':'#059669'}">${rr.length}</div></div>
-    <div class="stat-card"><div class="stat-lbl">Total line items</div><div class="stat-val">${allItems().length}</div></div>
-    <div class="stat-card"><div class="stat-lbl">Categories</div><div class="stat-val">${cats.length}</div></div>
+    <div class="stat-card"><div class="stat-lbl">Items needing reorder</div><div class="stat-val" style="color:${rr.length?'#D97706':'#059669'}" data-stat="reorders">${rr.length}</div></div>
+    <div class="stat-card"><div class="stat-lbl">Total line items</div><div class="stat-val" data-stat="items">${allItems().length}</div></div>
+    <div class="stat-card"><div class="stat-lbl">Categories</div><div class="stat-val" data-stat="categories">${cats.length}</div></div>
   </div>
   <div class="sec-lbl">Category breakdown</div>
   <div class="cat-grid">`;
@@ -1499,12 +1493,12 @@ function updateDashboardStats(){
   
   statUpdates.forEach(({selector,value})=>{
     const el=document.querySelector(selector);
-    if(el)el.textContent=$f(value);
+    if(el)el.textContent=selector==='[data-stat="reorders"]'||selector==='[data-stat="items"]'||selector==='[data-stat="categories"]'?value:$f(value);
   });
   
   // Update reorder items count color
   const reorderEl=document.querySelector('[data-stat="reorders"]');
-  if(reorderEl)reorderEl.parentElement.style.color=rr.length?'#D97706':'#059669';
+  if(reorderEl)reorderEl.style.color=rr.length?'#D97706':'#059669';
 }
 
 function renderHistDash(ctx){
@@ -1586,8 +1580,9 @@ function renderHistDash(ctx){
 function navMonth(dir){
   const m=+document.getElementById('selMonth').value;
   const y=+document.getElementById('selYear').value;
-  const idx=all.findIndex(h=>h.month===m&&h.year===y);
-  const next=all[idx+dir];
+  const snaps=getHistory();
+  const idx=snaps.findIndex(h=>h.month===m&&h.year===y);
+  const next=snaps[idx+dir];
   if(next){
     document.getElementById('selMonth').value=next.month;
     document.getElementById('selYear').value=next.year;
@@ -1596,10 +1591,11 @@ function navMonth(dir){
 }
 
 /* ── INVENTORY ── */
+function toggleCat(idx){_coll[idx]=!_coll[idx];renderInv();}
+
 function renderInv(){
   const ctx=getMonthContext();
   if(ctx){renderHistInv(ctx);return;}
-  // Live month
   const m=MONTHS[+document.getElementById('selMonth').value];
   const y=document.getElementById('selYear').value;
   const q=(document.getElementById('inv-srch')||{value:''}).value||'';
@@ -1607,56 +1603,59 @@ function renderInv(){
     <div style="font-weight:700;font-size:13px">${m} ${y} — Full Inventory (${allItems().length} items)</div>
     <input id="inv-srch" style="padding:5px 10px;border:1px solid #E2E8F0;border-radius:6px;font-size:12px;width:200px;font-family:inherit" placeholder="🔍 Search items or SKU…" value="${q}" oninput="renderInv()">
   </div>`;
-  Object.keys(INV).forEach(cat=>{
-    const items=q?INV[cat].filter(i=>i.desc.toLowerCase().includes(q.toLowerCase())||i.sku.includes(q)):INV[cat];
+  const catKeys=Object.keys(INV);
+  catKeys.forEach((cat,idx)=>{
+    const items=q?INV[cat].filter(i=>i.desc.toLowerCase().includes(q.toLowerCase())||(i.sku||'').includes(q)):INV[cat];
     if(!items.length)return;
-    const open=!_coll[cat];
-    const hasRcvd=INV[cat].some(i=>i.w1r>0);
-    const cid=cat.replace(/[^a-z]/gi,'_');
-    h+=`<div class="section"><div class="sec-head" onclick="toggleCat('${cat}')">
-      <div class="sh-l">
-        <div class="sh-dot" style="background:${CCOLOR[cat]||'#ccc'}"></div>
-        <span class="sh-ttl">${cat}</span><span class="sh-cnt">${INV[cat].length} items</span>
-        ${hasRcvd?'<span class="sh-badge">🚚 Wk1 rcvd</span>':''}
-      </div>
-      <div style="display:flex;align-items:center;gap:12px">
-        <span class="sh-tot">${$f(catTotal(cat))}</span>
-        <span id="arr-${cid}">${open?'▲':'▼'}</span>
-      </div>
-    </div>`;
+    const cc=CCOLOR[cat]||'#6B7280';
+    const open=!_coll[idx];
+    const eCat=escA(cat);
+    h+=`<div class="section" style="border-left:4px solid ${cc}">
+      <div class="sec-head" onclick="toggleCat(${idx})" style="background:${cc}08;border-bottom:2px solid ${cc}20">
+        <div class="sh-l">
+          <div class="sh-dot" style="background:${cc}"></div>
+          <span class="sh-ttl" style="color:${cc}">${cat}</span>
+          <span class="sh-cnt">${INV[cat].length} items</span>
+          ${INV[cat].some(i=>i.w1r>0)?'<span class="sh-badge">Wk1 rcvd</span>':''}
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span class="sh-tot">${$f(catTotal(cat))}</span>
+          <span>${open?'<i class="fas fa-chevron-up"></i>':'<i class="fas fa-chevron-down"></i>'}</span>
+        </div>
+      </div>`;
     if(open){
       h+=`<div class="tbl-wrap"><table>
         <thead><tr>
-          <th class="tl" style="min-width:180px">Description</th>
-          <th style="width:68px">SKU</th><th style="width:52px">On hand</th>
-          <th style="width:68px">Price ($)</th><th style="width:38px">Par</th>
-          <th style="width:36px">W1↓</th><th style="width:36px">W2↓</th><th style="width:36px">W3↓</th><th style="width:36px">W4↓</th>
-          <th style="width:36px;color:#059669">W1↑</th><th style="width:36px;color:#059669">W2↑</th><th style="width:36px;color:#059669">W3↑</th><th style="width:36px;color:#059669">W4↑</th>
-          <th style="width:80px">Total $</th><th style="width:26px"></th>
+          <th class="tl" style="min-width:170px">Description</th>
+          <th style="width:60px">SKU</th><th style="width:48px">On hand</th>
+          <th style="width:60px">Price ($)</th><th style="width:34px">Par</th>
+          <th style="width:32px;color:#DC2626">W1↓</th><th style="width:32px;color:#DC2626">W2↓</th><th style="width:32px;color:#DC2626">W3↓</th><th style="width:32px;color:#DC2626">W4↓</th>
+          <th style="width:32px;color:#059669">W1↑</th><th style="width:32px;color:#059669">W2↑</th><th style="width:32px;color:#059669">W3↑</th><th style="width:32px;color:#059669">W4↑</th>
+          <th style="width:75px">Total $</th><th style="width:22px"></th>
         </tr></thead><tbody>`;
       items.forEach(it=>{
         const tot=iTotal(it);const nr=it.onHand<it.par&&it.par>0;const rcvd=it.w1r>0;
         h+=`<tr class="${rcvd?'rcvd':''}">
-          <td class="tl"><input class="inp-desc" value="${it.desc.replace(/"/g,'&quot;')}" onchange="upd('${it.id}','desc',this.value,'${cat}')"></td>
-          <td><input class="inp inp-w" value="${it.sku}" onchange="upd('${it.id}','sku',this.value,'${cat}')"></td>
-          <td><input type="number" class="inp${nr?' inp-ro':''}" value="${it.onHand}" min="0" onchange="upd('${it.id}','onHand',this.value,'${cat}')"></td>
-          <td><input type="number" class="inp inp-w" value="${it.price}" min="0" step="0.01" onchange="upd('${it.id}','price',this.value,'${cat}')"></td>
-          <td><input type="number" class="inp" style="width:34px" value="${it.par}" min="0" onchange="upd('${it.id}','par',this.value,'${cat}')"></td>
-          <td><input type="number" class="inp" style="width:34px" value="${it.w1i}" min="0" onchange="upd('${it.id}','w1i',this.value,'${cat}')"></td>
-          <td><input type="number" class="inp" style="width:34px" value="${it.w2i}" min="0" onchange="upd('${it.id}','w2i',this.value,'${cat}')"></td>
-          <td><input type="number" class="inp" style="width:34px" value="${it.w3i}" min="0" onchange="upd('${it.id}','w3i',this.value,'${cat}')"></td>
-          <td><input type="number" class="inp" style="width:34px" value="${it.w4i}" min="0" onchange="upd('${it.id}','w4i',this.value,'${cat}')"></td>
-          <td><input type="number" class="inp inp-gr" style="width:34px" value="${it.w1r}" min="0" onchange="upd('${it.id}','w1r',this.value,'${cat}')"></td>
-          <td><input type="number" class="inp inp-gr" style="width:34px" value="${it.w2r}" min="0" onchange="upd('${it.id}','w2r',this.value,'${cat}')"></td>
-          <td><input type="number" class="inp inp-gr" style="width:34px" value="${it.w3r}" min="0" onchange="upd('${it.id}','w3r',this.value,'${cat}')"></td>
-          <td><input type="number" class="inp inp-gr" style="width:34px" value="${it.w4r}" min="0" onchange="upd('${it.id}','w4r',this.value,'${cat}')"></td>
+          <td class="tl"><input class="inp-desc" value="${it.desc.replace(/"/g,'&quot;')}" onchange="upd('${it.id}','desc',this.value,'${eCat}')"></td>
+          <td><input class="inp inp-w" value="${it.sku.replace(/"/g,'&quot;')}" onchange="upd('${it.id}','sku',this.value,'${eCat}')"></td>
+          <td><input type="number" class="inp${nr?' inp-ro':''}" value="${it.onHand}" min="0" onchange="upd('${it.id}','onHand',this.value,'${eCat}')"></td>
+          <td><input type="number" class="inp inp-w" value="${it.price}" min="0" step="0.01" onchange="upd('${it.id}','price',this.value,'${eCat}')"></td>
+          <td><input type="number" class="inp" style="width:30px" value="${it.par}" min="0" onchange="upd('${it.id}','par',this.value,'${eCat}')"></td>
+          <td><input type="number" class="inp" style="width:30px" value="${it.w1i}" min="0" onchange="upd('${it.id}','w1i',this.value,'${eCat}')"></td>
+          <td><input type="number" class="inp" style="width:30px" value="${it.w2i}" min="0" onchange="upd('${it.id}','w2i',this.value,'${eCat}')"></td>
+          <td><input type="number" class="inp" style="width:30px" value="${it.w3i}" min="0" onchange="upd('${it.id}','w3i',this.value,'${eCat}')"></td>
+          <td><input type="number" class="inp" style="width:30px" value="${it.w4i}" min="0" onchange="upd('${it.id}','w4i',this.value,'${eCat}')"></td>
+          <td><input type="number" class="inp inp-gr" style="width:30px" value="${it.w1r}" min="0" onchange="upd('${it.id}','w1r',this.value,'${eCat}')"></td>
+          <td><input type="number" class="inp inp-gr" style="width:30px" value="${it.w2r}" min="0" onchange="upd('${it.id}','w2r',this.value,'${eCat}')"></td>
+          <td><input type="number" class="inp inp-gr" style="width:30px" value="${it.w3r}" min="0" onchange="upd('${it.id}','w3r',this.value,'${eCat}')"></td>
+          <td><input type="number" class="inp inp-gr" style="width:30px" value="${it.w4r}" min="0" onchange="upd('${it.id}','w4r',this.value,'${eCat}')"></td>
           <td class="num" style="font-weight:700;text-align:right">${$f(tot)}</td>
-          <td><button class="btn-del" onclick="delRow('${cat}','${it.id}')">✕</button></td>
+          <td><button class="btn-del" onclick="delRow('${eCat}','${it.id}')">✕</button></td>
         </tr>`;
       });
       h+=`</tbody><tfoot><tr>
-        <td colspan="5" class="tl"><button class="btn-add" onclick="addRow('${cat}')">+ Add item</button></td>
-        <td colspan="9" style="text-align:right">${$f(catTotal(cat))}</td><td></td>
+        <td colspan="5" class="tl"><button class="btn-add" onclick="addRow('${eCat}')">+ Add item</button></td>
+        <td colspan="9" style="text-align:right;font-weight:700">${$f(catTotal(cat))}</td><td></td>
       </tr></tfoot></table></div>`;
     }
     h+=`</div>`;
@@ -1684,7 +1683,7 @@ function renderHistInv(ctx){
     <div class="ic"><i class="fas fa-chart-line"></i></div>
     <div>
       <div class="at">${mn} ${yr} — Grand Total: ${$f(total)}</div>
-      <div class="as">Item-level detail is available for May 2026 (current month). Historical months show category totals from your inventory Excel file.</div>
+      <div class="as">Item-level detail is available for ${MONTHS[new Date().getMonth()]} ${new Date().getFullYear()} (current month). Historical months show category totals from your inventory Excel file.</div>
     </div>
   </div>
   <div class="section"><div class="tbl-wrap"><table>
@@ -1715,11 +1714,10 @@ function renderHistInv(ctx){
     <td style="padding:8px 12px;text-align:center;font-weight:700">100%</td>
   </tr></tfoot></table></div></div>
   <div style="text-align:center;padding:10px;font-size:12px;color:#94A3B8">
-    Switch to <strong>May 2026</strong> to edit item-level inventory, or use <strong>📅 History</strong> for the full timeline.
+    Switch to <strong>${MONTHS[new Date().getMonth()]} ${new Date().getFullYear()}</strong> to edit item-level inventory, or use <strong>📅 History</strong> for the full timeline.
   </div>`;
   document.getElementById('pg-inventory').innerHTML=h;
 }
-function toggleCat(c){_coll[c]=!_coll[c];renderInv();}
 function upd(id,field,val,cat){
   const it=INV[cat].find(i=>i.id===id);if(!it)return;
   it[field]=(field==='desc'||field==='sku')?val:num(val);
@@ -2038,7 +2036,14 @@ function apiSnapshotToHist(snap) {
   };
 }
 
+function setMonthYearFromDate() {
+  const now = new Date();
+  document.getElementById('selMonth').value = now.getMonth();
+  document.getElementById('selYear').value = now.getFullYear();
+}
+
 async function initDashboard() {
+  setMonthYearFromDate();
   document.getElementById('pg-dashboard').innerHTML =
     '<div style="padding:40px;text-align:center;color:#64748B;font-size:13px">' +
     '⏳ Loading inventory from server…</div>';
