@@ -17,6 +17,7 @@ from backend.config import config  # noqa: E402
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 from backend.routes.auth import auth_bp  # noqa: E402
+from backend.routes.github import github_bp  # noqa: E402
 from backend.routes.files import files_bp  # noqa: E402
 from backend.routes.inventory import inventory_bp  # noqa: E402
 from backend.routes.settings import settings_bp  # noqa: E402
@@ -60,6 +61,7 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(users_bp)
 app.register_blueprint(files_bp)
 app.register_blueprint(settings_bp)
+app.register_blueprint(github_bp)
 
 logger.info(f'Starting MJCC application in {env} mode')
 
@@ -145,3 +147,13 @@ def _keep_alive():
 
 if os.getenv('FLASK_ENV') != 'testing':
     threading.Thread(target=_keep_alive, daemon=True).start()
+
+    # Start GitHub sync retry worker (drains github_sync_queue every 60s)
+    try:
+        from backend.github_sync import start_retry_worker
+        if os.getenv('GITHUB_TOKEN'):
+            start_retry_worker()
+        else:
+            logger.warning('GITHUB_TOKEN not set — GitHub sync disabled')
+    except Exception as _gh_err:
+        logger.warning(f'Could not start GitHub sync worker: {_gh_err}')
