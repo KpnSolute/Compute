@@ -1,2378 +1,1301 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MJCC Inventory</title>
-    <link rel="icon" type="image/svg+xml" href="/logo-shield.svg" />
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
-    />
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/JsBarcode/3.11.5/JsBarcode.all.min.js"></script>
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-      body {
-        font-family: 'Inter', system-ui, sans-serif;
-      }
-      .sidebar-link {
-        transition: all 0.15s ease;
-      }
-      .sidebar-link:hover {
-        background: #f1f5f9;
-      }
-      .sidebar-link.active {
-        background: #eff6ff;
-        color: #2563eb;
-      }
-      .sidebar-link.active svg {
-        color: #2563eb;
-      }
-      .table-cell {
-        padding: 6px 12px;
-        font-size: 13px;
-        border-bottom: 1px solid #f1f5f9;
-      }
-      .num {
-        font-family: 'Inter', monospace;
-        text-align: right;
-      }
-      .toast-enter {
-        animation: slideIn 0.3s ease-out;
-      }
-      .toast-leave {
-        animation: slideOut 0.3s ease-in;
-      }
-      @keyframes slideIn {
-        from {
-          transform: translateX(100%);
-          opacity: 0;
-        }
-        to {
-          transform: translateX(0);
-          opacity: 1;
-        }
-      }
-      @keyframes slideOut {
-        from {
-          transform: translateX(0);
-          opacity: 1;
-        }
-        to {
-          transform: translateX(100%);
-          opacity: 0;
-        }
-      }
-      .badge {
-        display: inline-flex;
-        align-items: center;
-        padding: 2px 8px;
-        border-radius: 9999px;
-        font-size: 11px;
-        font-weight: 600;
-      }
-      @media print {
-        .no-print {
-          display: none !important;
-        }
-      }
-      .fade-in {
-        animation: fadeIn 0.2s ease-out;
-      }
-      @keyframes fadeIn {
-        from {
-          opacity: 0;
-        }
-        to {
-          opacity: 1;
-        }
-      }
-      @keyframes pulse {
-        0%,
-        100% {
-          opacity: 1;
-        }
-        50% {
-          opacity: 0.4;
-        }
-      }
-      .skeleton {
-        background: #e2e8f0;
-        border-radius: 4px;
-        animation: pulse 1.5s ease-in-out infinite;
-      }
-      [x-cloak] {
-        display: none !important;
-      }
-    </style>
-  </head>
-  <body class="bg-gray-50 text-slate-800 antialiased">
-    <div x-data="app()" x-init="init()" class="min-h-screen flex">
-      <div
-        x-show="$store.auth.loading"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-white/80"
-      >
-        <div class="flex items-center gap-3 text-slate-500 text-sm">Loading...</div>
-      </div>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MJCC · Inventory</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+  <script src="/static/js/stores.js"></script>
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/components.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    .sidebar-w { width: 220px; min-width: 220px; }
+    .sidebar-w.collapsed { width: 60px; min-width: 60px; }
+    .cell-input {
+      width: 80px; padding: 2px 6px; border: 1.5px solid #3b82f6;
+      border-radius: 4px; font-size: 13px; text-align: right; outline: none;
+    }
+    .page { display: none; }
+    .page.active { display: block; }
+    @media print {
+      .no-print { display: none !important; }
+      .sidebar { display: none !important; }
+      main { margin: 0 !important; }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800" x-data x-init="Alpine.store('auth').init(); Alpine.store('now').init();" x-cloak>
 
-      <div x-cloak x-show="!$store.auth.loading" class="flex w-full">
-        <aside
-          class="fixed inset-y-0 left-0 z-40 w-56 bg-white border-r border-slate-200 flex flex-col transform transition-transform duration-200 md:translate-x-0"
-          :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
-        >
-          <div class="flex items-center gap-2 h-14 px-4 border-b border-slate-200">
-            <div
-              class="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0"
-            >
-              M
-            </div>
-            <span class="text-sm font-bold text-slate-800 truncate">MJCC Inventory</span>
+<!-- ── Loading overlay ─────────────────────────────────────────────── -->
+<div x-show="Alpine.store('auth').loading"
+     class="fixed inset-0 bg-slate-900 flex items-center justify-center z-50">
+  <div class="text-center text-white">
+    <i class="fas fa-utensils text-4xl mb-4 animate-pulse"></i>
+    <p class="text-slate-400 text-sm">Loading MJCC…</p>
+  </div>
+</div>
+
+<!-- ── App shell ───────────────────────────────────────────────────── -->
+<div x-show="!Alpine.store('auth').loading" class="flex h-screen overflow-hidden">
+
+  <!-- Sidebar -->
+  <aside class="sidebar sidebar-w flex flex-col bg-slate-900 text-white transition-all duration-200 no-print"
+         :class="Alpine.store('sidebar').collapsed ? 'collapsed' : ''">
+
+    <!-- Logo -->
+    <div class="flex items-center gap-3 px-4 py-4 border-b border-slate-700">
+      <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
+        <i class="fas fa-utensils text-sm"></i>
+      </div>
+      <span x-show="!Alpine.store('sidebar').collapsed"
+            class="font-bold text-sm leading-tight">MJCC<br><span class="font-normal text-slate-400 text-xs">Inventory</span></span>
+    </div>
+
+    <!-- Nav items -->
+    <nav class="flex-1 py-3 overflow-y-auto">
+      <template x-for="item in Alpine.store('sidebar').filteredItems" :key="item.id">
+        <button @click="Alpine.store('sidebar').setActive(item.id)"
+                class="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors"
+                :class="Alpine.store('sidebar').active === item.id
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'">
+          <i :class="item.icon + ' w-4 text-center flex-shrink-0'"></i>
+          <span x-show="!Alpine.store('sidebar').collapsed" x-text="item.label"></span>
+        </button>
+      </template>
+    </nav>
+
+    <!-- User / Logout -->
+    <div class="border-t border-slate-700 p-3">
+      <div x-show="!Alpine.store('sidebar').collapsed" class="text-xs text-slate-400 px-1 mb-2 truncate">
+        <span x-text="Alpine.store('auth').user?.display_name || Alpine.store('auth').user?.username"></span>
+        <span class="ml-1 text-slate-500" x-text="'· ' + Alpine.store('auth').user?.role"></span>
+      </div>
+      <button @click="Alpine.store('auth').logout()"
+              class="w-full flex items-center gap-2 px-2 py-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded text-sm transition-colors">
+        <i class="fas fa-sign-out-alt w-4 text-center flex-shrink-0"></i>
+        <span x-show="!Alpine.store('sidebar').collapsed">Sign out</span>
+      </button>
+      <button @click="Alpine.store('sidebar').toggle()"
+              class="w-full flex items-center gap-2 px-2 py-1.5 text-slate-500 hover:text-white text-xs transition-colors mt-1 rounded hover:bg-slate-800">
+        <i :class="Alpine.store('sidebar').collapsed ? 'fas fa-chevron-right' : 'fas fa-chevron-left'" class="w-4 text-center flex-shrink-0"></i>
+        <span x-show="!Alpine.store('sidebar').collapsed">Collapse</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <main class="flex-1 overflow-y-auto">
+
+    <!-- ══ HOME PAGE ══════════════════════════════════════════════════ -->
+    <div class="page" :class="Alpine.store('sidebar').active === 'home' ? 'active' : ''"
+         x-data="homePage()" x-init="initPage()">
+      <div class="p-6 max-w-5xl mx-auto">
+        <h1 class="text-2xl font-bold text-slate-800 mb-1">
+          Welcome, <span x-text="Alpine.store('auth').user?.display_name || 'there'"></span>
+        </h1>
+        <p class="text-slate-500 text-sm mb-6">
+          <span x-text="$monthName(currentMonth)"></span> <span x-text="currentYear"></span> overview
+        </p>
+
+        <!-- Stat cards -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
+            <div class="text-2xl font-bold text-slate-800" x-text="$money(summary.grand_total || 0)"></div>
+            <div class="text-xs text-slate-500 mt-1">Total Inventory Value</div>
           </div>
-          <nav class="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
-            <template x-for="item in $store.sidebar.filteredItems" :key="item.id">
-              <a
-                href="#"
-                x-on:click.prevent="$store.sidebar.setActive(item.id)"
-                class="sidebar-link flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-600"
-                :class="$store.sidebar.active === item.id ? 'active' : ''"
-              >
-                <span class="text-base shrink-0 w-5" x-html="item.icon"></span>
-                <span x-text="item.label"></span>
-              </a>
+          <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
+            <div class="text-2xl font-bold" :class="lowStock > 0 ? 'text-amber-600' : 'text-green-600'"
+                 x-text="lowStock"></div>
+            <div class="text-xs text-slate-500 mt-1">Low Stock Items</div>
+          </div>
+          <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
+            <div class="text-2xl font-bold text-slate-800" x-text="items.length"></div>
+            <div class="text-xs text-slate-500 mt-1">Active Items</div>
+          </div>
+          <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
+            <div class="text-2xl font-bold" :class="pendingCount > 0 ? 'text-blue-600' : 'text-slate-400'"
+                 x-text="pendingCount"></div>
+            <div class="text-xs text-slate-500 mt-1">Pending Changes</div>
+          </div>
+        </div>
+
+        <!-- Recent commits -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
+          <h2 class="font-semibold text-slate-700 mb-3 flex items-center gap-2">
+            <i class="fas fa-code-branch text-blue-500"></i> Recent Commits
+          </h2>
+          <template x-if="recentCommits.length === 0">
+            <p class="text-slate-400 text-sm">No commits yet this month.</p>
+          </template>
+          <template x-for="c in recentCommits" :key="c.commit_id">
+            <div class="flex items-center gap-3 py-2 border-b border-slate-50 last:border-0">
+              <div class="w-2 h-2 rounded-full bg-green-500 flex-shrink-0"></div>
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-medium truncate" x-text="c.message || 'Inventory update'"></div>
+                <div class="text-xs text-slate-400" x-text="$timeAgo(c.created_at)"></div>
+              </div>
+              <span class="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded" x-text="c.branch || 'main'"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ INVENTORY PAGE ═════════════════════════════════════════════ -->
+    <div class="page" :class="Alpine.store('sidebar').active === 'inventory' ? 'active' : ''"
+         x-data="inventoryPage()" x-init="initPage()">
+      <div class="p-6">
+
+        <!-- Header bar -->
+        <div class="flex flex-wrap items-center gap-3 mb-3">
+          <div>
+            <h1 class="text-xl font-bold text-slate-800">Inventory</h1>
+          </div>
+          <div class="ml-auto flex items-center gap-2 flex-wrap">
+
+            <!-- ◀ Month YYYY ▶ stepper (old-app style) -->
+            <div class="flex items-center bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
+              <button @click="prevMonth()" title="Previous month"
+                      class="px-2.5 py-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors border-r border-slate-200 text-sm font-bold leading-none select-none">&#9664;</button>
+              <select x-model.number="selMonth" @change="loadData()"
+                      class="border-0 outline-none bg-transparent text-sm font-semibold text-slate-700 px-1 py-2 cursor-pointer"
+                      style="min-width:80px;-webkit-appearance:none;text-align:center">
+                <option value="0">January</option>
+                <option value="1">February</option>
+                <option value="2">March</option>
+                <option value="3">April</option>
+                <option value="4">May</option>
+                <option value="5">June</option>
+                <option value="6">July</option>
+                <option value="7">August</option>
+                <option value="8">September</option>
+                <option value="9">October</option>
+                <option value="10">November</option>
+                <option value="11">December</option>
+              </select>
+              <select x-model.number="selYear" @change="loadData()"
+                      class="border-0 outline-none bg-transparent text-sm font-semibold text-slate-700 px-1 py-2 cursor-pointer border-l border-slate-200"
+                      style="min-width:52px;-webkit-appearance:none;text-align:center">
+                <option value="2024">2024</option>
+                <option value="2025">2025</option>
+                <option value="2026">2026</option>
+                <option value="2027">2027</option>
+              </select>
+              <button @click="nextMonth()" title="Next month"
+                      class="px-2.5 py-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors border-l border-slate-200 text-sm font-bold leading-none select-none">&#9654;</button>
+              <button @click="jumpToCurrent()" title="Jump to current month"
+                      :class="isCurrentMonth ? 'text-blue-600 bg-blue-50' : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50'"
+                      class="px-2.5 py-2 text-xs transition-colors border-l border-slate-200 font-medium">
+                <i class="fas fa-calendar-day"></i>
+              </button>
+            </div>
+
+            <!-- Week tabs -->
+            <div class="flex bg-slate-100 rounded-lg p-0.5">
+              <template x-for="w in [1,2,3,4]" :key="w">
+                <button @click="selWeek = w"
+                        :class="selWeek === w ? 'bg-white shadow text-blue-600 font-semibold' : 'text-slate-500 hover:text-slate-700'"
+                        class="px-3 py-1.5 rounded-md transition-all text-xs">Wk <span x-text="w"></span></button>
+              </template>
+            </div>
+
+            <!-- Search -->
+            <input x-model="searchQuery" @input="filterItems()"
+                   placeholder="Search items…"
+                   class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-44 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+
+            <!-- Category filter -->
+            <select x-model="selCategory" @change="filterItems()"
+                    class="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none bg-white">
+              <option value="">All categories</option>
+              <template x-for="c in categories" :key="c.id">
+                <option :value="c.name" x-text="c.name"></option>
+              </template>
+            </select>
+
+            <template x-if="userCan('manager')">
+              <button @click="openNewItemModal()"
+                      class="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+                <i class="fas fa-plus mr-1"></i>Add Item
+              </button>
             </template>
-          </nav>
-          <div class="p-3 border-t border-slate-200">
-            <div class="flex items-center gap-2 mb-2">
-              <div
-                class="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold shrink-0"
-                x-text="($store.auth.user?.display_name || '?')[0]"
-              ></div>
-              <div class="min-w-0 flex-1">
-                <div
-                  class="text-xs font-semibold text-slate-700 truncate"
-                  x-text="$store.auth.user?.display_name || ''"
-                ></div>
-                <div
-                  class="text-[10px] text-slate-400 capitalize"
-                  x-text="$store.auth.user?.role || ''"
-                ></div>
-              </div>
-            </div>
-            <button
-              x-on:click="$store.auth.logout()"
-              class="w-full text-xs text-slate-400 hover:text-red-500 font-medium text-left px-1 py-1 transition-colors"
-            >
-              Sign out
-            </button>
           </div>
-        </aside>
+        </div>
 
-        <div
-          x-show="sidebarOpen"
-          x-on:click="sidebarOpen = false"
-          class="fixed inset-0 z-30 bg-black/30 md:hidden"
-        ></div>
+        <!-- Period label -->
+        <div class="flex items-center gap-2 mb-4 text-xs text-slate-500">
+          <i class="fas fa-calendar-alt text-slate-400"></i>
+          <span x-text="$monthName(selMonth) + ' ' + selYear + ' — Week ' + selWeek"></span>
+          <span x-show="isCurrentMonth" class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-xs font-medium">Current</span>
+          <span x-show="!isCurrentMonth" class="bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded text-xs">Historical</span>
+        </div>
 
-        <div class="flex-1 flex flex-col md:ml-56 min-h-screen">
-          <header
-            class="sticky top-0 z-20 bg-white border-b border-slate-200 h-14 flex items-center gap-3 px-4 no-print"
-          >
-            <button
-              x-on:click="sidebarOpen = !sidebarOpen"
-              class="md:hidden p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"
-            >
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M4 6h16M4 12h16M4 18h16"
-                />
-              </svg>
-            </button>
-            <div class="flex items-center gap-2 text-sm font-semibold text-slate-700">
-              <span x-text="pageTitle"></span>
-            </div>
-            <div class="flex-1"></div>
-            <div class="hidden sm:flex items-center gap-2 text-xs text-slate-400">
-              <span class="hidden sm:inline" x-text="$store.auth.user?.display_name || ''"></span>
-              <span
-                class="badge bg-blue-50 text-blue-600 border border-blue-200 capitalize"
-                x-text="$store.auth.user?.role || ''"
-              ></span>
-            </div>
-            <button
-              x-on:click="$store.auth.logout()"
-              class="text-xs text-slate-400 hover:text-red-500 font-medium transition-colors"
-            >
-              Sign out
-            </button>
-          </header>
-
-          <div
-            x-show="!online"
-            class="bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs text-amber-700 font-medium text-center no-print flex items-center justify-center gap-1.5"
-          >
-            <i class="fas fa-wifi-slash text-amber-500"></i>
-            You're offline — changes won't save
+        <!-- Summary stats bar -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-4" x-show="!summaryLoading">
+          <div class="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
+            <div class="text-xs text-slate-500 font-medium mb-0.5">Total Value</div>
+            <div class="text-base font-bold text-slate-800 font-mono" x-text="$money(summary.grand_total || 0)"></div>
           </div>
-
-          <main class="flex-1 p-4 md:p-6 max-w-7xl mx-auto w-full">
-            <div
-              x-show="$store.sidebar.active === 'home'"
-              x-data="homePage()"
-              x-init="initPage()"
-              x-destroy="destroy()"
-              class="fade-in"
-            >
-              <!-- ── Header row ── -->
-              <div class="flex items-center justify-between mb-5">
-                <div>
-                  <h2 class="text-lg font-bold text-slate-800">
-                    Welcome, <span x-text="$store.auth.user?.display_name || ''"></span>
-                  </h2>
-                  <p
-                    class="text-xs text-slate-400 mt-0.5"
-                    x-text="monthNames[currentMonth] + ' ' + currentYear + ' — inventory in progress'"
-                  ></p>
-                </div>
-                <span
-                  class="text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded-full px-3 py-1"
-                  x-text="monthNames[currentMonth] + ' ' + currentYear"
-                ></span>
-              </div>
-
-              <!-- ── 4 KPI cards ── -->
-              <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-                <!-- Grand Total → Reports Cost Manager -->
-                <div
-                  x-on:click="navigate('reports','costs')"
-                  class="bg-white rounded-xl border border-slate-200 p-4 cursor-pointer hover:shadow-md hover:border-blue-300 transition-all"
-                >
-                  <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                    Grand Total
-                  </div>
-                  <div
-                    class="text-xl font-bold text-slate-800 mt-1"
-                    x-text="currency(summary.grand_total || 0)"
-                  ></div>
-                  <div class="text-[10px] text-slate-400 mt-1">
-                    ↑ from <span x-text="currency(summary.starting_total || 0)"></span> starting
-                  </div>
-                </div>
-                <!-- Items Below Par → Reports Overview -->
-                <div
-                  x-on:click="navigate('reports','overview')"
-                  class="bg-white rounded-xl border border-slate-200 p-4 cursor-pointer hover:shadow-md hover:border-amber-300 transition-all"
-                >
-                  <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                    Items Below Par
-                  </div>
-                  <div class="text-xl font-bold text-amber-600 mt-1" x-text="lowStock"></div>
-                  <div class="text-[10px] text-slate-400 mt-1">
-                    <span x-text="criticalAlerts.length"></span> at zero stock
-                  </div>
-                </div>
-                <!-- Pending Staging → Source Control -->
-                <div
-                  x-on:click="navigate('source-control')"
-                  class="bg-white rounded-xl border border-slate-200 p-4 cursor-pointer hover:shadow-md hover:border-blue-300 transition-all"
-                >
-                  <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                    Pending Staging
-                  </div>
-                  <div class="text-xl font-bold text-blue-600 mt-1" x-text="pendingCount"></div>
-                  <div class="text-[10px] text-slate-400 mt-1">entries awaiting review</div>
-                </div>
-                <!-- Total Items → Inventory -->
-                <div
-                  x-on:click="navigate('inventory')"
-                  class="bg-white rounded-xl border border-slate-200 p-4 cursor-pointer hover:shadow-md hover:border-blue-300 transition-all"
-                >
-                  <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                    Total Items
-                  </div>
-                  <div
-                    class="text-xl font-bold text-slate-800 mt-1"
-                    x-text="summary.total_items || items.length || 0"
-                  ></div>
-                  <div class="text-[10px] text-slate-400 mt-1">active SKUs tracked</div>
-                </div>
-              </div>
-
-              <!-- ── Weekly overview strip ── -->
-              <div class="bg-white rounded-xl border border-slate-200 p-4 mb-5">
-                <div class="flex items-center justify-between mb-3">
-                  <h3 class="text-sm font-semibold text-slate-700">Weekly Receiving Overview</h3>
-                  <span
-                    class="text-[10px] text-slate-400"
-                    x-text="monthNames[currentMonth] + ' ' + currentYear"
-                  ></span>
-                </div>
-                <div class="grid grid-cols-4 gap-3">
-                  <template x-for="wk in weeklyTotals" :key="wk.week">
-                    <div
-                      class="text-center p-3 rounded-lg"
-                      :class="wk.total > 0 ? 'bg-blue-50 border border-blue-200' : 'bg-slate-50 border border-slate-200'"
-                    >
-                      <div class="text-[10px] font-semibold uppercase text-slate-400">
-                        Week <span x-text="wk.week"></span>
-                      </div>
-                      <div
-                        class="text-sm font-bold mt-1"
-                        :class="wk.total > 0 ? 'text-blue-700' : 'text-slate-300'"
-                        x-text="wk.total > 0 ? currency(wk.total) : '—'"
-                      ></div>
-                      <div x-show="wk.total > 0" class="text-[10px] text-blue-500 mt-0.5">
-                        received
-                      </div>
-                    </div>
-                  </template>
-                </div>
-              </div>
-
-              <!-- ── Critical Alerts + Category Breakdown side by side ── -->
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
-                <!-- Critical Alerts (zero stock) -->
-                <div class="bg-white rounded-xl border border-amber-200 p-4">
-                  <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
-                      <span
-                        class="w-2 h-2 rounded-full bg-red-500 animate-pulse inline-block"
-                      ></span>
-                      Critical Alerts
-                    </h3>
-                    <button
-                      x-on:click="navigate('reports','overview')"
-                      class="text-[10px] text-blue-600 font-medium hover:underline"
-                    >
-                      View all →
-                    </button>
-                  </div>
-                  <div
-                    x-show="criticalAlerts.length === 0"
-                    class="text-xs text-emerald-600 font-medium py-3 text-center bg-emerald-50 rounded-lg"
-                  >
-                    ✓ No items at zero stock
-                  </div>
-                  <div x-show="criticalAlerts.length > 0" class="space-y-1.5">
-                    <template x-for="item in criticalAlerts" :key="item.item_id">
-                      <div
-                        class="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-b-0"
-                      >
-                        <div
-                          class="text-xs font-medium text-slate-700 truncate flex-1 min-w-0 mr-2"
-                          x-text="item.description"
-                        ></div>
-                        <div class="flex items-center gap-2 shrink-0">
-                          <span
-                            class="text-[10px] text-slate-400 font-mono"
-                            x-text="item.sku || ''"
-                          ></span>
-                          <span
-                            class="text-[10px] font-bold text-red-500 bg-red-50 border border-red-200 rounded px-1.5 py-0.5"
-                            >0 / <span x-text="item.par_level || 0"></span
-                          ></span>
-                        </div>
-                      </div>
-                    </template>
-                    <div
-                      x-show="lowStock > criticalAlerts.length"
-                      class="text-[10px] text-amber-600 font-medium pt-1"
-                    >
-                      + <span x-text="lowStock - criticalAlerts.length"></span> more items below par
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Category Breakdown -->
-                <div class="bg-white rounded-xl border border-slate-200 p-4">
-                  <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-sm font-semibold text-slate-700">Category Breakdown</h3>
-                    <button
-                      x-on:click="navigate('reports','costs')"
-                      class="text-[10px] text-blue-600 font-medium hover:underline"
-                    >
-                      Full report →
-                    </button>
-                  </div>
-                  <div
-                    x-show="categoryData.length === 0"
-                    class="text-xs text-slate-400 py-3 text-center"
-                  >
-                    Loading...
-                  </div>
-                  <div class="space-y-2">
-                    <template x-for="cat in categoryData" :key="cat.name">
-                      <div class="flex items-center gap-2">
-                        <div
-                          class="text-xs font-medium text-slate-600 w-28 truncate shrink-0"
-                          x-text="cat.name"
-                        ></div>
-                        <div class="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                          <div
-                            class="h-1.5 rounded-full bg-blue-500 transition-all"
-                            :style="'width:' + (categoryData[0].total > 0 ? Math.round((cat.total / categoryData[0].total)*100) : 0) + '%'"
-                          ></div>
-                        </div>
-                        <div
-                          class="text-xs font-semibold text-slate-700 w-20 text-right shrink-0"
-                          x-text="currency(cat.total)"
-                        ></div>
-                        <div
-                          x-show="cat.belowPar > 0"
-                          class="text-[10px] text-amber-600 font-bold w-8 text-right shrink-0"
-                          x-text="'⚠' + cat.belowPar"
-                        ></div>
-                        <div x-show="cat.belowPar === 0" class="w-8 shrink-0"></div>
-                      </div>
-                    </template>
-                  </div>
-                </div>
-              </div>
-
-              <!-- ── Quick nav cards ── -->
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
-                <div
-                  x-on:click="navigate('inventory')"
-                  class="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl border border-blue-200 p-5 cursor-pointer hover:shadow-md transition-all"
-                >
-                  <div class="text-blue-600 text-lg mb-2"><i class="fas fa-chart-bar"></i></div>
-                  <h3 class="text-sm font-bold text-slate-800 mb-1">Inventory</h3>
-                  <p
-                    class="text-xs text-slate-500"
-                    x-text="currency(summary.grand_total || 0) + ' · ' + number(summary.total_items || items.length) + ' items'"
-                  ></p>
-                </div>
-                <div
-                  x-on:click="navigate('reports','overview')"
-                  class="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-xl border border-emerald-200 p-5 cursor-pointer hover:shadow-md transition-all"
-                >
-                  <div class="text-emerald-600 text-lg mb-2"><i class="fas fa-chart-line"></i></div>
-                  <h3 class="text-sm font-bold text-slate-800 mb-1">Reports</h3>
-                  <p
-                    class="text-xs text-slate-500"
-                    x-text="monthNames[currentMonth] + ' — in progress'"
-                  ></p>
-                </div>
-                <div
-                  x-on:click="navigate('source-control')"
-                  class="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl border border-purple-200 p-5 cursor-pointer hover:shadow-md transition-all"
-                >
-                  <div class="text-purple-600 text-lg mb-2"><i class="fas fa-code-branch"></i></div>
-                  <h3 class="text-sm font-bold text-slate-800 mb-1">Source Control</h3>
-                  <p
-                    class="text-xs text-slate-500"
-                    x-text="pendingCount + ' pending · ' + recentCommits.length + ' recent commits'"
-                  ></p>
-                </div>
-              </div>
-
-              <!-- ── Recent Activity ── -->
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="bg-white rounded-xl border border-slate-200 p-4">
-                  <h3 class="text-sm font-semibold text-slate-700 mb-3">Recent Commits</h3>
-                  <div
-                    x-show="recentCommits.length === 0"
-                    class="text-xs text-slate-400 py-3 text-center"
-                  >
-                    No recent commits
-                  </div>
-                  <template x-for="c in recentCommits" :key="c.commit_id || c.id">
-                    <div
-                      class="flex items-center gap-2 py-2 border-b border-slate-100 last:border-b-0"
-                    >
-                      <div
-                        class="w-1.5 h-1.5 rounded-full shrink-0"
-                        :class="(c.status || 'merged') === 'reverted' ? 'bg-red-400' : 'bg-emerald-400'"
-                      ></div>
-                      <div class="flex-1 min-w-0">
-                        <div
-                          class="text-xs font-medium text-slate-700 truncate"
-                          x-text="c.message || 'Commit'"
-                        ></div>
-                        <div
-                          class="text-[10px] text-slate-400"
-                          x-text="timeAgo(c.created_at)"
-                        ></div>
-                      </div>
-                    </div>
-                  </template>
-                </div>
-                <div class="bg-white rounded-xl border border-slate-200 p-4">
-                  <h3 class="text-sm font-semibold text-slate-700 mb-3">Pending Staging</h3>
-                  <div
-                    x-show="recentStaged.length === 0"
-                    class="text-xs text-slate-400 py-3 text-center"
-                  >
-                    No pending entries
-                  </div>
-                  <template x-for="e in recentStaged" :key="e.id || e.entry_id">
-                    <div
-                      class="flex items-center gap-2 py-2 border-b border-slate-100 last:border-b-0"
-                    >
-                      <div class="flex-1 min-w-0">
-                        <div
-                          class="text-xs font-medium text-slate-700 truncate"
-                          x-text="(e.item_name || e.description || 'Item') + ' — ' + (e.submitted_value || e.value)"
-                        ></div>
-                        <div class="text-[10px] text-slate-400">
-                          <span x-text="e.submitted_by_name || e.submitter_name || ''"></span>
-                          <span x-text="timeAgo(e.created_at)"></span>
-                        </div>
-                      </div>
-                    </div>
-                  </template>
-                </div>
-              </div>
-            </div>
-
-            <div
-              x-show="$store.sidebar.active === 'inventory'"
-              x-data="inventoryPage()"
-              x-init="initPage()"
-              x-on:keydown.escape.window="cancelEdit()"
-              class="fade-in"
-            >
-              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                <h2 class="text-lg font-bold text-slate-800">Inventory</h2>
-                <div class="flex items-center gap-2 flex-wrap">
-                  <select
-                    x-model="selMonth"
-                    x-on:change="loadData()"
-                    class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-slate-700"
-                  >
-                    <template x-for="(name, idx) in monthNames" :key="idx">
-                      <option :value="Number(idx)" x-text="name"></option>
-                    </template>
-                  </select>
-                  <select
-                    x-model="selYear"
-                    x-on:change="loadData()"
-                    class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-slate-700"
-                  >
-                    <option :value="2024" :selected="Number(selYear) === 2024">2024</option>
-                    <option :value="2025" :selected="Number(selYear) === 2025">2025</option>
-                    <option :value="2026" :selected="Number(selYear) === 2026">2026</option>
-                    <option :value="2027" :selected="Number(selYear) === 2027">2027</option>
-                  </select>
-                  <button
-                    x-on:click="jumpToCurrent()"
-                    class="text-xs font-medium text-blue-600 hover:text-blue-800 px-2 py-1.5 rounded-lg hover:bg-blue-50 transition-colors border border-transparent hover:border-blue-200"
-                  >
-                    Current
-                  </button>
-                  <template x-if="canWrite">
-                    <button
-                      x-on:click="openPullSheet()"
-                      class="text-xs font-medium bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 transition-colors"
-                    >
-                      Pull Sheet
-                    </button>
-                    <button
-                      x-on:click="generateAllBarcodes()"
-                      class="text-xs font-medium bg-purple-600 text-white px-3 py-1.5 rounded-lg hover:bg-purple-700 transition-colors"
-                      id="gen-all-barcodes"
-                    >
-                      Gen Barcodes
-                    </button>
-                  </template>
-                </div>
-              </div>
-
-              <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                <div
-                  x-show="summaryLoading"
-                  class="bg-white rounded-xl border border-slate-200 p-3"
-                >
-                  <div class="skeleton h-3 w-16 mb-2"></div>
-                  <div class="skeleton h-6 w-24"></div>
-                </div>
-                <div
-                  x-show="!summaryLoading && !summaryError"
-                  class="bg-white rounded-xl border border-slate-200 p-3"
-                >
-                  <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                    Grand Total
-                  </div>
-                  <div
-                    class="text-lg font-bold text-slate-800 mt-1"
-                    x-text="'$' + number(summary.grand_total)"
-                  ></div>
-                </div>
-                <div
-                  x-show="!summaryLoading && !summaryError"
-                  class="bg-white rounded-xl border border-slate-200 p-3"
-                >
-                  <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                    Items
-                  </div>
-                  <div
-                    class="text-lg font-bold text-slate-800 mt-1"
-                    x-text="summary.total_items || 0"
-                  ></div>
-                </div>
-                <div
-                  x-show="!summaryLoading && !summaryError"
-                  class="bg-white rounded-xl border border-slate-200 p-3"
-                >
-                  <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                    Low Stock
-                  </div>
-                  <div
-                    class="text-lg font-bold text-amber-600 mt-1"
-                    x-text="summary.reorder_count || 0"
-                  ></div>
-                </div>
-                <div
-                  x-show="!summaryLoading && !summaryError"
-                  class="bg-white rounded-xl border border-slate-200 p-3"
-                >
-                  <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                    Categories
-                  </div>
-                  <div
-                    class="text-lg font-bold text-slate-800 mt-1"
-                    x-text="categories.length"
-                  ></div>
-                </div>
-                <div x-show="summaryError && !summaryLoading" class="col-span-full">
-                  <div class="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
-                    <p class="text-sm text-red-600">Failed to load summary</p>
-                    <button
-                      x-on:click="retrySummary()"
-                      class="text-xs font-medium mt-2 px-3 py-1.5 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
-                    >
-                      Retry
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div
-                x-show="!itemsLoading && !itemsError && filtered.length > 0"
-                class="bg-white rounded-xl border border-slate-200 p-4 mb-4"
-              >
-                <div class="flex items-center justify-between mb-2">
-                  <h3 class="text-sm font-semibold text-slate-700">Category Value</h3>
-                  <span class="text-[10px] text-slate-400">Chart.js bar chart</span>
-                </div>
-                <div class="h-48">
-                  <canvas id="category-chart"></canvas>
-                </div>
-              </div>
-
-              <div class="flex flex-wrap items-center gap-2 mb-4">
-                <template x-for="w in 4" :key="w">
-                  <button
-                    x-on:click="selWeek = w; filterItems()"
-                    class="text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors"
-                    :class="selWeek === w ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'"
-                  >
-                    Week <span x-text="w"></span>
-                  </button>
-                </template>
-                <select
-                  x-model="selCategory"
-                  x-on:change="filterItems()"
-                  class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-slate-700 ml-2"
-                >
-                  <option value="">All Categories</option>
-                  <template x-for="cat in categories" :key="cat.id">
-                    <option :value="cat.name" x-text="cat.name"></option>
-                  </template>
-                </select>
-                <div class="flex-1"></div>
-                <div class="relative">
-                  <i
-                    class="fas fa-search absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"
-                  ></i>
-                  <input
-                    x-model="searchQuery"
-                    x-on:input="filterItems()"
-                    type="text"
-                    placeholder="Search items..."
-                    class="text-xs border border-slate-300 rounded-lg pl-7 pr-2 py-1.5 bg-white text-slate-700 w-48 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                  />
-                </div>
-              </div>
-
-              <div class="md:hidden space-y-2 mb-4">
-                <template
-                  x-for="row in flatRows"
-                  :key="'mob-' + row._type + '-' + (row.name || row.item_id)"
-                >
-                  <template x-if="row._type === 'header'">
-                    <div
-                      class="flex items-center gap-2 px-1 py-2 mt-3 mb-1 border-b border-slate-200 cursor-pointer select-none"
-                      x-on:click="toggleCategory(row.name)"
-                    >
-                      <span
-                        class="w-2 h-2 rounded-full shrink-0"
-                        :style="'background:' + categoryColor(row.name)"
-                      ></span>
-                      <span class="text-xs font-bold text-slate-700" x-text="row.name"></span>
-                      <span
-                        class="text-[10px] bg-slate-200 text-slate-600 rounded-full px-2 py-0.5 font-semibold"
-                        x-text="(row.count || 0) + ' items'"
-                      ></span>
-                      <i
-                        class="fas ml-1 text-[10px] text-slate-400 transition-transform duration-200"
-                        :class="row.collapsed ? 'fa-chevron-right' : 'fa-chevron-down'"
-                      ></i>
-                      <span
-                        class="ml-auto text-xs font-bold text-slate-600"
-                        x-text="'$' + number(row.total)"
-                      ></span>
-                    </div>
-                  </template>
-                  <template x-if="row._type === 'item'">
-                    <div class="bg-white rounded-xl border border-slate-200 p-3">
-                      <div class="flex justify-between items-start mb-2">
-                        <div>
-                          <div
-                            class="text-sm font-semibold text-slate-700"
-                            x-text="row.description"
-                          ></div>
-                          <div
-                            class="text-[10px] text-slate-400 font-mono"
-                            x-text="row.sku || ''"
-                          ></div>
-                        </div>
-                        <span
-                          :class="row.on_hand === 0 ? 'text-red-500 font-bold text-xs' : 'text-[10px] text-slate-400'"
-                          x-text="row.on_hand === 0 ? '\u26A0 OUT' : ''"
-                        ></span>
-                      </div>
-                      <div class="grid grid-cols-3 gap-2 text-center">
-                        <div>
-                          <div class="text-[10px] text-slate-400">On Hand</div>
-                          <div
-                            class="text-xs font-bold"
-                            :class="row.on_hand === 0 ? 'text-red-500' : ''"
-                            x-text="number(row.on_hand)"
-                          ></div>
-                        </div>
-                        <div>
-                          <div class="text-[10px] text-slate-400">Received</div>
-                          <div
-                            class="text-xs font-bold"
-                            x-text="number(getWeekField(row, 'received'))"
-                          ></div>
-                        </div>
-                        <div>
-                          <div class="text-[10px] text-slate-400">End Qty</div>
-                          <div
-                            class="text-xs font-bold"
-                            :class="getWeekField(row, 'ending_qty') <= 0 ? 'text-red-500' : ''"
-                            x-text="number(getWeekField(row, 'ending_qty'))"
-                          ></div>
-                        </div>
-                      </div>
-                    </div>
-                  </template>
-                </template>
-                <div
-                  x-show="filtered.length === 0 && !itemsLoading"
-                  class="text-center py-8 text-slate-400 text-sm"
-                >
-                  No items found
-                </div>
-              </div>
-
-              <div
-                x-show="itemsLoading"
-                class="bg-white rounded-xl border border-slate-200 overflow-hidden p-4"
-              >
-                <div class="space-y-3">
-                  <div class="skeleton h-4 w-3/4"></div>
-                  <div class="skeleton h-4 w-1/2"></div>
-                  <div class="skeleton h-4 w-2/3"></div>
-                  <div class="skeleton h-4 w-3/5"></div>
-                  <div class="skeleton h-4 w-4/5"></div>
-                </div>
-              </div>
-
-              <div
-                x-show="itemsError && !itemsLoading"
-                class="bg-red-50 border border-red-200 rounded-xl p-4 text-center mb-4"
-              >
-                <p class="text-sm text-red-600">Failed to load inventory items</p>
-                <button
-                  x-on:click="retryItems()"
-                  class="text-xs font-medium mt-2 px-3 py-1.5 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
-                >
-                  Retry
-                </button>
-              </div>
-
-              <div
-                x-show="!itemsLoading && !itemsError"
-                class="hidden md:block bg-white rounded-xl border border-slate-200 overflow-hidden"
-              >
-                <div class="overflow-x-auto">
-                  <table class="w-full text-sm">
-                    <thead>
-                      <tr
-                        class="bg-slate-50 text-[11px] text-slate-500 uppercase tracking-wider font-semibold"
-                      >
-                        <th
-                          class="text-left px-3 py-2.5 cursor-pointer hover:text-slate-700"
-                          x-on:click="toggleSort('description')"
-                        >
-                          Description
-                          <i
-                            class="fas fa-sort text-[10px] ml-1"
-                            x-show="sortField === 'description'"
-                            :class="sortDir === 'asc' ? 'fa-sort-up' : sortDir === 'desc' ? 'fa-sort-down' : ''"
-                          ></i>
-                        </th>
-                        <th class="text-left px-3 py-2.5">SKU</th>
-                        <th class="text-left px-3 py-2.5">Category</th>
-                        <th
-                          class="text-right px-3 py-2.5 cursor-pointer hover:text-slate-700"
-                          x-on:click="toggleSort('on_hand')"
-                        >
-                          On Hand
-                          <i
-                            class="fas fa-sort text-[10px] ml-1"
-                            x-show="sortField === 'on_hand'"
-                            :class="sortDir === 'asc' ? 'fa-sort-up' : sortDir === 'desc' ? 'fa-sort-down' : ''"
-                          ></i>
-                        </th>
-                        <th class="text-right px-3 py-2.5">Received</th>
-                        <th class="text-right px-3 py-2.5">Issued</th>
-                        <th class="text-right px-3 py-2.5">End Qty</th>
-                        <th class="text-right px-3 py-2.5">Price</th>
-                        <th class="text-right px-3 py-2.5">Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <template
-                        x-for="row in flatRows"
-                        :key="row._type + '-' + (row.name || row.item_id || row.description)"
-                      >
-                        <template x-if="row._type === 'header'">
-                          <tr
-                            class="bg-slate-50 border-t-2 border-slate-200 cursor-pointer select-none"
-                            x-on:click="toggleCategory(row.name)"
-                          >
-                            <td colspan="9" class="px-3 py-2">
-                              <div class="flex items-center gap-2 flex-wrap">
-                                <span
-                                  class="w-2.5 h-2.5 rounded-full shrink-0"
-                                  :style="'background:' + categoryColor(row.name)"
-                                ></span>
-                                <span
-                                  class="text-xs font-bold text-slate-700"
-                                  x-text="row.name"
-                                ></span>
-                                <span
-                                  class="text-[10px] bg-slate-200 text-slate-600 rounded-full px-2 py-0.5 font-semibold"
-                                  x-text="(row.count || 0) + ' items'"
-                                ></span>
-                                <i
-                                  class="fas ml-1 text-[10px] text-slate-400 transition-transform duration-200"
-                                  :class="row.collapsed ? 'fa-chevron-right' : 'fa-chevron-down'"
-                                ></i>
-                                <template x-if="row.wkReceived && row.wkReceived[0] > 0">
-                                  <span
-                                    class="text-[10px] bg-blue-100 text-blue-700 rounded-full px-2 py-0.5 font-semibold flex items-center gap-1"
-                                  >
-                                    <i class="fas fa-truck text-[8px]"></i> Wk1 rcvd
-                                  </span>
-                                </template>
-                                <template x-if="row.wkReceived && row.wkReceived[1] > 0">
-                                  <span
-                                    class="text-[10px] bg-blue-100 text-blue-700 rounded-full px-2 py-0.5 font-semibold flex items-center gap-1"
-                                  >
-                                    <i class="fas fa-truck text-[8px]"></i> Wk2 rcvd
-                                  </span>
-                                </template>
-                                <template x-if="row.wkReceived && row.wkReceived[2] > 0">
-                                  <span
-                                    class="text-[10px] bg-blue-100 text-blue-700 rounded-full px-2 py-0.5 font-semibold flex items-center gap-1"
-                                  >
-                                    <i class="fas fa-truck text-[8px]"></i> Wk3 rcvd
-                                  </span>
-                                </template>
-                                <template x-if="row.wkReceived && row.wkReceived[3] > 0">
-                                  <span
-                                    class="text-[10px] bg-blue-100 text-blue-700 rounded-full px-2 py-0.5 font-semibold flex items-center gap-1"
-                                  >
-                                    <i class="fas fa-truck text-[8px]"></i> Wk4 rcvd
-                                  </span>
-                                </template>
-                                <span
-                                  class="ml-auto text-xs font-bold text-slate-700"
-                                  x-text="'$' + number(row.total)"
-                                ></span>
-                              </div>
-                            </td>
-                          </tr>
-                        </template>
-                        <template x-if="row._type === 'item'">
-                          <tr
-                            class="hover:bg-slate-50 transition-colors"
-                            :class="row.on_hand < row.par_level && row.par_level > 0 ? 'bg-red-50/30' : ''"
-                          >
-                            <td
-                              class="table-cell font-medium text-slate-700"
-                              x-text="row.description"
-                            ></td>
-                            <td
-                              class="table-cell text-slate-500 font-mono text-xs"
-                              x-text="row.sku || '—'"
-                            ></td>
-                            <td class="table-cell">
-                              <span
-                                class="badge text-[10px] px-1.5"
-                                :style="'background:' + categoryColor(row.category) + '20; color:' + categoryColor(row.category)"
-                                x-text="row.category || '—'"
-                              ></span>
-                            </td>
-                            <td class="table-cell num relative">
-                              <div
-                                x-show="!isEditing(row.item_id, 'on_hand', 0)"
-                                x-on:click="canEditField(row, 'on_hand') ? startEdit(row, 'on_hand', 0) : null"
-                                class="cursor-pointer inline-flex items-center gap-1 group"
-                              >
-                                <span
-                                  :class="row.on_hand === 0 ? 'text-red-500 font-bold' : ''"
-                                  x-text="number(row.on_hand)"
-                                ></span>
-                                <i
-                                  x-show="canEditField(row, 'on_hand')"
-                                  class="fas fa-pen text-[8px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
-                                ></i>
-                              </div>
-                              <input
-                                x-show="isEditing(row.item_id, 'on_hand', 0)"
-                                x-model="editValue"
-                                x-on:keydown.enter="saveEdit(row, 'on_hand', 0)"
-                                x-on:keydown.escape="cancelEdit()"
-                                x-on:click.stop
-                                x-init="$el.focus()"
-                                type="number"
-                                min="0"
-                                step="1"
-                                class="cell-input w-20 text-right px-1.5 py-0.5 outline-none border-2 border-blue-500 rounded text-xs"
-                              />
-                              <span
-                                x-show="cellStatus(row.item_id, 'on_hand', 0) === 'saving'"
-                                class="text-[10px] text-blue-400 ml-1"
-                                ><i class="fas fa-spinner fa-spin"></i
-                              ></span>
-                              <span
-                                x-show="cellStatus(row.item_id, 'on_hand', 0) === 'saved'"
-                                class="text-[10px] text-emerald-500 ml-1"
-                                ><i class="fas fa-check"></i
-                              ></span>
-                              <span
-                                x-show="cellStatus(row.item_id, 'on_hand', 0) === 'error'"
-                                class="text-[10px] text-red-500 ml-1"
-                                ><i class="fas fa-exclamation-triangle"></i
-                              ></span>
-                            </td>
-                            <td class="table-cell num relative">
-                              <div
-                                x-show="!isEditing(row.item_id, 'received', selWeek)"
-                                x-on:click="canEditField(row, 'received') ? startEdit(row, 'received', selWeek) : null"
-                                class="cursor-pointer inline-flex items-center gap-1 group"
-                              >
-                                <span x-text="number(getWeekField(row, 'received'))"></span>
-                                <i
-                                  x-show="canEditField(row, 'received')"
-                                  class="fas fa-pen text-[8px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
-                                ></i>
-                              </div>
-                              <input
-                                x-show="isEditing(row.item_id, 'received', selWeek)"
-                                x-model="editValue"
-                                x-on:keydown.enter="saveEdit(row, 'received', selWeek)"
-                                x-on:keydown.escape="cancelEdit()"
-                                x-on:click.stop
-                                type="number"
-                                min="0"
-                                step="1"
-                                class="cell-input w-20 text-right px-1.5 py-0.5 outline-none border-2 border-blue-500 rounded text-xs"
-                              />
-                              <span
-                                x-show="cellStatus(row.item_id, 'received', selWeek) === 'saved'"
-                                class="text-[10px] text-emerald-500 ml-1"
-                                ><i class="fas fa-check"></i
-                              ></span>
-                              <span
-                                x-show="cellStatus(row.item_id, 'received', selWeek) === 'error'"
-                                class="text-[10px] text-red-500 ml-1"
-                                ><i class="fas fa-exclamation-triangle"></i
-                              ></span>
-                            </td>
-                            <td class="table-cell num relative">
-                              <div
-                                x-show="!isEditing(row.item_id, 'issued', selWeek)"
-                                x-on:click="startEdit(row, 'issued', selWeek)"
-                                class="cursor-pointer inline-flex items-center gap-1 group"
-                              >
-                                <span x-text="number(getWeekField(row, 'issued'))"></span>
-                                <i
-                                  class="fas fa-pen text-[8px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
-                                ></i>
-                              </div>
-                              <input
-                                x-show="isEditing(row.item_id, 'issued', selWeek)"
-                                x-model="editValue"
-                                x-on:keydown.enter="saveEdit(row, 'issued', selWeek)"
-                                x-on:keydown.escape="cancelEdit()"
-                                x-on:click.stop
-                                type="number"
-                                min="0"
-                                step="1"
-                                class="cell-input w-20 text-right px-1.5 py-0.5 outline-none border-2 border-blue-500 rounded text-xs"
-                              />
-                              <span
-                                x-show="cellStatus(row.item_id, 'issued', selWeek) === 'saved'"
-                                class="text-[10px] text-emerald-500 ml-1"
-                                ><i class="fas fa-check"></i
-                              ></span>
-                              <span
-                                x-show="cellStatus(row.item_id, 'issued', selWeek) === 'error'"
-                                class="text-[10px] text-red-500 ml-1"
-                                ><i class="fas fa-exclamation-triangle"></i
-                              ></span>
-                            </td>
-                            <td
-                              class="table-cell num font-semibold"
-                              :class="getWeekField(row, 'ending_qty') <= 0 ? 'text-red-500' : 'text-slate-700'"
-                              x-text="number(getWeekField(row, 'ending_qty'))"
-                            ></td>
-                            <td class="table-cell num text-slate-500 relative">
-                              <div
-                                x-show="!isEditing(row.item_id, 'unit_price', 0)"
-                                x-on:click="canEditField(row, 'unit_price') ? startEdit(row, 'unit_price', 0) : null"
-                                class="cursor-pointer inline-flex items-center gap-1 group"
-                              >
-                                <span x-text="'$' + number(row.unit_price)"></span>
-                                <i
-                                  x-show="canEditField(row, 'unit_price')"
-                                  class="fas fa-pen text-[8px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
-                                ></i>
-                              </div>
-                              <input
-                                x-show="isEditing(row.item_id, 'unit_price', 0)"
-                                x-model="editValue"
-                                x-on:keydown.enter="saveEdit(row, 'unit_price', 0)"
-                                x-on:keydown.escape="cancelEdit()"
-                                x-on:click.stop
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                class="cell-input w-20 text-right px-1.5 py-0.5 outline-none border-2 border-blue-500 rounded text-xs"
-                              />
-                              <span
-                                x-show="cellStatus(row.item_id, 'unit_price', 0) === 'saved'"
-                                class="text-[10px] text-emerald-500 ml-1"
-                                ><i class="fas fa-check"></i
-                              ></span>
-                              <span
-                                x-show="cellStatus(row.item_id, 'unit_price', 0) === 'error'"
-                                class="text-[10px] text-red-500 ml-1"
-                                ><i class="fas fa-exclamation-triangle"></i
-                              ></span>
-                            </td>
-                            <td
-                              class="table-cell num font-semibold text-slate-700"
-                              x-text="'$' + number(getWeekField(row, 'ending_qty') * (row.unit_price || 0))"
-                            ></td>
-                          </tr>
-                        </template>
-                      </template>
-                      <tr x-show="filtered.length === 0 && !itemsLoading">
-                        <td colspan="9" class="text-center py-8 text-slate-400 text-sm">
-                          No items found
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div
-                  x-show="totalPages > 1"
-                  class="flex items-center justify-between px-4 py-3 border-t border-slate-200 no-print"
-                >
-                  <div class="text-xs text-slate-400">
-                    Page <span x-text="page"></span> of <span x-text="totalPages"></span> (<span
-                      x-text="totalItems"
-                    ></span>
-                    items)
-                  </div>
-                  <div class="flex gap-1">
-                    <button
-                      x-on:click="prevPage()"
-                      :disabled="page <= 1"
-                      class="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    >
-                      Prev
-                    </button>
-                    <button
-                      x-on:click="nextPage()"
-                      :disabled="page >= totalPages"
-                      class="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    >
-                      Next
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- commit modal removed — replaced by push-to-source-control workflow -->
-
-              <!-- Sticky change tracking bar -->
-              <div
-                x-show="pendingChanges.length > 0"
-                x-transition:enter="transition ease-out duration-200"
-                x-transition:enter-start="opacity-0 translate-y-4"
-                x-transition:enter-end="opacity-100 translate-y-0"
-                class="fixed bottom-0 left-0 right-0 md:left-56 z-30 bg-slate-900 border-t border-slate-700 px-4 py-3 flex items-center gap-3 shadow-xl no-print"
-              >
-                <div class="flex items-center gap-2 flex-1 min-w-0">
-                  <div class="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0"></div>
-                  <span class="text-xs font-semibold text-white">
-                    <span x-text="pendingChanges.length"></span> unsaved change<span
-                      x-show="pendingChanges.length !== 1"
-                      >s</span
-                    >
-                  </span>
-                  <div class="flex gap-1.5 overflow-x-auto flex-1 min-w-0 scrollbar-none">
-                    <template x-for="(c, idx) in pendingChanges.slice(0,5)" :key="idx">
-                      <span
-                        class="shrink-0 text-[10px] bg-slate-700 text-slate-300 rounded px-2 py-1 font-mono whitespace-nowrap"
-                      >
-                        <span x-text="c.item_name.split(',')[0]"></span>
-                        · <span x-text="c.field"></span>
-                        <span x-show="c.week > 0"> Wk<span x-text="c.week"></span></span>:
-                        <span class="text-red-400" x-text="c.oldVal"></span>→<span
-                          class="text-green-400"
-                          x-text="c.newVal"
-                        ></span>
-                      </span>
-                    </template>
-                    <span
-                      x-show="pendingChanges.length > 5"
-                      class="shrink-0 text-[10px] text-slate-400 self-center"
-                    >
-                      +<span x-text="pendingChanges.length - 5"></span> more
-                    </span>
-                  </div>
-                </div>
-                <div class="flex items-center gap-2 shrink-0">
-                  <button
-                    x-on:click="discardChanges()"
-                    class="text-xs font-medium px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
-                  >
-                    Discard
-                  </button>
-                  <button
-                    x-on:click="saveLocal()"
-                    :disabled="isSaving"
-                    class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-600 text-white hover:bg-slate-500 disabled:opacity-50 transition-colors flex items-center gap-1.5"
-                  >
-                    <i class="fas fa-save text-[10px]"></i>
-                    <span x-text="isSaving ? 'Saving...' : 'Save'"></span>
-                  </button>
-                  <button
-                    x-on:click="openPushModal()"
-                    :disabled="isPushing"
-                    class="text-xs font-semibold px-4 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center gap-1.5"
-                  >
-                    <i class="fas fa-code-branch text-[10px]"></i>
-                    Push to Source Control
-                  </button>
-                </div>
-              </div>
-
-              <!-- Push commit modal -->
-              <div
-                x-show="pushModalOpen"
-                class="fixed inset-0 z-50 flex items-center justify-center p-4"
-              >
-                <div x-on:click="pushModalOpen = false" class="absolute inset-0 bg-black/40"></div>
-                <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6 fade-in">
-                  <h3 class="text-base font-bold text-slate-800 mb-1">Push to Source Control</h3>
-                  <p class="text-xs text-slate-400 mb-4">
-                    Name this change so managers can review it in Source Control.
-                    <span x-text="pendingChanges.length"></span> change(s) will be staged.
-                  </p>
-                  <div class="bg-slate-50 rounded-lg p-3 mb-4 max-h-40 overflow-y-auto">
-                    <template x-for="(c, idx) in pendingChanges" :key="idx">
-                      <div
-                        class="flex items-center justify-between py-1 border-b border-slate-100 last:border-b-0 text-xs"
-                      >
-                        <span
-                          class="text-slate-700 font-medium truncate flex-1"
-                          x-text="c.item_name"
-                        ></span>
-                        <span
-                          class="text-slate-400 ml-2"
-                          x-text="c.field + (c.week ? ' Wk' + c.week : '')"
-                        ></span>
-                        <span class="ml-2 font-mono">
-                          <span class="text-red-500" x-text="c.oldVal"></span>
-                          <span class="text-slate-300 mx-1">→</span>
-                          <span class="text-green-600" x-text="c.newVal"></span>
-                        </span>
-                      </div>
-                    </template>
-                  </div>
-                  <div class="mb-4">
-                    <label class="block text-xs font-semibold text-slate-500 mb-1">
-                      Commit message <span class="text-red-400">*</span>
-                    </label>
-                    <input
-                      x-model="pushMessage"
-                      type="text"
-                      placeholder="e.g. Week 1 US Foods invoice — May 2026"
-                      class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
-                    <p class="text-[10px] text-slate-400 mt-1">
-                      This message will appear in Source Control for the manager to review.
-                    </p>
-                  </div>
-                  <div class="flex justify-end gap-2">
-                    <button
-                      x-on:click="pushModalOpen = false"
-                      class="text-xs font-medium px-4 py-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      x-on:click="submitPush()"
-                      :disabled="!pushMessage.trim() || isPushing"
-                      class="text-xs font-semibold px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5"
-                    >
-                      <i class="fas fa-code-branch text-[10px]"></i>
-                      <span x-text="isPushing ? 'Pushing...' : 'Push Changes'"></span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div
-                x-show="diffModalOpen"
-                class="fixed inset-0 z-50 flex items-center justify-center p-4"
-                x-on:keydown.escape.window="closeDiff()"
-              >
-                <div x-on:click="closeDiff()" class="absolute inset-0 bg-black/40"></div>
-                <div
-                  class="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[80vh] overflow-hidden fade-in"
-                >
-                  <div class="flex items-center justify-between p-4 border-b border-slate-200">
-                    <h3 class="text-sm font-bold text-slate-800">Commit Diff</h3>
-                    <button
-                      x-on:click="closeDiff()"
-                      class="text-slate-400 hover:text-slate-600 text-lg leading-none"
-                    >
-                      &times;
-                    </button>
-                  </div>
-                  <div class="p-4 overflow-y-auto max-h-[60vh]">
-                    <div x-show="diffLoading" class="text-center py-8">
-                      <i class="fas fa-spinner fa-spin text-slate-400 text-xl"></i>
-                      <p class="text-xs text-slate-400 mt-2">Loading diff...</p>
-                    </div>
-                    <div
-                      x-show="!diffLoading && diffData && diffData.length === 0"
-                      class="text-sm text-slate-400 py-8 text-center"
-                    >
-                      No changes in this commit
-                    </div>
-                    <div x-show="!diffLoading && diffData && diffData.length > 0" class="space-y-2">
-                      <template x-for="(change, idx) in diffData" :key="idx">
-                        <div
-                          class="flex items-center gap-3 py-2 border-b border-slate-100 last:border-b-0 text-sm"
-                        >
-                          <span
-                            class="badge text-[10px] font-semibold shrink-0"
-                            :class="change.action === 'pull' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-amber-50 text-amber-600 border border-amber-200'"
-                            x-text="change.action === 'pull' ? 'IN' : 'OUT'"
-                          ></span>
-                          <div class="flex-1 min-w-0">
-                            <div
-                              class="font-medium text-slate-700 truncate"
-                              x-text="change.item_name || change.description || 'Item'"
-                            ></div>
-                            <div class="text-[10px] text-slate-400">
-                              <span x-text="change.field"></span>
-                              <span x-show="change.week">
-                                · Week <span x-text="change.week"></span
-                              ></span>
-                            </div>
-                          </div>
-                          <div class="text-right shrink-0">
-                            <div
-                              class="font-semibold text-slate-700"
-                              x-text="'+' + number(change.value || change.submitted_value)"
-                            ></div>
-                            <div
-                              class="text-[10px] text-slate-400"
-                              x-text="change.submitted_by_name || ''"
-                            ></div>
-                          </div>
-                        </div>
-                      </template>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div
-              x-show="$store.sidebar.active === 'reports'"
-              x-data="reportsPage()"
-              x-init="initPage()"
-              x-on:keydown.escape.window="activeTab = activeTab"
-              x-on:set-report-tab.window="activeTab = $event.detail"
-              class="fade-in"
-            >
-              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                <h2 class="text-lg font-bold text-slate-800">Reports</h2>
-                <div class="flex items-center gap-2">
-                  <select
-                    x-model="repMonth"
-                    x-on:change="changeMonth()"
-                    class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-slate-700"
-                  >
-                    <template x-for="(name, idx) in monthNames" :key="idx">
-                      <option :value="Number(idx)" x-text="name"></option>
-                    </template>
-                  </select>
-                  <select
-                    x-model="repYear"
-                    x-on:change="changeMonth()"
-                    class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-slate-700"
-                  >
-                    <option :value="2024" :selected="Number(repYear) === 2024">2024</option>
-                    <option :value="2025" :selected="Number(repYear) === 2025">2025</option>
-                    <option :value="2026" :selected="Number(repYear) === 2026">2026</option>
-                    <option :value="2027" :selected="Number(repYear) === 2027">2027</option>
-                  </select>
-                  <button
-                    x-on:click="jumpToCurrent()"
-                    class="text-xs font-medium text-blue-600 hover:text-blue-800 px-2 py-1.5 rounded-lg hover:bg-blue-50 transition-colors border border-transparent hover:border-blue-200"
-                  >
-                    Current
-                  </button>
-                </div>
-              </div>
-
-              <div class="flex gap-1 mb-4 border-b border-slate-200 pb-2">
-                <button
-                  x-on:click="activeTab = 'overview'"
-                  class="text-xs font-medium px-3 py-1.5 rounded-t-lg transition-colors"
-                  :class="activeTab === 'overview' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'"
-                >
-                  Month Overview
-                </button>
-                <button
-                  x-on:click="activeTab = 'pullsheet'"
-                  class="text-xs font-medium px-3 py-1.5 rounded-t-lg transition-colors"
-                  :class="activeTab === 'pullsheet' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'"
-                >
-                  Pull Sheet
-                </button>
-                <button
-                  x-on:click="activeTab = 'costs'"
-                  class="text-xs font-medium px-3 py-1.5 rounded-t-lg transition-colors"
-                  :class="activeTab === 'costs' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'"
-                >
-                  Cost Manager
-                </button>
-              </div>
-
-              <div x-show="loading" class="space-y-3 mb-4">
-                <div class="skeleton h-8 w-full"></div>
-                <div class="skeleton h-8 w-3/4"></div>
-                <div class="skeleton h-8 w-1/2"></div>
-              </div>
-
-              <div
-                x-show="error && !loading"
-                class="bg-red-50 border border-red-200 rounded-xl p-4 text-center mb-4"
-              >
-                <p class="text-sm text-red-600">Failed to load report data</p>
-                <button
-                  x-on:click="loadReport(repMonth, repYear)"
-                  class="text-xs font-medium mt-2 px-3 py-1.5 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
-                >
-                  Retry
-                </button>
-              </div>
-
-              <div x-show="!loading && !error && activeTab === 'overview'">
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                  <div class="bg-white rounded-xl border border-slate-200 p-3">
-                    <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                      Grand Total
-                    </div>
-                    <div
-                      class="text-lg font-bold text-slate-800 mt-1"
-                      x-text="currency(summary.grand_total)"
-                    ></div>
-                  </div>
-                  <div class="bg-white rounded-xl border border-slate-200 p-3">
-                    <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                      Starting Total
-                    </div>
-                    <div
-                      class="text-lg font-bold text-slate-800 mt-1"
-                      x-text="currency(summary.starting_total)"
-                    ></div>
-                  </div>
-                  <div class="bg-white rounded-xl border border-slate-200 p-3">
-                    <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                      Items
-                    </div>
-                    <div
-                      class="text-lg font-bold text-slate-800 mt-1"
-                      x-text="number(summary.total_items)"
-                    ></div>
-                  </div>
-                  <div class="bg-white rounded-xl border border-slate-200 p-3">
-                    <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                      Reorder Alerts
-                    </div>
-                    <div
-                      class="text-lg font-bold text-amber-600 mt-1"
-                      x-text="summary.reorder_count || 0"
-                    ></div>
-                  </div>
-                </div>
-
-                <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4">
-                  <h3 class="text-sm font-semibold text-slate-700 mb-3">Weekly Totals</h3>
-                  <div class="grid grid-cols-4 gap-3">
-                    <template x-for="w in 4" :key="w">
-                      <div class="text-center p-2 bg-slate-50 rounded-lg">
-                        <div class="text-[10px] text-slate-400 font-semibold uppercase">
-                          Week <span x-text="w"></span>
-                        </div>
-                        <div
-                          class="text-sm font-bold text-slate-700 mt-0.5"
-                          x-text="currency(summary['wk' + w + '_total'] || 0)"
-                        ></div>
-                      </div>
-                    </template>
-                  </div>
-                </div>
-
-                <div
-                  x-show="reorderItems.length > 0"
-                  class="bg-white rounded-xl border border-slate-200 p-4 mb-4"
-                >
-                  <h3 class="text-sm font-semibold text-slate-700 mb-3">Reorder Alerts</h3>
-                  <table class="w-full text-sm">
-                    <thead>
-                      <tr
-                        class="bg-slate-50 text-[11px] text-slate-500 uppercase tracking-wider font-semibold"
-                      >
-                        <th class="text-left px-3 py-2">Item</th>
-                        <th class="text-left px-3 py-2">SKU</th>
-                        <th class="text-right px-3 py-2">On Hand</th>
-                        <th class="text-right px-3 py-2">Par Level</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <template x-for="item in reorderItems" :key="item.item_id">
-                        <tr class="hover:bg-slate-50">
-                          <td class="table-cell font-medium" x-text="item.description"></td>
-                          <td
-                            class="table-cell text-slate-500 font-mono text-xs"
-                            x-text="item.sku"
-                          ></td>
-                          <td
-                            class="table-cell num text-red-500 font-semibold"
-                            x-text="number(item.on_hand)"
-                          ></td>
-                          <td class="table-cell num" x-text="number(item.par_level || 0)"></td>
-                        </tr>
-                      </template>
-                    </tbody>
-                  </table>
-                </div>
-
-                <div class="bg-white rounded-xl border border-slate-200 p-4">
-                  <h3 class="text-sm font-semibold text-slate-700 mb-3">Category Breakdown</h3>
-                  <div
-                    x-show="categoryData.length === 0"
-                    class="text-sm text-slate-400 py-4 text-center"
-                  >
-                    No category data
-                  </div>
-                  <table x-show="categoryData.length > 0" class="w-full text-sm">
-                    <thead>
-                      <tr
-                        class="bg-slate-50 text-[11px] text-slate-500 uppercase tracking-wider font-semibold"
-                      >
-                        <th class="text-left px-3 py-2">Category</th>
-                        <th class="text-right px-3 py-2">Items</th>
-                        <th class="text-right px-3 py-2">Total Value</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <template x-for="cat in categoryData" :key="cat.name">
-                        <tr class="hover:bg-slate-50">
-                          <td
-                            class="table-cell font-medium"
-                            x-text="cat.name || 'Uncategorized'"
-                          ></td>
-                          <td class="table-cell num" x-text="cat.count || 0"></td>
-                          <td
-                            class="table-cell num font-semibold"
-                            x-text="currency(cat.total)"
-                          ></td>
-                        </tr>
-                      </template>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div x-show="!loading && !error && activeTab === 'pullsheet'">
-                <div class="flex items-center gap-2 mb-3">
-                  <template x-for="w in [0,1,2,3,4]" :key="w">
-                    <button
-                      x-on:click="pullWeek = w"
-                      class="text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors"
-                      :class="pullWeek === w ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'"
-                    >
-                      <span x-text="w === 0 ? 'All' : 'W' + w"></span>
-                    </button>
-                  </template>
-                </div>
-
-                <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                  <div class="overflow-x-auto">
-                    <table class="w-full text-sm">
-                      <thead>
-                        <tr
-                          class="bg-slate-50 text-[11px] text-slate-500 uppercase tracking-wider font-semibold"
-                        >
-                          <th class="text-left px-3 py-2.5">Item</th>
-                          <th class="text-left px-3 py-2.5">SKU</th>
-                          <th class="text-left px-3 py-2.5">Category</th>
-                          <template x-for="w in pullWeeks" :key="w">
-                            <th class="text-right px-2 py-2.5" colspan="3">
-                              Week <span x-text="w"></span>
-                            </th>
-                          </template>
-                        </tr>
-                        <tr class="bg-slate-50/50 text-[10px] text-slate-400">
-                          <th colspan="3"></th>
-                          <template x-for="w in pullWeeks" :key="'s' + w">
-                            <th class="text-right px-2 py-1 font-normal">Rec</th>
-                            <th class="text-right px-2 py-1 font-normal">Iss</th>
-                            <th class="text-right px-2 py-1 font-normal">End</th>
-                          </template>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <template x-for="row in pullRows" :key="row.item_id">
-                          <tr class="hover:bg-slate-50 transition-colors">
-                            <td
-                              class="table-cell font-medium text-slate-700"
-                              x-text="row.description"
-                            ></td>
-                            <td
-                              class="table-cell text-slate-500 font-mono text-xs"
-                              x-text="row.sku"
-                            ></td>
-                            <td class="table-cell text-slate-500">
-                              <span
-                                class="badge bg-slate-100 text-slate-600"
-                                x-text="row.category || '\u2014'"
-                              ></span>
-                            </td>
-                            <template x-for="w in pullWeeks" :key="'d' + w + '-' + row.id">
-                              <td
-                                class="table-cell num text-slate-700"
-                                x-text="number(row.weeks[w].received)"
-                              ></td>
-                              <td
-                                class="table-cell num text-slate-700"
-                                x-text="number(row.weeks[w].issued)"
-                              ></td>
-                              <td
-                                class="table-cell num font-semibold"
-                                :class="row.weeks[w].ending <= 0 ? 'text-red-500' : 'text-slate-700'"
-                                x-text="number(row.weeks[w].ending)"
-                              ></td>
-                            </template>
-                          </tr>
-                        </template>
-                      </tbody>
-                      <tfoot>
-                        <tr class="bg-slate-50 text-[11px] font-semibold text-slate-700">
-                          <td colspan="3" class="px-3 py-2">Totals</td>
-                          <template x-for="w in pullWeeks" :key="'t' + w">
-                            <td
-                              class="text-right px-2 py-2"
-                              x-text="number(pullTotals[w].received)"
-                            ></td>
-                            <td
-                              class="text-right px-2 py-2"
-                              x-text="number(pullTotals[w].issued)"
-                            ></td>
-                            <td
-                              class="text-right px-2 py-2"
-                              x-text="number(pullTotals[w].ending)"
-                            ></td>
-                          </template>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                </div>
-              </div>
-
-              <div x-show="!loading && !error && activeTab === 'costs'">
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                  <div class="bg-white rounded-xl border border-slate-200 p-3">
-                    <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                      Total Value
-                    </div>
-                    <div
-                      class="text-lg font-bold text-slate-800 mt-1"
-                      x-text="currency(totalInventoryValue)"
-                    ></div>
-                  </div>
-                  <div class="bg-white rounded-xl border border-slate-200 p-3">
-                    <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                      Total Items
-                    </div>
-                    <div class="text-lg font-bold text-slate-800 mt-1" x-text="items.length"></div>
-                  </div>
-                  <div class="bg-white rounded-xl border border-slate-200 p-3">
-                    <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                      Avg Unit Price
-                    </div>
-                    <div
-                      class="text-lg font-bold text-slate-800 mt-1"
-                      x-text="currency(avgUnitPrice)"
-                    ></div>
-                  </div>
-                  <div class="bg-white rounded-xl border border-slate-200 p-3">
-                    <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                      Top Category
-                    </div>
-                    <div
-                      class="text-lg font-bold text-blue-600 mt-1 truncate"
-                      x-text="mostExpensiveCategory"
-                    ></div>
-                  </div>
-                </div>
-
-                <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4">
-                  <h3 class="text-sm font-semibold text-slate-700 mb-3">
-                    Category Value Breakdown
-                  </h3>
-                  <div
-                    x-show="costsByCategory.length === 0"
-                    class="text-sm text-slate-400 py-4 text-center"
-                  >
-                    No data
-                  </div>
-                  <table x-show="costsByCategory.length > 0" class="w-full text-sm">
-                    <thead>
-                      <tr
-                        class="bg-slate-50 text-[11px] text-slate-500 uppercase tracking-wider font-semibold"
-                      >
-                        <th class="text-left px-3 py-2">Category</th>
-                        <th class="text-right px-3 py-2">Items</th>
-                        <th class="text-right px-3 py-2">Total Value</th>
-                        <th class="text-right px-3 py-2">% of Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <template x-for="cat in costsByCategory" :key="cat.name">
-                        <tr class="hover:bg-slate-50">
-                          <td
-                            class="table-cell font-medium"
-                            x-text="cat.name || 'Uncategorized'"
-                          ></td>
-                          <td class="table-cell num" x-text="cat.count"></td>
-                          <td
-                            class="table-cell num font-semibold"
-                            x-text="currency(cat.total)"
-                          ></td>
-                          <td class="table-cell num text-slate-500" x-text="cat.pct + '%'"></td>
-                        </tr>
-                      </template>
-                    </tbody>
-                  </table>
-                </div>
-
-                <div class="bg-white rounded-xl border border-slate-200 p-4">
-                  <h3 class="text-sm font-semibold text-slate-700 mb-3">Items by Value</h3>
-                  <div class="overflow-x-auto">
-                    <table class="w-full text-sm">
-                      <thead>
-                        <tr
-                          class="bg-slate-50 text-[11px] text-slate-500 uppercase tracking-wider font-semibold"
-                        >
-                          <th class="text-left px-3 py-2">Item</th>
-                          <th class="text-left px-3 py-2">SKU</th>
-                          <th class="text-right px-3 py-2">On Hand</th>
-                          <th class="text-right px-3 py-2">Unit Price</th>
-                          <th class="text-right px-3 py-2">Total Value</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <template x-for="item in itemsSortedByCost" :key="item.item_id">
-                          <tr class="hover:bg-slate-50 transition-colors">
-                            <td
-                              class="table-cell font-medium text-slate-700"
-                              x-text="item.description"
-                            ></td>
-                            <td
-                              class="table-cell text-slate-500 font-mono text-xs"
-                              x-text="item.sku"
-                            ></td>
-                            <td class="table-cell num" x-text="number(item.on_hand)"></td>
-                            <td
-                              class="table-cell num text-slate-500"
-                              x-text="currency(item.unit_price)"
-                            ></td>
-                            <td
-                              class="table-cell num font-semibold"
-                              x-text="currency((getEndQty(item) || 0) * (item.unit_price || 0))"
-                            ></td>
-                          </tr>
-                        </template>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div
-              x-show="$store.sidebar.active === 'users'"
-              x-data="usersPage()"
-              x-init="initPage()"
-              class="fade-in"
-            >
-              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                <h2 class="text-lg font-bold text-slate-800">Users</h2>
-                <div class="flex items-center gap-2">
-                  <div class="relative">
-                    <i
-                      class="fas fa-search absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"
-                    ></i>
-                    <input
-                      x-model="searchQuery"
-                      type="text"
-                      placeholder="Search users..."
-                      class="text-xs border border-slate-300 rounded-lg pl-7 pr-2 py-1.5 bg-white text-slate-700 w-48 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                    />
-                  </div>
-                  <button
-                    x-on:click="openUserModal()"
-                    class="text-xs font-semibold bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    Add User
-                  </button>
-                </div>
-              </div>
-
-              <div
-                x-show="error"
-                class="bg-red-50 border border-red-200 rounded-xl p-4 text-center mb-4"
-              >
-                <p class="text-sm text-red-600">Failed to load users</p>
-                <button
-                  x-on:click="retry()"
-                  class="text-xs font-medium mt-2 px-3 py-1.5 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
-                >
-                  Retry
-                </button>
-              </div>
-
-              <div
-                x-show="!error"
-                class="bg-white rounded-xl border border-slate-200 overflow-hidden"
-              >
-                <div class="overflow-x-auto">
-                  <table class="w-full text-sm">
-                    <thead>
-                      <tr
-                        class="bg-slate-50 text-[11px] text-slate-500 uppercase tracking-wider font-semibold"
-                      >
-                        <th class="text-left px-3 py-2.5">Name</th>
-                        <th class="text-left px-3 py-2.5">Username</th>
-                        <th class="text-left px-3 py-2.5">Role</th>
-                        <th class="text-left px-3 py-2.5">Active</th>
-                        <th class="text-left px-3 py-2.5">Created</th>
-                        <th class="text-right px-3 py-2.5">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <template x-for="u in filteredUsers" :key="u.id">
-                        <tr class="hover:bg-slate-50 transition-colors">
-                          <td
-                            class="table-cell font-medium text-slate-700"
-                            x-text="(u.display_name || '') + (u.last_name ? ' ' + u.last_name : '')"
-                          ></td>
-                          <td
-                            class="table-cell text-slate-500 font-mono text-xs"
-                            x-text="u.username"
-                          ></td>
-                          <td class="table-cell">
-                            <span
-                              class="badge capitalize"
-                              :class="roleBadgeClass(u.role)"
-                              x-text="u.role"
-                            ></span>
-                          </td>
-                          <td class="table-cell">
-                            <span
-                              class="text-xs"
-                              :class="u.active !== false ? 'text-emerald-600' : 'text-red-400'"
-                              x-text="u.active !== false ? 'Active' : 'Inactive'"
-                            ></span>
-                          </td>
-                          <td
-                            class="table-cell text-slate-400 text-xs"
-                            x-text="u.created_at ? formatDate(u.created_at) : '\u2014'"
-                          ></td>
-                          <td class="table-cell text-right">
-                            <div class="flex justify-end gap-1">
-                              <button
-                                x-on:click="editUser(u)"
-                                class="text-xs px-2 py-1 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 font-medium"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                x-on:click="openPinModal(u)"
-                                class="text-xs px-2 py-1 rounded bg-amber-50 text-amber-600 hover:bg-amber-100 font-medium"
-                              >
-                                PIN
-                              </button>
-                              <button
-                                x-on:click="deleteUser(u)"
-                                class="text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 font-medium"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      </template>
-                      <tr x-show="filteredUsers.length === 0">
-                        <td colspan="6" class="text-center py-8 text-slate-400 text-sm">
-                          No users found
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div
-                x-show="userModalOpen"
-                class="fixed inset-0 z-50 flex items-center justify-center p-4"
-              >
-                <div x-on:click="userModalOpen = false" class="absolute inset-0 bg-black/40"></div>
-                <div
-                  class="relative bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6 fade-in"
-                >
-                  <h3
-                    class="text-base font-bold text-slate-800 mb-4"
-                    x-text="editingUser ? 'Edit User' : 'Add User'"
-                  ></h3>
-                  <div class="space-y-3">
-                    <div>
-                      <label class="block text-xs font-semibold text-slate-500 mb-1"
-                        >Username</label
-                      >
-                      <input
-                        x-model="form.username"
-                        type="text"
-                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label class="block text-xs font-semibold text-slate-500 mb-1"
-                        >Display Name</label
-                      >
-                      <input
-                        x-model="form.display_name"
-                        type="text"
-                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label class="block text-xs font-semibold text-slate-500 mb-1"
-                        >Last Name</label
-                      >
-                      <input
-                        x-model="form.last_name"
-                        type="text"
-                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label class="block text-xs font-semibold text-slate-500 mb-1">Role</label>
-                      <select
-                        x-model="form.role"
-                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                      >
-                        <option value="staff">Staff</option>
-                        <option value="assistant">Assistant</option>
-                        <option value="manager">Manager</option>
-                        <option value="admin">Admin</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label class="block text-xs font-semibold text-slate-500 mb-1">
-                        Password
-                        <span x-show="editingUser" class="text-slate-300 font-normal"
-                          >(leave blank to keep)</span
-                        >
-                      </label>
-                      <input
-                        x-model="form.password"
-                        type="password"
-                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label class="block text-xs font-semibold text-slate-500 mb-1">
-                        PIN <span class="text-slate-300 font-normal">(4 digits)</span>
-                      </label>
-                      <input
-                        x-model="form.pin"
-                        type="text"
-                        maxlength="4"
-                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                      />
-                    </div>
-                    <div x-show="editingUser" class="flex items-center gap-2">
-                      <input
-                        x-model="form.active"
-                        type="checkbox"
-                        id="user-active"
-                        class="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      <label for="user-active" class="text-xs text-slate-600">Active</label>
-                    </div>
-                  </div>
-                  <div class="flex justify-end gap-2 mt-6">
-                    <button
-                      x-on:click="userModalOpen = false"
-                      class="text-xs font-medium px-4 py-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      x-on:click="saveUser()"
-                      class="text-xs font-semibold px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-                    >
-                      Save
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div
-                x-show="pinModalOpen"
-                class="fixed inset-0 z-50 flex items-center justify-center p-4"
-              >
-                <div x-on:click="pinModalOpen = false" class="absolute inset-0 bg-black/40"></div>
-                <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 fade-in">
-                  <h3 class="text-base font-bold text-slate-800 mb-1">Reset PIN</h3>
-                  <p
-                    class="text-xs text-slate-400 mb-4"
-                    x-text="'Set new PIN for ' + (editingUser?.display_name || editingUser?.username || '')"
-                  ></p>
-                  <input
-                    x-model="pinForm.pin"
-                    type="text"
-                    maxlength="4"
-                    placeholder="4-digit PIN"
-                    class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                  />
-                  <div class="flex justify-end gap-2 mt-4">
-                    <button
-                      x-on:click="pinModalOpen = false"
-                      class="text-xs font-medium px-4 py-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      x-on:click="savePin()"
-                      class="text-xs font-semibold px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
-                    >
-                      Save PIN
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div
-              x-show="$store.sidebar.active === 'barcodes'"
-              x-data="barcodesPage()"
-              x-init="initPage()"
-              class="fade-in"
-            >
-              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                <h2 class="text-lg font-bold text-slate-800">Barcodes</h2>
-                <div class="flex items-center gap-2 flex-wrap">
-                  <input
-                    x-model="barcodeSearch"
-                    x-on:input="filterBarcodes()"
-                    type="text"
-                    placeholder="Search items..."
-                    class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-slate-700 w-48 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                  />
-                  <button
-                    x-on:click="initPage()"
-                    class="text-xs font-medium bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-200 transition-colors"
-                    title="Refresh barcodes"
-                  >
-                    <i class="fas fa-sync-alt"></i>
-                  </button>
-                  <button
-                    x-on:click="printSelected()"
-                    :disabled="selectedBarcodes.length === 0"
-                    class="text-xs font-semibold bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                  >
-                    Print Selected
-                  </button>
-                </div>
-              </div>
-
-              <div
-                x-show="error"
-                class="bg-red-50 border border-red-200 rounded-xl p-4 text-center mb-4"
-              >
-                <p class="text-sm text-red-600">Failed to load barcodes</p>
-                <button
-                  x-on:click="retry()"
-                  class="text-xs font-medium mt-2 px-3 py-1.5 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
-                >
-                  Retry
-                </button>
-              </div>
-
-              <div x-show="!error" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                <template x-for="item in filteredBarcodes" :key="item.id">
-                  <div
-                    class="bg-white rounded-xl border border-slate-200 p-3 flex flex-col items-center text-center relative"
-                  >
-                    <input
-                      type="checkbox"
-                      :value="item.id"
-                      x-model="selectedBarcodes"
-                      class="absolute top-2 left-2 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <div
-                      class="text-xs font-semibold text-slate-700 mb-1 truncate w-full mt-2"
-                      x-text="item.description"
-                    ></div>
-                    <svg :id="'bc-' + item.id" class="w-full max-w-[160px] h-12 my-1"></svg>
-                    <div
-                      class="text-[10px] text-slate-500 font-mono tracking-wider"
-                      x-text="item.barcode_id"
-                    ></div>
-                    <div
-                      class="text-[10px] text-slate-400 mt-0.5"
-                      x-text="item.sku ? 'SKU: ' + item.sku : ''"
-                    ></div>
-                    <div
-                      class="text-[11px] font-semibold text-slate-700 mt-1"
-                      x-text="'$' + (item.unit_price ? Number(item.unit_price).toLocaleString() : '0')"
-                    ></div>
-                  </div>
-                </template>
-                <template x-for="i in (filteredBarcodes.length === 0 ? 1 : 0)" :key="'empty'">
-                  <div class="col-span-full text-center py-8 text-slate-400 text-sm">
-                    No items found
-                  </div>
-                </template>
-              </div>
-            </div>
-
-            <div
-              x-show="$store.sidebar.active === 'settings'"
-              x-data="settingsPage()"
-              x-init="initPage()"
-              class="fade-in"
-            >
-              <h2 class="text-lg font-bold text-slate-800 mb-4">Settings</h2>
-
-              <div
-                x-show="error"
-                class="bg-red-50 border border-red-200 rounded-xl p-4 text-center mb-4"
-              >
-                <p class="text-sm text-red-600">Failed to load settings</p>
-                <button
-                  x-on:click="retry()"
-                  class="text-xs font-medium mt-2 px-3 py-1.5 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
-                >
-                  Retry
-                </button>
-              </div>
-
-              <div x-show="!error" class="bg-white rounded-xl border border-slate-200 p-4 mb-4">
-                <h3 class="text-sm font-semibold text-slate-700 mb-3">AI Configuration</h3>
-                <div class="space-y-3">
-                  <div>
-                    <label class="block text-xs font-semibold text-slate-500 mb-1"
-                      >AI Provider</label
-                    >
-                    <select
-                      x-model="settings.ai_provider"
-                      x-on:change="saveSetting('AI_PROVIDER', settings.ai_provider)"
-                      class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                    >
-                      <option value="ollama">Ollama</option>
-                      <option value="groq">Groq</option>
-                      <option value="gemini">Gemini</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label class="block text-xs font-semibold text-slate-500 mb-1">AI Model</label>
-                    <input
-                      x-model="settings.ai_model"
-                      x-on:change="saveSetting('AI_MODEL', settings.ai_model)"
-                      type="text"
-                      class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label class="block text-xs font-semibold text-slate-500 mb-1">API Key</label>
-                    <input
-                      x-model="settings.ai_api_key"
-                      x-on:change="saveSetting('AI_API_KEY', settings.ai_api_key)"
-                      type="password"
-                      class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-              <div class="bg-white rounded-xl border border-slate-200 p-4">
-                <h3 class="text-sm font-semibold text-slate-700 mb-3">System Info</h3>
-                <div class="grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <span class="text-slate-400 text-xs">Version</span>
-                    <div class="font-medium">1.3.6</div>
-                  </div>
-                  <div>
-                    <span class="text-slate-400 text-xs">Environment</span>
-                    <div class="font-medium" x-text="systemInfo.env || '\u2014'"></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div
-              x-show="$store.sidebar.active === 'files'"
-              x-data="filesPage()"
-              x-init="initPage()"
-              class="fade-in"
-            >
-              <h2 class="text-lg font-bold text-slate-800 mb-4">Files</h2>
-
-              <div
-                x-show="error"
-                class="bg-red-50 border border-red-200 rounded-xl p-4 text-center mb-4"
-              >
-                <p class="text-sm text-red-600">Failed to load files</p>
-                <button
-                  x-on:click="retry()"
-                  class="text-xs font-medium mt-2 px-3 py-1.5 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
-                >
-                  Retry
-                </button>
-              </div>
-
-              <div
-                x-show="!error"
-                class="bg-white rounded-xl border-2 border-dashed border-slate-300 p-8 text-center mb-4"
-              >
-                <div class="text-3xl mb-2"><i class="fas fa-folder text-blue-500"></i></div>
-                <div class="text-sm text-slate-400 mb-1">Drag and drop files here</div>
-                <div class="text-xs text-slate-300">or click to browse</div>
-              </div>
-              <div class="bg-white rounded-xl border border-slate-200 p-4">
-                <div x-show="files.length === 0" class="text-sm text-slate-400 py-4 text-center">
-                  No files uploaded yet
-                </div>
-                <div x-show="files.length > 0" class="space-y-2">
-                  <template x-for="f in files" :key="f.id">
-                    <div
-                      class="flex items-center justify-between py-2 border-b border-slate-100 last:border-b-0"
-                    >
-                      <div class="flex items-center gap-2">
-                        <i class="fas fa-file text-slate-400 text-sm"></i>
-                        <span class="text-sm text-slate-700" x-text="f.name || f.filename"></span>
-                      </div>
-                      <button
-                        x-on:click="deleteFile(f.id)"
-                        class="text-xs text-red-500 hover:text-red-700 font-medium"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </template>
-                </div>
-              </div>
-            </div>
-
-            <div
-              x-show="$store.sidebar.active === 'qr-portal'"
-              x-data="qrPortalPage()"
-              x-init="initPage()"
-              class="fade-in"
-            >
-              <div class="max-w-md mx-auto mt-12 text-center">
-                <div class="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
-                  <div class="text-4xl mb-3"><i class="fas fa-qrcode text-slate-400"></i></div>
-                  <h2 class="text-lg font-bold text-slate-800 mb-2">MJCC QR Portal</h2>
-                  <p class="text-sm text-slate-400 mb-6">
-                    Coming soon — install the MJCC mobile app for barcode scanning and inventory
-                    tracking on the go.
-                  </p>
-                  <div class="flex justify-center gap-3">
-                    <span
-                      class="inline-block px-4 py-2 text-xs font-semibold border border-slate-300 text-slate-400 rounded-lg"
-                      >App Store</span
-                    >
-                    <span
-                      class="inline-block px-4 py-2 text-xs font-semibold border border-slate-300 text-slate-400 rounded-lg"
-                      >Google Play</span
-                    >
-                  </div>
-                </div>
-              </div>
-            </div>
-          </main>
+          <div class="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
+            <div class="text-xs text-slate-500 font-medium mb-0.5">Items</div>
+            <div class="text-base font-bold text-slate-800" x-text="totalItems"></div>
+          </div>
+          <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 shadow-sm">
+            <div class="text-xs text-amber-600 font-medium mb-0.5">Reorder Alerts</div>
+            <div class="text-base font-bold text-amber-700" x-text="summary.reorder_count || 0"></div>
+          </div>
+          <div class="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
+            <div class="text-xs text-slate-500 font-medium mb-0.5">Received Value</div>
+            <div class="text-base font-bold text-green-700 font-mono" x-text="$money(summary.total_received_cost || 0)"></div>
+          </div>
         </div>
-      </div>
 
-      <div x-show="$store.toast.show" class="fixed bottom-4 right-4 z-50 max-w-sm toast-enter">
-        <div
-          class="rounded-xl shadow-lg px-4 py-3 text-sm font-medium text-white flex items-center gap-2"
-          :class="$store.toast.type === 'success' ? 'bg-emerald-600' : $store.toast.type === 'error' ? 'bg-red-500' : 'bg-blue-500'"
-        >
-          <span
-            x-text="$store.toast.type === 'success' ? '\u2713' : $store.toast.type === 'error' ? '\u2715' : '\u2139'"
-          ></span>
-          <span x-text="$store.toast.message"></span>
-          <button x-on:click="$store.toast.hide()" class="ml-2 opacity-70 hover:opacity-100">
-            &#10005;
-          </button>
+        <!-- Legend (matches old app) -->
+        <div class="flex flex-wrap items-center gap-4 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg mb-3 text-xs text-slate-500">
+          <span><span class="inline-block w-2.5 h-2.5 rounded-full bg-blue-500 mr-1"></span>Wk1 Received</span>
+          <span><span class="inline-block w-2.5 h-2.5 rounded-full bg-purple-500 mr-1"></span>Wk2</span>
+          <span><span class="inline-block w-2.5 h-2.5 rounded-full bg-green-500 mr-1"></span>Wk3</span>
+          <span><span class="inline-block w-2.5 h-2.5 rounded-full bg-amber-500 mr-1"></span>Wk4</span>
+          <span class="text-amber-600 font-medium"><i class="fas fa-exclamation-triangle mr-1"></i>Amber = below par</span>
+          <span class="text-red-600 font-medium"><i class="fas fa-circle-stop mr-1"></i>Red = out of stock</span>
+          <span class="text-green-600 font-medium"><i class="fas fa-check-circle mr-1"></i>Green rows = received this week</span>
         </div>
-      </div>
 
-      <div
-        x-show="$store.confirm.show"
-        class="fixed inset-0 z-50 flex items-center justify-center p-4"
-      >
-        <div x-on:click="$store.confirm.cancel()" class="absolute inset-0 bg-black/40"></div>
-        <div
-          class="relative bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 fade-in text-center"
-        >
-          <p class="text-sm text-slate-700 mb-4" x-text="$store.confirm.message"></p>
-          <div class="flex justify-center gap-2">
-            <button
-              x-on:click="$store.confirm.cancel()"
-              class="text-xs font-medium px-4 py-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50"
-            >
-              Cancel
-            </button>
-            <button
-              x-on:click="$store.confirm.confirm()"
-              class="text-xs font-semibold px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600"
-            >
-              Confirm
-            </button>
+        <!-- Loading state -->
+        <div x-show="itemsLoading" class="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
+          <i class="fas fa-spinner fa-spin text-2xl mb-3"></i>
+          <p class="text-sm">Loading inventory…</p>
+        </div>
+
+        <!-- Empty state -->
+        <div x-show="!itemsLoading && grouped.length === 0" class="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
+          <i class="fas fa-box-open text-3xl mb-3"></i>
+          <p class="text-sm">No items found for this month.</p>
+        </div>
+
+        <!-- Category-grouped table (old-app style) -->
+        <div x-show="!itemsLoading && grouped.length > 0" class="rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+          <!-- Sticky two-row header matching old app -->
+          <div class="overflow-x-auto">
+            <table class="w-full border-collapse" style="min-width:900px;font-size:11px">
+              <thead style="position:sticky;top:0;z-index:20">
+                <!-- Row 1: group headers -->
+                <tr>
+                  <th rowspan="2" style="padding:8px 10px;text-align:left;background:#1E3A5F;color:white;font-size:10px;min-width:200px;border-right:1px solid #374151">ITEM</th>
+                  <th rowspan="2" style="padding:8px 6px;text-align:center;background:#1E3A5F;color:white;font-size:10px;width:52px;border-right:1px solid #374151">SKU</th>
+                  <th rowspan="2" style="padding:8px 6px;text-align:center;background:#1E3A5F;color:white;font-size:10px;width:46px;border-right:1px solid #374151">Par</th>
+                  <th rowspan="2" style="padding:8px 6px;text-align:center;background:#1E3A5F;color:white;font-size:10px;width:50px;border-right:1px solid #374151">Unit $</th>
+                  <th colspan="2" style="padding:6px;text-align:center;background:#EFF6FF;border-bottom:2px solid #3B82F6;border-left:2px solid #3B82F6;font-size:10px;color:#1D4ED8;font-weight:700">WEEK 1</th>
+                  <th colspan="2" style="padding:6px;text-align:center;background:#F5F3FF;border-bottom:2px solid #7C3AED;border-left:2px solid #7C3AED;font-size:10px;color:#6D28D9;font-weight:700">WEEK 2</th>
+                  <th colspan="2" style="padding:6px;text-align:center;background:#F0FDF4;border-bottom:2px solid #059669;border-left:2px solid #059669;font-size:10px;color:#065F46;font-weight:700">WEEK 3</th>
+                  <th colspan="2" style="padding:6px;text-align:center;background:#FFFBEB;border-bottom:2px solid #D97706;border-left:2px solid #D97706;font-size:10px;color:#92400E;font-weight:700">WEEK 4</th>
+                  <th rowspan="2" style="padding:8px 6px;text-align:center;background:#1E3A5F;color:white;font-size:10px;width:58px;border-left:3px solid #374151">CUR OH</th>
+                  <th rowspan="2" style="padding:8px 6px;text-align:center;background:#374151;color:#FDE68A;font-size:10px;width:62px">TOTAL $</th>
+                </tr>
+                <!-- Row 2: sub-headers -->
+                <tr>
+                  <th style="padding:4px;text-align:center;background:#EFF6FF;color:#2563EB;font-size:10px;border-left:2px solid #3B82F6;width:44px">Rcvd</th>
+                  <th style="padding:4px;text-align:center;background:#DBEAFE;color:#1D4ED8;font-size:10px;font-weight:700;width:44px">Pulled</th>
+                  <th style="padding:4px;text-align:center;background:#F5F3FF;color:#7C3AED;font-size:10px;border-left:2px solid #7C3AED;width:44px">Rcvd</th>
+                  <th style="padding:4px;text-align:center;background:#EDE9FE;color:#6D28D9;font-size:10px;font-weight:700;width:44px">Pulled</th>
+                  <th style="padding:4px;text-align:center;background:#F0FDF4;color:#059669;font-size:10px;border-left:2px solid #059669;width:44px">Rcvd</th>
+                  <th style="padding:4px;text-align:center;background:#DCFCE7;color:#065F46;font-size:10px;font-weight:700;width:44px">Pulled</th>
+                  <th style="padding:4px;text-align:center;background:#FFFBEB;color:#D97706;font-size:10px;border-left:2px solid #D97706;width:44px">Rcvd</th>
+                  <th style="padding:4px;text-align:center;background:#FEF3C7;color:#92400E;font-size:10px;font-weight:700;width:44px">Pulled</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="group in grouped" :key="group.name">
+                  <template x-if="!collapsedCats[group.name] || true">
+                    <!-- Category header row -->
+                    <tr @click="toggleCat(group.name)" style="cursor:pointer"
+                        :style="'background:' + (group.color||'#64748B') + '18; border-left: 4px solid ' + (group.color||'#64748B')">
+                      <td colspan="14" style="padding:6px 10px;font-weight:700;font-size:11px"
+                          :style="'color:' + (group.color||'#374151')">
+                        <i :class="collapsedCats[group.name] ? 'fas fa-chevron-right' : 'fas fa-chevron-down'"
+                           class="mr-2 text-xs opacity-60"></i>
+                        <span x-text="group.name"></span>
+                        <span class="ml-2 font-normal text-slate-400 text-xs"
+                              x-text="'(' + group.items.length + ' items)'"></span>
+                        <span class="ml-3 font-mono font-bold text-xs"
+                              :style="'color:' + (group.color||'#374151')"
+                              x-text="$money(group.total)"></span>
+                      </td>
+                    </tr>
+                    <!-- Item rows (hidden when collapsed) -->
+                    <template x-if="!collapsedCats[group.name]">
+                      <template x-for="(item, idx) in group.items" :key="item.item_id">
+                        <tr :style="rowStyle(item, idx)">
+                          <!-- Description -->
+                          <td style="padding:5px 10px;border-bottom:1px solid #F1F5F9">
+                            <div style="font-weight:600;color:#1E293B" x-text="item.description"></div>
+                          </td>
+                          <!-- SKU -->
+                          <td style="padding:5px 6px;text-align:center;border-bottom:1px solid #F1F5F9;color:#64748B;font-size:10px" x-text="item.sku||'—'"></td>
+                          <!-- Par -->
+                          <td style="padding:5px 6px;text-align:center;border-bottom:1px solid #F1F5F9">
+                            <span x-show="!canWrite" x-text="item.par_level||0"></span>
+                            <input x-show="canWrite" type="number" :value="item.par_level||0"
+                                   @change="saveField(item,'par_level',$event.target.value)"
+                                   class="cell-input" style="width:44px" />
+                          </td>
+                          <!-- Unit price -->
+                          <td style="padding:5px 6px;text-align:center;border-bottom:1px solid #F1F5F9;font-family:monospace">
+                            <span x-show="!canWrite" x-text="$money(item.unit_price)"></span>
+                            <input x-show="canWrite" type="number" :value="item.unit_price||0"
+                                   @change="saveField(item,'unit_price',$event.target.value)"
+                                   class="cell-input" style="width:54px" step="0.01" />
+                          </td>
+                          <!-- W1 Rcvd -->
+                          <td style="padding:5px 4px;text-align:center;border-bottom:1px solid #F1F5F9;border-left:2px solid #3B82F620;background:#EFF6FF44">
+                            <span x-show="!canWrite" :class="item.w1_received>0?'font-bold text-blue-700':''" x-text="item.w1_received||0"></span>
+                            <input x-show="canWrite" type="number" :value="item.w1_received||0"
+                                   @change="saveField(item,'w1_received',$event.target.value)"
+                                   class="cell-input" style="width:40px" />
+                          </td>
+                          <!-- W1 Pulled -->
+                          <td style="padding:5px 4px;text-align:center;border-bottom:1px solid #F1F5F9;background:#DBEAFE44">
+                            <span x-show="!canWrite" :class="item.w1_issued>0?'font-bold text-indigo-700':''" x-text="item.w1_issued||0"></span>
+                            <input x-show="canWrite" type="number" :value="item.w1_issued||0"
+                                   @change="saveField(item,'w1_issued',$event.target.value)"
+                                   class="cell-input" style="width:40px" />
+                          </td>
+                          <!-- W2 Rcvd -->
+                          <td style="padding:5px 4px;text-align:center;border-bottom:1px solid #F1F5F9;border-left:2px solid #7C3AED20;background:#F5F3FF44">
+                            <span x-show="!canWrite" :class="item.w2_received>0?'font-bold text-purple-700':''" x-text="item.w2_received||0"></span>
+                            <input x-show="canWrite" type="number" :value="item.w2_received||0"
+                                   @change="saveField(item,'w2_received',$event.target.value)"
+                                   class="cell-input" style="width:40px" />
+                          </td>
+                          <!-- W2 Pulled -->
+                          <td style="padding:5px 4px;text-align:center;border-bottom:1px solid #F1F5F9;background:#EDE9FE44">
+                            <span x-show="!canWrite" :class="item.w2_issued>0?'font-bold text-purple-800':''" x-text="item.w2_issued||0"></span>
+                            <input x-show="canWrite" type="number" :value="item.w2_issued||0"
+                                   @change="saveField(item,'w2_issued',$event.target.value)"
+                                   class="cell-input" style="width:40px" />
+                          </td>
+                          <!-- W3 Rcvd -->
+                          <td style="padding:5px 4px;text-align:center;border-bottom:1px solid #F1F5F9;border-left:2px solid #05966920;background:#F0FDF444">
+                            <span x-show="!canWrite" :class="item.w3_received>0?'font-bold text-green-700':''" x-text="item.w3_received||0"></span>
+                            <input x-show="canWrite" type="number" :value="item.w3_received||0"
+                                   @change="saveField(item,'w3_received',$event.target.value)"
+                                   class="cell-input" style="width:40px" />
+                          </td>
+                          <!-- W3 Pulled -->
+                          <td style="padding:5px 4px;text-align:center;border-bottom:1px solid #F1F5F9;background:#DCFCE744">
+                            <span x-show="!canWrite" :class="item.w3_issued>0?'font-bold text-green-800':''" x-text="item.w3_issued||0"></span>
+                            <input x-show="canWrite" type="number" :value="item.w3_issued||0"
+                                   @change="saveField(item,'w3_issued',$event.target.value)"
+                                   class="cell-input" style="width:40px" />
+                          </td>
+                          <!-- W4 Rcvd -->
+                          <td style="padding:5px 4px;text-align:center;border-bottom:1px solid #F1F5F9;border-left:2px solid #D9770620;background:#FFFBEB44">
+                            <span x-show="!canWrite" :class="item.w4_received>0?'font-bold text-amber-700':''" x-text="item.w4_received||0"></span>
+                            <input x-show="canWrite" type="number" :value="item.w4_received||0"
+                                   @change="saveField(item,'w4_received',$event.target.value)"
+                                   class="cell-input" style="width:40px" />
+                          </td>
+                          <!-- W4 Pulled -->
+                          <td style="padding:5px 4px;text-align:center;border-bottom:1px solid #F1F5F9;background:#FEF3C744">
+                            <span x-show="!canWrite" :class="item.w4_issued>0?'font-bold text-amber-800':''" x-text="item.w4_issued||0"></span>
+                            <input x-show="canWrite" type="number" :value="item.w4_issued||0"
+                                   @change="saveField(item,'w4_issued',$event.target.value)"
+                                   class="cell-input" style="width:40px" />
+                          </td>
+                          <!-- Current OH -->
+                          <td style="padding:5px 6px;text-align:center;border-bottom:1px solid #F1F5F9;border-left:3px solid #1E3A5F22;font-weight:700;font-family:monospace"
+                              :style="'color:' + ohColor(item)">
+                            <span x-text="calcOH(item)"></span>
+                          </td>
+                          <!-- Total $ -->
+                          <td style="padding:5px 6px;text-align:right;border-bottom:1px solid #F1F5F9;font-weight:700;font-family:monospace;font-size:10px"
+                              x-text="$money(calcOH(item) * (item.unit_price||0))"></td>
+                        </tr>
+                      </template>
+                    </template>
+                  </template>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <!-- Pagination -->
+          <div x-show="totalPages > 1" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500 bg-white">
+            <span>Page <span x-text="page"></span> of <span x-text="totalPages"></span> · <span x-text="totalItems"></span> items</span>
+            <div class="flex gap-2">
+              <button @click="loadData(page - 1)" :disabled="page <= 1"
+                      class="px-3 py-1.5 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-40 text-xs">← Prev</button>
+              <button @click="loadData(page + 1)" :disabled="page >= totalPages"
+                      class="px-3 py-1.5 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-40 text-xs">Next →</button>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
-    <script src="/static/js/stores.js"></script>
-    <script src="/static/js/api.js"></script>
-    <script src="/static/js/pages/inventory.js"></script>
-    <script src="/static/js/pages/source-control.js"></script>
-    <script src="/static/js/pages/reports.js"></script>
-    <script src="/static/js/pages/users.js"></script>
-    <script src="/static/js/pages/barcodes.js"></script>
-    <script src="/static/js/pages/settings.js"></script>
-    <script src="/static/js/pages/files.js"></script>
-    <script src="/static/js/pages/qr-portal.js"></script>
-    <script src="/static/js/pages/home.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js" defer></script>
-    <script>
-      function app() {
-        return {
-          sidebarOpen: false,
-          pageTitle: 'Inventory',
-          online: navigator.onLine,
-          monthNames: [
-            'January',
-            'February',
-            'March',
-            'April',
-            'May',
-            'June',
-            'July',
-            'August',
-            'September',
-            'October',
-            'November',
-            'December',
-          ],
-          years: [2024, 2025, 2026, 2027],
-          init() {
-            window.addEventListener('online', () => (this.online = true));
-            window.addEventListener('offline', () => (this.online = false));
-            this.$watch('$store.sidebar.active', (val) => {
-              const labels = {
-                home: 'Home',
-                inventory: 'Inventory',
-                'source-control': 'Source Control',
-                reports: 'Reports',
-                users: 'Users',
-                barcodes: 'Barcodes',
-                settings: 'Settings',
-                files: 'Files',
-                'qr-portal': 'QR Portal',
-              };
-              this.pageTitle = labels[val] || 'Inventory';
-              this.sidebarOpen = false;
-            });
-            if (window.location.hash) {
-              const hash = window.location.hash.replace('#', '');
-              if (this.$store.sidebar.filteredItems.some((i) => i.id === hash)) {
-                this.$store.sidebar.active = hash;
-              }
-            }
-            document.addEventListener('keydown', (e) => {
-              if (e.key === 'Escape') {
-                document.querySelectorAll('.fixed.inset-0.z-50').forEach((el) => {
-                  const backdrop = el.querySelector('.absolute.inset-0');
-                  if (backdrop) backdrop.click();
-                });
-              }
-            });
-          },
-        };
+    <!-- ══ SOURCE CONTROL PAGE ════════════════════════════════════════ -->
+    <div class="page" :class="Alpine.store('sidebar').active === 'source-control' ? 'active' : ''"
+         x-data="sourceControlPage()" x-init="initPage()">
+      <div class="p-6 max-w-5xl mx-auto">
+        <div class="flex items-center justify-between mb-5">
+          <div>
+            <h1 class="text-xl font-bold text-slate-800">Source Control</h1>
+            <p class="text-xs text-slate-500 mt-0.5">Commit history · staging pipeline</p>
+          </div>
+          <template x-if="userCan('manager')">
+            <button @click="pushAll()"
+                    class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors">
+              <i class="fas fa-upload mr-1"></i>Push All Staged
+            </button>
+          </template>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <!-- Staged changes -->
+          <template x-if="userCan('manager')">
+            <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
+              <h2 class="font-semibold text-sm text-slate-700 mb-3 flex items-center gap-2">
+                <i class="fas fa-layer-group text-amber-500"></i>
+                Staged (<span x-text="staged.length"></span>)
+              </h2>
+              <div x-show="staged.length === 0" class="text-slate-400 text-sm">No pending changes.</div>
+              <template x-for="e in staged" :key="e.entry_id">
+                <div class="flex items-center gap-2 py-2 border-b border-slate-50 last:border-0 text-sm">
+                  <div class="flex-1 min-w-0">
+                    <div class="font-medium truncate" x-text="e.inventory_items?.description || e.item_id"></div>
+                    <div class="text-xs text-slate-400"
+                         x-text="e.field + ' → ' + e.submitted_value + ' (was ' + e.previous_value + ')'"></div>
+                  </div>
+                  <button @click="mergeEntry(e.entry_id)"
+                          class="text-xs bg-green-50 text-green-700 border border-green-200 px-2 py-1 rounded hover:bg-green-100">
+                    Merge
+                  </button>
+                  <button @click="rejectEntry(e.entry_id)"
+                          class="text-xs bg-red-50 text-red-700 border border-red-200 px-2 py-1 rounded hover:bg-red-100">
+                    Reject
+                  </button>
+                </div>
+              </template>
+            </div>
+          </template>
+
+          <!-- Commit log -->
+          <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
+            <h2 class="font-semibold text-sm text-slate-700 mb-3 flex items-center gap-2">
+              <i class="fas fa-history text-blue-500"></i>
+              Commit Log
+            </h2>
+            <div x-show="commits.length === 0" class="text-slate-400 text-sm">No commits yet.</div>
+            <div class="relative">
+              <div class="absolute left-3 top-0 bottom-0 w-px bg-slate-100"></div>
+              <template x-for="c in commits" :key="c.commit_id">
+                <div class="flex gap-3 pb-4 relative">
+                  <div class="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-xs z-10 mt-0.5"
+                       :class="c.status === 'reverted' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700'">
+                    <i :class="c.status === 'reverted' ? 'fas fa-undo' : 'fas fa-check'"></i>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-slate-800 truncate"
+                         x-text="c.message || 'Inventory update'"></div>
+                    <div class="text-xs text-slate-400 mt-0.5">
+                      <span x-text="$timeAgo(c.created_at)"></span>
+                      · <span class="font-mono text-blue-600" x-text="c.branch || 'main'"></span>
+                    </div>
+                  </div>
+                  <template x-if="userCan('manager') && c.status !== 'reverted'">
+                    <button @click="revertCommit(c.commit_id)"
+                            class="text-xs text-slate-400 hover:text-red-600 flex-shrink-0 mt-0.5">
+                      <i class="fas fa-undo"></i>
+                    </button>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ REPORTS PAGE ═══════════════════════════════════════════════ -->
+    <div class="page" :class="Alpine.store('sidebar').active === 'reports' ? 'active' : ''"
+         x-data="reportsPage()" x-init="initPage()">
+      <div class="p-6 max-w-5xl mx-auto">
+        <div class="flex items-center justify-between mb-5">
+          <h1 class="text-xl font-bold text-slate-800">Reports</h1>
+          <div class="flex items-center gap-2">
+            <select x-model="repMonth" @change="loadReport()" class="border border-slate-200 rounded-lg px-2 py-1.5 text-sm">
+              <template x-for="(n,i) in monthNames" :key="i">
+                <option :value="i" x-text="n"></option>
+              </template>
+            </select>
+            <select x-model="repYear" @change="loadReport()" class="border border-slate-200 rounded-lg px-2 py-1.5 text-sm">
+              <option value="2024">2024</option>
+              <option value="2025">2025</option>
+              <option value="2026">2026</option>
+            </select>
+          </div>
+        </div>
+
+        <div x-show="loading" class="text-center text-slate-400 py-12">
+          <i class="fas fa-spinner fa-spin text-2xl"></i>
+        </div>
+
+        <div x-show="!loading">
+          <!-- Summary cards -->
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+            <div class="bg-white rounded-xl p-4 border border-slate-100 shadow-sm">
+              <div class="text-xl font-bold text-slate-800" x-text="$money(summary.grand_total)"></div>
+              <div class="text-xs text-slate-500 mt-1">Total Value</div>
+            </div>
+            <div class="bg-white rounded-xl p-4 border border-slate-100 shadow-sm">
+              <div class="text-xl font-bold text-slate-800" x-text="$money(summary.total_received_cost)"></div>
+              <div class="text-xs text-slate-500 mt-1">Received Cost</div>
+            </div>
+            <div class="bg-white rounded-xl p-4 border border-slate-100 shadow-sm">
+              <div class="text-xl font-bold text-slate-800" x-text="$money(summary.total_issued_cost)"></div>
+              <div class="text-xs text-slate-500 mt-1">Issued Cost</div>
+            </div>
+            <div class="bg-white rounded-xl p-4 border border-slate-100 shadow-sm">
+              <div class="text-xl font-bold" :class="(summary.reorder_count||0) > 0 ? 'text-amber-600' : 'text-green-600'"
+                   x-text="summary.reorder_count || 0"></div>
+              <div class="text-xs text-slate-500 mt-1">Reorder Alerts</div>
+            </div>
+          </div>
+
+          <!-- Category breakdown -->
+          <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
+            <h2 class="font-semibold text-sm text-slate-700 mb-3">Category Breakdown</h2>
+            <template x-for="cat in categoryData" :key="cat.name">
+              <div class="flex items-center gap-3 py-2 border-b border-slate-50 last:border-0">
+                <div class="w-2 h-2 rounded-full flex-shrink-0" style="background:#3b82f6"></div>
+                <div class="flex-1 font-medium text-sm" x-text="cat.name"></div>
+                <div class="text-sm font-mono" x-text="$money(cat.total)"></div>
+                <div class="text-xs text-slate-400" x-text="cat.pct + '%'"></div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Reorder alerts -->
+          <template x-if="reorderItems.length > 0">
+            <div class="bg-amber-50 rounded-xl border border-amber-200 p-4 mt-4">
+              <h2 class="font-semibold text-sm text-amber-700 mb-3">
+                <i class="fas fa-triangle-exclamation mr-1"></i>
+                Reorder Alerts (<span x-text="reorderItems.length"></span>)
+              </h2>
+              <template x-for="item in reorderItems" :key="item.item_id">
+                <div class="flex items-center justify-between py-1.5 text-sm">
+                  <span class="font-medium text-slate-700" x-text="item.description"></span>
+                  <span class="text-xs text-amber-700">
+                    on hand: <strong x-text="$number(item.on_hand)"></strong>
+                    / par: <strong x-text="$number(item.par_level)"></strong>
+                  </span>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ USERS PAGE ════════════════════════════════════════════════ -->
+    <div class="page" :class="Alpine.store('sidebar').active === 'users' ? 'active' : ''"
+         x-data="usersPage()" x-init="initPage()">
+      <div class="p-6 max-w-4xl mx-auto">
+        <div class="flex items-center justify-between mb-5">
+          <h1 class="text-xl font-bold text-slate-800">User Management</h1>
+          <button @click="openCreate()"
+                  class="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+            <i class="fas fa-plus mr-1"></i>New User
+          </button>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+          <div x-show="loading" class="p-8 text-center text-slate-400">
+            <i class="fas fa-spinner fa-spin"></i> Loading users…
+          </div>
+          <table x-show="!loading" class="w-full text-sm">
+            <thead class="bg-slate-50 border-b border-slate-200">
+              <tr>
+                <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Name</th>
+                <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Username</th>
+                <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Role</th>
+                <th class="text-center px-4 py-3 text-xs font-semibold text-slate-500">Status</th>
+                <th class="text-right px-4 py-3 text-xs font-semibold text-slate-500">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="u in users" :key="u.id">
+                <tr class="border-b border-slate-50 hover:bg-slate-50">
+                  <td class="px-4 py-3">
+                    <div class="font-medium" x-text="(u.display_name || '') + (u.last_name ? ' ' + u.last_name : '')"></div>
+                  </td>
+                  <td class="px-4 py-3 text-slate-500" x-text="u.username"></td>
+                  <td class="px-4 py-3">
+                    <span class="text-xs px-2 py-0.5 rounded font-medium"
+                          :class="roleBadgeClass(u.role)" x-text="u.role"></span>
+                  </td>
+                  <td class="px-4 py-3 text-center">
+                    <span :class="u.active ? 'text-green-600' : 'text-red-500'" class="text-xs font-medium"
+                          x-text="u.active ? 'Active' : 'Disabled'"></span>
+                  </td>
+                  <td class="px-4 py-3 text-right">
+                    <button @click="openEdit(u)" class="text-xs text-blue-600 hover:underline mr-3">Edit</button>
+                    <button x-show="u.role === 'staff'" @click="openPinModal(u)"
+                            class="text-xs text-slate-500 hover:underline mr-3">Reset PIN</button>
+                    <button @click="deleteUser(u)" class="text-xs text-red-500 hover:underline">Delete</button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- User modal -->
+      <div x-show="userModalOpen" class="fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-4">
+        <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-2xl">
+          <h3 class="font-bold text-lg mb-4" x-text="editingUser ? 'Edit User' : 'New User'"></h3>
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-500 mb-1">First Name *</label>
+              <input x-model="form.display_name" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-500 mb-1">Last Name</label>
+              <input x-model="form.last_name" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-500 mb-1">Username *</label>
+              <input x-model="form.username" :disabled="!!editingUser" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-500 mb-1">Role</label>
+              <select x-model="form.role" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                <option value="staff">Staff</option>
+                <option value="assistant">Assistant</option>
+                <option value="manager">Manager</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-500 mb-1">
+                Password <span x-show="editingUser" class="text-slate-300">(blank = keep)</span>
+              </label>
+              <input x-model="form.password" type="password" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+            <div x-show="form.role === 'staff'">
+              <label class="block text-xs font-semibold text-slate-500 mb-1">PIN (4 digits)</label>
+              <input x-model="form.pin" maxlength="4" inputmode="numeric"
+                     class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+            <div x-show="editingUser" class="flex items-center gap-2">
+              <input x-model="form.active" type="checkbox" id="u-active" class="rounded" />
+              <label for="u-active" class="text-sm">Active</label>
+            </div>
+          </div>
+          <div class="flex gap-2 mt-5 justify-end">
+            <button @click="userModalOpen = false" class="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+            <button @click="saveUser()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- PIN reset modal -->
+      <div x-show="pinModalOpen" class="fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-4">
+        <div class="bg-white rounded-xl p-6 w-80 shadow-2xl">
+          <h3 class="font-bold text-lg mb-4">Reset PIN</h3>
+          <p class="text-sm text-slate-500 mb-3" x-text="'New PIN for ' + (editingUser?.display_name || '')"></p>
+          <input x-model="pinForm.pin" maxlength="4" inputmode="numeric" placeholder="4-digit PIN"
+                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-4 focus:ring-2 focus:ring-blue-500 outline-none" />
+          <div class="flex gap-2 justify-end">
+            <button @click="pinModalOpen = false" class="px-4 py-2 text-sm border border-slate-200 rounded-lg">Cancel</button>
+            <button @click="savePin()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg font-medium">Reset</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ BARCODES PAGE ══════════════════════════════════════════════ -->
+    <div class="page" :class="Alpine.store('sidebar').active === 'barcodes' ? 'active' : ''"
+         x-data="barcodesPage()" x-init="initPage()">
+      <div class="p-6">
+        <div class="flex items-center justify-between mb-5">
+          <h1 class="text-xl font-bold text-slate-800">Barcodes</h1>
+          <div class="flex items-center gap-2">
+            <span class="text-sm text-slate-500" x-text="selected.size + ' selected'"></span>
+            <button @click="exportSelected()" :disabled="selected.size === 0"
+                    class="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors">
+              <i class="fas fa-download mr-1"></i>Export
+            </button>
+          </div>
+        </div>
+        <div x-show="loading" class="text-center text-slate-400 py-12">
+          <i class="fas fa-spinner fa-spin text-2xl"></i>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3" x-show="!loading">
+          <template x-for="item in barcodes" :key="item.id || item.barcode_id">
+            <div class="bg-white rounded-xl border border-slate-200 p-3 cursor-pointer transition-all"
+                 :class="selected.has(item.id || item.barcode_id) ? 'ring-2 ring-blue-500 border-blue-300' : 'hover:border-slate-300'"
+                 @click="toggleSelect(item.id || item.barcode_id)">
+              <div class="flex items-center justify-between mb-2">
+                <input type="checkbox" :checked="selected.has(item.id || item.barcode_id)"
+                       class="rounded text-blue-600" @click.stop="toggleSelect(item.id || item.barcode_id)" />
+              </div>
+              <svg :id="'bc-' + (item.id || item.barcode_id).replace(/-/g,'_')" class="w-full"></svg>
+              <div class="text-xs font-medium text-slate-700 truncate mt-1"
+                   x-text="item.description || item.item_name"></div>
+              <div class="text-xs text-slate-400" x-text="item.sku || item.barcode_id"></div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ SETTINGS PAGE ═════════════════════════════════════════════ -->
+    <div class="page" :class="Alpine.store('sidebar').active === 'settings' ? 'active' : ''"
+         x-data="settingsPage()" x-init="initPage()">
+      <div class="p-6 max-w-2xl mx-auto">
+        <h1 class="text-xl font-bold text-slate-800 mb-5">Settings</h1>
+        <div class="bg-white rounded-xl shadow-sm border border-slate-100 divide-y divide-slate-100">
+          <template x-for="[key, val] in Object.entries(settings)" :key="key">
+            <div class="flex items-center gap-4 px-5 py-4">
+              <div class="flex-1">
+                <div class="text-sm font-medium text-slate-700" x-text="key"></div>
+              </div>
+              <div class="flex items-center gap-2">
+                <input :value="typeof val === 'object' ? JSON.stringify(val) : val"
+                       @change="saveSetting(key, $event.target.value)"
+                       class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-48 focus:ring-2 focus:ring-blue-500 outline-none" />
+              </div>
+            </div>
+          </template>
+          <div x-show="Object.keys(settings).length === 0" class="p-6 text-center text-slate-400 text-sm">
+            No settings found.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ FILES PAGE ════════════════════════════════════════════════ -->
+    <div class="page" :class="Alpine.store('sidebar').active === 'files' ? 'active' : ''">
+      <div class="p-6 max-w-3xl mx-auto text-center py-20">
+        <i class="fas fa-folder-open text-5xl text-slate-300 mb-4"></i>
+        <h2 class="text-xl font-semibold text-slate-600 mb-2">Files — Coming Soon</h2>
+        <p class="text-slate-400 text-sm">Upload and manage invoice PDFs and delivery photos.</p>
+      </div>
+    </div>
+
+    <!-- ══ QR PORTAL PAGE ════════════════════════════════════════════ -->
+    <div class="page" :class="Alpine.store('sidebar').active === 'qr-portal' ? 'active' : ''">
+      <div class="p-6 max-w-xl mx-auto text-center py-20">
+        <i class="fas fa-qrcode text-5xl text-slate-300 mb-4"></i>
+        <h2 class="text-xl font-semibold text-slate-600 mb-2">QR Portal — Coming Soon</h2>
+        <p class="text-slate-400 text-sm max-w-xs mx-auto">
+          Install the MJCC mobile app to scan barcodes and track inventory on the go.
+        </p>
+        <div class="flex justify-center gap-3 mt-6">
+          <div class="bg-slate-100 text-slate-400 text-xs px-4 py-2 rounded-lg">App Store</div>
+          <div class="bg-slate-100 text-slate-400 text-xs px-4 py-2 rounded-lg">Google Play</div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ── Toast ───────────────────────────────────────────────────────── -->
+<div x-data x-show="Alpine.store('toast').show" x-transition
+     class="fixed bottom-5 right-5 z-50 max-w-sm w-full px-4 py-3 rounded-xl shadow-lg text-sm font-medium text-white"
+     :class="{
+       'bg-green-600': Alpine.store('toast').type === 'success',
+       'bg-red-600':   Alpine.store('toast').type === 'error',
+       'bg-amber-500': Alpine.store('toast').type === 'warning',
+       'bg-blue-600':  Alpine.store('toast').type === 'info',
+     }">
+  <i :class="{
+       'fas fa-check-circle': Alpine.store('toast').type === 'success',
+       'fas fa-times-circle': Alpine.store('toast').type === 'error',
+       'fas fa-exclamation-circle': Alpine.store('toast').type === 'warning',
+       'fas fa-info-circle': Alpine.store('toast').type === 'info',
+     }" class="mr-2"></i>
+  <span x-text="Alpine.store('toast').message"></span>
+</div>
+
+<!-- ── Confirm dialog ─────────────────────────────────────────────── -->
+<div x-data x-show="Alpine.store('confirm').show"
+     class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+  <div class="bg-white rounded-xl p-6 max-w-sm w-full shadow-2xl">
+    <p class="text-sm text-slate-700 mb-5" x-text="Alpine.store('confirm').message"></p>
+    <div class="flex gap-2 justify-end">
+      <button @click="Alpine.store('confirm').cancel()"
+              class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+      <button @click="Alpine.store('confirm').confirm()"
+              class="px-4 py-2 text-sm bg-red-600 text-white rounded-lg font-medium hover:bg-red-700">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Home page ──────────────────────────────────────────────────────────
+function homePage() {
+  return {
+    currentMonth: 0, currentYear: 2026,
+    summary: {}, items: [], lowStock: 0, pendingCount: 0, recentCommits: [],
+    async initPage() {
+      // Always use client Date() for the real current month
+      const today = new Date();
+      this.currentMonth = today.getMonth();
+      this.currentYear  = today.getFullYear();
+      // Optionally refine from DB open month once loaded
+      const nowStore = Alpine.store('now');
+      nowStore.init().then(() => {
+        this.currentMonth = Number(nowStore.month);
+        this.currentYear  = Number(nowStore.year);
+        this.loadAll();
+      }).catch(() => {});
+      await this.loadAll();
+    },
+    async loadAll() {
+      const [sum, itemsRes, staged, commitsRes] = await Promise.all([
+        API.getSummary(this.currentMonth, this.currentYear).catch(() => ({})),
+        API.getItems(this.currentMonth, this.currentYear, 500).catch(() => ({ items: [] })),
+        API.getStaged().catch(() => []),
+        API.getCommits(1).catch(() => ({ commits: [] })),
+      ]);
+      this.summary = sum || {};
+      const raw = Array.isArray(itemsRes) ? itemsRes : itemsRes?.items || [];
+      this.items = raw;
+      this.lowStock = raw.filter(i => parseFloat(i.on_hand||0) < parseFloat(i.par_level||0) && parseFloat(i.par_level||0) > 0).length;
+      const s = Array.isArray(staged) ? staged : staged?.entries || [];
+      this.pendingCount = s.length;
+      const c = Array.isArray(commitsRes) ? commitsRes : commitsRes?.commits || [];
+      this.recentCommits = c.slice(0, 5);
+    },
+  };
+}
+
+// ── Inventory page ─────────────────────────────────────────────────────
+function inventoryPage() {
+  // Real current date from client browser — always correct regardless of server TZ
+  const _today = new Date();
+  const _realMonth = _today.getMonth();
+  const _realYear  = _today.getFullYear();
+  const _realWeek  = Math.min(4, Math.ceil(_today.getDate() / 7));
+
+  return {
+    // Seed directly from client Date() — never rely on server for the default
+    selMonth: _realMonth,
+    selYear:  _realYear,
+    selWeek:  _realWeek,
+    allItems: [], filtered: [], categories: [],
+    summary: {}, summaryLoading: false, summaryError: false,
+    itemsLoading: false, itemsError: false,
+    searchQuery: '', selCategory: '',
+    page: 1, perPage: 200, totalItems: 0, totalPages: 1,
+    canWrite: false,
+    collapsedCats: {},   // track which categories are folded
+
+    // ── Computed: items grouped by category (matches old-app design) ──
+    get grouped() {
+      const catMap = {};
+      const catColors = {
+        'Dairy':          '#F59E0B',
+        'Cereal':         '#8B5CF6',
+        'Beverages':      '#3B82F6',
+        'Snacks':         '#F97316',
+        'Dry Goods':      '#6B7280',
+        'Produce & Fresh':'#10B981',
+        'Protein & Meat': '#EF4444',
+        'Frozen Foods':   '#06B6D4',
+        'Supplies':       '#84CC16',
+      };
+      this.filtered.forEach(item => {
+        const cat = item.category || 'Uncategorized';
+        if (!catMap[cat]) {
+          catMap[cat] = { name: cat, items: [], total: 0, color: catColors[cat] || '#64748B' };
+        }
+        catMap[cat].items.push(item);
+        catMap[cat].total += this.calcOH(item) * (parseFloat(item.unit_price) || 0);
+      });
+      // Sort by category name, Supplies always last
+      return Object.values(catMap).sort((a, b) => {
+        if (a.name === 'Supplies') return 1;
+        if (b.name === 'Supplies') return -1;
+        return a.name.localeCompare(b.name);
+      });
+    },
+
+    // ── Calculate current on-hand: start + all weeks received − all weeks issued ──
+    calcOH(item) {
+      const oh  = parseFloat(item.on_hand) || 0;
+      const rec = [1,2,3,4].reduce((s,w) => s + (parseFloat(item[`w${w}_received`])||0), 0);
+      const iss = [1,2,3,4].reduce((s,w) => s + (parseFloat(item[`w${w}_issued`])||0), 0);
+      return Math.round((oh + rec - iss) * 100) / 100;
+    },
+
+    // ── Row background color: red=out, amber=below par, green=received this week ──
+    rowStyle(item, idx) {
+      const oh  = this.calcOH(item);
+      const par = parseFloat(item.par_level) || 0;
+      const wRec = parseFloat(item[`w${this.selWeek}_received`]) || 0;
+      if (oh <= 0 && par > 0)      return 'background:#FEF2F2';
+      if (oh < par && par > 0)     return 'background:#FFFBEB';
+      if (wRec > 0)                return 'background:#F0FDF4';
+      return idx % 2 === 0 ? 'background:white' : 'background:#F9FAFB';
+    },
+
+    // ── On-hand text color ──
+    ohColor(item) {
+      const oh  = this.calcOH(item);
+      const par = parseFloat(item.par_level) || 0;
+      if (oh <= 0 && par > 0) return '#DC2626';
+      if (oh < par && par > 0) return '#D97706';
+      return '#059669';
+    },
+
+    // ── Toggle a category open/closed ──
+    toggleCat(name) {
+      this.collapsedCats[name] = !this.collapsedCats[name];
+    },
+
+    // True when the displayed month is the real current calendar month
+    get isCurrentMonth() {
+      return this.selMonth === _realMonth && this.selYear === _realYear;
+    },
+
+    async initPage() {
+      this.canWrite = userCan('manager');
+      // selMonth/selYear already seeded from new Date() above.
+      // If the 'now' store has already resolved a DB override, honour it.
+      const nowStore = Alpine.store('now');
+      if (nowStore.loaded) {
+        this.selMonth = Number(nowStore.month);
+        this.selYear  = Number(nowStore.year);
+        this.selWeek  = Number(nowStore.week);
+      } else {
+        // Kick off the store init and update when it resolves
+        nowStore.init().then(() => {
+          this.selMonth = Number(nowStore.month);
+          this.selYear  = Number(nowStore.year);
+          this.selWeek  = Number(nowStore.week);
+          this.loadData();
+        });
       }
-    </script>
-  </body>
+      await this.loadData();
+    },
+
+    // Navigate month-by-month (◀ ▶ buttons)
+    prevMonth() {
+      if (this.selMonth === 0) { this.selMonth = 11; this.selYear--; }
+      else { this.selMonth--; }
+      this.loadData();
+    },
+    nextMonth() {
+      if (this.selMonth === 11) { this.selMonth = 0; this.selYear++; }
+      else { this.selMonth++; }
+      this.loadData();
+    },
+    // Jump back to the real current calendar month
+    jumpToCurrent() {
+      this.selMonth = _realMonth;
+      this.selYear  = _realYear;
+      this.selWeek  = _realWeek;
+      this.loadData();
+    },
+
+    async loadData(pg) {
+      if (pg) this.page = pg;
+      this.itemsLoading = true;
+      this.summaryLoading = true;
+      const [itemsRes, catsRes] = await Promise.all([
+        API.getItems(this.selMonth, this.selYear, this.perPage, this.page).catch(() => ({ items: [] })),
+        API.getCategories().catch(() => []),
+      ]);
+      this.itemsLoading = false;
+      this.allItems   = Array.isArray(itemsRes) ? itemsRes : itemsRes?.items || [];
+      this.totalItems = itemsRes?.pagination?.total_count || this.allItems.length;
+      this.totalPages = itemsRes?.pagination?.total_pages || 1;
+      this.categories = Array.isArray(catsRes) ? catsRes : [];
+      try {
+        this.summary = await API.getSummary(this.selMonth, this.selYear);
+      } catch { this.summaryError = true; }
+      this.summaryLoading = false;
+      this.filterItems();
+    },
+
+    filterItems() {
+      let r = this.allItems;
+      if (this.selCategory) r = r.filter(i => i.category === this.selCategory);
+      if (this.searchQuery) {
+        const q = this.searchQuery.toLowerCase();
+        r = r.filter(i => (i.description||'').toLowerCase().includes(q) || (i.sku||'').toLowerCase().includes(q));
+      }
+      this.filtered = r;
+    },
+
+    async saveField(item, field, value) {
+      try {
+        await API.updateItem(item.item_id, { field, value: parseFloat(value), month: this.selMonth, year: this.selYear });
+        item[field] = parseFloat(value);
+        Alpine.store('toast').showToast('Saved', 'success');
+      } catch(e) {
+        Alpine.store('toast').showToast('Save failed: ' + e.message, 'error');
+      }
+    },
+
+    openNewItemModal() {
+      Alpine.store('toast').showToast('Item creation coming soon', 'info');
+    },
+  };
+}
+
+// ── Source Control page ────────────────────────────────────────────────
+function sourceControlPage() {
+  return {
+    staged: [], commits: [],
+    async initPage() {
+      await Promise.all([this.loadStaged(), this.loadCommits()]);
+    },
+    async loadStaged() {
+      try {
+        const r = await API.getStaged();
+        this.staged = Array.isArray(r) ? r : r?.entries || [];
+      } catch { this.staged = []; }
+    },
+    async loadCommits() {
+      try {
+        const r = await API.getCommits(1);
+        this.commits = Array.isArray(r) ? r : r?.commits || [];
+      } catch { this.commits = []; }
+    },
+    async mergeEntry(id) {
+      try {
+        await API.mergeStaged(id);
+        Alpine.store('toast').showToast('Entry merged', 'success');
+        await this.loadStaged();
+      } catch(e) { Alpine.store('toast').showToast(e.message, 'error'); }
+    },
+    async rejectEntry(id) {
+      Alpine.store('confirm').open('Reject this staging entry?', async () => {
+        try {
+          await API.rejectStaged(id);
+          Alpine.store('toast').showToast('Entry rejected', 'success');
+          await this.loadStaged();
+        } catch(e) { Alpine.store('toast').showToast(e.message, 'error'); }
+      });
+    },
+    async pushAll() {
+      Alpine.store('confirm').open('Push all staged changes to source control?', async () => {
+        try {
+          await API.pushCommits('Manual push');
+          Alpine.store('toast').showToast('Pushed successfully', 'success');
+          await Promise.all([this.loadStaged(), this.loadCommits()]);
+        } catch(e) { Alpine.store('toast').showToast(e.message, 'error'); }
+      });
+    },
+    async revertCommit(id) {
+      Alpine.store('confirm').open('Revert this commit? This will create a new revert commit.', async () => {
+        try {
+          await API.revertCommit(id);
+          Alpine.store('toast').showToast('Commit reverted', 'success');
+          await this.loadCommits();
+        } catch(e) { Alpine.store('toast').showToast(e.message, 'error'); }
+      });
+    },
+  };
+}
+
+// ── Reports page ───────────────────────────────────────────────────────
+function reportsPage() {
+  return {
+    repMonth: 0, repYear: 2026,
+    monthNames: ['January','February','March','April','May','June','July','August','September','October','November','December'],
+    loading: false,
+    summary: {}, categoryData: [], reorderItems: [],
+
+    async initPage() {
+      // Seed from real client date first
+      const today = new Date();
+      this.repMonth = today.getMonth();
+      this.repYear  = today.getFullYear();
+      // Then refine from store if already loaded
+      const nowStore = Alpine.store('now');
+      if (nowStore.loaded) {
+        this.repMonth = Number(nowStore.month);
+        this.repYear  = Number(nowStore.year);
+      }
+      await this.loadReport();
+    },
+
+    async loadReport() {
+      this.loading = true;
+      try {
+        const [sum, itemsRes] = await Promise.all([
+          API.getSummary(this.repMonth, this.repYear).catch(() => ({})),
+          API.getItems(this.repMonth, this.repYear, 500).catch(() => ({ items: [] })),
+        ]);
+        this.summary = sum || {};
+        const raw = Array.isArray(itemsRes) ? itemsRes : itemsRes?.items || [];
+        const grandTotal = this.summary.grand_total || raw.reduce((s,i) => {
+          const onH = parseFloat(i.on_hand)||0;
+          let r=0,iss=0;
+          for(let w=1;w<=4;w++){r+=parseFloat(i[`w${w}_received`])||0;iss+=parseFloat(i[`w${w}_issued`])||0;}
+          return s + Math.max(0, onH+r-iss) * (parseFloat(i.unit_price)||0);
+        }, 0);
+        const catMap = {};
+        raw.forEach(i => {
+          const n = i.category || 'Uncategorized';
+          if (!catMap[n]) catMap[n] = { name: n, total: 0 };
+          const onH = parseFloat(i.on_hand)||0;
+          let rec=0,iss=0;
+          for(let w=1;w<=4;w++){rec+=parseFloat(i[`w${w}_received`])||0;iss+=parseFloat(i[`w${w}_issued`])||0;}
+          catMap[n].total += Math.max(0, onH+rec-iss) * (parseFloat(i.unit_price)||0);
+        });
+        this.categoryData = Object.values(catMap)
+          .sort((a,b) => b.total - a.total)
+          .map(c => ({ ...c, pct: grandTotal > 0 ? ((c.total/grandTotal)*100).toFixed(1) : '0.0' }));
+        this.reorderItems = (this.summary.reorder_alerts || []).concat(
+          raw.filter(i => parseFloat(i.par_level||0) > 0 && parseFloat(i.on_hand||0) < parseFloat(i.par_level||0))
+        ).filter((v,i,a) => a.findIndex(x=>x.item_id===v.item_id)===i);
+      } catch(e) {
+        Alpine.store('toast').showToast('Failed to load report', 'error');
+      }
+      this.loading = false;
+    },
+  };
+}
+
+// ── Users page ─────────────────────────────────────────────────────────
+function usersPage() {
+  return {
+    users: [], loading: true,
+    userModalOpen: false, editingUser: null,
+    pinModalOpen: false,
+    form: { display_name:'', last_name:'', username:'', role:'staff', password:'', pin:'', active:true },
+    pinForm: { pin:'' },
+
+    async initPage() {
+      await this.loadUsers();
+    },
+    async loadUsers() {
+      this.loading = true;
+      try { this.users = await API.getUsers() || []; }
+      catch(e) { Alpine.store('toast').showToast(e.message, 'error'); }
+      this.loading = false;
+    },
+    openCreate() {
+      this.editingUser = null;
+      this.form = { display_name:'', last_name:'', username:'', role:'staff', password:'', pin:'', active:true };
+      this.userModalOpen = true;
+    },
+    openEdit(u) {
+      this.editingUser = u;
+      this.form = { display_name: u.display_name||'', last_name: u.last_name||'',
+                    username: u.username, role: u.role, password:'', pin:'', active: u.active };
+      this.userModalOpen = true;
+    },
+    async saveUser() {
+      try {
+        if (this.editingUser) {
+          await API.updateUser(this.editingUser.id, this.form);
+          Alpine.store('toast').showToast('User updated', 'success');
+        } else {
+          await API.createUser(this.form);
+          Alpine.store('toast').showToast('User created', 'success');
+        }
+        this.userModalOpen = false;
+        await this.loadUsers();
+      } catch(e) { Alpine.store('toast').showToast(e.message, 'error'); }
+    },
+    openPinModal(u) {
+      this.editingUser = u;
+      this.pinForm = { pin:'' };
+      this.pinModalOpen = true;
+    },
+    async savePin() {
+      try {
+        await API.resetPin(this.editingUser.id, { pin: this.pinForm.pin });
+        Alpine.store('toast').showToast('PIN reset', 'success');
+        this.pinModalOpen = false;
+      } catch(e) { Alpine.store('toast').showToast(e.message, 'error'); }
+    },
+    async deleteUser(u) {
+      Alpine.store('confirm').open(`Delete user "${u.display_name || u.username}"?`, async () => {
+        try {
+          await API.deleteUser(u.id);
+          Alpine.store('toast').showToast('User deleted', 'success');
+          await this.loadUsers();
+        } catch(e) { Alpine.store('toast').showToast(e.message, 'error'); }
+      });
+    },
+  };
+}
+
+// ── Barcodes page ──────────────────────────────────────────────────────
+function barcodesPage() {
+  return {
+    barcodes: [], loading: true,
+    selected: new Set(),
+
+    async initPage() {
+      this.loading = true;
+      try {
+        const r = await API.getBarcodes();
+        this.barcodes = Array.isArray(r) ? r : [];
+        this.$nextTick(() => this.renderBarcodes());
+      } catch(e) { Alpine.store('toast').showToast(e.message, 'error'); }
+      this.loading = false;
+    },
+
+    renderBarcodes() {
+      this.barcodes.forEach(item => {
+        const id = (item.id || item.barcode_id || '').replace(/-/g, '_');
+        const el = document.getElementById('bc-' + id);
+        if (!el) return;
+        const code = item.barcode || item.barcode_id || item.sku || 'MJCC000';
+        try {
+          JsBarcode(el, code, { format:'CODE128', width:1.5, height:40, displayValue:false });
+        } catch {}
+      });
+    },
+
+    toggleSelect(id) {
+      const s = new Set(this.selected);
+      if (s.has(id)) s.delete(id); else s.add(id);
+      this.selected = s;
+    },
+
+    async exportSelected() {
+      if (this.selected.size === 0) return;
+      Alpine.store('toast').showToast('Exporting ' + this.selected.size + ' barcode(s)…', 'info');
+      // Client-side: open print dialog for selected barcodes
+      window.print();
+    },
+  };
+}
+
+// ── Settings page ──────────────────────────────────────────────────────
+function settingsPage() {
+  return {
+    settings: {},
+    async initPage() {
+      try {
+        this.settings = await API.getSettings() || {};
+      } catch(e) { Alpine.store('toast').showToast(e.message, 'error'); }
+    },
+    async saveSetting(key, value) {
+      try {
+        await API.updateSetting(key, value);
+        Alpine.store('toast').showToast('Saved', 'success');
+      } catch(e) { Alpine.store('toast').showToast(e.message, 'error'); }
+    },
+  };
+}
+</script>
+</body>
 </html>
