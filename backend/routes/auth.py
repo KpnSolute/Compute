@@ -43,7 +43,7 @@ def login():
     if not profile.get('active'):
         return jsonify(error='Account is disabled.'), 403
 
-    # ── STAFF PIN FLOW ────────────────────────────────────────
+    # ── STAFF PIN FLOW ──────────────────────────────────────────────────
     if login_type == 'staff':
         if profile['role'] != 'staff':
             return jsonify(error='Admin and manager accounts must use the Admin / Manager login.'), 401
@@ -74,7 +74,7 @@ def login():
             },
         )
 
-    # ── ADMIN / MANAGER / ASSISTANT PASSWORD FLOW ────────────
+    # ── ADMIN / MANAGER / ASSISTANT PASSWORD FLOW ───────────────────────
     elif login_type == 'admin':
         if profile['role'] not in ('admin', 'manager', 'assistant'):
             return jsonify(error='Staff accounts must use the Staff login.'), 401
@@ -85,12 +85,7 @@ def login():
         try:
             client = get_client()
             email = _build_email(username)
-            result = client.auth.sign_in_with_password(
-                {
-                    'email': email,
-                    'password': password,
-                }
-            )
+            result = client.auth.sign_in_with_password({'email': email, 'password': password})
             access_token = result.session.access_token
             session['user'] = {
                 'id': profile['id'],
