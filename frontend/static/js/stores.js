@@ -74,7 +74,15 @@ document.addEventListener('alpine:init', () => {
     toggle() { this.collapsed = !this.collapsed; },
     setActive(id) {
       this.active = id;
-      window.location.hash = id;
+      // Navigate to the canonical URL for this page
+      const role = Alpine.store('auth')?.user?.role || 'staff';
+      const adminPages = { 'home': '/mjcc/admin/portal', 'inventory': '/mjcc/admin/inventory/editor', 'source-control': '/mjcc/admin/sourcectrl/view', 'menu': '/mjcc/admin/menu/calendar', 'users': '/mjcc/admin/users/manage', 'archives': '/mjcc/admin/archives/snapshots', 'settings': '/mjcc/admin/settings', 'barcodes': '/mjcc/admin/inventory/barcodes' };
+      const staffPages = { 'inventory': '/mjcc/staff/inventory', 'source-control': '/mjcc/staff/sourcectrl', 'barcodes': '/mjcc/staff/barcodes' };
+      const pageMap = (role === 'staff') ? staffPages : adminPages;
+      const target = pageMap[id];
+      if (target && window.location.pathname !== target) {
+        history.pushState({}, '', target);
+      }
     },
   });
 
@@ -89,13 +97,14 @@ document.addEventListener('alpine:init', () => {
         if (data.authenticated) {
           this.user = data.user;
           const role = data.user?.role || 'staff';
-          const hash = window.location.hash.replace('#', '');
           const sidebar = Alpine.store('sidebar');
-          if (hash && sidebar.items.some(i => i.id === hash && i.roles.includes(role))) {
-            sidebar.active = hash;
-          } else {
-            sidebar.active = role === 'staff' ? 'inventory' : 'home';
-          }
+          const path = window.location.pathname;
+          const pathMap = { 'inventory': 'inventory', 'sourcectrl': 'source-control', 'menu': 'menu', 'users': 'users', 'archives': 'archives', 'settings': 'settings', 'barcodes': 'barcodes', 'portal': 'home' };
+          let active = role === 'staff' ? 'inventory' : 'home';
+          for (const [seg, page] of Object.entries(pathMap)) { if (path.includes('/' + seg)) { active = page; break; } }
+          const hash = window.location.hash.replace('#', '');
+          if (hash && sidebar.items.some(i => i.id === hash && i.roles.includes(role))) { active = hash; }
+          sidebar.active = active;
         } else {
           window.location.href = '/?expired=1';
         }
