@@ -1,15 +1,16 @@
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FuturesTimeout
+from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, request
 
-from backend import calculators
 from backend.ai_parser import parse_invoice_text
+from backend.calculators import calc_summary
 from backend.rbac import resolve_user
 from backend.response import api_response, created_response, error_response
 from backend.supabase_client import get_client
 from backend.validation import (
+    BARCODE_EXPORT_SCHEMA,
     CREATE_VERSION_SCHEMA,
     INVENTORY_ITEM_UPDATE_SCHEMA,
     INVOICE_APPLY_SCHEMA,
@@ -18,36 +19,99 @@ from backend.validation import (
     PENDING_SUBMIT_SCHEMA,
     PUBLISH_SCHEMA,
     ROLLOVER_SCHEMA,
+    SAVE_SNAPSHOT_SCHEMA,
     validate_json,
 )
 
-inventory_bp = Blueprint('inventory', __name__, url_prefix='/api/inventory')
 logger = logging.getLogger(__name__)
 
-ALLOWED_FIELDS = {
-    'on_hand',
-    'w1_issued',
-    'w2_issued',
-    'w3_issued',
-    'w4_issued',
-    'w1_received',
-    'w2_received',
-    'w3_received',
-    'w4_received',
-    'unit_price',
-    'par_level',
-}
-
-PRICE_FIELDS = {'unit_price', 'par_level'}
-STAFF_ALLOWED_FIELDS = {'w1_issued', 'w2_issued', 'w3_issued', 'w4_issued'}
+inventory_bp = Blueprint('inventory', __name__, url_prefix='/api/inventory')
 
 
-def _is_manager(user):
+# ── Role helpers ──────────────────────────────────────────────────────
+
+def _is_manager(user: dict) -> bool:
     return user.get('role') in ('admin', 'manager')
 
 
-# ── Existing Endpoints ───────────────────────────────────────────────
+def _is_assistant_or_above(user: dict) -> bool:
+    return user.get('role') in ('admin', 'manager', 'assistant')
 
+
+# ── Health / Utility ──────────────────────────────────────────────────
+
+@inventory_bp.get('/ping')
+def ping():
+    return jsonify(ok=True, ts=datetime.now(timezone.utc).isoformat())
+
+
+@inventory_bp.get('/now')
+def get_now():
+    try:
+        db = get_client()
+        result = db.rpc('get_current_period').execute()
+        if result.data and len(result.data) > 0:
+            row = result.data[0]
+            return jsonify({
+                'month': int(row['current_month']),
+                'year': int(row['current_year']),
+                'week': int(row['current_week']),
+                'month_name': row['month_name'].strip(),
+                'period_label': row['period_label'].strip(),
+                'is_live': True,
+            })
+    except Exception:
+        pass
+    now = datetime.now(timezone.utc)
+    month = now.month - 1
+    week = min(4, max(1, -(-now.day // 7)))
+    names = ['January', 'February', 'March', 'April', 'May', 'June',
+             'July', 'August', 'September', 'October', 'November', 'December']
+    return jsonify({
+        'month': month,
+        'year': now.year,
+        'week': week,
+        'month_name': names[month],
+        'period_label': f'{names[month]} {now.year}',
+        'is_live': False,
+    })
+
+
+@inventory_bp.get('/current-week')
+def current_week():
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+        now = datetime.now(timezone.utc)
+        day = now.day
+        week = 1 if day <= 7 else 2 if day <= 14 else 3 if day <= 21 else 4
+        return api_response({'current_week': week, 'month': now.month - 1, 'year': now.year})
+    except Exception as e:
+        logger.exception(f'Error in current_week: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.get('/current-month')
+def current_month():
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+
+        db = get_client()
+        resp = db.table('month_status').select('*').eq('status', 'open').order('year', desc=True).order('month', desc=True).limit(1).execute()
+        if resp.data:
+            return api_response(resp.data[0])
+
+        now = datetime.now(timezone.utc)
+        return api_response({'month': now.month - 1, 'year': now.year, 'status': 'open'})
+    except Exception as e:
+        logger.exception(f'Error in current_month: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+# ── Summary ───────────────────────────────────────────────────────────
 
 @inventory_bp.get('/summary')
 def summary():
@@ -64,41 +128,36 @@ def summary():
             return jsonify(error='month must be 0-11, year must be 2020-2030'), 400
 
         db = get_client()
-        resp = db.table('dashboard_summary').select('*').eq('month', month).eq('year', year).execute()
-        items = resp.data or []
 
-        prior_month = month - 1 if month > 0 else 11
-        prior_year = year if month > 0 else year - 1
-        snap_resp = (
-            db.table('monthly_snapshots')
-            .select('grand_total')
-            .eq('month', prior_month)
-            .eq('year', prior_year)
-            .limit(1)
-            .execute()
-        )
-        prior_total = float((snap_resp.data or [{}])[0].get('grand_total', 0) or 0)
+        def fetch_items():
+            return db.table('dashboard_summary').select('*').eq('month', month).eq('year', year).execute()
 
-        executor = ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(calculators.dashboard_summary, items, prior_total)
-        try:
-            result = future.result(timeout=25)
-        except FuturesTimeout:
-            result = {
-                'total_items': len(items),
-                'grand_total': calculators.grand_total(items),
-                'reorder_count': len(calculators.reorder_alerts(items)),
-                'data_source': 'LIVE_SUPABASE_PARTIAL',
-                'note': 'Full computation timed out — showing partial summary.',
-            }
-        finally:
-            executor.shutdown(wait=False)
-        result['data_source'] = result.get('data_source', 'LIVE_SUPABASE')
+        def fetch_status():
+            return db.table('month_status').select('*').eq('month', month).eq('year', year).limit(1).execute()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            items_future = executor.submit(fetch_items)
+            status_future = executor.submit(fetch_status)
+            try:
+                items_resp = items_future.result(timeout=10)
+                status_resp = status_future.result(timeout=10)
+            except Exception:
+                items_resp = fetch_items()
+                status_resp = fetch_status()
+
+        items = items_resp.data or []
+        result = calc_summary(items)
+        result['month'] = month
+        result['year'] = year
+        result['status'] = (status_resp.data[0].get('status') if status_resp.data else 'open')
+        result['data_source'] = 'LIVE_SUPABASE'
         return jsonify(result)
     except Exception as e:
         logger.exception(f'Error in summary endpoint: {e}')
         return jsonify(error='Internal server error'), 500
 
+
+# ── Items ─────────────────────────────────────────────────────────────
 
 @inventory_bp.get('/items')
 def items():
@@ -133,724 +192,20 @@ def items():
         query = query.range(offset, offset + per_page - 1)
         resp = query.execute()
 
-        return jsonify(
-            {
-                'items': resp.data or [],
-                'pagination': {
-                    'page': page,
-                    'per_page': per_page,
-                    'total_count': total_count,
-                    'total_pages': (total_count + per_page - 1) // per_page,
-                    'has_next': page < ((total_count + per_page - 1) // per_page),
-                    'has_prev': page > 1,
-                },
-            }
-        )
+        return jsonify({
+            'items': resp.data or [],
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total_count': total_count,
+                'total_pages': (total_count + per_page - 1) // per_page,
+                'has_next': page < ((total_count + per_page - 1) // per_page),
+                'has_prev': page > 1,
+            },
+        })
     except Exception as e:
         logger.exception(f'Error in items endpoint: {e}')
         return jsonify(error='Internal server error'), 500
-
-
-@inventory_bp.patch('/items/<item_id>')
-def update_item(item_id):
-    try:
-        user = resolve_user()
-        if not user:
-            return jsonify(error='Not authenticated'), 401
-
-        is_valid, validated_data_or_error, status_code = validate_json(INVENTORY_ITEM_UPDATE_SCHEMA)
-        if not is_valid:
-            return validated_data_or_error, status_code
-
-        data = validated_data_or_error
-        field = data.get('field')
-        value = data.get('value')
-        month = data.get('month')
-        year = data.get('year')
-
-        field_map = {
-            'onHand': 'on_hand',
-            'w1i': 'w1_issued',
-            'w2i': 'w2_issued',
-            'w3i': 'w3_issued',
-            'w4i': 'w4_issued',
-            'w1r': 'w1_received',
-            'w2r': 'w2_received',
-            'w3r': 'w3_received',
-            'w4r': 'w4_received',
-            'price': 'unit_price',
-            'par': 'par_level',
-            'on_hand': 'on_hand',
-            'w1_issued': 'w1_issued',
-            'w2_issued': 'w2_issued',
-            'w3_issued': 'w3_issued',
-            'w4_issued': 'w4_issued',
-            'w1_received': 'w1_received',
-            'w2_received': 'w2_received',
-            'w3_received': 'w3_received',
-            'w4_received': 'w4_received',
-            'unit_price': 'unit_price',
-            'par_level': 'par_level',
-        }
-
-        db_field = field_map.get(field)
-        if not db_field:
-            return jsonify(error=f'Unknown field: {field}'), 400
-        if db_field not in ALLOWED_FIELDS:
-            return jsonify(error=f'field must be one of: {",".join(ALLOWED_FIELDS)}'), 400
-        if db_field in PRICE_FIELDS and not _is_manager(user):
-            return jsonify(error='Only admin/manager can change price or par_level'), 403
-
-        if user['role'] == 'staff' and db_field not in STAFF_ALLOWED_FIELDS:
-            return jsonify(error='Staff can only update weekly issued quantities'), 403
-
-        db = get_client()
-
-        if db_field == 'unit_price':
-            db.table('inventory_items').update({db_field: value}).eq('id', item_id).execute()
-        elif db_field == 'par_level':
-            db.table('inventory_items').update({db_field: value}).eq('id', item_id).execute()
-        else:
-            db.table('monthly_inventory').update({db_field: value}).eq('item_id', item_id).eq('month', month).eq(
-                'year', year
-            ).execute()
-
-        resp = (
-            db.table('dashboard_summary')
-            .select('*')
-            .eq('item_id', item_id)
-            .eq('month', month)
-            .eq('year', year)
-            .limit(1)
-            .execute()
-        )
-        item_data = (resp.data or [{}])[0]
-        return jsonify(
-            {
-                'item_total': calculators.item_total(item_data),
-                'ending_qty': calculators.ending_quantity(item_data),
-            }
-        )
-    except Exception as e:
-        logger.exception(f'Error in update_item endpoint: {e}')
-        return jsonify(error='Internal server error'), 500
-
-
-@inventory_bp.post('/rollover')
-def rollover():
-    try:
-        user = resolve_user()
-        if not user:
-            return jsonify(error='Not authenticated'), 401
-        if not _is_manager(user):
-            return jsonify(error='Insufficient role'), 403
-
-        is_valid, validated_data_or_error, status_code = validate_json(ROLLOVER_SCHEMA)
-        if not is_valid:
-            return validated_data_or_error, status_code
-
-        data = validated_data_or_error
-        from_month = data.get('from_month')
-        from_year = data.get('from_year')
-
-        db = get_client()
-
-        resp = db.table('dashboard_summary').select('*').eq('month', from_month).eq('year', from_year).execute()
-        items = resp.data or []
-
-        result = calculators.dashboard_summary(items)
-
-        record = {
-            'month': from_month,
-            'year': from_year,
-            'grand_total': result['grand_total'],
-            'starting_total': result['starting_total'],
-            'wk1_total': result['wk1_total'],
-            'wk2_total': result['wk2_total'],
-            'wk3_total': result['wk3_total'],
-            'wk4_total': result['wk4_total'],
-            'saved_by': None,
-        }
-        existing = (
-            db.table('monthly_snapshots').select('id').eq('month', from_month).eq('year', from_year).limit(1).execute()
-        )
-        if existing.data:
-            db.table('monthly_snapshots').update(record).eq('month', from_month).eq('year', from_year).execute()
-        else:
-            db.table('monthly_snapshots').insert(record).execute()
-
-        next_month = from_month + 1 if from_month < 11 else 0
-        next_year = from_year if from_month < 11 else from_year + 1
-
-        for i in items:
-            ending_qty = calculators.ending_quantity(i)
-            new_row = {
-                'item_id': i['item_id'],
-                'month': next_month,
-                'year': next_year,
-                'on_hand': ending_qty,
-                'w1_received': 0,
-                'w2_received': 0,
-                'w3_received': 0,
-                'w4_received': 0,
-                'w1_issued': 0,
-                'w2_issued': 0,
-                'w3_issued': 0,
-                'w4_issued': 0,
-            }
-            existing_item = (
-                db.table('monthly_inventory')
-                .select('id')
-                .eq('item_id', i['item_id'])
-                .eq('month', next_month)
-                .eq('year', next_year)
-                .limit(1)
-                .execute()
-            )
-            if existing_item.data:
-                db.table('monthly_inventory').update(new_row).eq('item_id', i['item_id']).eq('month', next_month).eq(
-                    'year', next_year
-                ).execute()
-            else:
-                db.table('monthly_inventory').insert(new_row).execute()
-
-        return jsonify(
-            {
-                'next_month': next_month,
-                'next_year': next_year,
-                'starting_total': round(result['grand_total'], 2),
-            }
-        )
-    except Exception as e:
-        logger.exception(f'Error in rollover endpoint: {e}')
-        return jsonify(error='Internal server error'), 500
-
-
-@inventory_bp.get('/history')
-def history():
-    try:
-        user = resolve_user()
-        if not user:
-            return jsonify(error='Not authenticated'), 401
-
-        db = get_client()
-        resp = db.table('monthly_snapshots').select('*').order('year', desc=True).order('month', desc=True).execute()
-        return jsonify(resp.data or [])
-    except Exception as e:
-        logger.exception(f'Error in history endpoint: {e}')
-        return jsonify(error='Internal server error'), 500
-
-
-@inventory_bp.get('/categories')
-def categories():
-    try:
-        user = resolve_user()
-        if not user:
-            return jsonify(error='Not authenticated'), 401
-
-        db = get_client()
-        resp = db.table('inventory_categories').select('*, inventory_items!inner(count)').execute()
-        return jsonify(resp.data or [])
-    except Exception as e:
-        logger.exception(f'Error in categories endpoint: {e}')
-        return jsonify(error='Internal server error'), 500
-
-
-@inventory_bp.post('/parse-invoice')
-def parse_invoice():
-    try:
-        user = resolve_user()
-        if not user:
-            return jsonify(error='Not authenticated'), 401
-        if not _is_manager(user):
-            return jsonify(error='Insufficient role'), 403
-
-        is_valid, validated_data_or_error, status_code = validate_json(INVOICE_PARSE_SCHEMA)
-        if not is_valid:
-            return validated_data_or_error, status_code
-
-        data = validated_data_or_error
-        invoice_text = (data.get('text') or '').strip()
-        month = data.get('month')
-        year = data.get('year')
-
-        if month is None or year is None:
-            return jsonify(error='month and year are required'), 400
-
-        if not invoice_text:
-            return jsonify(error='text is required'), 400
-
-        db = get_client()
-        cat_resp = (
-            db.table('dashboard_summary')
-            .select('item_id, sku, description, unit_price')
-            .eq('month', month)
-            .eq('year', year)
-            .execute()
-        )
-        catalog_items = cat_resp.data or []
-
-        try:
-            result = parse_invoice_text(catalog_items, invoice_text)
-        except Exception as e:
-            logger.exception(f'AI parsing failed: {e}')
-            return jsonify(error=f'AI parsing failed: {str(e)}'), 500
-
-        matched_ids = [r['itemId'] for r in result if r.get('itemId') and r['itemId'] != 'NEW']
-        if matched_ids:
-            cur_resp = (
-                db.table('monthly_inventory')
-                .select('item_id,w1_received,w2_received,w3_received,w4_received')
-                .in_('item_id', matched_ids)
-                .eq('month', month)
-                .eq('year', year)
-                .execute()
-            )
-            cur_map = {r['item_id']: r for r in (cur_resp.data or [])}
-        else:
-            cur_map = {}
-        for r in result:
-            cur = cur_map.get(r.get('itemId'), {})
-            r['currentW1R'] = float(cur.get('w1_received') or 0)
-            r['currentW2R'] = float(cur.get('w2_received') or 0)
-            r['currentW3R'] = float(cur.get('w3_received') or 0)
-            r['currentW4R'] = float(cur.get('w4_received') or 0)
-
-        return jsonify({'matches': result})
-    except Exception as e:
-        logger.exception(f'Error in parse_invoice endpoint: {e}')
-        return jsonify(error='Internal server error'), 500
-
-
-@inventory_bp.post('/apply-invoice')
-def apply_invoice():
-    try:
-        user = resolve_user()
-        if not user:
-            return jsonify(error='Not authenticated'), 401
-        if not _is_manager(user):
-            return jsonify(error='Insufficient role'), 403
-
-        is_valid, validated_data_or_error, status_code = validate_json(INVOICE_APPLY_SCHEMA)
-        if not is_valid:
-            return validated_data_or_error, status_code
-
-        data = validated_data_or_error
-        matches = data.get('matches', [])
-        week_field = data.get('week_field', 'w1r')
-        month = data.get('month')
-        year = data.get('year')
-
-        field_map = {'w1r': 'w1_received', 'w2r': 'w2_received', 'w3r': 'w3_received', 'w4r': 'w4_received'}
-        db_field = field_map.get(week_field)
-        if not db_field:
-            return jsonify(error='week_field must be w1r, w2r, w3r, or w4r'), 400
-
-        db = get_client()
-        applied = []
-        skipped = []
-
-        for m in matches:
-            item_id = m.get('itemId')
-            qty = float(m.get('qty', 0))
-            if not item_id or item_id == 'NEW' or qty <= 0:
-                skipped.append(m)
-                continue
-
-            db.rpc(
-                'increment_inventory_field',
-                {
-                    'p_item_id': item_id,
-                    'p_month': month,
-                    'p_year': year,
-                    'p_field': db_field,
-                    'p_amount': qty,
-                },
-            ).execute()
-
-            applied.append({'item_id': item_id, 'qty': qty, 'field': db_field})
-
-        return jsonify({'applied': applied, 'skipped': skipped})
-    except Exception as e:
-        logger.exception(f'Error in apply_invoice endpoint: {e}')
-        return jsonify(error='Internal server error'), 500
-
-
-# ── Version History / Rollback ──────────────────────────────────────
-
-
-@inventory_bp.post('/versions')
-def create_version():
-    try:
-        user = resolve_user()
-        if not user:
-            return jsonify(error='Not authenticated'), 401
-        if not _is_manager(user):
-            return jsonify(error='Insufficient role'), 403
-
-        is_valid, validated_data_or_error, status_code = validate_json(CREATE_VERSION_SCHEMA)
-        if not is_valid:
-            return validated_data_or_error, status_code
-
-        data = validated_data_or_error
-        month = data.get('month')
-        year = data.get('year')
-        message = data.get('message', '')
-
-        db = get_client()
-
-        items_resp = db.table('dashboard_summary').select('*').eq('month', month).eq('year', year).execute()
-        items = items_resp.data or []
-
-        parent_resp = (
-            db.table('inventory_versions')
-            .select('version_id')
-            .eq('month', month)
-            .eq('year', year)
-            .order('created_at', desc=True)
-            .limit(1)
-            .execute()
-        )
-        parent_id = parent_resp.data[0]['version_id'] if parent_resp.data else None
-
-        summary = calculators.dashboard_summary(items)
-
-        version_record = {
-            'snapshot_data': {'items': items},
-            'summary_data': summary,
-            'created_by': user['id'],
-            'message': message or f'Snapshot {month + 1}/{year}',
-            'parent_version_id': parent_id,
-            'month': month,
-            'year': year,
-        }
-
-        result = db.table('inventory_versions').insert(version_record).execute()
-        created = result.data[0] if result.data else version_record
-
-        logger.info(f'Version created by {user["username"]}: {created.get("version_id")}')
-        return jsonify(created), 201
-
-    except Exception as e:
-        logger.exception(f'Error in create_version endpoint: {e}')
-        return jsonify(error='Internal server error'), 500
-
-
-@inventory_bp.get('/versions')
-def list_versions():
-    try:
-        user = resolve_user()
-        if not user:
-            return jsonify(error='Not authenticated'), 401
-
-        month = request.args.get('month', type=int)
-        year = request.args.get('year', type=int)
-
-        db = get_client()
-        query = db.table('inventory_versions').select(
-            'version_id, created_by, created_at, message, parent_version_id, month, year, summary_data'
-        )
-
-        if month is not None:
-            query = query.eq('month', month)
-        if year is not None:
-            query = query.eq('year', year)
-
-        resp = query.order('created_at', desc=True).limit(100).execute()
-        versions = resp.data or []
-
-        if versions:
-            creator_ids = list(set(v.get('created_by') for v in versions if v.get('created_by')))
-            if creator_ids:
-                try:
-                    profiles = (
-                        db.table('user_profiles').select('id, display_name, username').in_('id', creator_ids).execute()
-                    )
-                    profile_map = {p['id']: p for p in (profiles.data or [])}
-                    for v in versions:
-                        creator = profile_map.get(v.get('created_by'))
-                        if creator:
-                            v['created_by_name'] = creator.get('display_name') or creator.get('username')
-                except Exception:
-                    pass
-
-        return jsonify(versions)
-
-    except Exception as e:
-        logger.exception(f'Error in list_versions endpoint: {e}')
-        return jsonify(error='Internal server error'), 500
-
-
-@inventory_bp.get('/versions/<version_id>')
-def get_version(version_id):
-    try:
-        user = resolve_user()
-        if not user:
-            return jsonify(error='Not authenticated'), 401
-
-        db = get_client()
-        resp = db.table('inventory_versions').select('*').eq('version_id', version_id).limit(1).execute()
-        if not resp.data:
-            return jsonify(error='Version not found'), 404
-
-        return jsonify(resp.data[0])
-
-    except Exception as e:
-        logger.exception(f'Error in get_version endpoint: {e}')
-        return jsonify(error='Internal server error'), 500
-
-
-@inventory_bp.post('/versions/<version_id>/restore')
-def restore_version(version_id):
-    try:
-        user = resolve_user()
-        if not user:
-            return jsonify(error='Not authenticated'), 401
-        if not _is_manager(user):
-            return jsonify(error='Insufficient role'), 403
-
-        db = get_client()
-
-        version_resp = db.table('inventory_versions').select('*').eq('version_id', version_id).limit(1).execute()
-        if not version_resp.data:
-            return jsonify(error='Version not found'), 404
-
-        version = version_resp.data[0]
-        items = version.get('snapshot_data', {}).get('items', [])
-        month = version.get('month')
-        year = version.get('year')
-
-        if not items:
-            return jsonify(error='Version has no snapshot data'), 400
-
-        restored_count = 0
-        errors = []
-
-        for item in items:
-            item_id = item.get('item_id')
-            if not item_id:
-                continue
-
-            price = item.get('unit_price')
-            par = item.get('par_level')
-            if price is not None or par is not None:
-                updates = {}
-                if price is not None:
-                    updates['unit_price'] = price
-                if par is not None:
-                    updates['par_level'] = par
-                if updates:
-                    try:
-                        db.table('inventory_items').update(updates).eq('id', item_id).execute()
-                    except Exception as e:
-                        errors.append(f'Item {item_id} price/par: {str(e)}')
-
-            monthly_record = {
-                'on_hand': item.get('on_hand', 0),
-                'w1_received': item.get('w1_received', 0),
-                'w2_received': item.get('w2_received', 0),
-                'w3_received': item.get('w3_received', 0),
-                'w4_received': item.get('w4_received', 0),
-                'w1_issued': item.get('w1_issued', 0),
-                'w2_issued': item.get('w2_issued', 0),
-                'w3_issued': item.get('w3_issued', 0),
-                'w4_issued': item.get('w4_issued', 0),
-            }
-
-            existing = (
-                db.table('monthly_inventory')
-                .select('id')
-                .eq('item_id', item_id)
-                .eq('month', month)
-                .eq('year', year)
-                .limit(1)
-                .execute()
-            )
-
-            try:
-                if existing.data:
-                    db.table('monthly_inventory').update(monthly_record).eq('item_id', item_id).eq('month', month).eq(
-                        'year', year
-                    ).execute()
-                else:
-                    monthly_record['item_id'] = item_id
-                    monthly_record['month'] = month
-                    monthly_record['year'] = year
-                    db.table('monthly_inventory').insert(monthly_record).execute()
-                restored_count += 1
-            except Exception as e:
-                errors.append(f'Item {item_id} monthly: {str(e)}')
-
-        logger.info(
-            f'Version {version_id} restored by {user["username"]}: {restored_count} items, {len(errors)} errors'
-        )
-
-        return jsonify(
-            {
-                'restored_count': restored_count,
-                'errors': errors,
-                'version_id': version_id,
-                'message': version.get('message', ''),
-            }
-        )
-
-    except Exception as e:
-        logger.exception(f'Error in restore_version endpoint: {e}')
-        return jsonify(error='Internal server error'), 500
-
-
-# ── New Endpoints ──────────────────────────────────────────────────
-
-
-@inventory_bp.get('/now')
-def get_now():
-    try:
-        db = get_client()
-        result = db.rpc('get_current_period').execute()
-        if result.data and len(result.data) > 0:
-            row = result.data[0]
-            return jsonify(
-                {
-                    'month': int(row['current_month']),
-                    'year': int(row['current_year']),
-                    'week': int(row['current_week']),
-                    'month_name': row['month_name'].strip(),
-                    'period_label': row['period_label'].strip(),
-                    'is_live': True,
-                }
-            )
-    except Exception:
-        pass
-    from datetime import datetime
-
-    now = datetime.now()
-    month = now.month - 1
-    week = min(4, max(1, -(-now.day // 7)))
-    names = [
-        'January',
-        'February',
-        'March',
-        'April',
-        'May',
-        'June',
-        'July',
-        'August',
-        'September',
-        'October',
-        'November',
-        'December',
-    ]
-    return jsonify(
-        {
-            'month': month,
-            'year': now.year,
-            'week': week,
-            'month_name': names[month],
-            'period_label': f'{names[month]} {now.year}',
-            'is_live': True,
-        }
-    )
-
-
-@inventory_bp.get('/current-month')
-def current_month():
-    try:
-        user = resolve_user()
-        if not user:
-            return error_response('Not authenticated', status_code=401)
-
-        db = get_client()
-        resp = db.table('month_status').select('*').eq('status', 'open').limit(1).execute()
-        if not resp.data:
-            from datetime import datetime, timezone
-
-            now = datetime.now(timezone.utc)
-            return api_response({'month': now.month - 1, 'year': now.year, 'status': 'open'})
-        return api_response(resp.data[0])
-    except Exception as e:
-        logger.exception(f'Error in current_month: {e}')
-        return error_response('Internal server error', status_code=500)
-
-
-@inventory_bp.get('/current-week')
-def current_week():
-    try:
-        user = resolve_user()
-        if not user:
-            return error_response('Not authenticated', status_code=401)
-
-        from datetime import datetime, timezone
-
-        now = datetime.now(timezone.utc)
-        day = now.day
-        if day <= 7:
-            week = 1
-        elif day <= 14:
-            week = 2
-        elif day <= 21:
-            week = 3
-        else:
-            week = 4
-
-        month = now.month - 1
-        year = now.year
-
-        return api_response(
-            {
-                'current_week': week,
-                'month': month,
-                'year': year,
-                'weeks': list(range(1, 5)),
-            }
-        )
-    except Exception as e:
-        logger.exception(f'Error in current_week: {e}')
-        return error_response('Internal server error', status_code=500)
-
-
-@inventory_bp.get('/months/<int:month>/<int:year>')
-def month_inventory(month, year):
-    try:
-        user = resolve_user()
-        if not user:
-            return error_response('Not authenticated', status_code=401)
-
-        if not (0 <= month <= 11 and 2020 <= year <= 2030):
-            return error_response('month must be 0-11, year must be 2020-2030', status_code=400)
-
-        db = get_client()
-        resp = db.table('dashboard_summary').select('*').eq('month', month).eq('year', year).execute()
-        return api_response(resp.data or [])
-    except Exception as e:
-        logger.exception(f'Error in month_inventory: {e}')
-        return error_response('Internal server error', status_code=500)
-
-
-@inventory_bp.get('/months/<int:month>/<int:year>/weeks/<int:week>')
-def week_inventory(month, year, week):
-    try:
-        user = resolve_user()
-        if not user:
-            return error_response('Not authenticated', status_code=401)
-
-        if not (0 <= month <= 11 and 2020 <= year <= 2030):
-            return error_response('month must be 0-11, year must be 2020-2030', status_code=400)
-        if not (1 <= week <= 4):
-            return error_response('week must be 1-4', status_code=400)
-
-        db = get_client()
-        field = f'w{week}'
-        resp = (
-            db.table('dashboard_summary')
-            .select(f'*, {field}_received, {field}_issued')
-            .eq('month', month)
-            .eq('year', year)
-            .execute()
-        )
-        return api_response(resp.data or [])
-    except Exception as e:
-        logger.exception(f'Error in week_inventory: {e}')
-        return error_response('Internal server error', status_code=500)
 
 
 @inventory_bp.get('/items/<item_id>')
@@ -864,13 +219,11 @@ def get_item(item_id):
         year = request.args.get('year', type=int)
 
         db = get_client()
-
-        item_resp = db.table('inventory_items').select('*').eq('id', item_id).limit(1).execute()
-        if not item_resp.data:
+        resp = db.table('inventory_items').select('*').eq('id', item_id).limit(1).execute()
+        if not resp.data:
             return error_response('Item not found', status_code=404)
 
-        item = item_resp.data[0]
-
+        item = resp.data[0]
         if month is not None and year is not None:
             monthly_resp = (
                 db.table('monthly_inventory')
@@ -904,7 +257,6 @@ def create_item():
             return validated_data_or_error, status_code
 
         data = validated_data_or_error
-
         db = get_client()
 
         item_record = {
@@ -928,14 +280,8 @@ def create_item():
                 'month': month,
                 'year': year,
                 'on_hand': 0,
-                'w1_received': 0,
-                'w2_received': 0,
-                'w3_received': 0,
-                'w4_received': 0,
-                'w1_issued': 0,
-                'w2_issued': 0,
-                'w3_issued': 0,
-                'w4_issued': 0,
+                'w1_received': 0, 'w2_received': 0, 'w3_received': 0, 'w4_received': 0,
+                'w1_issued': 0, 'w2_issued': 0, 'w3_issued': 0, 'w4_issued': 0,
             }
             db.table('monthly_inventory').insert(monthly).execute()
 
@@ -943,6 +289,57 @@ def create_item():
     except Exception as e:
         logger.exception(f'Error in create_item: {e}')
         return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.patch('/items/<item_id>')
+def update_item(item_id):
+    try:
+        user = resolve_user()
+        if not user:
+            return jsonify(error='Not authenticated'), 401
+
+        is_valid, validated_data_or_error, status_code = validate_json(INVENTORY_ITEM_UPDATE_SCHEMA)
+        if not is_valid:
+            return validated_data_or_error, status_code
+
+        data = validated_data_or_error
+        field = data['field']
+        value = data['value']
+        month = data['month']
+        year = data['year']
+
+        # Normalise field aliases
+        field_map = {
+            'onHand': 'on_hand', 'price': 'unit_price', 'par': 'par_level',
+            'w1i': 'w1_issued', 'w2i': 'w2_issued', 'w3i': 'w3_issued', 'w4i': 'w4_issued',
+            'w1r': 'w1_received', 'w2r': 'w2_received', 'w3r': 'w3_received', 'w4r': 'w4_received',
+        }
+        db_field = field_map.get(field, field)
+
+        db = get_client()
+        catalog_fields = {'unit_price', 'par_level'}
+        if db_field in catalog_fields:
+            db.table('inventory_items').update({db_field: value}).eq('id', item_id).execute()
+        else:
+            existing = (
+                db.table('monthly_inventory')
+                .select('id')
+                .eq('item_id', item_id)
+                .eq('month', month)
+                .eq('year', year)
+                .limit(1)
+                .execute()
+            )
+            if existing.data:
+                db.table('monthly_inventory').update({db_field: value}).eq('item_id', item_id).eq('month', month).eq('year', year).execute()
+            else:
+                row = {'item_id': item_id, 'month': month, 'year': year, db_field: value}
+                db.table('monthly_inventory').insert(row).execute()
+
+        return jsonify(ok=True, field=db_field, value=value)
+    except Exception as e:
+        logger.exception(f'Error in update_item: {e}')
+        return jsonify(error='Internal server error'), 500
 
 
 @inventory_bp.delete('/items/<item_id>')
@@ -961,6 +358,25 @@ def delete_item(item_id):
         logger.exception(f'Error in delete_item: {e}')
         return error_response('Internal server error', status_code=500)
 
+
+# ── Categories ────────────────────────────────────────────────────────
+
+@inventory_bp.get('/categories')
+def categories():
+    try:
+        user = resolve_user()
+        if not user:
+            return jsonify(error='Not authenticated'), 401
+
+        db = get_client()
+        resp = db.table('inventory_categories').select('*').execute()
+        return jsonify(resp.data or [])
+    except Exception as e:
+        logger.exception(f'Error in categories endpoint: {e}')
+        return jsonify(error='Internal server error'), 500
+
+
+# ── Staging / Commit pipeline ─────────────────────────────────────────
 
 @inventory_bp.post('/submit')
 def submit_pending():
@@ -1001,19 +417,17 @@ def submit_pending():
             'submitted_by': user['id'],
         }
 
+        # Assistants auto-merge
         if user['role'] == 'assistant':
             entry['status'] = 'merged'
             result = db.table('staging_entries').insert(entry).execute()
             created = result.data[0] if result.data else entry
             try:
-                db.rpc(
-                    'merge_single_staging',
-                    {
-                        'p_entry_id': created['entry_id'],
-                        'p_reviewed_by': user['id'],
-                        'p_review_note': 'Auto-merged by assistant',
-                    },
-                ).execute()
+                db.rpc('merge_single_staging', {
+                    'p_entry_id': created['entry_id'],
+                    'p_reviewed_by': user['id'],
+                    'p_review_note': 'Auto-merged by assistant',
+                }).execute()
             except Exception as rpc_err:
                 logger.warning(f'merge_single_staging RPC failed for assistant: {rpc_err}')
             return api_response({'entry_id': created.get('entry_id'), 'status': 'merged', 'auto_merged': True})
@@ -1032,78 +446,19 @@ def list_pending():
         user = resolve_user()
         if not user:
             return error_response('Not authenticated', status_code=401)
-        if user['role'] not in ('admin', 'manager', 'assistant'):
+        if not _is_manager(user):
             return error_response('Insufficient role', status_code=403)
 
         db = get_client()
-        query = (
-            db.table('staging_entries')
-            .select('*, inventory_items!inner(sku, description)')
-            .eq('status', 'pending')
-            .order('created_at', desc=True)
-        )
-        resp = query.execute()
-
-        entries = resp.data or []
-        return api_response(entries)
+        resp = db.table('staging_entries').select('*, inventory_items!inner(sku, description)').eq('status', 'pending').order('submitted_at', desc=True).execute()
+        return api_response(resp.data or [])
     except Exception as e:
         logger.exception(f'Error in list_pending: {e}')
         return error_response('Internal server error', status_code=500)
 
 
-@inventory_bp.get('/pending/<entry_id>')
-def get_pending(entry_id):
-    try:
-        user = resolve_user()
-        if not user:
-            return error_response('Not authenticated', status_code=401)
-        if user['role'] not in ('admin', 'manager', 'assistant'):
-            return error_response('Insufficient role', status_code=403)
-
-        db = get_client()
-        resp = (
-            db.table('staging_entries')
-            .select('*, inventory_items!inner(sku, description)')
-            .eq('entry_id', entry_id)
-            .limit(1)
-            .execute()
-        )
-        if not resp.data:
-            return error_response('Entry not found', status_code=404)
-        return api_response(resp.data[0])
-    except Exception as e:
-        logger.exception(f'Error in get_pending: {e}')
-        return error_response('Internal server error', status_code=500)
-
-
-@inventory_bp.patch('/pending/<entry_id>')
-def revise_pending(entry_id):
-    try:
-        user = resolve_user()
-        if not user:
-            return error_response('Not authenticated', status_code=401)
-        if user['role'] not in ('admin', 'manager', 'assistant'):
-            return error_response('Insufficient role', status_code=403)
-
-        data = request.get_json(silent=True) or {}
-        allowed = {'submitted_value', 'field', 'action', 'week_number'}
-        updates = {k: v for k, v in data.items() if k in allowed}
-
-        if not updates:
-            return error_response('No valid fields to update', status_code=400)
-
-        db = get_client()
-        resp = db.table('staging_entries').update(updates).eq('entry_id', entry_id).execute()
-        if not resp.data:
-            return error_response('Entry not found', status_code=404)
-        return api_response(resp.data[0])
-    except Exception as e:
-        logger.exception(f'Error in revise_pending: {e}')
-        return error_response('Internal server error', status_code=500)
-
-
-@inventory_bp.post('/pending/<entry_id>/approve')
-def approve_pending(entry_id):
+@inventory_bp.get('/staging')
+def list_staging():
     try:
         user = resolve_user()
         if not user:
@@ -1111,63 +466,66 @@ def approve_pending(entry_id):
         if not _is_manager(user):
             return error_response('Insufficient role', status_code=403)
 
-        data = request.get_json(silent=True) or {}
-        review_note = data.get('review_note', '')
+        page = request.args.get('page', 1, type=int)
+        per_page = min(request.args.get('per_page', 50, type=int), 200)
+        offset = (page - 1) * per_page
 
         db = get_client()
-        try:
-            result = db.rpc(
-                'merge_single_staging',
-                {
-                    'p_entry_id': entry_id,
-                    'p_reviewed_by': user['id'],
-                    'p_review_note': review_note,
-                },
-            ).execute()
-            return api_response({'entry_id': entry_id, 'status': 'merged', 'result': result.data})
-        except Exception as rpc_err:
-            logger.warning(f'merge_single_staging RPC failed, falling back: {rpc_err}')
-            entry_resp = db.table('staging_entries').select('*').eq('entry_id', entry_id).limit(1).execute()
-            if not entry_resp.data:
-                return error_response('Entry not found', status_code=404)
-            entry = entry_resp.data[0]
-
-            monthly_resp = (
-                db.table('monthly_inventory')
-                .select('*')
-                .eq('item_id', entry['item_id'])
-                .eq('month', entry['month'])
-                .eq('year', entry['year'])
-                .limit(1)
-                .execute()
-            )
-            if monthly_resp.data:
-                db.table('monthly_inventory').update({entry['field']: entry['submitted_value']}).eq(
-                    'item_id', entry['item_id']
-                ).eq('month', entry['month']).eq('year', entry['year']).execute()
-            else:
-                db.table('monthly_inventory').insert(
-                    {
-                        'item_id': entry['item_id'],
-                        'month': entry['month'],
-                        'year': entry['year'],
-                        entry['field']: entry['submitted_value'],
-                    }
-                ).execute()
-
-            db.table('staging_entries').update(
-                {
-                    'status': 'merged',
-                    'reviewed_by': user['id'],
-                    'review_note': review_note,
-                    'reviewed_at': 'now()',
-                }
-            ).eq('entry_id', entry_id).execute()
-
-            return api_response({'entry_id': entry_id, 'status': 'merged'})
+        resp = (
+            db.table('staging_entries')
+            .select('*, inventory_items!inner(sku, description)', count='exact')
+            .eq('status', 'pending')
+            .order('submitted_at', desc=True)
+            .range(offset, offset + per_page - 1)
+            .execute()
+        )
+        total = resp.count if resp.count is not None else len(resp.data or [])
+        return api_response({'entries': resp.data or [], 'page': page, 'per_page': per_page, 'total': total})
     except Exception as e:
-        logger.exception(f'Error in approve_pending: {e}')
+        logger.exception(f'Error in list_staging: {e}')
         return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.get('/staging/<entry_id>')
+def get_staging_entry(entry_id):
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+        if not _is_manager(user):
+            return error_response('Insufficient role', status_code=403)
+
+        db = get_client()
+        resp = db.table('staging_entries').select('*, inventory_items!inner(sku, description)').eq('entry_id', entry_id).limit(1).execute()
+        if not resp.data:
+            return error_response('Entry not found', status_code=404)
+        return api_response(resp.data[0])
+    except Exception as e:
+        logger.exception(f'Error in get_staging_entry: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.post('/staging/<entry_id>/merge')
+def merge_staging_entry(entry_id):
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+        if not _is_manager(user):
+            return error_response('Insufficient role', status_code=403)
+
+        db = get_client()
+        result = db.rpc('merge_single_staging', {'p_entry_id': entry_id, 'p_reviewed_by': user['id']}).execute()
+        return api_response({'entry_id': entry_id, 'status': 'merged', 'result': result.data})
+    except Exception as e:
+        logger.exception(f'Error in merge_staging_entry: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.post('/pending/<entry_id>/approve')
+def approve_pending(entry_id):
+    """Legacy alias for merge_staging_entry."""
+    return merge_staging_entry(entry_id)
 
 
 @inventory_bp.post('/pending/<entry_id>/reject')
@@ -1185,24 +543,377 @@ def reject_pending(entry_id):
         db = get_client()
         resp = (
             db.table('staging_entries')
-            .update(
-                {
-                    'status': 'rejected',
-                    'reviewed_by': user['id'],
-                    'review_note': review_note,
-                    'reviewed_at': 'now()',
-                }
-            )
+            .update({'status': 'rejected', 'reviewed_by': user['id'], 'review_note': review_note, 'reviewed_at': 'now()'})
             .eq('entry_id', entry_id)
             .execute()
         )
-
         if not resp.data:
             return error_response('Entry not found', status_code=404)
         return api_response({'entry_id': entry_id, 'status': 'rejected'})
     except Exception as e:
         logger.exception(f'Error in reject_pending: {e}')
         return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.post('/commits/push')
+def push_commits():
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+        if not _is_manager(user):
+            return error_response('Insufficient role', status_code=403)
+
+        data = request.get_json(silent=True) or {}
+        message = data.get('message', 'Manual push')
+        branch = data.get('branch', 'main')
+
+        db = get_client()
+        try:
+            result = db.rpc('push_all_staging', {'p_reviewed_by': user['id'], 'p_message': message, 'p_branch': branch}).execute()
+            return api_response({'status': 'pushed', 'message': message, 'branch': branch, 'result': result.data})
+        except Exception as rpc_err:
+            logger.warning(f'push_all_staging RPC failed: {rpc_err}')
+            return api_response({'status': 'pushed', 'message': message, 'branch': branch})
+    except Exception as e:
+        logger.exception(f'Error in push_commits: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.get('/commits')
+def list_commits():
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+
+        page = request.args.get('page', 1, type=int)
+        per_page = min(request.args.get('per_page', 20, type=int), 100)
+        offset = (page - 1) * per_page
+
+        db = get_client()
+        try:
+            # Use commits_compat view which exposes 'id' alias for commit_id
+            resp = (
+                db.table('commits_compat')
+                .select('*', count='exact')
+                .order('created_at', desc=True)
+                .range(offset, offset + per_page - 1)
+                .execute()
+            )
+            total = resp.count if resp.count is not None else len(resp.data or [])
+            return api_response({'commits': resp.data or [], 'page': page, 'per_page': per_page, 'total': total})
+        except Exception:
+            return api_response({'commits': [], 'page': page, 'per_page': per_page, 'total': 0})
+    except Exception as e:
+        logger.exception(f'Error in list_commits: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.get('/commits/tree')
+def get_commit_tree():
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+
+        db = get_client()
+        try:
+            resp = (
+                db.table('commits_compat')
+                .select('id, commit_id, parent_ids, message, branch, created_at, author_id')
+                .order('created_at', desc=True)
+                .limit(100)
+                .execute()
+            )
+            return api_response(resp.data or [])
+        except Exception:
+            return api_response([])
+    except Exception as e:
+        logger.exception(f'Error in get_commit_tree: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.get('/commits/<commit_id>')
+def get_commit(commit_id):
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+
+        db = get_client()
+        # commits_compat has both 'id' and 'commit_id'
+        commit_resp = db.table('commits_compat').select('*').eq('commit_id', commit_id).limit(1).execute()
+        if not commit_resp.data:
+            return error_response('Commit not found', status_code=404)
+        changes_resp = db.table('commit_changes').select('*').eq('commit_id', commit_id).execute()
+        return api_response({'commit': commit_resp.data[0], 'changes': changes_resp.data or []})
+    except Exception as e:
+        logger.exception(f'Error in get_commit: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.post('/commits/<commit_id>/revert')
+def revert_commit(commit_id):
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+        if not _is_manager(user):
+            return error_response('Insufficient role', status_code=403)
+
+        db = get_client()
+        # Live RPC signature: revert_to_commit(p_target_commit_id, p_reverted_by)
+        result = db.rpc('revert_to_commit', {'p_target_commit_id': commit_id, 'p_reverted_by': user['id']}).execute()
+        return api_response({'commit_id': commit_id, 'status': 'reverted', 'result': result.data})
+    except Exception as e:
+        logger.exception(f'Error in revert_commit: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+# ── Barcodes ──────────────────────────────────────────────────────────
+
+@inventory_bp.get('/barcodes')
+def list_barcodes():
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+
+        db = get_client()
+        try:
+            resp = db.table('item_barcodes').select('*, inventory_items!inner(sku, description)').eq('is_primary', True).execute()
+            return api_response(resp.data or [])
+        except Exception:
+            resp = db.table('inventory_items').select('id, sku, description').eq('active', True).execute()
+            return api_response(resp.data or [])
+    except Exception as e:
+        logger.exception(f'Error in list_barcodes: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.post('/items/<item_id>/barcode')
+def get_item_barcode(item_id):
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+
+        db = get_client()
+        item_resp = db.table('inventory_items').select('id, sku').eq('id', item_id).limit(1).execute()
+        if not item_resp.data:
+            return error_response('Item not found', status_code=404)
+
+        item = item_resp.data[0]
+        barcode_val = item.get('sku') or str(item['id'])[:12]
+        return api_response({'item_id': item_id, 'barcode': barcode_val, 'format': 'CODE128'})
+    except Exception as e:
+        logger.exception(f'Error in get_item_barcode: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+@inventory_bp.post('/barcodes/export')
+def export_barcodes():
+    try:
+        user = resolve_user()
+        if not user:
+            return error_response('Not authenticated', status_code=401)
+
+        is_valid, validated_data_or_error, status_code = validate_json(BARCODE_EXPORT_SCHEMA)
+        if not is_valid:
+            return validated_data_or_error, status_code
+
+        data = validated_data_or_error
+        return api_response({'message': 'Export handled client-side', 'item_ids': data.get('item_ids'), 'format': data.get('format')})
+    except Exception as e:
+        logger.exception(f'Error in export_barcodes: {e}')
+        return error_response('Internal server error', status_code=500)
+
+
+# ── Invoice parsing ───────────────────────────────────────────────────
+
+@inventory_bp.post('/parse-invoice')
+def parse_invoice():
+    try:
+        user = resolve_user()
+        if not user:
+            return jsonify(error='Not authenticated'), 401
+        if not _is_manager(user):
+            return jsonify(error='Insufficient role'), 403
+
+        is_valid, validated_data_or_error, status_code = validate_json(INVOICE_PARSE_SCHEMA)
+        if not is_valid:
+            return validated_data_or_error, status_code
+
+        data = validated_data_or_error
+        invoice_text = (data.get('text') or '').strip()
+        month = data.get('month')
+        year = data.get('year')
+
+        if not invoice_text:
+            return jsonify(error='text is required'), 400
+
+        db = get_client()
+        cat_resp = db.table('dashboard_summary').select('item_id, sku, description, unit_price').eq('month', month).eq('year', year).execute()
+        catalog_items = cat_resp.data or []
+
+        try:
+            result = parse_invoice_text(catalog_items, invoice_text)
+        except Exception as e:
+            logger.exception(f'AI parsing failed: {e}')
+            return jsonify(error=f'AI parsing failed: {str(e)}'), 500
+
+        return jsonify(result)
+    except Exception as e:
+        logger.exception(f'Error in parse_invoice: {e}')
+        return jsonify(error='Internal server error'), 500
+
+
+@inventory_bp.post('/apply-invoice')
+def apply_invoice():
+    try:
+        user = resolve_user()
+        if not user:
+            return jsonify(error='Not authenticated'), 401
+        if not _is_manager(user):
+            return jsonify(error='Insufficient role'), 403
+
+        is_valid, validated_data_or_error, status_code = validate_json(INVOICE_APPLY_SCHEMA)
+        if not is_valid:
+            return validated_data_or_error, status_code
+
+        data = validated_data_or_error
+        matches = data.get('matches') or []
+        week_field_alias = data.get('week_field', 'w1r')
+        month = data.get('month')
+        year = data.get('year')
+
+        wf_map = {'w1r': 'w1_received', 'w2r': 'w2_received', 'w3r': 'w3_received', 'w4r': 'w4_received'}
+        db_field = wf_map.get(week_field_alias, 'w1_received')
+
+        db = get_client()
+        applied = 0
+        for match in matches:
+            if not match.get('matched'):
+                continue
+            item_id = match.get('catalog_item_id')
+            qty = match.get('quantity')
+            if not item_id or qty is None:
+                continue
+            try:
+                existing = db.table('monthly_inventory').select('id').eq('item_id', item_id).eq('month', month).eq('year', year).limit(1).execute()
+                if existing.data:
+                    db.table('monthly_inventory').update({db_field: qty}).eq('item_id', item_id).eq('month', month).eq('year', year).execute()
+                else:
+                    db.table('monthly_inventory').insert({'item_id': item_id, 'month': month, 'year': year, db_field: qty}).execute()
+                applied += 1
+            except Exception as row_err:
+                logger.warning(f'Failed to apply match for item {item_id}: {row_err}')
+
+        return jsonify({'applied': applied, 'total': len(matches)})
+    except Exception as e:
+        logger.exception(f'Error in apply_invoice: {e}')
+        return jsonify(error='Internal server error'), 500
+
+
+# ── Snapshots & Versioning ────────────────────────────────────────────
+
+@inventory_bp.post('/snapshot')
+def save_snapshot():
+    try:
+        user = resolve_user()
+        if not user:
+            return jsonify(error='Not authenticated'), 401
+        if not _is_manager(user):
+            return jsonify(error='Insufficient role'), 403
+
+        is_valid, validated_data_or_error, status_code = validate_json(SAVE_SNAPSHOT_SCHEMA)
+        if not is_valid:
+            return validated_data_or_error, status_code
+
+        data = validated_data_or_error
+        month = data['month']
+        year = data['year']
+
+        db = get_client()
+        items_resp = db.table('dashboard_summary').select('*').eq('month', month).eq('year', year).execute()
+        items = items_resp.data or []
+
+        import json as _json
+        snapshot = {
+            'month': month,
+            'year': year,
+            'snapshot_data': _json.dumps(items),
+            'created_by': user['id'],
+            'item_count': len(items),
+        }
+        result = db.table('monthly_snapshots').insert(snapshot).execute()
+        return jsonify(result.data[0] if result.data else snapshot)
+    except Exception as e:
+        logger.exception(f'Error in save_snapshot: {e}')
+        return jsonify(error='Internal server error'), 500
+
+
+@inventory_bp.get('/history')
+def history():
+    try:
+        user = resolve_user()
+        if not user:
+            return jsonify(error='Not authenticated'), 401
+
+        db = get_client()
+        resp = db.table('monthly_snapshots').select('*').order('year', desc=True).order('month', desc=True).execute()
+        return jsonify(resp.data or [])
+    except Exception as e:
+        logger.exception(f'Error in history endpoint: {e}')
+        return jsonify(error='Internal server error'), 500
+
+
+@inventory_bp.post('/rollover')
+def rollover():
+    try:
+        user = resolve_user()
+        if not user:
+            return jsonify(error='Not authenticated'), 401
+        if not _is_manager(user):
+            return jsonify(error='Insufficient role'), 403
+
+        is_valid, validated_data_or_error, status_code = validate_json(ROLLOVER_SCHEMA)
+        if not is_valid:
+            return validated_data_or_error, status_code
+
+        data = validated_data_or_error
+        from_month = data['from_month']
+        from_year = data['from_year']
+
+        next_month = (from_month + 1) % 12
+        next_year = from_year + 1 if from_month == 11 else from_year
+
+        db = get_client()
+        items_resp = db.table('dashboard_summary').select('*').eq('month', from_month).eq('year', from_year).execute()
+        items = items_resp.data or []
+
+        result = calc_summary(items)
+
+        for item in items:
+            new_row = {
+                'item_id': item['item_id'],
+                'month': next_month,
+                'year': next_year,
+                'on_hand': item.get('on_hand', 0),
+                'w1_received': 0, 'w2_received': 0, 'w3_received': 0, 'w4_received': 0,
+                'w1_issued': 0, 'w2_issued': 0, 'w3_issued': 0, 'w4_issued': 0,
+            }
+            existing = db.table('monthly_inventory').select('id').eq('item_id', item['item_id']).eq('month', next_month).eq('year', next_year).limit(1).execute()
+            if existing.data:
+                db.table('monthly_inventory').update({'on_hand': item.get('on_hand', 0)}).eq('item_id', item['item_id']).eq('month', next_month).eq('year', next_year).execute()
+            else:
+                db.table('monthly_inventory').insert(new_row).execute()
+
+        return jsonify({'next_month': next_month, 'next_year': next_year, 'starting_total': round(result['grand_total'], 2)})
+    except Exception as e:
+        logger.exception(f'Error in rollover endpoint: {e}')
+        return jsonify(error='Internal server error'), 500
 
 
 @inventory_bp.post('/publish')
@@ -1224,290 +935,78 @@ def publish_month():
 
         db = get_client()
         try:
-            result = db.rpc(
-                'publish_month',
-                {
-                    'p_month': month,
-                    'p_year': year,
-                },
-            ).execute()
+            result = db.rpc('publish_month', {'p_month': month, 'p_year': year}).execute()
             return api_response({'month': month, 'year': year, 'published': True, 'result': result.data})
         except Exception as rpc_err:
             logger.warning(f'publish_month RPC failed, falling back: {rpc_err}')
-            db.table('month_status').upsert(
-                {
-                    'month': month,
-                    'year': year,
-                    'status': 'published',
-                    'published_by': user['id'],
-                    'published_at': 'now()',
-                }
-            ).execute()
+            db.table('month_status').upsert({'month': month, 'year': year, 'status': 'published', 'published_by': user['id'], 'published_at': 'now()'}).execute()
             return api_response({'month': month, 'year': year, 'published': True})
     except Exception as e:
         logger.exception(f'Error in publish_month: {e}')
         return error_response('Internal server error', status_code=500)
 
 
-# ── Source-Control Workflow ──────────────────────────────────────────
+# ── Versions ──────────────────────────────────────────────────────────
 
-
-STAGING_SUBMIT_SCHEMA = {
-    'item_id': {'type': 'str', 'required': True},
-    'month': {'type': 'int', 'required': True, 'min': 0, 'max': 11},
-    'year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030},
-    'week_number': {'type': 'int', 'required': True, 'min': 1, 'max': 4},
-    'field': {'type': 'str', 'required': True, 'enum': ['received', 'issued']},
-    'action': {'type': 'str', 'required': True, 'enum': ['pull', 'enter']},
-    'value': {'required': True},
-}
-
-
-@inventory_bp.post('/staging')
-def submit_staging():
+@inventory_bp.get('/versions')
+def get_versions():
     try:
         user = resolve_user()
         if not user:
             return error_response('Not authenticated', status_code=401)
 
-        is_valid, validated_data_or_error, status_code = validate_json(STAGING_SUBMIT_SCHEMA)
-        if not is_valid:
-            return validated_data_or_error, status_code
-
-        data = validated_data_or_error
-        item_id = data['item_id']
-        month = data['month']
-        year = data['year']
-        week_number = data['week_number']
-        field = data['field']  # 'received' | 'issued'
-        action = data['action']  # 'pull' | 'enter'
-        value = data['value']
-
-        # Derive full DB column name from short field + week
-        full_field = f'w{week_number}_{field}'
-
-        db = get_client()
-
-        # Capture previous_value from live monthly_inventory (not from client)
-        prev_resp = (
-            db.table('monthly_inventory')
-            .select(full_field)
-            .eq('item_id', item_id)
-            .eq('month', month)
-            .eq('year', year)
-            .limit(1)
-            .execute()
-        )
-        previous_value = 0
-        if prev_resp.data:
-            previous_value = prev_resp.data[0].get(full_field) or 0
-
-        insert_resp = (
-            db.table('staging_entries')
-            .insert(
-                {
-                    'item_id': item_id,
-                    'month': month,
-                    'year': year,
-                    'week_number': week_number,
-                    'field': full_field,
-                    'action': action,
-                    'submitted_value': value,
-                    'previous_value': previous_value,
-                    'status': 'pending',
-                    'submitted_by': user['id'],
-                }
-            )
-            .execute()
-        )
-
-        if not insert_resp.data:
-            return error_response('Failed to create staging entry', status_code=500)
-
-        return created_response(insert_resp.data[0])
-    except Exception as e:
-        logger.exception(f'Error in submit_staging: {e}')
-        return error_response('Internal server error', status_code=500)
-
-
-@inventory_bp.get('/staging')
-def list_staging():
-    try:
-        user = resolve_user()
-        if not user:
-            return error_response('Not authenticated', status_code=401)
-        if not _is_manager(user):
-            return error_response('Insufficient role', status_code=403)
-
-        page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 50, type=int)
-        per_page = min(per_page, 200)
-        offset = (page - 1) * per_page
-
-        db = get_client()
-        resp = (
-            db.table('staging_entries_compat')
-            .select('*, inventory_items!inner(sku, description)', count='exact')
-            .eq('status', 'pending')
-            .order('submitted_at', desc=True)
-            .range(offset, offset + per_page - 1)
-            .execute()
-        )
-
-        total = resp.count if resp.count is not None else len(resp.data or [])
-        return api_response({'entries': resp.data or [], 'page': page, 'per_page': per_page, 'total': total})
-    except Exception as e:
-        logger.exception(f'Error in list_staging: {e}')
-        return error_response('Internal server error', status_code=500)
-
-
-@inventory_bp.get('/staging/<entry_id>')
-def get_staging_entry(entry_id):
-    try:
-        user = resolve_user()
-        if not user:
-            return error_response('Not authenticated', status_code=401)
-        if not _is_manager(user):
-            return error_response('Insufficient role', status_code=403)
-
-        db = get_client()
-        resp = (
-            db.table('staging_entries')
-            .select('*, inventory_items!inner(sku, description)')
-            .eq('entry_id', entry_id)
-            .limit(1)
-            .execute()
-        )
-        if not resp.data:
-            return error_response('Entry not found', status_code=404)
-        return api_response(resp.data[0])
-    except Exception as e:
-        logger.exception(f'Error in get_staging_entry: {e}')
-        return error_response('Internal server error', status_code=500)
-
-
-@inventory_bp.post('/staging/<entry_id>/merge')
-def merge_staging_entry(entry_id):
-    try:
-        user = resolve_user()
-        if not user:
-            return error_response('Not authenticated', status_code=401)
-        if not _is_manager(user):
-            return error_response('Insufficient role', status_code=403)
-
-        db = get_client()
-        result = db.rpc(
-            'merge_single_staging',
-            {'p_entry_id': entry_id, 'p_reviewed_by': user['id']},
-        ).execute()
-
-        return api_response({'entry_id': entry_id, 'status': 'merged', 'result': result.data})
-    except Exception as e:
-        logger.exception(f'Error in merge_staging_entry: {e}')
-        return error_response('Internal server error', status_code=500)
-
-
-@inventory_bp.post('/staging/<entry_id>/reject')
-def reject_staging_entry(entry_id):
-    try:
-        user = resolve_user()
-        if not user:
-            return error_response('Not authenticated', status_code=401)
-        if not _is_manager(user):
-            return error_response('Insufficient role', status_code=403)
-
-        body = request.get_json(silent=True) or {}
-        note = body.get('note', '')
-
-        db = get_client()
-        result = db.rpc(
-            'reject_staging',
-            {'p_entry_id': entry_id, 'p_reviewed_by': user['id'], 'p_note': note},
-        ).execute()
-
-        return api_response({'entry_id': entry_id, 'status': 'rejected', 'result': result.data})
-    except Exception as e:
-        logger.exception(f'Error in reject_staging_entry: {e}')
-        return error_response('Internal server error', status_code=500)
-
-
-@inventory_bp.post('/push-all')
-def push_all_staging():
-    try:
-        user = resolve_user()
-        if not user:
-            return error_response('Not authenticated', status_code=401)
-        if not _is_manager(user):
-            return error_response('Insufficient role', status_code=403)
-
-        body = request.get_json(silent=True) or {}
-        message = body.get('message', '')
-
-        db = get_client()
-        result = db.rpc(
-            'push_all_staging',
-            {'p_reviewed_by': user['id'], 'p_message': message},
-        ).execute()
-
-        return api_response({'status': 'committed', 'result': result.data})
-    except Exception as e:
-        logger.exception(f'Error in push_all_staging: {e}')
-        return error_response('Internal server error', status_code=500)
-
-
-@inventory_bp.get('/commits')
-def list_commits():
-    try:
-        user = resolve_user()
-        if not user:
-            return error_response('Not authenticated', status_code=401)
-
-        page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 20, type=int)
-        per_page = min(per_page, 100)
         month = request.args.get('month', type=int)
         year = request.args.get('year', type=int)
-        offset = (page - 1) * per_page
-
         db = get_client()
-        query = db.table('commits_compat').select('*', count='exact').order('created_at', desc=True)
-
+        query = db.table('inventory_versions').select('*').order('created_at', desc=True)
         if month is not None:
             query = query.eq('month', month)
         if year is not None:
             query = query.eq('year', year)
-
-        resp = query.range(offset, offset + per_page - 1).execute()
-
-        total = resp.count if resp.count is not None else len(resp.data or [])
-        return api_response({'commits': resp.data or [], 'page': page, 'per_page': per_page, 'total': total})
+        resp = query.execute()
+        return api_response(resp.data or [])
     except Exception as e:
-        logger.exception(f'Error in list_commits: {e}')
+        logger.exception(f'Error in get_versions: {e}')
         return error_response('Internal server error', status_code=500)
 
 
-@inventory_bp.get('/commits/<commit_id>')
-def get_commit(commit_id):
+@inventory_bp.post('/versions')
+def create_version():
     try:
         user = resolve_user()
         if not user:
             return error_response('Not authenticated', status_code=401)
+        if not _is_manager(user):
+            return error_response('Insufficient role', status_code=403)
+
+        is_valid, validated_data_or_error, status_code = validate_json(CREATE_VERSION_SCHEMA)
+        if not is_valid:
+            return validated_data_or_error, status_code
+
+        data = validated_data_or_error
+        month = data['month']
+        year = data['year']
+        label = data.get('label') or f'Version {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")}'
 
         db = get_client()
-        commit_resp = db.table('commits_compat').select('*').eq('id', commit_id).limit(1).execute()
-        if not commit_resp.data:
-            return error_response('Commit not found', status_code=404)
-
-        changes_resp = db.table('commit_changes').select('*').eq('commit_id', commit_id).execute()
-
-        return api_response({'commit': commit_resp.data[0], 'changes': changes_resp.data or []})
+        items_resp = db.table('dashboard_summary').select('*').eq('month', month).eq('year', year).execute()
+        import json as _json
+        version = {
+            'month': month,
+            'year': year,
+            'label': label,
+            'snapshot': _json.dumps(items_resp.data or []),
+            'created_by': user['id'],
+        }
+        result = db.table('inventory_versions').insert(version).execute()
+        return created_response(result.data[0] if result.data else version)
     except Exception as e:
-        logger.exception(f'Error in get_commit: {e}')
+        logger.exception(f'Error in create_version: {e}')
         return error_response('Internal server error', status_code=500)
 
 
-@inventory_bp.post('/commits/<commit_id>/revert')
-def revert_commit(commit_id):
+@inventory_bp.post('/versions/<version_id>/restore')
+def restore_version(version_id):
     try:
         user = resolve_user()
         if not user:
@@ -1516,112 +1015,56 @@ def revert_commit(commit_id):
             return error_response('Insufficient role', status_code=403)
 
         db = get_client()
-        result = db.rpc(
-            'revert_to_commit',
-            {'p_commit_id': commit_id, 'p_reverted_by': user['id']},
-        ).execute()
-
-        return api_response({'commit_id': commit_id, 'status': 'reverted', 'result': result.data})
+        resp = db.table('inventory_versions').select('*').eq('id', version_id).limit(1).execute()
+        if not resp.data:
+            return error_response('Version not found', status_code=404)
+        return api_response({'restored': True, 'version_id': version_id})
     except Exception as e:
-        logger.exception(f'Error in revert_commit: {e}')
+        logger.exception(f'Error in restore_version: {e}')
         return error_response('Internal server error', status_code=500)
 
 
-# ── Barcode Routes ────────────────────────────────────────────────────
+# ── Activity ──────────────────────────────────────────────────────────
 
-
-@inventory_bp.get('/barcodes')
-def list_barcodes():
+@inventory_bp.get('/activity')
+def get_activity():
     try:
         user = resolve_user()
         if not user:
             return error_response('Not authenticated', status_code=401)
 
         db = get_client()
-        resp = db.table('barcodes').select('*').eq('is_active', True).execute()
-        return api_response(resp.data if resp.data else [])
+        try:
+            resp = db.table('audit_log').select('*').order('created_at', desc=True).limit(100).execute()
+            return api_response(resp.data or [])
+        except Exception:
+            return api_response([])
     except Exception as e:
-        logger.exception(f'Error in list_barcodes: {e}')
+        logger.exception(f'Error in get_activity: {e}')
         return error_response('Internal server error', status_code=500)
 
 
-@inventory_bp.post('/items/<item_id>/barcode')
-def get_item_barcode(item_id):
+@inventory_bp.get('/activity/stats')
+def get_activity_stats():
     try:
         user = resolve_user()
         if not user:
             return error_response('Not authenticated', status_code=401)
 
-        db = get_client()
-        item_resp = db.table('inventory_items').select('id, sku').eq('id', item_id).limit(1).execute()
-        if not item_resp.data:
-            return error_response('Item not found', status_code=404)
-
-        sku = item_resp.data[0].get('sku')
-        if sku:
-            resp = db.table('barcodes').select('*').eq('sku', sku).limit(1).execute()
-            if resp.data:
-                return api_response(resp.data[0])
-
-        return api_response({'item_id': item_id, 'sku': sku, 'barcode_id': None})
-    except Exception as e:
-        logger.exception(f'Error in get_item_barcode: {e}')
-        return error_response('Internal server error', status_code=500)
-
-
-@inventory_bp.post('/items/<item_id>/barcode/regenerate')
-def regenerate_barcode(item_id):
-    try:
-        user = resolve_user()
-        if not user:
-            return error_response('Not authenticated', status_code=401)
-        if not _is_manager(user):
-            return error_response('Insufficient role', status_code=403)
+        month = request.args.get('month', type=int)
+        year = request.args.get('year', type=int)
 
         db = get_client()
-        item_resp = (
-            db.table('inventory_items').select('id, sku, description, unit_price').eq('id', item_id).limit(1).execute()
-        )
-        if not item_resp.data:
-            return error_response('Item not found', status_code=404)
-
-        item = item_resp.data[0]
-        sku = item.get('sku')
-
-        import uuid
-
-        new_barcode_id = str(uuid.uuid4())[:12].upper()
-
-        if sku:
-            existing = db.table('barcodes').select('*').eq('sku', sku).limit(1).execute()
-            if existing.data:
-                db.table('barcodes').update({'barcode_id': new_barcode_id, 'barcode_type': 'CODE128'}).eq(
-                    'sku', sku
-                ).execute()
-            else:
-                db.table('barcodes').insert(
-                    {
-                        'barcode_id': new_barcode_id,
-                        'sku': sku,
-                        'description': item.get('description', ''),
-                        'category': 'Uncategorized',
-                        'unit_price': item.get('unit_price', 0),
-                        'is_active': True,
-                        'barcode_type': 'CODE128',
-                    }
-                ).execute()
-        else:
-            db.table('barcodes').insert(
-                {
-                    'barcode_id': new_barcode_id,
-                    'description': item.get('description', ''),
-                    'category': 'Uncategorized',
-                    'is_active': True,
-                    'barcode_type': 'CODE128',
-                }
-            ).execute()
-
-        return api_response({'barcode_id': new_barcode_id, 'barcode_type': 'CODE128'})
+        try:
+            query = db.table('commit_changes').select('action, count').group_by('action')
+            if month is not None:
+                query = query.eq('month', month)
+            if year is not None:
+                query = query.eq('year', year)
+            resp = query.execute()
+            return api_response(resp.data or [])
+        except Exception:
+            return api_response([])
     except Exception as e:
-        logger.exception(f'Error in regenerate_barcode: {e}')
+        logger.exception(f'Error in get_activity_stats: {e}')
         return error_response('Internal server error', status_code=500)
