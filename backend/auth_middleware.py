@@ -1,2 +1,1 @@
-# Thin re-export wrapper for backwards compatibility
-from backend.rbac import require_manager as require_admin  # noqa: F401
+from backend.rbac import resolve_user, require_admin, require_manager, require_staff  # noqa: F401
