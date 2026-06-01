@@ -1,5 +1,4 @@
--- Fix dashboard_summary to use monthly price when available
--- (invoice-applied prices live in monthly_inventory.unit_price)
+-- Fix: dashboard_summary uses monthly price when available
 CREATE OR REPLACE VIEW dashboard_summary AS
 SELECT
   ii.id           AS item_id,
