@@ -27,10 +27,12 @@ commits/
 ```
 
 **Write order for every change:**
+
 1. Write to Supabase (immediate, user sees it)
 2. Write to GitHub (async, 1-2 seconds later)
 
 **If GitHub fails:**
+
 - Show banner: "GitHub is unavailable — changes saved to Supabase only.
   Sync will resume automatically."
 - Keep retrying in background (3 attempts, 30s apart)
@@ -38,6 +40,7 @@ commits/
 - Manual "Sync now" button in sourcectrl/connectors
 
 **If Supabase fails:**
+
 - Show error, block the save — do not write to GitHub without Supabase
 - Data integrity requires both to agree
 
@@ -46,20 +49,28 @@ commits/
 ## 2. Exact data structures (from offline app)
 
 ### Item object (matches existing offline app exactly)
+
 ```json
 {
   "id": "i42",
   "sku": "3011520",
   "desc": "MILK WHOLE 1% GALLON",
-  "price": 3.50,
+  "price": 3.5,
   "onHand": 18,
   "par": 24,
-  "w1i": 6,  "w2i": 6,  "w3i": 5,  "w4i": 0,
-  "w1r": 20, "w2r": 0,  "w3r": 0,  "w4r": 0
+  "w1i": 6,
+  "w2i": 6,
+  "w3i": 5,
+  "w4i": 0,
+  "w1r": 20,
+  "w2r": 0,
+  "w3r": 0,
+  "w4r": 0
 }
 ```
 
 ### INV structure (exactly as offline app)
+
 ```json
 {
   "Dairy":         [ ...items ],
@@ -75,6 +86,7 @@ commits/
 ```
 
 Category colors (exact hex from offline app):
+
 ```
 Dairy           #0D9488
 Cereal          #B45309
@@ -88,6 +100,7 @@ Supplies        #6B7280
 ```
 
 ### GitHub inventory file: `data/inventory/YYYY-MM.json`
+
 ```json
 {
   "_meta": {
@@ -102,33 +115,43 @@ Supplies        #6B7280
     {
       "sku": "3011520",
       "desc": "MILK WHOLE 1% GALLON",
-      "price": 3.50,
+      "price": 3.5,
       "onHand": 18,
       "par": 24,
-      "w1i": 6, "w2i": 6, "w3i": 5, "w4i": 0,
-      "w1r": 20, "w2r": 0, "w3r": 0, "w4r": 0
+      "w1i": 6,
+      "w2i": 6,
+      "w3i": 5,
+      "w4i": 0,
+      "w1r": 20,
+      "w2r": 0,
+      "w3r": 0,
+      "w4r": 0
     }
   ]
 }
 ```
+
 Items sorted alphabetically by `desc` within each category.
 Categories in fixed order (Dairy, Cereal, Beverages, Snacks, Dry Goods,
 Produce & Fresh, Protein & Meat, Frozen Foods, Supplies).
 This makes `git diff` output human-readable.
 
 ### GitHub snapshot (month-end archive): `data/archives/snapshots/YYYY-MM.json`
+
 Same as inventory file but immutable — written once at month close, never changed.
 This is what the History tab shows.
 
 ### GitHub items catalog: `data/inventory/items.json`
+
 Master list of all items ever (active + inactive), with full metadata:
+
 ```json
 [
   {
     "sku": "3011520",
     "desc": "MILK WHOLE 1% GALLON",
     "category": "Dairy",
-    "price": 3.50,
+    "price": 3.5,
     "par": 24,
     "active": true
   }
@@ -136,7 +159,9 @@ Master list of all items ever (active + inactive), with full metadata:
 ```
 
 ### GitHub commit log: `data/commits/log.json`
+
 Index of all commits (appended on every push):
+
 ```json
 [
   {
@@ -156,7 +181,7 @@ Index of all commits (appended on every push):
 ## 3. Role model
 
 | Role      | Level | Auto-commit | Staging  |
-|-----------|-------|-------------|----------|
+| --------- | ----- | ----------- | -------- |
 | staff     | 10    | No          | Required |
 | assistant | 20    | Yes         | Bypassed |
 | manager   | 30    | Yes         | Bypassed |
@@ -315,6 +340,7 @@ frontend/
 This module owns every GitHub API call. Nothing else touches GitHub.
 
 ### Env vars required
+
 ```
 GITHUB_TOKEN       ghp_...  (PAT, repo scope)
 GITHUB_REPO        KpnWorld/MJCC
@@ -383,6 +409,7 @@ def get_file_content(path: str) -> str
 ```
 
 ### Error handling
+
 ```python
 class GitHubDownError(Exception):
     """GitHub API is unreachable (network, DNS, or service outage)."""
@@ -392,6 +419,7 @@ class GitHubAPIError(Exception):
 ```
 
 When `GitHubDownError` is raised anywhere in a request:
+
 - Log the error
 - Store a `github_sync_pending = True` flag in the Supabase record
 - Return the HTTP response to the user normally (Supabase write already succeeded)
@@ -399,7 +427,9 @@ When `GitHubDownError` is raised anywhere in a request:
   the warning banner
 
 ### Retry queue
+
 A simple Supabase table `github_sync_queue`:
+
 ```sql
 CREATE TABLE github_sync_queue (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -411,6 +441,7 @@ CREATE TABLE github_sync_queue (
   synced_at   TIMESTAMPTZ
 );
 ```
+
 A background thread (started in `main.py`) checks this table every 60s
 and retries pending operations. Max 5 attempts then marks as failed.
 
@@ -422,6 +453,7 @@ The editor page (`/mjcc/admin/inventory/editor`) replicates the offline app's
 `renderInv()` behavior exactly, but server-rendered with Jinja + dynamic JS updates.
 
 ### Page load
+
 1. Flask route fetches `monthly_inventory` from Supabase for selected month/year
 2. Transforms to INV format (category → items)
 3. Passes to Jinja template as `inv_data` JSON
@@ -429,11 +461,13 @@ The editor page (`/mjcc/admin/inventory/editor`) replicates the offline app's
 5. JS takes over for cell edits (no full page reload)
 
 ### Table structure per category section
+
 ```
 [●] Category Name    N items    $total    [▲/▼]
 ────────────────────────────────────────────────────────────────────────
 Description | SKU | On Hand | Price | Par | W1↓ W2↓ W3↓ W4↓ | W1↑ W2↑ W3↑ W4↑ | Total | [✕]
 ```
+
 - `↓` = issued (purple)
 - `↑` = received (green)
 - Row is green-tinted if any received this week
@@ -444,6 +478,7 @@ Description | SKU | On Hand | Price | Par | W1↓ W2↓ W3↓ W4↓ | W1↑ W2�
 - `✕` button removes item (manager+ only)
 
 ### Cell edit flow (role ≥ 20 / auto-commit)
+
 ```
 user changes a cell value
   → JS onchange fires
@@ -456,6 +491,7 @@ user changes a cell value
 ```
 
 ### Cell edit flow (staff → staging)
+
 ```
 user clicks "Commit a Change" button
   → modal opens: item search, field, old value, new value, week, note
@@ -465,6 +501,7 @@ user clicks "Commit a Change" button
 ```
 
 ### Calculations (mirrors offline app exactly)
+
 ```js
 iTotal(it)  = max(0, it.onHand + (w1r+w2r+w3r+w4r) - (w1i+w2i+w3i+w4i)) * it.price
 catTotal(c) = sum of iTotal for all items in category
@@ -477,6 +514,7 @@ wkNTotal    = sum of it.wNr * it.price for all items
 ## 8. API routes (complete)
 
 ### Auth
+
 ```
 POST /api/auth/login
 GET  /api/auth/me
@@ -484,6 +522,7 @@ POST /api/auth/logout
 ```
 
 ### Inventory (Supabase)
+
 ```
 GET  /api/inventory/now
 GET  /api/inventory/current-month
@@ -500,6 +539,7 @@ POST /api/inventory/snapshot
 ```
 
 ### Commits / source control
+
 ```
 POST  /api/inventory/commits/stage            ← staff→staging; ≥20→auto-commit
 GET   /api/inventory/commits/staged           ← manager+
@@ -514,18 +554,21 @@ POST  /api/inventory/commits/<id>/revert      ← manager+
 ```
 
 ### Invoice
+
 ```
 POST /api/inventory/parse-invoice
 POST /api/inventory/apply-invoice
 ```
 
 ### Barcodes
+
 ```
 GET  /api/inventory/barcodes
 POST /api/inventory/barcodes/export
 ```
 
 ### Users
+
 ```
 GET    /api/users
 POST   /api/users
@@ -535,6 +578,7 @@ PATCH  /api/users/<id>/pin
 ```
 
 ### GitHub
+
 ```
 GET  /api/github/status              ← {connected, repo, last_sync, pending_count}
 POST /api/github/sync                ← manual force-sync
@@ -544,6 +588,7 @@ GET  /api/github/commits             ← read data/commits/log.json
 ```
 
 ### Settings
+
 ```
 GET   /api/settings
 PATCH /api/settings
@@ -556,6 +601,7 @@ PATCH /api/settings
 Rendered server-side. Items injected via `g.nav_items` in `before_request`.
 
 ### At `/mjcc/admin/portal` (top level)
+
 ```
 fa-boxes-stacked   Inventory
 fa-utensils        Menu
@@ -565,6 +611,7 @@ fa-box-archive     Archives
 ```
 
 ### Inside `/mjcc/admin/inventory/*`
+
 ```
 fa-table           Editor
 fa-file-import     Data Entry
@@ -575,6 +622,7 @@ fa-code-branch     Source Control
 ```
 
 ### Inside `/mjcc/admin/menu/*`
+
 ```
 fa-plus            New Meal
 fa-calendar        Calendar
@@ -584,6 +632,7 @@ fa-robot           Automation
 ```
 
 ### Inside `/mjcc/admin/users/*`
+
 ```
 fa-user-gear       Manage
 fa-shield          Policies
@@ -592,6 +641,7 @@ fa-code-branch     Source Control
 ```
 
 ### Inside `/mjcc/admin/sourcectrl/*`
+
 ```
 fa-timeline        View
 fa-upload          Actions
@@ -602,6 +652,7 @@ fa-key             Permissions
 ```
 
 ### Inside `/mjcc/admin/archives/*`
+
 ```
 fa-file-invoice    Invoices
 fa-camera          Snapshots
@@ -610,6 +661,7 @@ fa-clock-rotate-left  Timeline
 ```
 
 ### Staff `/mjcc/staff/*`
+
 ```
 fa-boxes-stacked   Inventory
 fa-code-branch     Source Control
@@ -623,28 +675,35 @@ fa-barcode         Barcodes
 No graphs. Tables only.
 
 ### Commit list (all roles, filtered by tool context)
+
 ```
 Hash     Message                    Author    Branch  When       Files
 a1b2c3   wk2 delivery applied       J. Smith  main    2h ago     1
 d4e5f6   updated on-hand counts     M. Garcia main    yesterday  3
 ```
+
 Click row → expands inline diff:
+
 ```
   CHICKEN BREAST (8873029)   w2r: 14 → 16
   MILK 1GAL (3011520)        w3i:  8 → 9
 ```
+
 "Open in GitHub" link on each row (links to the actual GitHub commit).
 
 ### Staging queue (manager+ only, shown above commit list)
+
 ```
 Item                  Field   Old  New   Submitted by  In queue
 CHICKEN BREAST        w2r     14   16    J. Smith      3h
 RICE 25LB             w3i      2    3    T. Jones      1h
 ```
+
 Row actions: Merge, Reject.
 Top bar: message input + "Push All" button.
 
 ### GitHub sync status banner (shown when pending)
+
 ```
 ⚠ GitHub sync pending — 2 changes not yet mirrored.
    GitHub has been unreachable since 2:14 PM. [Retry now]
@@ -658,15 +717,18 @@ Archives pages **read directly from GitHub** via `/api/github/files` and
 `/api/github/file`. They do not query Supabase.
 
 ### `/mjcc/admin/archives/invoices`
+
 Lists files in `data/archives/invoices/`.
 Shows: filename, date, size, link to view JSON content.
 
 ### `/mjcc/admin/archives/snapshots`
+
 Lists files in `data/archives/snapshots/`.
 Each snapshot is a full INV export. View button opens a read-only
 inventory table identical to the editor (same template, `editable=false`).
 
 ### `/mjcc/admin/archives/timeline`
+
 Reads `data/commits/log.json` and renders a table:
 month-over-month grand total, total changes, most active user.
 
@@ -675,13 +737,15 @@ month-over-month grand total, total changes, most active user.
 ## 12. Build order
 
 ### Phase 1 — Core infrastructure
-1. `backend/config.py` — add GITHUB_* vars
+
+1. `backend/config.py` — add GITHUB\_\* vars
 2. `backend/rbac.py` — AUTO_COMMIT_ROLES = {assistant, manager, admin}
 3. `backend/github_sync.py` — full module with error handling + retry queue
 4. Supabase migration: `github_sync_queue` table
 5. Supabase migration: `commits.github_sha TEXT` column
 
 ### Phase 2 — Flask shell
+
 6. `backend/main.py` — app factory, blueprint registration, before_request
 7. `frontend/templates/base.html`
 8. `frontend/templates/nav_base.html`
@@ -692,6 +756,7 @@ month-over-month grand total, total changes, most active user.
 13. `frontend/templates/errors/github_down.html`
 
 ### Phase 3 — Inventory tool (highest priority)
+
 14. `frontend/static/js/inventory_table.js` — extracted from offline app,
     adapted to use API instead of localStorage
 15. `backend/views/admin/inventory.py` (all 6 routes)
@@ -706,20 +771,24 @@ month-over-month grand total, total changes, most active user.
 23. `backend/routes/github.py`
 
 ### Phase 4 — Source control global + staff
+
 24. `backend/views/admin/sourcectrl.py` (all 6 sub-pages)
 25. All sourcectrl templates
 26. `backend/views/staff/*` (inventory, sourcectrl, barcodes)
 27. Staff templates
 
 ### Phase 5 — Users + settings
+
 28. `backend/views/admin/users.py` + templates
 29. Settings page
 
 ### Phase 6 — Archives
+
 30. `backend/views/admin/archives.py` + all 4 templates
     (these are read-only GitHub file browsers, straightforward)
 
 ### Phase 7 — Menu tool
+
 31. Menu templates (calendar, create, compose, sourcectrl, automation)
     Note: menu data model decision needed before building (see open questions)
 

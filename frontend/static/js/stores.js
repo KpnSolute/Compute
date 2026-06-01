@@ -1,5 +1,4 @@
 document.addEventListener('alpine:init', () => {
-
   // ── Toast ──────────────────────────────────────────────────────────
   Alpine.store('toast', {
     show: false,
@@ -11,9 +10,13 @@ document.addEventListener('alpine:init', () => {
       this.message = message;
       this.type = type;
       this.show = true;
-      this._timer = setTimeout(() => { this.show = false; }, duration);
+      this._timer = setTimeout(() => {
+        this.show = false;
+      }, duration);
     },
-    hide() { this.show = false; },
+    hide() {
+      this.show = false;
+    },
   });
 
   // ── Confirm dialog ─────────────────────────────────────────────────
@@ -49,7 +52,9 @@ document.addEventListener('alpine:init', () => {
       this.data = data;
       this.show = true;
     },
-    hide() { this.show = false; },
+    hide() {
+      this.show = false;
+    },
   });
 
   // ── Sidebar ────────────────────────────────────────────────────────
@@ -57,28 +62,63 @@ document.addEventListener('alpine:init', () => {
     collapsed: false,
     active: 'inventory',
     items: [
-      { id: 'home',           label: 'Home',           icon: 'fas fa-home',          roles: ['assistant', 'manager', 'admin'] },
-      { id: 'inventory',      label: 'Inventory',      icon: 'fas fa-boxes-stacked', roles: ['staff', 'assistant', 'manager', 'admin'] },
-      { id: 'source-control', label: 'Source Control', icon: 'fas fa-code-branch',   roles: ['assistant', 'manager', 'admin'] },
-      { id: 'reports',        label: 'Reports',        icon: 'fas fa-chart-line',    roles: ['manager', 'admin'] },
-      { id: 'users',          label: 'Users',          icon: 'fas fa-users',         roles: ['admin'] },
-      { id: 'barcodes',       label: 'Barcodes',       icon: 'fas fa-barcode',       roles: ['staff', 'assistant', 'manager', 'admin'] },
-      { id: 'settings',       label: 'Settings',       icon: 'fas fa-gear',          roles: ['admin'] },
-      { id: 'files',          label: 'Files',          icon: 'fas fa-folder-open',   roles: ['manager', 'admin'] },
-      { id: 'qr-portal',      label: 'QR Portal',      icon: 'fas fa-qrcode',        roles: ['staff', 'assistant', 'manager', 'admin'] },
+      { id: 'home', label: 'Home', icon: 'fas fa-home', roles: ['assistant', 'manager', 'admin'] },
+      {
+        id: 'inventory',
+        label: 'Inventory',
+        icon: 'fas fa-boxes-stacked',
+        roles: ['staff', 'assistant', 'manager', 'admin'],
+      },
+      {
+        id: 'source-control',
+        label: 'Source Control',
+        icon: 'fas fa-code-branch',
+        roles: ['assistant', 'manager', 'admin'],
+      },
+      { id: 'reports', label: 'Reports', icon: 'fas fa-chart-line', roles: ['manager', 'admin'] },
+      { id: 'users', label: 'Users', icon: 'fas fa-users', roles: ['admin'] },
+      {
+        id: 'barcodes',
+        label: 'Barcodes',
+        icon: 'fas fa-barcode',
+        roles: ['staff', 'assistant', 'manager', 'admin'],
+      },
+      { id: 'settings', label: 'Settings', icon: 'fas fa-gear', roles: ['admin'] },
+      { id: 'files', label: 'Files', icon: 'fas fa-folder-open', roles: ['manager', 'admin'] },
+      {
+        id: 'qr-portal',
+        label: 'QR Portal',
+        icon: 'fas fa-qrcode',
+        roles: ['staff', 'assistant', 'manager', 'admin'],
+      },
     ],
     get filteredItems() {
       const role = Alpine.store('auth')?.user?.role || 'staff';
-      return this.items.filter(i => i.roles.includes(role));
+      return this.items.filter((i) => i.roles.includes(role));
     },
-    toggle() { this.collapsed = !this.collapsed; },
+    toggle() {
+      this.collapsed = !this.collapsed;
+    },
     setActive(id) {
       this.active = id;
       // Navigate to the canonical URL for this page
       const role = Alpine.store('auth')?.user?.role || 'staff';
-      const adminPages = { 'home': '/mjcc/admin/portal', 'inventory': '/mjcc/admin/inventory/editor', 'source-control': '/mjcc/admin/sourcectrl/view', 'menu': '/mjcc/admin/menu/calendar', 'users': '/mjcc/admin/users/manage', 'archives': '/mjcc/admin/archives/snapshots', 'settings': '/mjcc/admin/settings', 'barcodes': '/mjcc/admin/inventory/barcodes' };
-      const staffPages = { 'inventory': '/mjcc/staff/inventory', 'source-control': '/mjcc/staff/sourcectrl', 'barcodes': '/mjcc/staff/barcodes' };
-      const pageMap = (role === 'staff') ? staffPages : adminPages;
+      const adminPages = {
+        home: '/mjcc/admin/portal',
+        inventory: '/mjcc/admin/inventory/editor',
+        'source-control': '/mjcc/admin/sourcectrl/view',
+        menu: '/mjcc/admin/menu/calendar',
+        users: '/mjcc/admin/users/manage',
+        archives: '/mjcc/admin/archives/snapshots',
+        settings: '/mjcc/admin/settings',
+        barcodes: '/mjcc/admin/inventory/barcodes',
+      };
+      const staffPages = {
+        inventory: '/mjcc/staff/inventory',
+        'source-control': '/mjcc/staff/sourcectrl',
+        barcodes: '/mjcc/staff/barcodes',
+      };
+      const pageMap = role === 'staff' ? staffPages : adminPages;
       const target = pageMap[id];
       if (target && window.location.pathname !== target) {
         history.pushState({}, '', target);
@@ -99,11 +139,27 @@ document.addEventListener('alpine:init', () => {
           const role = data.user?.role || 'staff';
           const sidebar = Alpine.store('sidebar');
           const path = window.location.pathname;
-          const pathMap = { 'inventory': 'inventory', 'sourcectrl': 'source-control', 'menu': 'menu', 'users': 'users', 'archives': 'archives', 'settings': 'settings', 'barcodes': 'barcodes', 'portal': 'home' };
+          const pathMap = {
+            inventory: 'inventory',
+            sourcectrl: 'source-control',
+            menu: 'menu',
+            users: 'users',
+            archives: 'archives',
+            settings: 'settings',
+            barcodes: 'barcodes',
+            portal: 'home',
+          };
           let active = role === 'staff' ? 'inventory' : 'home';
-          for (const [seg, page] of Object.entries(pathMap)) { if (path.includes('/' + seg)) { active = page; break; } }
+          for (const [seg, page] of Object.entries(pathMap)) {
+            if (path.includes('/' + seg)) {
+              active = page;
+              break;
+            }
+          }
           const hash = window.location.hash.replace('#', '');
-          if (hash && sidebar.items.some(i => i.id === hash && i.roles.includes(role))) { active = hash; }
+          if (hash && sidebar.items.some((i) => i.id === hash && i.roles.includes(role))) {
+            active = hash;
+          }
           sidebar.active = active;
         } else {
           window.location.href = '/?expired=1';
@@ -125,23 +181,35 @@ document.addEventListener('alpine:init', () => {
   // knows the user's local time. Then optionally check if the DB has a
   // different open month (admin override), accepting it only if it is
   // within ±1 month of the real calendar date.
-  const _MONTH_NAMES = ['January','February','March','April','May','June',
-                        'July','August','September','October','November','December'];
+  const _MONTH_NAMES = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
   const _clientNow = new Date();
 
   Alpine.store('now', {
-    month:      _clientNow.getMonth(),
-    year:       _clientNow.getFullYear(),
-    week:       Math.min(4, Math.ceil(_clientNow.getDate() / 7)),
+    month: _clientNow.getMonth(),
+    year: _clientNow.getFullYear(),
+    week: Math.min(4, Math.ceil(_clientNow.getDate() / 7)),
     month_name: _MONTH_NAMES[_clientNow.getMonth()],
-    loaded:     false,
+    loaded: false,
 
     async init() {
       // Step 1: authoritative client date
-      const d        = new Date();
-      this.month     = d.getMonth();
-      this.year      = d.getFullYear();
-      this.week      = Math.min(4, Math.ceil(d.getDate() / 7));
+      const d = new Date();
+      this.month = d.getMonth();
+      this.year = d.getFullYear();
+      this.week = Math.min(4, Math.ceil(d.getDate() / 7));
       this.month_name = _MONTH_NAMES[this.month];
 
       // Step 2: check DB open month — only override if admin set a different month
@@ -150,21 +218,27 @@ document.addEventListener('alpine:init', () => {
         const res = await fetch('/api/inventory/current-month', { credentials: 'include' });
         if (res.ok) {
           const payload = await res.json();
-          const rec = (payload && payload.data != null) ? payload.data : payload;
-          if (rec && rec.status === 'open' && typeof rec.month === 'number' && typeof rec.year === 'number') {
-            const dbTs   = rec.year * 12 + rec.month;
+          const rec = payload && payload.data != null ? payload.data : payload;
+          if (
+            rec &&
+            rec.status === 'open' &&
+            typeof rec.month === 'number' &&
+            typeof rec.year === 'number'
+          ) {
+            const dbTs = rec.year * 12 + rec.month;
             const realTs = d.getFullYear() * 12 + d.getMonth();
             if (Math.abs(dbTs - realTs) <= 1) {
-              this.month      = rec.month;
-              this.year       = rec.year;
+              this.month = rec.month;
+              this.year = rec.year;
               this.month_name = _MONTH_NAMES[rec.month];
             }
           }
         }
-      } catch { /* server unreachable — client date is correct */ }
+      } catch {
+        /* server unreachable — client date is correct */
+      }
 
       this.loaded = true;
     },
   });
-
 });
