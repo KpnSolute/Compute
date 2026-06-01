@@ -6,21 +6,27 @@ from backend.supabase_client import get_client
 
 settings_bp = Blueprint('settings', __name__, url_prefix='/api/settings')
 
+_DEFAULTS = [
+    {'setting_key': 'AI_PROVIDER', 'setting_value': 'ollama'},
+    {'setting_key': 'AI_MODEL', 'setting_value': 'llama3.2:3b'},
+    {'setting_key': 'AI_API_KEY', 'setting_value': ''},
+]
+
 
 @settings_bp.route('', methods=['GET'])
 @require_admin
 def get_settings():
     db = get_client()
     resp = db.table('app_settings').select('*').execute()
-    settings = {row['setting_key']: row['setting_value'] for row in (resp.data or [])}
+    # setting_value is jsonb — unwrap strings from JSON if needed
+    settings = {}
+    for row in (resp.data or []):
+        v = row['setting_value']
+        # jsonb strings come back as Python str already; dicts/lists stay as-is
+        settings[row['setting_key']] = v
     if not settings:
-        defaults = [
-            {'setting_key': 'AI_PROVIDER', 'setting_value': 'ollama'},
-            {'setting_key': 'AI_MODEL', 'setting_value': 'llama3.2:3b'},
-            {'setting_key': 'AI_API_KEY', 'setting_value': ''},
-        ]
-        db.table('app_settings').insert(defaults).execute()
-        settings = {d['setting_key']: d['setting_value'] for d in defaults}
+        db.table('app_settings').insert(_DEFAULTS).execute()
+        settings = {d['setting_key']: d['setting_value'] for d in _DEFAULTS}
     return api_response(settings)
 
 
