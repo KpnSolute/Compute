@@ -1,90 +1,137 @@
 import json
+import logging
 import os
+import re
 
-from groq import Groq
-from ollamafreeapi import OllamaFreeAPI
+logger = logging.getLogger(__name__)
 
-AI_PROVIDER = os.getenv('AI_PROVIDER', 'ollama').lower()
-AI_MODEL = os.getenv('AI_MODEL', 'llama3.2:3b')
-GROQ_MODEL = os.getenv('GROQ_MODEL', 'mixtral-8x7b-32768')
-
-ollama_client = OllamaFreeAPI()
-_groq_client = None
+AI_PROVIDER = os.getenv('AI_PROVIDER', 'gemini')
+AI_MODEL = os.getenv('AI_MODEL', 'gemini-2.0-flash')
+AI_API_KEY = os.getenv('GEMINI_API_KEY', os.getenv('GROQ_API_KEY', ''))
+OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
 
 
-def _get_groq_client() -> Groq:
-    global _groq_client
-    if _groq_client is None:
-        key = os.getenv('GROQ_API_KEY', '')
-        if not key:
-            raise RuntimeError('GROQ_API_KEY not configured')
-        _groq_client = Groq(api_key=key)
-    return _groq_client
+SYSTEM_PROMPT = """You are an expert at parsing food service invoices and matching items to an inventory catalog.
+
+Given an invoice text and a catalog of items, extract each line item from the invoice and match it to the
+closest catalog item. Return a JSON array of matches.
+
+Each match must have:
+- catalog_item_id: the item_id from the catalog (string)
+- sku: the catalog item SKU
+- description: the catalog item description
+- invoice_description: what was written on the invoice
+- quantity: numeric quantity from invoice
+- unit_price: unit price from invoice (or null if not found)
+- confidence: 0.0 to 1.0 (how confident you are in the match)
+- matched: true/false
+
+Return ONLY a JSON array, no markdown, no explanation."""
 
 
-def _build_catalog_text(items: list) -> str:
-    lines = ['id | sku | description | unit_price']
-    for i in items:
-        sid = i.get('item_id', i.get('id', ''))
-        sku = i.get('sku') or ''
-        desc = i.get('description', '')
-        price = i.get('unit_price', 0)
-        lines.append(f'{sid} | {sku} | {desc} | {price}')
-    return '\n'.join(lines)
+def _build_prompt(catalog_items: list, invoice_text: str) -> str:
+    catalog_lines = []
+    for item in catalog_items[:100]:  # cap to avoid token limits
+        catalog_lines.append(f'  - id={item["item_id"]} sku={item["sku"]} desc="{item["description"]}" price=${item.get("unit_price", 0)}')
+    catalog_str = '\n'.join(catalog_lines)
+
+    return f"""CATALOG ({len(catalog_items)} items):
+{catalog_str}
+
+INVOICE TEXT:
+{invoice_text}
+
+Match each invoice line to the catalog. Return JSON array only."""
 
 
-def _build_prompt(catalog_text: str) -> str:
-    return f"""You are an inventory assistant for Miami Job Corps Cafeteria.
-Parse the invoice and match each line item to the catalog below.
-Match by SKU first, then by description (fuzzy match is OK).
-Return ONLY a JSON array, no markdown, no preamble, no code fences.
+def _parse_response(text: str) -> list:
+    text = text.strip()
+    # Strip markdown fences
+    text = re.sub(r'^```(?:json)?\n?', '', text)
+    text = re.sub(r'\n?```$', '', text)
+    text = text.strip()
 
-Format: [{{"itemId":"...","matchedDesc":"...","qty":N,"unitPrice":N.NN}}]
-
-Rules:
-- itemId: the catalog id of the best match, or "NEW" if no match
-- matchedDesc: the matched catalog description (or original description for NEW items)
-- qty: the quantity ordered (numeric)
-- unitPrice: the unit price from the catalog, not the invoice
-- If multiple items match, pick the closest one
-- For "NEW" items, include the original description in matchedDesc
-
-Catalog (id | sku | description | unit_price):
-{catalog_text}"""
+    parsed = json.loads(text)
+    if isinstance(parsed, list):
+        return parsed
+    if isinstance(parsed, dict) and 'matches' in parsed:
+        return parsed['matches']
+    return []
 
 
-def _clean_response(raw: str) -> str:
-    raw = raw.strip()
-    raw = raw.removeprefix('```json').removeprefix('```').removesuffix('```').strip()
-    return raw
+def _parse_with_gemini(catalog_items: list, invoice_text: str) -> list:
+    import google.generativeai as genai
+
+    api_key = AI_API_KEY or os.getenv('GEMINI_API_KEY', '')
+    if not api_key:
+        raise RuntimeError('GEMINI_API_KEY not set')
+
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(AI_MODEL or 'gemini-2.0-flash')
+    prompt = _build_prompt(catalog_items, invoice_text)
+    response = model.generate_content(f'{SYSTEM_PROMPT}\n\n{prompt}')
+    return _parse_response(response.text)
 
 
-def _parse_via_ollama(prompt: str, invoice_text: str) -> list:
-    resp = ollama_client.chat(
-        model=AI_MODEL,
-        prompt=f'{prompt}\n\nInvoice:\n{invoice_text}',
-        temperature=0.1,
-    )
-    return json.loads(_clean_response(resp))
+def _parse_with_groq(catalog_items: list, invoice_text: str) -> list:
+    from groq import Groq
 
+    api_key = AI_API_KEY or os.getenv('GROQ_API_KEY', '')
+    if not api_key:
+        raise RuntimeError('GROQ_API_KEY not set')
 
-def _parse_via_groq(prompt: str, invoice_text: str) -> list:
-    client = _get_groq_client()
-    completion = client.chat.completions.create(
-        model=GROQ_MODEL,
+    client = Groq(api_key=api_key)
+    prompt = _build_prompt(catalog_items, invoice_text)
+    response = client.chat.completions.create(
+        model=AI_MODEL or 'llama3-8b-8192',
         messages=[
-            {'role': 'system', 'content': prompt},
-            {'role': 'user', 'content': invoice_text},
+            {'role': 'system', 'content': SYSTEM_PROMPT},
+            {'role': 'user', 'content': prompt},
         ],
         temperature=0.1,
     )
-    return json.loads(_clean_response(completion.choices[0].message.content))
+    return _parse_response(response.choices[0].message.content)
 
 
-def parse_invoice_text(items: list, invoice_text: str) -> list:
-    catalog = _build_catalog_text(items)
-    prompt = _build_prompt(catalog)
+def _parse_with_ollama(catalog_items: list, invoice_text: str) -> list:
+    import urllib.request
 
-    if AI_PROVIDER == 'groq':
-        return _parse_via_groq(prompt, invoice_text)
-    return _parse_via_ollama(prompt, invoice_text)
+    prompt = _build_prompt(catalog_items, invoice_text)
+    payload = json.dumps({
+        'model': AI_MODEL or 'llama3.2:3b',
+        'prompt': f'{SYSTEM_PROMPT}\n\n{prompt}',
+        'stream': False,
+    }).encode()
+
+    req = urllib.request.Request(
+        f'{OLLAMA_BASE_URL}/api/generate',
+        data=payload,
+        headers={'Content-Type': 'application/json'},
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        result = json.loads(resp.read())
+        return _parse_response(result.get('response', '[]'))
+
+
+def parse_invoice_text(catalog_items: list, invoice_text: str) -> dict:
+    provider = AI_PROVIDER.lower()
+    logger.info(f'Parsing invoice with provider={provider}')
+
+    try:
+        if provider == 'gemini':
+            matches = _parse_with_gemini(catalog_items, invoice_text)
+        elif provider == 'groq':
+            matches = _parse_with_groq(catalog_items, invoice_text)
+        elif provider == 'ollama':
+            matches = _parse_with_ollama(catalog_items, invoice_text)
+        else:
+            raise ValueError(f'Unknown AI provider: {provider}')
+
+        return {
+            'matches': matches,
+            'provider': provider,
+            'match_count': len(matches),
+        }
+    except Exception as e:
+        logger.exception(f'AI parsing failed with {provider}: {e}')
+        raise
