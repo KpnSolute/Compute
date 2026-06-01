@@ -383,6 +383,7 @@ def categories():
 # ── Staging / Commit pipeline ─────────────────────────────────────────
 
 @inventory_bp.post('/submit')
+@inventory_bp.post('/commits/stage')  # canonical name per implementation plan
 def submit_pending():
     try:
         user = resolve_user()
