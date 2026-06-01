@@ -694,7 +694,8 @@ def list_commits():
                 .execute()
             )
             total = resp.count if resp.count is not None else len(resp.data or [])
-            return api_response({'commits': resp.data or [], 'page': page, 'per_page': per_page, 'total': total})
+            total_pages = max(1, (total + per_page - 1) // per_page)
+            return api_response({'commits': resp.data or [], 'page': page, 'per_page': per_page, 'total': total, 'total_pages': total_pages})
         except Exception:
             return api_response({'commits': [], 'page': page, 'per_page': per_page, 'total': 0})
     except Exception as e:
@@ -738,8 +739,24 @@ def get_commit(commit_id):
         commit_resp = db.table('commits_compat').select('*').eq('commit_id', commit_id).limit(1).execute()
         if not commit_resp.data:
             return error_response('Commit not found', status_code=404)
-        changes_resp = db.table('commit_changes').select('*').eq('commit_id', commit_id).execute()
-        return api_response({'commit': commit_resp.data[0], 'changes': changes_resp.data or []})
+        # Enrich changes with item description for the diff view
+        changes_resp = (
+            db.table('commit_changes')
+            .select('*, inventory_items(description, sku)')
+            .eq('commit_id', commit_id)
+            .order('field')
+            .execute()
+        )
+        raw_changes = changes_resp.data or []
+        enriched = []
+        for ch in raw_changes:
+            item_info = ch.pop('inventory_items', None) or {}
+            enriched.append({
+                **ch,
+                'description': item_info.get('description'),
+                'sku':         item_info.get('sku'),
+            })
+        return api_response({'commit': commit_resp.data[0], 'changes': enriched})
     except Exception as e:
         logger.exception(f'Error in get_commit: {e}')
         return error_response('Internal server error', status_code=500)
@@ -982,68 +999,98 @@ def rollover():
         if not user:
             return jsonify(error='Not authenticated'), 401
         if not _is_manager(user):
-            return jsonify(error='Insufficient role'), 403
+            return jsonify(error='Manager role required'), 403
 
-        is_valid, validated_data_or_error, status_code = validate_json(ROLLOVER_SCHEMA)
+        is_valid, validated, status_code = validate_json(ROLLOVER_SCHEMA)
         if not is_valid:
-            return validated_data_or_error, status_code
+            return validated, status_code
 
-        data = validated_data_or_error
-        from_month = data['from_month']
-        from_year = data['from_year']
+        from_month = validated['from_month']
+        from_year  = validated['from_year']
+        db         = get_client()
 
-        next_month = (from_month + 1) % 12
-        next_year = from_year + 1 if from_month == 11 else from_year
+        # Call the atomic perform_rollover RPC
+        # This: closes from_month, opens next_month, copies ending on_hand,
+        #       creates a commit record in source control
+        rpc_result = db.rpc('perform_rollover', {
+            'p_from_month': from_month,
+            'p_from_year':  from_year,
+            'p_rolled_by':  user['id'],
+            'p_message':    f'rollover: close {from_month}/{from_year} → open next month',
+        }).execute()
 
-        db = get_client()
-        items_resp = db.table('dashboard_summary').select('*').eq('month', from_month).eq('year', from_year).execute()
-        items = items_resp.data or []
+        result = rpc_result.data
+        if not result:
+            return jsonify(error='Rollover RPC returned no data'), 500
 
-        result = calc_summary(items)
+        commit_id    = result.get('commit_id')
+        next_month   = result.get('next_month')
+        next_year    = result.get('next_year')
+        start_total  = result.get('starting_total', 0)
 
-        for item in items:
-            new_row = {
-                'item_id': item['item_id'],
-                'month': next_month,
-                'year': next_year,
-                'on_hand': item.get('on_hand', 0),
-                'w1_received': 0, 'w2_received': 0, 'w3_received': 0, 'w4_received': 0,
-                'w1_issued': 0, 'w2_issued': 0, 'w3_issued': 0, 'w4_issued': 0,
-            }
-            existing = db.table('monthly_inventory').select('id').eq('item_id', item['item_id']).eq('month', next_month).eq('year', next_year).limit(1).execute()
-            if existing.data:
-                db.table('monthly_inventory').update({'on_hand': item.get('on_hand', 0)}).eq('item_id', item['item_id']).eq('month', next_month).eq('year', next_year).execute()
-            else:
-                db.table('monthly_inventory').insert(new_row).execute()
-
-        # Archive the closing month to GitHub (immutable snapshot)
+        # Push archive snapshot to GitHub (async — does not block response)
         try:
             from backend.github_sync import sync_archive_after_rollover
+            inv_resp = db.table('dashboard_summary').select('*').eq('month', from_month).eq('year', from_year).execute()
             inv_data: dict = {}
-            for item in items:
+            for item in (inv_resp.data or []):
                 cat = item.get('category', 'Uncategorized')
                 if cat not in inv_data:
                     inv_data[cat] = []
                 inv_data[cat].append({
-                    'sku': item.get('sku', ''), 'desc': item.get('description', ''),
-                    'price': float(item.get('unit_price') or 0),
+                    'sku':    item.get('sku', ''),
+                    'desc':   item.get('description', ''),
+                    'price':  float(item.get('unit_price') or 0),
                     'onHand': float(item.get('on_hand') or 0),
-                    'par':   float(item.get('par_level') or 0),
-                    'w1r': float(item.get('w1_received') or 0), 'w2r': float(item.get('w2_received') or 0),
-                    'w3r': float(item.get('w3_received') or 0), 'w4r': float(item.get('w4_received') or 0),
-                    'w1i': float(item.get('w1_issued') or 0),   'w2i': float(item.get('w2_issued') or 0),
-                    'w3i': float(item.get('w3_issued') or 0),   'w4i': float(item.get('w4_issued') or 0),
+                    'par':    float(item.get('par_level') or 0),
+                    'w1r': float(item.get('w1_received') or 0),
+                    'w2r': float(item.get('w2_received') or 0),
+                    'w3r': float(item.get('w3_received') or 0),
+                    'w4r': float(item.get('w4_received') or 0),
+                    'w1i': float(item.get('w1_issued') or 0),
+                    'w2i': float(item.get('w2_issued') or 0),
+                    'w3i': float(item.get('w3_issued') or 0),
+                    'w4i': float(item.get('w4_issued') or 0),
                 })
             author = user.get('display_name') or user.get('username', 'MJCC')
             sync_archive_after_rollover(from_month, from_year, inv_data, author)
-        except Exception as arch_err:
-            logger.warning(f'Archive sync setup failed: {arch_err}')
 
-        return jsonify({'next_month': next_month, 'next_year': next_year, 'starting_total': round(result['grand_total'], 2)})
+            # Also push the new month's starting state to GitHub
+            from backend.github_sync import sync_inventory_after_commit
+            new_inv_resp = db.table('dashboard_summary').select('*').eq('month', next_month).eq('year', next_year).execute()
+            new_inv_data: dict = {}
+            for item in (new_inv_resp.data or []):
+                cat = item.get('category', 'Uncategorized')
+                if cat not in new_inv_data:
+                    new_inv_data[cat] = []
+                new_inv_data[cat].append({
+                    'sku': item.get('sku', ''), 'desc': item.get('description', ''),
+                    'price': float(item.get('unit_price') or 0),
+                    'onHand': float(item.get('on_hand') or 0), 'par': float(item.get('par_level') or 0),
+                    'w1r': 0, 'w2r': 0, 'w3r': 0, 'w4r': 0,
+                    'w1i': 0, 'w2i': 0, 'w3i': 0, 'w4i': 0,
+                })
+            sync_inventory_after_commit(
+                next_month, next_year, new_inv_data, commit_id, author,
+                f'rollover: starting state {next_month}/{next_year}',
+            )
+        except Exception as sync_err:
+            logger.warning(f'GitHub sync after rollover failed: {sync_err}')
+
+        return jsonify({
+            'ok':             True,
+            'commit_id':      commit_id,
+            'from_month':     from_month,
+            'from_year':      from_year,
+            'next_month':     next_month,
+            'next_year':      next_year,
+            'starting_total': float(start_total),
+            'message':        f'Rolled over to {next_month}/{next_year}. Starting inventory: ${float(start_total):,.2f}',
+        })
+
     except Exception as e:
-        logger.exception(f'Error in rollover endpoint: {e}')
+        logger.exception(f'Error in rollover: {e}')
         return jsonify(error='Internal server error'), 500
-
 
 @inventory_bp.post('/publish')
 def publish_month():
