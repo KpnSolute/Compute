@@ -26,15 +26,17 @@ Manages Python virtual environments and dependencies for the MJCC project.
 
 ## Key dependencies
 
-| Package               | Purpose                       |
-| --------------------- | ----------------------------- |
-| `flask`               | Web framework                 |
-| `flask-cors`          | CORS support                  |
-| `supabase`            | Supabase Python client        |
-| `python-dotenv`       | `.env` loading                |
-| `google-generativeai` | Gemini AI for invoice parsing |
-| `ruff`                | Linting                       |
-| `pytest`              | Testing                       |
+| Package               | Purpose                                    |
+| --------------------- | ------------------------------------------ |
+| `flask`               | Web framework                              |
+| `flask-cors`          | CORS support                               |
+| `supabase`            | Supabase Python client                     |
+| `python-dotenv`       | `.env` loading                             |
+| `google-generativeai` | Gemini AI for invoice parsing              |
+| `pillow`              | Image processing for invoice image parsing |
+| `bcrypt`              | PIN hashing for staff login                |
+| `ruff`                | Linting                                    |
+| `pytest`              | Testing                                    |
 
 ## Conventions
 

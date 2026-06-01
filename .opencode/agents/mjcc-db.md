@@ -35,13 +35,15 @@ Owns the Supabase (Postgres) database layer for the MJCC Inventory Management sy
 | `monthly_snapshots` | Month-end snapshots for rollover                                                                       |
 | `uploads`           | File tracking (invoice PDFs, delivery photos, receipts)                                                |
 | `app_settings`      | Key-value config store (AI provider, API key, etc.)                                                    |
+| `github_sync_queue` | Async retry queue for GitHub sync failures (operation, payload, attempts, synced_at)                   |
 
 ## Key constraints
 
 - `role` values: `admin`, `manager`, `assistant`, `staff`
 - Month is 0-indexed (0=Jan, 11=Dec) to match JS `Date.getMonth()`
 - Year range: 2020–2030
-- Service-role key for **all** operations (never anon key)
+- Service-role key for **all** operations (never anon key — RLS is bypassed, role gates are in Python)
+- `commits.github_sha TEXT` + `commits.github_synced_at TIMESTAMPTZ` — populated by async GitHub sync after each push
 - Historical data (2020-2026) is immutable
 
 ## RPC functions

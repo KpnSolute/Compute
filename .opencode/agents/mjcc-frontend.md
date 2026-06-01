@@ -21,9 +21,19 @@ Owns all frontend HTML/JS/CSS for the MJCC Inventory Management system.
 - `frontend/index.html` — Login page (staff PIN + admin/manager password flows)
 - `frontend/app.html` — SPA shell with sidebar navigation and hash-based page routing
   - Pages as sections: #inventory, #source-control, #reports, #users, #barcodes, #settings, #files, #qr-portal
-- `frontend/static/js/api.js` — Alpine store with all API methods (commit system, barcodes, settings, files)
-- `frontend/static/js/stores.js` — Alpine stores for toast, confirm, modal, sidebar
+- `frontend/static/js/api.js` — Alpine store with all API methods (57+ endpoints across 6 blueprints: auth, inventory + commit system, users, settings, github, files)
+- `frontend/static/js/stores.js` — Alpine stores for toast, confirm, modal, sidebar (role-filtered nav items), auth (user + role), now (current month/year/week with DB override)
 - `frontend/static/js/components.js` — Alpine magic helpers ($money, $number, $datetime, $monthName, $timeAgo) + itemCalc
+- `frontend/static/js/pages/` — 9 page-specific JS files:
+  - `inventory.js` — week stepper, item table (role-gated read-only vs CRUD), commit modal
+  - `source-control.js` — staging area, commit tree/graph, merge/push/revert actions
+  - `reports.js` — summary cards, category breakdown, activity stats (import/export)
+  - `users.js` — user table, create/edit/delete modals, PIN reset
+  - `barcodes.js` — barcode gallery grid, search/filter, select/export (PDF/JPEG)
+  - `settings.js` — AI provider/key config, branch management, system info
+  - `files.js` — upload gallery (stub, 501 handled gracefully)
+  - `home.js` — portal landing page
+  - `qr-portal.js` — QR store/splash placeholder
 
 ## Key libraries
 

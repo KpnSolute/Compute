@@ -1,1 +1,1 @@
-from backend.rbac import resolve_user, require_admin, require_manager, require_staff  # noqa: F401
+from backend.rbac import require_admin, require_manager, require_staff, resolve_user  # noqa: F401
