@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, request
 
-from backend.ai_parser import parse_invoice_text
 from backend.calculators import calc_summary
 from backend.rbac import resolve_user
 from backend.response import api_response, created_response, error_response
@@ -14,7 +13,6 @@ from backend.validation import (
     CREATE_VERSION_SCHEMA,
     INVENTORY_ITEM_UPDATE_SCHEMA,
     INVOICE_APPLY_SCHEMA,
-    INVOICE_PARSE_SCHEMA,
     ITEM_CREATE_SCHEMA,
     PENDING_SUBMIT_SCHEMA,
     PUBLISH_SCHEMA,
@@ -317,10 +315,16 @@ def update_item(item_id):
         db_field = field_map.get(field, field)
 
         db = get_client()
-        catalog_fields = {'unit_price', 'par_level'}
-        if db_field in catalog_fields:
+
+        # par_level only lives on inventory_items (catalog-level setting)
+        # unit_price and all monthly fields live on monthly_inventory
+        # Rationale: invoice prices vary month-to-month; par_level is a catalog setting
+        catalog_only_fields = {'par_level'}
+
+        if db_field in catalog_only_fields:
             db.table('inventory_items').update({db_field: value}).eq('id', item_id).execute()
         else:
+            # unit_price, on_hand, and all weekly fields go to monthly_inventory
             existing = (
                 db.table('monthly_inventory')
                 .select('id')
@@ -828,24 +832,38 @@ def parse_invoice():
         if not _is_manager(user):
             return jsonify(error='Insufficient role'), 403
 
-        is_valid, validated_data_or_error, status_code = validate_json(INVOICE_PARSE_SCHEMA)
-        if not is_valid:
-            return validated_data_or_error, status_code
+        body  = request.get_json(silent=True) or {}
+        month = body.get('month')
+        year  = body.get('year')
+        invoice_text  = (body.get('text') or '').strip()
+        image_b64_raw = (body.get('image') or '').strip()
 
-        data = validated_data_or_error
-        invoice_text = (data.get('text') or '').strip()
-        month = data.get('month')
-        year = data.get('year')
-
-        if not invoice_text:
-            return jsonify(error='text is required'), 400
+        if month is None or year is None:
+            return jsonify(error='month and year are required'), 400
+        if not invoice_text and not image_b64_raw:
+            return jsonify(error='text or image is required'), 400
 
         db = get_client()
-        cat_resp = db.table('dashboard_summary').select('item_id, sku, description, unit_price').eq('month', month).eq('year', year).execute()
+        cat_resp = db.table('dashboard_summary').select(
+            'item_id, sku, description, unit_price'
+        ).eq('month', month).eq('year', year).execute()
         catalog_items = cat_resp.data or []
 
+        if not catalog_items:
+            return jsonify(error=f'No items found for month={month} year={year}'), 400
+
         try:
-            result = parse_invoice_text(catalog_items, invoice_text)
+            if image_b64_raw:
+                from backend.ai_parser import parse_invoice_image, validate_image
+                image_b64, mime = validate_image(image_b64_raw)
+                result = parse_invoice_image(catalog_items, image_b64, mime)
+            else:
+                from backend.ai_parser import parse_invoice_text
+                result = parse_invoice_text(catalog_items, invoice_text)
+        except ValueError as ve:
+            return jsonify(error=str(ve)), 400
+        except RuntimeError as re_err:
+            return jsonify(error=str(re_err)), 503
         except Exception as e:
             logger.exception(f'AI parsing failed: {e}')
             return jsonify(error=f'AI parsing failed: {str(e)}'), 500
