@@ -9,20 +9,8 @@ def validate_json(schema: Dict[str, Any]) -> tuple:
     """
     Validate JSON request data against a schema.
 
-    Args:
-        schema: Dictionary defining validation rules
-               Keys are field names, values are validation rules
-               Rules can be:
-               - type: str, int, float, bool, list, dict
-               - required: bool (default False)
-               - min: minimum value for numbers/length for strings/arrays
-               - max: maximum value for numbers/length for strings/arrays
-               - enum: list of allowed values
-               - pattern: regex pattern for strings
-               - custom: function that returns (is_valid, error_message)
-
     Returns:
-        tuple: (is_valid, validated_data_or_error_response)
+        tuple: (is_valid, validated_data_or_error_response, status_code)
     """
     data = request.get_json(silent=True) or {}
     errors = {}
@@ -32,17 +20,14 @@ def validate_json(schema: Dict[str, Any]) -> tuple:
         value = data.get(field)
         required = rules.get('required', False)
 
-        # Check if required field is missing
         if required and (value is None or value == ''):
             errors[field] = f'{field} is required'
             continue
 
-        # Skip validation if field is not present and not required
         if value is None and not required:
             validated[field] = None
             continue
 
-        # Type validation
         expected_type = rules.get('type')
         if expected_type:
             type_map = {'str': str, 'int': int, 'float': float, 'bool': bool, 'list': list, 'dict': dict}
@@ -67,7 +52,6 @@ def validate_json(schema: Dict[str, Any]) -> tuple:
                     errors[field] = f'{field} must be of type {expected_type}'
                     continue
 
-        # Range validation
         if isinstance(value, (int, float)):
             if 'min' in rules and value < rules['min']:
                 errors[field] = f'{field} must be at least {rules["min"]}'
@@ -76,7 +60,6 @@ def validate_json(schema: Dict[str, Any]) -> tuple:
                 errors[field] = f'{field} must be at most {rules["max"]}'
                 continue
 
-        # Length validation
         if isinstance(value, (str, list)):
             if 'min' in rules and len(value) < rules['min']:
                 errors[field] = f'{field} must be at least {rules["min"]} characters long'
@@ -85,18 +68,15 @@ def validate_json(schema: Dict[str, Any]) -> tuple:
                 errors[field] = f'{field} must be at most {rules["max"]} characters long'
                 continue
 
-        # Enum validation
         if 'enum' in rules and value not in rules['enum']:
             errors[field] = f'{field} must be one of: {", ".join(map(str, rules["enum"]))}'
             continue
 
-        # Pattern validation
         if 'pattern' in rules and isinstance(value, str):
             if not re.match(rules['pattern'], value):
                 errors[field] = f'{field} does not match required pattern'
                 continue
 
-        # Custom validation
         if 'custom' in rules:
             is_valid, error_msg = rules['custom'](value)
             if not is_valid:
@@ -111,34 +91,17 @@ def validate_json(schema: Dict[str, Any]) -> tuple:
     return True, validated, None
 
 
-# Common validation schemas
+# ── Schemas ───────────────────────────────────────────────────────────
+
 INVENTORY_ITEM_UPDATE_SCHEMA = {
     'field': {
         'type': 'str',
         'required': True,
         'enum': [
-            'onHand',
-            'w1i',
-            'w2i',
-            'w3i',
-            'w4i',
-            'w1r',
-            'w2r',
-            'w3r',
-            'w4r',
-            'price',
-            'par',
-            'on_hand',
-            'w1_issued',
-            'w2_issued',
-            'w3_issued',
-            'w4_issued',
-            'w1_received',
-            'w2_received',
-            'w3_received',
-            'w4_received',
-            'unit_price',
-            'par_level',
+            'onHand', 'w1i', 'w2i', 'w3i', 'w4i', 'w1r', 'w2r', 'w3r', 'w4r', 'price', 'par',
+            'on_hand', 'w1_issued', 'w2_issued', 'w3_issued', 'w4_issued',
+            'w1_received', 'w2_received', 'w3_received', 'w4_received',
+            'unit_price', 'par_level',
         ],
     },
     'value': {'required': True},
@@ -146,10 +109,13 @@ INVENTORY_ITEM_UPDATE_SCHEMA = {
     'year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030},
 }
 
-INVENTORY_SUMMARY_SCHEMA = {
-    'month': {'type': 'int', 'required': True, 'min': 0, 'max': 11},
-    'year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030},
-    'category': {'type': 'str', 'required': False},
+ITEM_CREATE_SCHEMA = {
+    'sku': {'type': 'str', 'required': True, 'min': 1, 'max': 50},
+    'description': {'type': 'str', 'required': True, 'min': 1, 'max': 200},
+    'unit_price': {'type': 'float', 'required': True, 'min': 0},
+    'category_id': {'type': 'str', 'required': False},
+    'par_level': {'type': 'float', 'required': False},
+    'unit': {'type': 'str', 'required': False},
 }
 
 INVOICE_PARSE_SCHEMA = {
@@ -175,35 +141,14 @@ ROLLOVER_SCHEMA = {
     'from_year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030},
 }
 
-CREATE_VERSION_SCHEMA = {
-    'month': {'type': 'int', 'required': True, 'min': 0, 'max': 11},
-    'year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030},
-    'message': {'type': 'str', 'required': False},
-}
-
-MONTH_SCHEMA = {
-    'month': {'type': 'int', 'required': True, 'min': 0, 'max': 11},
-    'year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030},
-}
-
-WEEK_SCHEMA = {
-    'month': {'type': 'int', 'required': True, 'min': 0, 'max': 11},
-    'year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030},
-    'week': {'type': 'int', 'required': True, 'min': 1, 'max': 4},
-}
-
 PENDING_SUBMIT_SCHEMA = {
     'item_id': {'type': 'str', 'required': True},
     'month': {'type': 'int', 'required': True, 'min': 0, 'max': 11},
     'year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030},
     'week_number': {'type': 'int', 'required': True, 'min': 1, 'max': 4},
     'field': {'type': 'str', 'required': True, 'enum': ['received', 'issued']},
-    'action': {'type': 'str', 'required': True, 'enum': ['pull', 'enter']},
+    'action': {'type': 'str', 'required': True, 'enum': ['Pull', 'Enter']},
     'value': {'type': 'float', 'required': True, 'min': 0},
-}
-
-PENDING_REVIEW_SCHEMA = {
-    'review_note': {'type': 'str', 'required': False},
 }
 
 PUBLISH_SCHEMA = {
@@ -211,20 +156,24 @@ PUBLISH_SCHEMA = {
     'year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030},
 }
 
-ITEM_CREATE_SCHEMA = {
-    'sku': {'type': 'str', 'required': True},
-    'description': {'type': 'str', 'required': True},
-    'unit_price': {'type': 'float', 'required': True, 'min': 0},
-    'category_id': {'type': 'str', 'required': False},
-    'par_level': {'type': 'float', 'required': False, 'min': 0},
-    'unit': {'type': 'str', 'required': False},
+COMMIT_PUSH_SCHEMA = {
+    'message': {'type': 'str', 'required': False},
+    'branch': {'type': 'str', 'required': False},
 }
 
-USER_CREATE_SCHEMA = {
-    'username': {'type': 'str', 'required': True, 'min': 1},
-    'display_name': {'type': 'str', 'required': True, 'min': 1},
-    'role': {'type': 'str', 'required': True, 'enum': ['staff', 'assistant', 'manager', 'admin']},
-    'password': {'type': 'str', 'required': True, 'min': 4},
-    'pin': {'type': 'str', 'required': False},
-    'last_name': {'type': 'str', 'required': False},
+BARCODE_EXPORT_SCHEMA = {
+    'item_ids': {'type': 'list', 'required': True},
+    'format': {'type': 'str', 'required': True, 'enum': ['PDF', 'JPEG']},
+    'quantity': {'type': 'int', 'required': False, 'min': 1, 'max': 100},
+}
+
+SETTINGS_UPDATE_SCHEMA = {
+    'key': {'type': 'str', 'required': True},
+    'value': {'required': True},
+}
+
+CREATE_VERSION_SCHEMA = {
+    'month': {'type': 'int', 'required': True, 'min': 0, 'max': 11},
+    'year': {'type': 'int', 'required': True, 'min': 2020, 'max': 2030},
+    'label': {'type': 'str', 'required': False},
 }
