@@ -13,9 +13,7 @@ def app():
 
 def test_validate_json_no_data(app):
     with app.test_request_context(content_type='application/json', data='{}'):
-        schema = {
-            'name': {'type': 'str', 'required': True},
-        }
+        schema = {'name': {'type': 'str', 'required': True}}
         is_valid, data, status = validate_json(schema)
         assert not is_valid
         assert status == 400
@@ -35,9 +33,7 @@ def test_validate_json_valid_data(app):
 
 def test_validate_json_type_coercion(app):
     with app.test_request_context(content_type='application/json', data=json.dumps({'age': '25'})):
-        schema = {
-            'age': {'type': 'int', 'required': True},
-        }
+        schema = {'age': {'type': 'int', 'required': True}}
         is_valid, data, status = validate_json(schema)
         assert is_valid
         assert data['age'] == 25
@@ -45,9 +41,7 @@ def test_validate_json_type_coercion(app):
 
 def test_validate_json_enum(app):
     with app.test_request_context(content_type='application/json', data=json.dumps({'role': 'admin'})):
-        schema = {
-            'role': {'type': 'str', 'required': True, 'enum': ['admin', 'manager', 'staff']},
-        }
+        schema = {'role': {'type': 'str', 'required': True, 'enum': ['admin', 'manager', 'staff']}}
         is_valid, data, status = validate_json(schema)
         assert is_valid
         assert data['role'] == 'admin'
@@ -55,8 +49,13 @@ def test_validate_json_enum(app):
 
 def test_validate_json_enum_invalid(app):
     with app.test_request_context(content_type='application/json', data=json.dumps({'role': 'superadmin'})):
-        schema = {
-            'role': {'type': 'str', 'required': True, 'enum': ['admin', 'manager', 'staff']},
-        }
+        schema = {'role': {'type': 'str', 'required': True, 'enum': ['admin', 'manager', 'staff']}}
+        is_valid, data, status = validate_json(schema)
+        assert not is_valid
+
+
+def test_validate_json_min_max(app):
+    with app.test_request_context(content_type='application/json', data=json.dumps({'month': 13})):
+        schema = {'month': {'type': 'int', 'required': True, 'min': 0, 'max': 11}}
         is_valid, data, status = validate_json(schema)
         assert not is_valid
