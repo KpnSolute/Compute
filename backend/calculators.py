@@ -1,82 +1,73 @@
-def item_total(item: dict) -> float:
-    on_hand = float(item.get('on_hand') or 0)
-    received = sum(float(item.get(f'w{w}_received') or 0) for w in range(1, 5))
-    issued = sum(float(item.get(f'w{w}_issued') or 0) for w in range(1, 5))
-    price = float(item.get('unit_price') or 0)
-    return round(max(0, on_hand + received - issued) * price, 2)
+from decimal import Decimal, ROUND_HALF_UP
 
 
-def ending_quantity(item: dict) -> float:
-    on_hand = float(item.get('on_hand') or 0)
-    received = sum(float(item.get(f'w{w}_received') or 0) for w in range(1, 5))
-    issued = sum(float(item.get(f'w{w}_issued') or 0) for w in range(1, 5))
-    return max(0.0, on_hand + received - issued)
+def calc_item_totals(item: dict) -> dict:
+    """Calculate weekly totals and grand total for a single item."""
+    unit_price = Decimal(str(item.get('unit_price') or 0))
+
+    totals = {}
+    grand_total_units = Decimal('0')
+
+    for week in range(1, 5):
+        received = Decimal(str(item.get(f'w{week}_received') or 0))
+        issued = Decimal(str(item.get(f'w{week}_issued') or 0))
+        net = received - issued
+        totals[f'w{week}_net'] = float(net)
+        totals[f'w{week}_received_cost'] = float((received * unit_price).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+        totals[f'w{week}_issued_cost'] = float((issued * unit_price).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+        grand_total_units += net
+
+    total_received = sum(
+        Decimal(str(item.get(f'w{w}_received') or 0)) for w in range(1, 5)
+    )
+    total_issued = sum(
+        Decimal(str(item.get(f'w{w}_issued') or 0)) for w in range(1, 5)
+    )
+
+    totals['total_received'] = float(total_received)
+    totals['total_issued'] = float(total_issued)
+    totals['total_received_cost'] = float((total_received * unit_price).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+    totals['total_issued_cost'] = float((total_issued * unit_price).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+    totals['grand_total'] = float((grand_total_units * unit_price).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
+    return totals
 
 
-def week_value(items: list, week: int) -> float:
-    return round(sum(float(i.get(f'w{week}_received') or 0) * float(i.get('unit_price') or 0) for i in items), 2)
+def calc_summary(items: list) -> dict:
+    """Aggregate summary across all items."""
+    grand_total = Decimal('0')
+    total_received_cost = Decimal('0')
+    total_issued_cost = Decimal('0')
+    reorder_alerts = []
 
+    for item in items:
+        unit_price = Decimal(str(item.get('unit_price') or 0))
 
-def grand_total(items: list) -> float:
-    return round(sum(item_total(i) for i in items), 2)
+        total_received = sum(Decimal(str(item.get(f'w{w}_received') or 0)) for w in range(1, 5))
+        total_issued = sum(Decimal(str(item.get(f'w{w}_issued') or 0)) for w in range(1, 5))
+        net = total_received - total_issued
 
+        total_received_cost += total_received * unit_price
+        total_issued_cost += total_issued * unit_price
+        grand_total += net * unit_price
 
-def category_breakdown(items: list) -> dict:
-    cats = {}
-    for i in items:
-        cat = i.get('category', 'Unknown')
-        if cat not in cats:
-            cats[cat] = {
-                'total': 0.0,
-                'count': 0,
-                'color': i.get('category_color', '#888888'),
-                'received': 0.0,
-                'issued': 0.0,
-            }
-        cats[cat]['total'] = round(cats[cat]['total'] + item_total(i), 2)
-        cats[cat]['count'] += 1
-        cats[cat]['received'] += sum(float(i.get(f'w{w}_received') or 0) for w in range(1, 5))
-        cats[cat]['issued'] += sum(float(i.get(f'w{w}_issued') or 0) for w in range(1, 5))
-    return cats
+        on_hand = Decimal(str(item.get('on_hand') or 0))
+        par_level = Decimal(str(item.get('par_level') or 0))
+        if par_level > 0 and on_hand < par_level:
+            reorder_alerts.append({
+                'item_id': item.get('item_id'),
+                'sku': item.get('sku'),
+                'description': item.get('description'),
+                'on_hand': float(on_hand),
+                'par_level': float(par_level),
+                'shortage': float(par_level - on_hand),
+            })
 
-
-def reorder_alerts(items: list) -> list:
-    return [
-        {
-            'item_id': i.get('item_id'),
-            'description': i.get('description'),
-            'category': i.get('category'),
-            'on_hand': i.get('on_hand', 0),
-            'par_level': i.get('par_level', 0),
-            'unit_price': i.get('unit_price', 0),
-        }
-        for i in items
-        if float(i.get('on_hand') or 0) < float(i.get('par_level') or 0) and float(i.get('par_level') or 0) > 0
-    ]
-
-
-def dashboard_summary(items: list, prior_month_total: float = 0.0) -> dict:
     return {
-        'grand_total': grand_total(items),
-        'starting_total': round(prior_month_total, 2),
-        'wk1_total': week_value(items, 1),
-        'wk2_total': week_value(items, 2),
-        'wk3_total': week_value(items, 3),
-        'wk4_total': week_value(items, 4),
-        'total_items': len(items),
-        'reorder_count': len(reorder_alerts(items)),
-        'category_breakdown': category_breakdown(items),
-        'reorder_alerts': reorder_alerts(items),
+        'grand_total': float(grand_total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+        'total_received_cost': float(total_received_cost.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+        'total_issued_cost': float(total_issued_cost.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+        'item_count': len(items),
+        'reorder_alerts': reorder_alerts,
+        'reorder_count': len(reorder_alerts),
     }
-
-
-def rollover(items: list) -> list:
-    rolled = []
-    for i in items:
-        new = dict(i)
-        new['on_hand'] = ending_quantity(i)
-        for w in range(1, 5):
-            new[f'w{w}_received'] = 0
-            new[f'w{w}_issued'] = 0
-        rolled.append(new)
-    return rolled
