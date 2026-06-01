@@ -417,22 +417,65 @@ def submit_pending():
             'submitted_by': user['id'],
         }
 
-        # Assistants auto-merge
-        if user['role'] == 'assistant':
+        # Auto-commit roles (assistant, manager, admin — level >= 20)
+        AUTO_COMMIT_ROLES = {'assistant', 'manager', 'admin'}
+        if user['role'] in AUTO_COMMIT_ROLES:
             entry['status'] = 'merged'
-            result = db.table('staging_entries').insert(entry).execute()
+            result  = db.table('staging_entries').insert(entry).execute()
             created = result.data[0] if result.data else entry
+            commit_id = None
             try:
-                db.rpc('merge_single_staging', {
-                    'p_entry_id': created['entry_id'],
+                rpc_result = db.rpc('merge_single_staging', {
+                    'p_entry_id':   created['entry_id'],
                     'p_reviewed_by': user['id'],
-                    'p_review_note': 'Auto-merged by assistant',
+                    'p_review_note': f'Auto-committed by {user["role"]}',
                 }).execute()
+                commit_id = rpc_result.data if isinstance(rpc_result.data, str) else None
             except Exception as rpc_err:
-                logger.warning(f'merge_single_staging RPC failed for assistant: {rpc_err}')
-            return api_response({'entry_id': created.get('entry_id'), 'status': 'merged', 'auto_merged': True})
+                logger.warning(f'merge_single_staging RPC failed for {user["role"]}: {rpc_err}')
+
+            # Trigger async GitHub sync
+            if commit_id:
+                try:
+                    from backend.github_sync import sync_inventory_after_commit
+                    month = data['month']
+                    year  = data['year']
+                    inv_resp = db.table('dashboard_summary').select('*').eq('month', month).eq('year', year).execute()
+                    inv_raw  = inv_resp.data or []
+                    inv_data: dict = {}
+                    for item in inv_raw:
+                        cat = item.get('category', 'Uncategorized')
+                        if cat not in inv_data:
+                            inv_data[cat] = []
+                        inv_data[cat].append({
+                            'sku':  item.get('sku', ''),
+                            'desc': item.get('description', ''),
+                            'price': float(item.get('unit_price') or 0),
+                            'onHand': float(item.get('on_hand') or 0),
+                            'par':   float(item.get('par_level') or 0),
+                            'w1r': float(item.get('w1_received') or 0),
+                            'w2r': float(item.get('w2_received') or 0),
+                            'w3r': float(item.get('w3_received') or 0),
+                            'w4r': float(item.get('w4_received') or 0),
+                            'w1i': float(item.get('w1_issued') or 0),
+                            'w2i': float(item.get('w2_issued') or 0),
+                            'w3i': float(item.get('w3_issued') or 0),
+                            'w4i': float(item.get('w4_issued') or 0),
+                        })
+                    author = user.get('display_name') or user.get('username', 'MJCC')
+                    msg    = f'auto: {full_field} updated by {author}'
+                    sync_inventory_after_commit(month, year, inv_data, commit_id, author, msg)
+                except Exception as sync_err:
+                    logger.warning(f'GitHub sync setup failed: {sync_err}')
+
+            return api_response({
+                'entry_id':     created.get('entry_id'),
+                'commit_id':    commit_id,
+                'status':       'merged',
+                'auto_committed': True,
+            })
         else:
-            result = db.table('staging_entries').insert(entry).execute()
+            result  = db.table('staging_entries').insert(entry).execute()
             created = result.data[0] if result.data else entry
             return api_response({'entry_id': created.get('entry_id'), 'status': 'pending'})
     except Exception as e:
@@ -566,15 +609,59 @@ def push_commits():
 
         data = request.get_json(silent=True) or {}
         message = data.get('message', 'Manual push')
-        branch = data.get('branch', 'main')
+        branch  = data.get('branch', 'main')
+        month   = data.get('month')
+        year    = data.get('year')
 
         db = get_client()
+        commit_id = None
         try:
-            result = db.rpc('push_all_staging', {'p_reviewed_by': user['id'], 'p_message': message, 'p_branch': branch}).execute()
-            return api_response({'status': 'pushed', 'message': message, 'branch': branch, 'result': result.data})
+            result    = db.rpc('push_all_staging', {'p_reviewed_by': user['id'], 'p_message': message, 'p_branch': branch}).execute()
+            commit_id = result.data if isinstance(result.data, str) else None
         except Exception as rpc_err:
             logger.warning(f'push_all_staging RPC failed: {rpc_err}')
-            return api_response({'status': 'pushed', 'message': message, 'branch': branch})
+
+        # Trigger async GitHub sync if we have month/year context
+        if commit_id and month is not None and year is not None:
+            try:
+                from backend.github_sync import sync_inventory_after_commit
+                # Fetch live inventory for snapshot
+                inv_resp = db.table('dashboard_summary').select('*').eq('month', month).eq('year', year).execute()
+                inv_raw  = inv_resp.data or []
+                # Group by category for INV format
+                inv_data: dict = {}
+                for item in inv_raw:
+                    cat = item.get('category', 'Uncategorized')
+                    if cat not in inv_data:
+                        inv_data[cat] = []
+                    inv_data[cat].append({
+                        'sku':   item.get('sku', ''),
+                        'desc':  item.get('description', ''),
+                        'price': float(item.get('unit_price') or 0),
+                        'onHand': float(item.get('on_hand') or 0),
+                        'par':   float(item.get('par_level') or 0),
+                        'w1r': float(item.get('w1_received') or 0),
+                        'w2r': float(item.get('w2_received') or 0),
+                        'w3r': float(item.get('w3_received') or 0),
+                        'w4r': float(item.get('w4_received') or 0),
+                        'w1i': float(item.get('w1_issued') or 0),
+                        'w2i': float(item.get('w2_issued') or 0),
+                        'w3i': float(item.get('w3_issued') or 0),
+                        'w4i': float(item.get('w4_issued') or 0),
+                    })
+                author = user.get('display_name') or user.get('username', 'MJCC')
+                sync_inventory_after_commit(month, year, inv_data, commit_id, author, message)
+            except Exception as sync_err:
+                logger.warning(f'GitHub sync setup failed: {sync_err}')
+
+        github_pending = commit_id is not None and (month is None or year is None)
+        return api_response({
+            'status':         'pushed',
+            'message':        message,
+            'branch':         branch,
+            'commit_id':      commit_id,
+            'github_pending': github_pending,
+        })
     except Exception as e:
         logger.exception(f'Error in push_commits: {e}')
         return error_response('Internal server error', status_code=500)
@@ -909,6 +996,29 @@ def rollover():
                 db.table('monthly_inventory').update({'on_hand': item.get('on_hand', 0)}).eq('item_id', item['item_id']).eq('month', next_month).eq('year', next_year).execute()
             else:
                 db.table('monthly_inventory').insert(new_row).execute()
+
+        # Archive the closing month to GitHub (immutable snapshot)
+        try:
+            from backend.github_sync import sync_archive_after_rollover
+            inv_data: dict = {}
+            for item in items:
+                cat = item.get('category', 'Uncategorized')
+                if cat not in inv_data:
+                    inv_data[cat] = []
+                inv_data[cat].append({
+                    'sku': item.get('sku', ''), 'desc': item.get('description', ''),
+                    'price': float(item.get('unit_price') or 0),
+                    'onHand': float(item.get('on_hand') or 0),
+                    'par':   float(item.get('par_level') or 0),
+                    'w1r': float(item.get('w1_received') or 0), 'w2r': float(item.get('w2_received') or 0),
+                    'w3r': float(item.get('w3_received') or 0), 'w4r': float(item.get('w4_received') or 0),
+                    'w1i': float(item.get('w1_issued') or 0),   'w2i': float(item.get('w2_issued') or 0),
+                    'w3i': float(item.get('w3_issued') or 0),   'w4i': float(item.get('w4_issued') or 0),
+                })
+            author = user.get('display_name') or user.get('username', 'MJCC')
+            sync_archive_after_rollover(from_month, from_year, inv_data, author)
+        except Exception as arch_err:
+            logger.warning(f'Archive sync setup failed: {arch_err}')
 
         return jsonify({'next_month': next_month, 'next_year': next_year, 'starting_total': round(result['grand_total'], 2)})
     except Exception as e:
