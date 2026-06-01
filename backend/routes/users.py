@@ -6,33 +6,28 @@ from backend.supabase_client import get_client
 users_bp = Blueprint('users', __name__, url_prefix='/api/users')
 
 
-def _require_admin():
+def _require_superadmin():
     user = session.get('user')
-    if not user or user['role'] not in ('admin', 'manager'):
+    if not user or user.get('role') != 'admin':
         return None
     return user
 
 
-def _require_superadmin():
+def _require_manager_or_above():
     user = session.get('user')
-    if not user or user['role'] != 'admin':
+    if not user or user.get('role') not in ('admin', 'manager'):
         return None
     return user
 
 
 @users_bp.get('')
 def list_users():
-    user = _require_admin()
+    user = _require_manager_or_above()
     if not user:
-        return jsonify(error='Not authenticated or insufficient role'), 403
+        return jsonify(error='Manager role required'), 403
 
     db = get_client()
-    resp = (
-        db.table('user_profiles')
-        .select('id, username, display_name, last_name, role, active, created_at')
-        .order('created_at')
-        .execute()
-    )
+    resp = db.table('user_profiles').select('id, username, display_name, last_name, role, active').order('username').execute()
     return jsonify(resp.data or [])
 
 
@@ -43,29 +38,23 @@ def create_user():
         return jsonify(error='Admin role required'), 403
 
     data = request.get_json(silent=True) or {}
-    email = (data.get('email') or '').strip()
-    password = data.get('password', '')
-    username = (data.get('username') or '').strip()
+    username = (data.get('username') or '').strip().lower()
     display_name = (data.get('display_name') or '').strip()
     last_name = (data.get('last_name') or '').strip()
     role = data.get('role', 'staff')
     pin = data.get('pin')
+    password = data.get('password')
 
-    if not email or not password or not username:
-        return jsonify(error='email, password, and username are required'), 400
+    if not username or not display_name:
+        return jsonify(error='username and display_name are required'), 400
     if role not in ('admin', 'manager', 'assistant', 'staff'):
         return jsonify(error='role must be admin, manager, assistant, or staff'), 400
 
     db = get_client()
+    email = f'{username}@mjc-cafeteria.com'
 
     try:
-        auth_result = db.auth.admin.create_user(
-            {
-                'email': email,
-                'password': password,
-                'email_confirm': True,
-            }
-        )
+        auth_result = db.auth.admin.create_user({'email': email, 'password': password, 'email_confirm': True})
         user_id = auth_result.user.id
     except Exception as e:
         return jsonify(error=f'Failed to create auth user: {str(e)}'), 400
@@ -106,7 +95,6 @@ def update_user(user_id):
         return jsonify(error='No valid fields to update'), 400
 
     db = get_client()
-
     password = data.get('password')
     if password:
         try:
@@ -115,7 +103,6 @@ def update_user(user_id):
             return jsonify(error=f'Failed to update password: {str(e)}'), 400
 
     resp = db.table('user_profiles').update(updates).eq('id', user_id).execute()
-
     if not resp.data:
         return jsonify(error='User not found'), 404
     return jsonify(resp.data[0])
@@ -131,14 +118,12 @@ def delete_user(user_id):
         return jsonify(error='Cannot delete your own account'), 400
 
     db = get_client()
-
     try:
         db.auth.admin.delete_user(user_id)
     except Exception as e:
         return jsonify(error=f'Failed to delete auth user: {str(e)}'), 400
 
     db.table('user_profiles').delete().eq('id', user_id).execute()
-
     return jsonify(success=True, message='User deleted'), 200
 
 
@@ -156,7 +141,6 @@ def reset_pin(user_id):
     db = get_client()
     hashed = bcrypt_lib.hashpw(str(pin).encode(), bcrypt_lib.gensalt()).decode()
     resp = db.table('user_profiles').update({'pin': hashed}).eq('id', user_id).execute()
-
     if not resp.data:
         return jsonify(error='User not found'), 404
     return jsonify(success=True, message='PIN reset successfully')
