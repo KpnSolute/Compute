@@ -4,8 +4,11 @@
 TARGET_DIR="${1:-.}"
 
 # Find and delete files ending in Zone.Identifier
+# Excludes venv and node_modules directories for safety and performance
 # Capture the number of files deleted
-DELETED_COUNT=$(find "$TARGET_DIR" -name "*Zone.Identifier" -print -delete | wc -l)
+DELETED_COUNT=$(find "$TARGET_DIR" \
+    \( -path "*/venv" -o -path "*/node_modules" \) -prune \
+    -o -name "*Zone.Identifier" -print -delete | wc -l)
 
 echo "Cleanup complete."
 echo "Number of Zone.Identifier files deleted: $DELETED_COUNT"
