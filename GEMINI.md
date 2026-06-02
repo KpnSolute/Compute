@@ -23,10 +23,11 @@ The project is organized into four primary root-level pillars:
 - **Database:** Supabase (PostgreSQL) via `backend/requirements.txt` dependencies.
 - **Client:** Access Supabase using the `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` from the root `.env`.
 
-### Unified AI Guidance
-- **Shared Context:** All AI agents (Gemini and Claude) operate under the same architectural rules defined here and in `CLAUDE.md`.
-- **Memory Tiering:** Project-wide facts live here. Local/private notes belong in the private memory folder. Global preferences in the global personal memory.
-- **Asset Primacy:** Always check the `/templates` directory for established UI patterns and assets before creating new ones.
+### AI Interaction Rules
+- **Mandatory Check-in:** Every AI agent must verify project alignment and check for loggable changes with every prompt.
+- **Automated Logging:** All design and structural changes MUST be logged in `CHANGELOG.md` via the `change-logger` agent.
+- **End-of-Day Summary:** At the conclusion of a session, a system-wide "Close Out" must be recorded in `CHANGELOG.md`.
+- **Git Operations:** The `git-operator` agent handles all pushes using Gemini CLI tools and project memory to maintain versioning.
 
 ## Workflows
 

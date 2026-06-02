@@ -32,7 +32,8 @@ Full-stack management system for Jeremiah's Custom Creations, featuring a React 
 - **Patterns:** Use functional components, TypeScript interfaces for props, and Tailwind for all styling.
 - **Interconnection:** Ensure API calls match the FastAPI endpoints defined in `backend/main.py`.
 
-## Git & Alignment
-- **Versioning:** Use incrementing "Update X.X.X" messages (e.g., `Update 1.0.1`) for general updates.
-- **Alignment:** All 12 agents in `.claude/agents/` are configured to operate across this specific React/FastAPI architecture.
-- **Asset Awareness:** Agents are required to consult `/templates/` first for any UI-related tasks.
+## AI Agent Protocols
+- **Check-in Requirement:** Agents must check in on every prompt to verify alignment and identify loggable changes.
+- **Continuous Logging:** All changes (Design/System) must be recorded in `CHANGELOG.md`.
+- **Close Out:** Each session must end with a comprehensive summary in `CHANGELOG.md` of all key updates.
+- **Git Operations:** Changes are pushed via `git-operator` using Gemini CLI and project memory.
