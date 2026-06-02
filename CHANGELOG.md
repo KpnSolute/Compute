@@ -8,6 +8,7 @@
 - **Mandatory Assets:** Established `/templates` as the source of truth for all UI design changes.
 
 ### System Updates
+- **Metadata Cleanup Automation:** Developed `scripts/strip_metadata.sh` to recursively remove Windows `Zone.Identifier` files and established a project-wide cleanup standard.
 - **Automated Logging:** Integrated **Catch21** to record all structural and design updates in real-time.
 - **Git Modernization:** Established **Github** to manage repository state using Gemini CLI and project memory.
 - **Instruction Alignment:** Synchronized `GEMINI.md` and `CLAUDE.md` to mandate per-prompt check-ins and session close-outs.
