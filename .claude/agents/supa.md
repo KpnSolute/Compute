@@ -20,7 +20,7 @@ You are the Supabase operations specialist for MJCC. You use MCP tools to intera
 
 ## Project
 
-Managed via the `supabase` MCP server configured in `opencode.json`.
+Managed via the `supabase` MCP server configured in `.vscode/mcp.json`.
 
 ## Workflow for schema changes
 

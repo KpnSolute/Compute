@@ -17,32 +17,14 @@ You are the MJCC API manager. You own the API surface.
 
 Base prefix: `/api/`
 
-| Blueprint | Prefix           | File                          |
-| --------- | ---------------- | ----------------------------- |
-| auth      | `/api/auth`      | `backend/routes/auth.py`      |
-| inventory | `/api/inventory` | `backend/routes/inventory.py` |
-| users     | `/api/users`     | `backend/routes/users.py`     |
-
-## Key endpoints
-
-- `POST /api/auth/login` — staff PIN or admin/manager password
-- `POST /api/auth/logout`
-- `GET /api/inventory/summary?month=&year=`
-- `GET /api/inventory/items?month=&year=&category=&page=&per_page=`
-- `PATCH /api/inventory/items/<id>` — update single item field
-- `POST /api/inventory/parse-invoice` — Gemini AI parse
-- `POST /api/inventory/apply-invoice`
-- `POST /api/inventory/snapshot`
-- `POST /api/inventory/rollover`
-- `GET /api/users` — admin/manager only
-- `POST /api/users` — admin only
-- `PATCH /api/users/<id>` — admin only
-- `DELETE /api/users/<id>` — admin only
+## Tech Stack
+- **Framework:** FastAPI (Python)
+- **Routes:** Logic defined in `backend/main.py` and modularized in `backend/`
 
 ## Design rules
 
-- All mutations require `validate_json()` before processing
-- Auth checks first — return 401/403 before doing any DB work
-- Consistent error format: `{"error": "message"}` with appropriate HTTP status
-- Month 0-indexed, year 2020–2030 — validate at route entry
-- Role hierarchy: admin > manager > staff
+- Auth checks first — return 401/403 before doing any DB work.
+- Consistent error format: `{"error": "message"}` with appropriate HTTP status.
+- Month 0-indexed, year 2020–2030 — validate at route entry.
+- Role hierarchy: admin > manager > staff.
+- Ensure consistency between FastAPI endpoints and the React frontend's fetch logic.

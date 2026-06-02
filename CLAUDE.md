@@ -33,6 +33,6 @@ Full-stack management system for Jeremiah's Custom Creations, featuring a React 
 - **Interconnection:** Ensure API calls match the FastAPI endpoints defined in `backend/main.py`.
 
 ## Git & Alignment
-- **Versioning:** Use semantic versioning tags.
+- **Versioning:** Use incrementing "Update X.X.X" messages (e.g., `Update 1.0.1`) for general updates.
 - **Alignment:** All 12 agents in `.claude/agents/` are configured to operate across this specific React/FastAPI architecture.
 - **Asset Awareness:** Agents are required to consult `/templates/` first for any UI-related tasks.

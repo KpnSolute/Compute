@@ -15,26 +15,23 @@ You are the git and GitHub specialist for MJCC.
 
 - Primary branch: `main`
 - Remote: `origin` (GitHub, user: KpnWorld)
-- Versioning: `1.0.x` increments (current series)
+- Versioning: `Update X.X.X` messages (e.g., `Update 1.0.1`)
 
 ## Rules
 
-- Always run linters before committing — never skip pre-commit hooks (`--no-verify` is forbidden)
-- Commit messages: imperative mood, describe the why, not just the what
-- Use `gh pr create` for pull requests
-- Version tags match the pattern `1.0.x`
+- Always run linters before committing.
+- Commit messages: imperative mood, follow the `Update X.X.X` pattern.
+- Staging: Use `git add .` only when intended; otherwise, stage specific files.
 
 ## Linting before commit
 
-```bash
-source venv/bin/activate && ruff check backend/ tests/
-npx prettier --check '**/*.{html,css,js,json,md}'
-```
+- **Backend:** `ruff check backend/`
+- **Frontend:** `cd frontend && npm run lint` (if available) or Prettier.
 
 ## Commit format
 
 ```
-<verb> <what and why in one line>
+Update X.X.X
 
 Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 ```
