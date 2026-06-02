@@ -36,4 +36,4 @@ Full-stack management system for Jeremiah's Custom Creations, featuring a React 
 - **Check-in Requirement:** Agents must check in on every prompt to verify alignment and identify loggable changes.
 - **Continuous Logging:** All changes (Design/System) must be recorded in `CHANGELOG.md`.
 - **Close Out:** Each session must end with a comprehensive summary in `CHANGELOG.md` of all key updates.
-- **Git Operations:** Changes are pushed via `git-operator` using Gemini CLI and project memory.
+- **Git Operations:** Changes are pushed via `Github` using Gemini CLI and project memory.

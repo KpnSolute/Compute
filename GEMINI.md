@@ -25,9 +25,9 @@ The project is organized into four primary root-level pillars:
 
 ### AI Interaction Rules
 - **Mandatory Check-in:** Every AI agent must verify project alignment and check for loggable changes with every prompt.
-- **Automated Logging:** All design and structural changes MUST be logged in `CHANGELOG.md` via the `change-logger` agent.
+- **Automated Logging:** All design and structural changes MUST be logged in `CHANGELOG.md` via the `Catch21` agent.
 - **End-of-Day Summary:** At the conclusion of a session, a system-wide "Close Out" must be recorded in `CHANGELOG.md`.
-- **Git Operations:** The `git-operator` agent handles all pushes using Gemini CLI tools and project memory to maintain versioning.
+- **Git Operations:** The `Github` agent handles all pushes using Gemini CLI tools and project memory to maintain versioning.
 
 ## Workflows
 
