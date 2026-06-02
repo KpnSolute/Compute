@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Food Service Data Management — Console</title>
+<link rel="stylesheet" href="portal/styles.css">
+<link rel="icon" href="portal/kpn-logo.png">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bcryptjs@2.4.3/dist/bcrypt.min.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="portal/data.jsx"></script>
+<script src="portal/inventory_data.js"></script>
+<script type="text/babel" src="portal/supabase.jsx"></script>
+<script type="text/babel" src="portal/tweaks-panel.jsx"></script>
+<script type="text/babel" src="portal/login.jsx"></script>
+<script type="text/babel" src="portal/portal.jsx"></script>
+<script type="text/babel" src="portal/inventory.jsx"></script>
+<script type="text/babel" src="portal/compliance.jsx"></script>
+<script type="text/babel" src="portal/forms.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+const SKEY = 'kpn_session';
+const ACCENTS = {
+  '#1E73E8': '#1660C8',  // KPN blue
+  '#4F46E5': '#4338CA',  // indigo
+  '#0E7490': '#0B5C73',  // teal
+};
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "loginLayout": "split",
+  "accent": "#4F46E5",
+  "density": "comfortable"
+}/*EDITMODE-END*/;
+
+function loadSession(){
+  try{ return JSON.parse(localStorage.getItem(SKEY) || 'null'); }catch(e){ return null; }
+}
+
+function App(){
+  const [user, setUser] = useState(loadSession);
+  const [t, setTweak] = window.useTweaks(TWEAK_DEFAULTS);
+
+  useEffect(()=>{
+    const root = document.documentElement;
+    root.style.setProperty('--accent', t.accent);
+    root.style.setProperty('--accent-2', ACCENTS[t.accent] || t.accent);
+  }, [t.accent]);
+
+  function handleLogin(u, remember){
+    setUser(u);
+    if(remember){ try{ localStorage.setItem(SKEY, JSON.stringify(u)); }catch(e){} }
+    else { try{ localStorage.removeItem(SKEY); }catch(e){} }
+    window.toast && window.toast('Signed in as ' + (u.display_name || u.username));
+  }
+  function handleLogout(){
+    if(window.realLogout) window.realLogout();
+    setUser(null);
+    try{ localStorage.removeItem(SKEY); }catch(e){}
+  }
+
+  const panel = (
+    <window.TweaksPanel>
+      <window.TweakSection label="Sign-in"/>
+      <window.TweakRadio label="Login layout" value={t.loginLayout} options={['split','centered']}
+        onChange={v=>setTweak('loginLayout', v)} />
+      <window.TweakSection label="Theme"/>
+      <window.TweakColor label="Accent" value={t.accent} options={Object.keys(ACCENTS)}
+        onChange={v=>setTweak('accent', v)} />
+      <window.TweakSection label="Portal"/>
+      <window.TweakRadio label="Density" value={t.density} options={['comfortable','compact']}
+        onChange={v=>setTweak('density', v)} />
+    </window.TweaksPanel>
+  );
+
+  return (
+    <React.Fragment>
+      {!user
+        ? <window.Login onLogin={handleLogin} layout={t.loginLayout} />
+        : <window.Portal user={user} onLogout={handleLogout} density={t.density} />}
+      {panel}
+    </React.Fragment>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

@@ -1,35 +1,38 @@
-# MJCC — Jeremiah's Custom Creations Inventory System
+# CLAUDE.md — MJCC Project Instructions
 
-Full-stack inventory management: Flask backend + Supabase + Alpine.js frontend.
+Full-stack management system for Jeremiah's Custom Creations, featuring a React frontend and FastAPI backend. **This file is interconnected with GEMINI.md; they share the same memory and agent delegation logic.**
 
-## Critical Field-Name Conventions
+## Build & Run Commands
+- **Frontend Setup:** `cd frontend && npm install`
+- **Frontend Dev:** `npm run dev` (Vite, default port 5173)
+- **Backend Setup:** `cd backend && pip install -r requirements.txt`
+- **Backend Dev:** `python main.py` (FastAPI, default port 8000)
+- **Linting/Formatting:** `ruff check backend/` and `ruff format backend/`
 
-**`dashboard_summary` view columns — always use these names:**
+## Tech Stack
+- **Frontend:** Vite, React, TypeScript, Tailwind CSS.
+- **Backend:** FastAPI (Python).
+- **Database:** Supabase (PostgreSQL).
+- **Assets:** `/templates` directory for UI patterns and core assets.
 
-| Use This                    | Not This                      |
-| --------------------------- | ----------------------------- |
-| `item.item_id`              | `item.id`                     |
-| `item.category`             | `item.category_name`          |
-| `item.par_level`            | `item.reorder_point`          |
-| `item.w1_received`          | `item.week1_received`         |
-| `item.w1_issued`            | `item.week1_issued`           |
-| `summary.total_items`       | `summary.item_count`          |
-| ``summary[`wk${w}_total`]`` | ``summary[`week${w}_total`]`` |
+## Project Structure & Pillars
+- **`/frontend`**: React application shell and components.
+- **`/backend`**: API routes, models, and Supabase integration.
+- **`/data`**: Persistence layer for records and inventory.
+- **`/templates`**: **MANDATORY.** Read assets here (e.g., `inventory.html`) before making UI changes.
 
-No `ending_qty` column exists — compute: `Math.max(0, on_hand + Σ(received - issued))`
+## Coding Conventions
 
-## Alpine.js
+### Backend (Python/FastAPI)
+- **Style:** Ruff (Single quotes, 120-char limit).
+- **Imports:** Absolute imports from `backend`.
+- **Security:** Tokens loaded from the root `.env`.
 
-- `:key="item.item_id"` — NOT `item.id` (crashes Alpine with `.after` error)
-- Category dropdown: `<option :value="cat.name">` — items have `category` as name string
-- Diff modal variables (`diffModalOpen`, `diffData`, `diffLoading`) live in `inventoryPage()`
-- Month: 0-indexed (Jan=0, May=4)
+### Frontend (React)
+- **Patterns:** Use functional components, TypeScript interfaces for props, and Tailwind for all styling.
+- **Interconnection:** Ensure API calls match the FastAPI endpoints defined in `backend/main.py`.
 
-## Files Endpoint
-
-`GET /api/files` returns 501 — skip in `files.js`
-
-## Build / Deploy
-
-- `npm run format` (prettier), Pre-commit: ruff + prettier
-- Git: version tags (`1.4.0`), push to `main`
+## Git & Alignment
+- **Versioning:** Use semantic versioning tags.
+- **Alignment:** All 12 agents in `.claude/agents/` are configured to operate across this specific React/FastAPI architecture.
+- **Asset Awareness:** Agents are required to consult `/templates/` first for any UI-related tasks.

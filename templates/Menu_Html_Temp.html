@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MJCC Miami — 28-Day Menu Manager</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/pptxgenjs@3.12.0/libs/pptxgen.bundle.js"></script>
+<style>
+:root{
+  --bg:#F2EDE4;--sfc:#FFF;--bdr:#DDD4C0;--bdr2:#C8BDA6;
+  --F:#1B3729;--FM:#254D38;--A:#C07B18;--AL:#E09830;--AP:#FEF3DC;--AB:#F5A623;
+  --TL:#1A6B58;--TLP:#E3F5EF;--CR:#BC3D2C;
+  --dk:#1A1814;--mu:#847A6E;--ml:#B0A898;
+  --cbf:#B5740A;--cln:#1A6B58;--cdn:#1B3729;--veg:#2E7D4F;
+  --r:10px;--rs:6px;--an:.2s cubic-bezier(.4,0,.2,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{font-family:'Lato',sans-serif;background:var(--bg);color:var(--dk);display:flex;flex-direction:column}
+
+/* ── TOPBAR ── */
+.tb{height:56px;background:var(--F);display:flex;align-items:center;gap:8px;padding:0 14px;flex-shrink:0;z-index:60}
+.brand{font-family:'Playfair Display',serif;font-size:1rem;color:#fff;white-space:nowrap;margin-right:2px}
+.brand em{color:var(--AL);font-style:normal}
+.sep{width:1px;height:24px;background:rgba(255,255,255,.15);flex-shrink:0}
+.ti{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--rs);padding:4px 9px;font-family:'Lato',sans-serif;font-size:.75rem;color:#fff}
+.ti:focus{outline:none;background:rgba(255,255,255,.18)}
+.ti::placeholder{color:rgba(255,255,255,.36)}
+.ti-date{color:var(--AL);cursor:pointer;width:136px}
+/* today pill */
+.today-pill{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:20px;padding:4px 12px;white-space:nowrap}
+.today-pill .label{font-size:.65rem;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.06em}
+.today-pill .val{font-size:.76rem;font-weight:700;color:var(--AL)}
+.today-pill .badge{background:var(--AB);color:#fff;font-size:.58rem;font-weight:700;border-radius:10px;padding:1px 6px}
+/* save indicator */
+.sv{margin-left:auto;display:flex;align-items:center;gap:5px;font-size:.7rem;color:rgba(255,255,255,.42)}
+.sdot{width:5px;height:5px;border-radius:50%;background:#4ade80}
+.sdot.bsy{background:var(--AB);animation:blink 1s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+/* buttons */
+.btn{font-family:'Lato',sans-serif;font-weight:700;border:none;border-radius:var(--rs);cursor:pointer;padding:7px 14px;font-size:.8rem;white-space:nowrap;transition:all var(--an)}
+.btn-pri{background:var(--AB);color:#fff}
+.btn-pri:hover{background:var(--AL);transform:translateY(-1px)}
+.btn-ghost{background:transparent;border:1px solid rgba(255,255,255,.25);color:rgba(255,255,255,.8)}
+.btn-ghost:hover{background:rgba(255,255,255,.1)}
+.btn-prev{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:#fff}
+.btn-prev:hover{background:rgba(255,255,255,.2)}
+/* export dropdown */
+.exp-wrap{position:relative}
+.exp-btn{background:var(--AB);color:#fff;border:none;border-radius:var(--rs);padding:7px 16px;font-family:'Lato',sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all var(--an)}
+.exp-btn:hover{background:var(--AL)}
+.exp-menu{position:absolute;top:calc(100% + 6px);right:0;background:#fff;border:1px solid var(--bdr);border-radius:var(--r);box-shadow:0 8px 32px rgba(0,0,0,.18);min-width:240px;z-index:200;overflow:hidden;display:none}
+.exp-menu.open{display:block}
+.exp-section{font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--mu);padding:8px 14px 4px;background:var(--bg)}
+.exp-item{display:flex;align-items:center;gap:9px;padding:9px 14px;cursor:pointer;font-size:.82rem;color:var(--dk);transition:background var(--an);border-bottom:1px solid #F5F0E8}
+.exp-item:last-child{border-bottom:none}
+.exp-item:hover{background:var(--AP);color:var(--A)}
+.exp-item .ei-icon{font-size:1rem;flex-shrink:0}
+.exp-item .ei-text .ei-name{font-weight:700;font-size:.8rem}
+.exp-item .ei-text .ei-desc{font-size:.68rem;color:var(--mu);margin-top:1px}
+.exp-item:hover .ei-text .ei-desc{color:var(--A)}
+/* week selectors inside dropdown */
+.exp-sub{padding:4px 14px 8px;background:#FAFAF7}
+.exp-sub label{font-size:.65rem;color:var(--mu);display:block;margin-bottom:3px}
+.exp-sub select{width:100%;font-family:'Lato',sans-serif;font-size:.76rem;border:1px solid var(--bdr);border-radius:var(--rs);padding:4px 8px;background:#fff;color:var(--dk)}
+
+/* ── WEEK TABS ── */
+.wt-bar{height:40px;background:var(--FM);display:flex;align-items:center;padding:0 14px;gap:3px;flex-shrink:0}
+.wtab{padding:4px 14px;border-radius:var(--rs);font-size:.75rem;font-weight:700;cursor:pointer;color:rgba(255,255,255,.48);background:transparent;border:none;font-family:'Lato',sans-serif;transition:all var(--an)}
+.wtab:hover{color:rgba(255,255,255,.85);background:rgba(255,255,255,.08)}
+.wtab.active{background:rgba(255,255,255,.16);color:#fff}
+.wtab.today-wk{background:rgba(245,166,35,.3);color:var(--AL)}
+.wtab-sub{font-size:.59rem;font-weight:400;opacity:.65;margin-left:3px}
+.tab-right{margin-left:auto;display:flex;align-items:center;gap:7px}
+.di{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);border-radius:var(--rs);padding:3px 9px;font-family:'Lato',sans-serif;font-size:.7rem;color:rgba(255,255,255,.8);width:215px}
+.di:focus{outline:none;background:rgba(255,255,255,.13)}
+
+/* ── BODY ── */
+.bw{flex:1;display:flex;overflow:hidden}
+.gp{flex:1;overflow-y:auto;padding:14px;min-width:0}
+/* grid */
+.dhr{display:grid;grid-template-columns:66px repeat(7,1fr);gap:4px;margin-bottom:4px}
+.dhc{text-align:center;font-size:.62rem;font-weight:700;letter-spacing:.07em;color:var(--mu);padding:2px 0;text-transform:uppercase}
+.dhc.wk{color:var(--A)}
+.wr{display:grid;grid-template-columns:66px repeat(7,1fr);gap:4px;margin-bottom:4px}
+.wrl{display:flex;flex-direction:column;justify-content:center;align-items:flex-end;padding-right:7px;gap:1px}
+.wrln{font-family:'Playfair Display',serif;font-size:.84rem;font-weight:700;color:var(--F)}
+.wrls{font-size:.56rem;color:var(--ml);text-align:right;line-height:1.3;max-width:58px}
+/* day card */
+.dc{background:var(--sfc);border:1.5px solid var(--bdr);border-radius:var(--r);cursor:pointer;transition:all var(--an);overflow:hidden;min-height:102px;display:flex;flex-direction:column;position:relative}
+.dc:hover{border-color:var(--A);box-shadow:0 3px 14px rgba(0,0,0,.09);transform:translateY(-1px)}
+.dc.sel{border-color:var(--AB);box-shadow:0 0 0 3px rgba(245,166,35,.18);background:var(--AP)}
+.dc.today-card{border-color:var(--AB);border-width:2px}
+.today-badge{position:absolute;top:3px;right:3px;background:var(--AB);color:#fff;font-size:.5rem;font-weight:700;border-radius:8px;padding:1px 5px;text-transform:uppercase;z-index:2}
+.dc-h{padding:5px 7px 4px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--bdr)}
+.dc-d{font-size:.63rem;font-weight:700;letter-spacing:.06em;color:var(--F);text-transform:uppercase}
+.dc-d.wk{color:var(--A)}
+.dc-dots{display:flex;gap:3px}
+.dd{width:5px;height:5px;border-radius:50%;background:var(--bdr2)}
+.dd.b{background:var(--cbf)}.dd.l{background:var(--cln)}.dd.d{background:var(--cdn)}
+.dc-meals{flex:1;display:flex;flex-direction:column}
+.dc-m{padding:3px 6px;border-bottom:1px solid #F0EAE0;flex:1;display:flex;align-items:flex-start;gap:4px;min-height:23px}
+.dc-m:last-child{border-bottom:none}
+.dci{font-size:.58rem;margin-top:2px;flex-shrink:0;width:9px}
+.dc-bf .dci{color:var(--cbf)}.dc-ln .dci{color:var(--cln)}.dc-dn .dci{color:var(--cdn)}
+.dct{font-size:.64rem;color:var(--dk);line-height:1.35;flex:1;min-width:0}
+.dct .f{font-weight:700;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dct .r{color:var(--ml);font-size:.58rem}
+
+/* ── EDITOR PANEL ── */
+.ep{width:0;background:var(--sfc);border-left:1px solid var(--bdr);overflow:hidden;transition:width var(--an);flex-shrink:0;display:flex;flex-direction:column}
+.ep.open{width:415px;min-width:415px}
+.ep-wel{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:22px;gap:9px;color:var(--mu)}
+.ep-wel h3{font-family:'Playfair Display',serif;font-size:1rem;color:var(--F)}
+.ep-wel p{font-size:.77rem;line-height:1.6;max-width:220px}
+.ep-hdr{padding:11px 13px 8px;border-bottom:1px solid var(--bdr);background:var(--F);color:#fff;flex-shrink:0;position:relative}
+.ep-ttl{font-family:'Playfair Display',serif;font-size:1.1rem;font-weight:700;color:#fff}
+.ep-sub{font-size:.69rem;color:rgba(255,255,255,.55);margin-top:1px}
+.ep-x{position:absolute;top:9px;right:11px;width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.12);border:none;cursor:pointer;color:#fff;font-size:14px;display:flex;align-items:center;justify-content:center}
+.ep-x:hover{background:rgba(255,255,255,.24)}
+.ep-mts{display:flex;padding:6px 8px;gap:3px;border-bottom:1px solid var(--bdr);flex-shrink:0;background:#FAFAF7}
+.ep-mt{flex:1;padding:5px 3px;border-radius:var(--rs);border:1.5px solid var(--bdr);background:#fff;font-family:'Lato',sans-serif;font-size:.69rem;font-weight:700;cursor:pointer;text-align:center;transition:all var(--an);color:var(--mu);display:flex;flex-direction:column;align-items:center;gap:1px}
+.ep-mt .ic{font-size:.8rem}.ep-mt .ct{font-size:.55rem;font-weight:400;color:var(--ml)}
+.ep-mt:hover:not(:disabled){border-color:var(--A);color:var(--A)}
+.ep-mt.act.bf{background:var(--cbf);border-color:var(--cbf);color:#fff}.ep-mt.act.bf .ct{color:rgba(255,255,255,.7)}
+.ep-mt.act.ln{background:var(--cln);border-color:var(--cln);color:#fff}.ep-mt.act.ln .ct{color:rgba(255,255,255,.7)}
+.ep-mt.act.dn{background:var(--cdn);border-color:var(--cdn);color:#fff}.ep-mt.act.dn .ct{color:rgba(255,255,255,.7)}
+.ep-body{flex:1;overflow-y:auto;padding:10px}
+.ep-lbl{font-size:.6rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--mu);margin-bottom:5px;display:flex;justify-content:space-between;align-items:center}
+.ep-lbl button{font-size:.6rem;color:var(--CR);background:none;border:none;cursor:pointer;font-family:'Lato',sans-serif}
+.ir{display:flex;align-items:center;gap:4px;padding:2px 0;border-radius:var(--rs)}
+.ir.dragging{opacity:.35;background:var(--AP)}
+.ir.drag-ov{border-top:2px solid var(--AB)}
+.dh{color:var(--ml);font-size:12px;cursor:grab;width:13px;text-align:center;user-select:none;flex-shrink:0}
+.ii{flex:1;border:1.5px solid var(--bdr);border-radius:var(--rs);padding:5px 8px;font-family:'Lato',sans-serif;font-size:.8rem;color:var(--dk);background:#fff;transition:all var(--an)}
+.ii:focus{outline:none;border-color:var(--A);background:#FFFDF8}
+.ii.veg{border-color:var(--veg);background:#F0FAF4;color:var(--veg)}
+.vb{width:24px;height:24px;border-radius:var(--rs);border:1.5px solid var(--bdr);background:#fff;cursor:pointer;font-size:.65rem;transition:all var(--an);flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.vb:hover{border-color:var(--veg);background:#F0FAF4}
+.vb.on{background:var(--veg);border-color:var(--veg);color:#fff}
+.rb{width:22px;height:22px;border-radius:50%;border:none;background:none;cursor:pointer;color:var(--bdr2);font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all var(--an)}
+.rb:hover{background:#FEE;color:var(--CR)}
+.add-btn{width:100%;margin-top:4px;padding:6px;border:1.5px dashed var(--bdr);border-radius:var(--rs);background:none;font-family:'Lato',sans-serif;font-size:.75rem;color:var(--mu);cursor:pointer;transition:all var(--an)}
+.add-btn:hover{border-color:var(--AB);color:var(--A);background:var(--AP)}
+.sides-sec{margin-top:10px;padding-top:9px;border-top:1px dashed var(--bdr)}
+.sw{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.sc{display:flex;align-items:center;gap:3px;background:var(--bg);border:1px solid var(--bdr);border-radius:20px;padding:2px 4px 2px 8px;font-size:.69rem}
+.sc input{border:none;background:transparent;font-family:'Lato',sans-serif;font-size:.69rem;color:var(--dk);width:90px}
+.sc input:focus{outline:none}
+.srm{background:none;border:none;cursor:pointer;color:var(--ml);font-size:11px;padding:0 2px}
+.srm:hover{color:var(--CR)}
+.as{background:none;border:1px dashed var(--bdr);border-radius:20px;padding:2px 8px;font-size:.67rem;color:var(--mu);cursor:pointer;transition:all var(--an)}
+.as:hover{border-color:var(--A);color:var(--A)}
+.ep-act{padding:7px 9px;border-top:1px solid var(--bdr);flex-shrink:0;background:#FAFAF7;display:flex;gap:4px;flex-wrap:wrap}
+.bsm{font-size:.69rem;padding:5px 10px;border-radius:var(--rs);border:1px solid var(--bdr);background:#fff;cursor:pointer;font-family:'Lato',sans-serif;color:var(--dk);transition:all var(--an)}
+.bsm:hover{border-color:var(--A);color:var(--A);background:var(--AP)}
+.bsm.d:hover{border-color:var(--CR);color:var(--CR);background:#FEF2F0}
+select.bsm{appearance:none;padding-right:18px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='5'%3E%3Cpath d='M0 0l4.5 5 4.5-5z' fill='%23847A6E'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 6px center}
+
+/* ── PREVIEW OVERLAY ── */
+.prev-overlay{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:300;display:flex;flex-direction:column;opacity:0;pointer-events:none;transition:opacity var(--an)}
+.prev-overlay.open{opacity:1;pointer-events:all}
+.prev-topbar{height:48px;background:var(--F);display:flex;align-items:center;padding:0 18px;gap:12px;flex-shrink:0}
+.prev-topbar .ptitle{font-family:'Playfair Display',serif;font-size:.95rem;color:#fff}
+.prev-topbar .pnav{display:flex;align-items:center;gap:8px;margin-left:auto}
+.prev-nb{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:var(--rs);cursor:pointer;padding:4px 14px;font-size:.8rem}
+.prev-nb:hover{background:rgba(255,255,255,.22)}
+.prev-nb:disabled{opacity:.35;cursor:default}
+.prev-ctr{font-size:.75rem;color:rgba(255,255,255,.65);min-width:60px;text-align:center}
+.prev-close{background:var(--CR);border:none;color:#fff;border-radius:var(--rs);padding:5px 14px;font-family:'Lato',sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;margin-left:12px}
+.prev-close:hover{background:#9c3226}
+.prev-stage{flex:1;display:flex;justify-content:center;align-items:center;padding:16px;overflow:hidden}
+.slide-frame{width:768px;height:432px;position:relative;overflow:hidden;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.5);background:#F2EDE4;flex-shrink:0}
+.prev-filmstrip{height:72px;background:#111;display:flex;align-items:center;gap:6px;padding:0 14px;overflow-x:auto;flex-shrink:0}
+.thumb{width:96px;height:54px;border-radius:5px;cursor:pointer;border:2px solid transparent;transition:all var(--an);overflow:hidden;flex-shrink:0;position:relative}
+.thumb:hover{border-color:var(--A)}
+.thumb.act{border-color:var(--AB)}
+.thumb-inner{width:200%;height:200%;transform:scale(.5);transform-origin:top left;overflow:hidden;pointer-events:none}
+.thumb-n{position:absolute;bottom:2px;right:3px;font-size:.5rem;background:rgba(0,0,0,.65);color:#fff;border-radius:3px;padding:0 3px}
+
+/* ── STATUS BAR ── */
+.sb{height:24px;background:var(--FM);display:flex;align-items:center;padding:0 14px;gap:8px;flex-shrink:0}
+.sb span{font-size:.66rem;color:rgba(255,255,255,.4)}
+.sb .hl{color:var(--AL);font-weight:700}
+
+/* slide CSS */
+.sl{width:768px;height:432px;position:absolute;top:0;left:0;font-family:'Lato',sans-serif;overflow:hidden}
+
+/* toast */
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--F);color:#fff;padding:8px 18px;border-radius:var(--r);font-size:.8rem;z-index:999;pointer-events:none;animation:ti .2s ease,to .28s ease 2.3s forwards}
+@keyframes ti{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
+@keyframes to{to{opacity:0;transform:translate(-50%,10px)}}
+::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--bdr2);border-radius:2px}
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="tb">
+  <div class="brand">MJCC <em>Miami</em></div>
+  <div class="sep"></div>
+  <input class="ti" id="cnIn" style="width:160px" placeholder="Center name…" oninput="D.center=this.value;save()">
+  <input class="ti" id="cwIn" style="width:175px" placeholder="Display week label…" oninput="D.currentWeek=this.value;save()">
+  <div class="sep"></div>
+  <span style="font-size:.67rem;color:rgba(255,255,255,.48);white-space:nowrap">Cycle start:</span>
+  <input type="date" class="ti ti-date" id="anchorIn" onchange="D.anchorDate=this.value;save();applyToday();renderGrid()" title="Set the Monday of Week 1, Day 1">
+  <div class="today-pill" id="todayPill">
+    <span class="label">Today</span>
+    <span class="val" id="todayVal">—</span>
+    <span class="badge" id="todayBadge" style="display:none">W1·D1</span>
+  </div>
+  <div class="sv"><div class="sdot" id="sdot"></div><span id="stxt">Saved</span></div>
+  <button class="btn btn-ghost" onclick="resetData()">↺ Reset</button>
+  <button class="btn btn-prev" onclick="openPreview()" title="Preview current week display">👁 Preview</button>
+  <!-- Export dropdown -->
+  <div class="exp-wrap" id="expWrap">
+    <button class="exp-btn" onclick="toggleExp()" id="expBtn">⬇ Export <span style="opacity:.7;font-size:.75rem">▾</span></button>
+    <div class="exp-menu" id="expMenu">
+      <div class="exp-section">📊 PowerPoint (.pptx)</div>
+      <div class="exp-item" onclick="runExport('pptx','28day')">
+        <span class="ei-icon">📅</span><div class="ei-text"><div class="ei-name">28-Day Full Cycle</div><div class="ei-desc">All 4 weeks — complete rotation reference</div></div>
+      </div>
+      <div class="exp-item" onclick="runExport('pptx','weekly')">
+        <span class="ei-icon">📆</span><div class="ei-text"><div class="ei-name">Weekly Menu</div><div class="ei-desc">All 7 days · <select class="exp-sel" id="selWeekPptx" onclick="stopProp(event)"><option value="0">Week 1</option><option value="1">Week 2</option><option value="2">Week 3</option><option value="3">Week 4</option></select></div></div>
+      </div>
+      <div class="exp-item" onclick="runExport('pptx','daily')">
+        <span class="ei-icon">📋</span><div class="ei-text"><div class="ei-name">Daily Menu</div><div class="ei-desc">
+          <select class="exp-sel" id="selWeekDay" onclick="stopProp(event)"><option value="0">Week 1</option><option value="1">Week 2</option><option value="2">Week 3</option><option value="3">Week 4</option></select>
+          <select class="exp-sel" id="selDay" onclick="stopProp(event)"><option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option><option>Friday</option><option>Saturday</option><option>Sunday</option></select>
+        </div></div>
+      </div>
+      <div class="exp-item" onclick="runExport('pptx','display')">
+        <span class="ei-icon">📺</span><div class="ei-text"><div class="ei-name">Display Board</div><div class="ei-desc">TV-ready · <select class="exp-sel" id="selWeekDisp" onclick="stopProp(event)"><option value="0">Week 1</option><option value="1">Week 2</option><option value="2">Week 3</option><option value="3">Week 4</option></select></div></div>
+      </div>
+      <div class="exp-section">🌐 Web / HTML</div>
+      <div class="exp-item" onclick="runExport('html-display','display')">
+        <span class="ei-icon">🖥️</span><div class="ei-text"><div class="ei-name">Web Display (.html)</div><div class="ei-desc">Auto-cycling TV screen — works offline</div></div>
+      </div>
+      <div class="exp-item" onclick="runExport('html-print','weekly')">
+        <span class="ei-icon">🖨️</span><div class="ei-text"><div class="ei-name">Print Layout (.html)</div><div class="ei-desc">Printable weekly menu table</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- WEEK TABS -->
+<div class="wt-bar">
+  <button class="wtab active" id="wt0" onclick="pickWeek(0)">Week 1 <span class="wtab-sub" id="ws0"></span></button>
+  <button class="wtab" id="wt1" onclick="pickWeek(1)">Week 2 <span class="wtab-sub" id="ws1"></span></button>
+  <button class="wtab" id="wt2" onclick="pickWeek(2)">Week 3 <span class="wtab-sub" id="ws2"></span></button>
+  <button class="wtab" id="wt3" onclick="pickWeek(3)">Week 4 <span class="wtab-sub" id="ws3"></span></button>
+  <div class="tab-right">
+    <span style="font-size:.67rem;color:rgba(255,255,255,.42)">Repeat dates:</span>
+    <input class="di" id="wdi" oninput="D.weeks[WI].dates=this.value;updateTabs();save()">
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="bw">
+  <div class="gp" id="gp">
+    <div class="dhr">
+      <div></div>
+      <div class="dhc">Monday</div><div class="dhc">Tuesday</div>
+      <div class="dhc">Wednesday</div><div class="dhc">Thursday</div>
+      <div class="dhc">Friday</div>
+      <div class="dhc wk">Saturday</div><div class="dhc wk">Sunday</div>
+    </div>
+    <div id="grid"></div>
+  </div>
+  <!-- EDITOR -->
+  <div class="ep" id="ep">
+    <div class="ep-wel" id="epWel"><div style="font-size:2rem">📋</div><h3>Select a Day to Edit</h3><p>Click any day card in the calendar to edit meals, sides, and vegetarian options.</p></div>
+    <div id="epIn" style="display:none;flex:1;flex-direction:column;overflow:hidden"></div>
+  </div>
+</div>
+
+<!-- STATUS BAR -->
+<div class="sb">
+  <span class="hl" id="sbDay">No day selected</span>
+  <span>|</span><span id="sbToday">Set cycle start date in the toolbar to enable today detection</span>
+  <span>|</span><span>Enter = add item · Drag to reorder · Backspace on empty = delete</span>
+</div>
+
+<!-- PREVIEW OVERLAY -->
+<div class="prev-overlay" id="prevOverlay">
+  <div class="prev-topbar">
+    <span class="ptitle">📺 Display Board Preview</span>
+    <div class="pnav">
+      <button class="prev-nb" id="prevP" onclick="navSlide(-1)">◀ Prev</button>
+      <span class="prev-ctr" id="prevCtr">— / —</span>
+      <button class="prev-nb" id="prevN" onclick="navSlide(1)">Next ▶</button>
+      <span style="font-size:.7rem;color:rgba(255,255,255,.45);margin-left:8px">← → keys to navigate · Esc to close</span>
+      <button class="prev-close" onclick="closePreview()">✕ Close</button>
+    </div>
+  </div>
+  <div class="prev-stage"><div class="slide-frame" id="slideFrame"></div></div>
+  <div class="prev-filmstrip" id="filmstrip"></div>
+</div>
+
+</body>
+<script>
+// ═══════════════════════════════════════════════
+// DATA  (each day has bf/bfV/bfS, ln/lnV/lnS, dn/dnV/dnS, br/brV/brS)
+// Weekdays: fill bf, ln, dn.  Weekends: fill br (brunch) + dn.
+// ═══════════════════════════════════════════════
+const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+const WKND = new Set(["Saturday","Sunday"]);
+const SK   = "mjcc28v7";
+
+function d(bf,bfV,bfS, ln,lnV,lnS, dn,dnV,dnS, br,brV,brS){
+  return {
+    bf:bf||[],  bfV:bfV||[], bfS:bfS||[],
+    ln:ln||[],  lnV:lnV||[], lnS:lnS||[],
+    dn:dn||[],  dnV:dnV||[], dnS:dnS||[],
+    br:br||[],  brV:brV||[], brS:brS||[]
+  };
+}
+
+const DEF = {
+  center:"MJCC Miami Job Corps",
+  currentWeek:"SEP 12 – SEP 18, 2025",
+  anchorDate:"2025-01-27",
+  weeks:[
+    { label:"Week 1", dates:"Jan 29, Feb 26, Mar 25, Apr 22", days:{
+      Monday:    d(["Boiled Egg","Bacon","Breakfast Sausage","White Toast","Wheat Toast","Breakfast Potatoes","French Toast","Pastry/Scones","Bagels","Biscuit"],
+                   [0,0,0,0,0,0,0,0,0,0], ["Apple Whirls","Raisin Bran","Frosted Flakes","Granola","Special K","Grits","Apple","Orange","Pop Tart"],
+                   ["Herb Pork Chop","Korean Chicken","Vegetarian"],
+                   [0,0,1], ["Herb Roasted Potato","Steamed Jasmine Rice","Pasta Ala Vodka","Chef Veggies","Garden Salad"],
+                   ["Lemon Garlic Tilapia","Curry Chicken","Vegetarian"],
+                   [0,0,1], ["Garlic Mash","Fried Plantains","Brown Rice","Chef Vegetable","Garden Salad"]),
+      Tuesday:   d(["Scramble Egg","Bacon","Breakfast Sausage","White Toast","Wheat Toast","Breakfast Potatoes","French Toast","Pastry/Scones","Bagels","Biscuit"],
+                   [0,0,0,0,0,0,0,0,0,0], ["Apple Whirls","Raisin Bran","Frosted Flakes","Granola","Special K","Creamy Wheat","Apple","Orange"],
+                   ["Jerk Chicken","Teriyaki Beef","Veggie Tofu"],
+                   [0,0,1], ["Tostones","Congrie Rice","Pasta Alfredo","Chef Veggies","Garden Salad"],
+                   ["Baked Ziti","Roasted Turkey","Veggie Stirfry"],
+                   [0,0,1], ["Herb Bread Sticks","Creole Rice","Cheddar Mash Potato","Chef Veggies","Garden Salad"]),
+      Wednesday: d(["Cheese Scramble","Bacon","Breakfast Sausage","White Toast","Wheat Toast","Breakfast Potatoes","French Toast","Pastry/Scones","Bagels","Biscuit"],
+                   [0,0,0,0,0,0,0,0,0,0], ["Apple Whirls","Raisin Bran","Frosted Flakes","Granola","Special K","Oatmeal","Apple","Orange"],
+                   ["Brown Stew Chicken","Shrimp Alfredo","Vegetable Tomato Sauce"],
+                   [0,0,1], ["Pigeon Peas Rice","Herb Butter Pasta","Sweet Potato Wedges","Chef Vegetable","Garden Salad"],
+                   ["Chicken Parmesan","Fried Cod","Vegetarian"],
+                   [0,0,1], ["Spaghetti Noodle","Hush Puppies","Brown Rice","Chef Veggies","Garden Salad"]),
+      Thursday:  d(["Egg Astrada Casserole","Bacon","Breakfast Sausage","White Toast","Wheat Toast","Breakfast Potatoes","French Toast","Bagels","Biscuit"],
+                   [0,0,0,0,0,0,0,0,0], ["Apple Whirls","Raisin Bran","Frosted Flakes","Granola","Special K","Grits","Apple","Orange"],
+                   ["Memphis BBQ Ribs","Sausage & Peppers","Veggie Burger"],
+                   [0,0,1], ["Sweet Potato Mash","Fresh Tomato Pasta","Spanish Rice","Chef Veggies","Garden Salad"],
+                   ["Crusted Cod","Chicken Marsala","Vegetarian"],
+                   [0,0,1], ["Pesto Cream Pasta","Sweet Potato Hash","Brown Rice","Chef Vegetable","Garden Salad"]),
+      Friday:    d(["Boiled Egg","Bacon","Breakfast Sausage","White Toast","Wheat Toast","Breakfast Potatoes","French Toast","Pastry/Scones","Bagels","Biscuit"],
+                   [0,0,0,0,0,0,0,0,0,0], ["Apple Whirls","Raisin Bran","Frosted Flakes","Granola","Special K","Creamy Wheat","Apple","Orange"],
+                   ["Chicken Burrito Bowl","Fish Sandwich","Beef Taco","Vegan Burrito Bowl"],
+                   [0,0,0,1], ["Corn Kernel","Black Beans","Steamed Rice","Chef Veggies","Garden Salad"],
+                   ["Tuscan Chicken","Tuna Casserole","Vegetarian"],
+                   [0,0,1], ["Potato Medley","Herb Rice","Buttered Rolls","Chef Veggies","Garden Salad"]),
+      Saturday:  d([],[],[],  [],[],[],
+                   ["Glazed Ham","Chef Special","Vegetarian Meatball"],
+                   [0,0,1], ["Mash Potato","Warm Rolls","Brown Rice","Chef Vegetables","Garden Salad"],
+                   ["Bagel Sandwich","Chef Special","Scramble Egg","Bacon","Breakfast Sausage","Corn Beef Hash","French Toast"],
+                   [0,0,0,0,0,0,0], ["Hash Brown","Brown Rice","Apple Whirls","Raisin Bran"]),
+      Sunday:    d([],[],[],  [],[],[],
+                   ["Caribbean Jerk Chicken","Chef Special","Vegetarian"],
+                   [0,0,1], ["Red Beans & Rice","Steamed Broccoli","Chef Veggies","Garden Salad"],
+                   ["Grilled Cheese","Chef Special","Egg Cheese Scramble","Bacon","Breakfast Sausage","Corn Beef Hash","French Toast"],
+                   [0,0,0,0,0,0,0], ["Hash Brown","Brown Rice","Apple Whirls","Raisin Bran"])
+    }},
+    { label:"Week 2", dates:"Feb 5, Mar 4, Apr 1, May 6", days:{
+      Monday:    d(["Assorted Omelets","Scrambled Eggs","Hard Boiled Eggs","Sausage Links","Turkey Sausage","Hotcakes","Hot Oatmeal"],
+                   [0,0,0,0,0,0,0], ["Assorted Jellies","Whole Fruit","Canned Fruit","Peanut Butter","Assorted Cereals"],
+                   ["Vegetable Lasagna","Spaghetti/Meat Sauce","Garlic Bread","Italian Vegetables"],
+                   [1,0,0,0], ["Iceberg Salad Mix","Carrot Salad","Potato Salad","Assorted Dressings"],
+                   ["Roast Turkey","Roast Beef Brisket","Lyonnais Potatoes","Steamed Cabbage"],
+                   [0,0,0,0], ["Waldorf Salad","Diced Eggs","Kidney Beans","Assorted Dressings"]),
+      Tuesday:   d(["Cheese Eggs","Scrambled Eggs","Hard Boiled Eggs","Fresh Bacon","Turkey Sausage","Home Fries","Hot Grits"],
+                   [0,0,0,0,0,0,0], ["Assorted Jellies","Whole Fruit","Canned Fruit","Assorted Cereals"],
+                   ["Teriyaki Beef Burger","Chicken Teriyaki","Vegetable Lo Mein","Fried Rice"],
+                   [0,0,1,0], ["Mesculin Mix","Jell-O","Fruit Cocktail","Assorted Dressings"],
+                   ["Baked Ham Hawaiian","Fish with Mango Sauce","Rice Pilaf","String Beans"],
+                   [0,0,0,0], ["Jell-O","Broccoli Florets","Assorted Dressings"]),
+      Wednesday: d(["Fried Eggs","Scrambled Eggs","Sausage Links","Turkey Bacon","French Toast Sticks","Fresh Farina"],
+                   [0,0,0,0,0,0], ["Assorted Jellies","Assorted Bagels","Assorted Cream Cheese","Assorted Fruit","Assorted Cereals"],
+                   ["Salisbury Steak","Grilled Veggie Burgers","Hoppin' John","Corn Bread"],
+                   [0,1,0,0], ["Fresh Spinach","Three Bean Salad","Assorted Dressings"],
+                   ["Turkey A'La King","Beef Stew","Egg Noodles","Buttered Biscuits"],
+                   [0,0,0,0], ["Cauliflower Florets","Three Bean Salad","Assorted Dressings"]),
+      Thursday:  d(["Breakfast Burritos","Scrambled Eggs","Fresh Bacon","Turkey Sausage","Chocolate Chip Pancakes","Hot Oatmeal"],
+                   [0,0,0,0,0,0], ["Assorted Jellies","Peanut Butter","Assorted Fruit","Assorted Cereals"],
+                   ["Beef Chop Suey","General Tso's Chicken","Shrimp Fried Rice","Oriental Vegetables"],
+                   [0,0,0,1], ["Chopped Romaine","Fried Tofu","Coleslaw","Assorted Dressings"],
+                   ["Roast Beef","Grilled Pork Chops","Baked Potato/Sour Cream","Whole Green Beans"],
+                   [0,0,0,0], ["Pasta Salad","Cole Slaw","Assorted Dressings"]),
+      Friday:    d(["Egg McMuffin","Scrambled Eggs","Turkey Sausage","Corned Beef Hash","Belgium Waffles","Hot Grits"],
+                   [0,0,0,0,0,0], ["Assorted Jellies","Peanut Butter","Sliced Fruit","Assorted Cereals"],
+                   ["Manager's Choice"], [0], ["Manager's Choice Salad"],
+                   ["Shrimp Creole","Breaded Fried Fish","Yellow Rice","Steamed Broccoli"],
+                   [0,0,0,0], ["Salad Mix","Kidney Beans","Assorted Dressings"]),
+      Saturday:  d([],[],[],  [],[],[],
+                   ["Roast Beef Brisket","Chicken Creole","Rice Pilaf","Buttered Snap Peas"],
+                   [0,0,0,0], ["Salad Mix","Assorted Dressings"],
+                   ["Eggs to Order","Grilled Sausage Patties","Hash Brown Potatoes","Hot Grits with Cheese","Chicken Fried Steak"],
+                   [0,0,0,0,0], ["Whole Fruit","Assorted Breads","Assorted Cereal"]),
+      Sunday:    d([],[],[],  [],[],[],
+                   ["Braised Beef and Noodles","Fried Catfish Nuggets","Roasted Red Bliss Potatoes","Sautéed Spinach"],
+                   [0,0,0,0], ["Cole Slaw","Macaroni Salad","Assorted Dressings"],
+                   ["Eggs To Order","Scrambled Eggs","Turkey Bacon","Sweet Potato Fries","Italian Sausage w/ Peppers"],
+                   [0,0,0,0,0], ["Assorted Breads","Assorted Cereal"])
+    }},
+    { label:"Week 3", dates:"Feb 12, Feb 19, Mar 4", days:{
+      Monday:    d(["Scrambled Eggs","Corned Beef Hash","Oven Brown Sausage","French Toast Sticks","Hot Oatmeal","Hash Brown Potatoes"],
+                   [0,0,0,0,0,0], ["Assorted Fruit","Cottage Cheese","Yogurt","Assorted Cereals"],
+                   ["Baked Meatloaf","Braised Flank Steak","Black Bean Burgers","Herbed Rice"],
+                   [0,0,1,0], ["Assorted Greens","Shredded Carrots","Three Bean Salad","Assorted Dressings"],
+                   ["Chicken Dijonaise","Baked Herb Pollack","Wheat Penne","Lyonnaise Potatoes"],
+                   [0,0,0,0], ["Shredded Carrots","Three Bean Salad","Assorted Dressings"]),
+      Tuesday:   d(["Assorted Omelets","Scrambled Eggs","Bacon","Sausage","Waffles","Cream of Wheat"],
+                   [0,0,0,0,0,0], ["Assorted Muffins","Assorted Fruit","Assorted Cereals"],
+                   ["Philly Steak/Chicken Subs","Caramelized Onions","Sweet Potato Fries","Vegetable Stir-fry"],
+                   [0,0,0,1], ["Chopped Romaine","Red Potato Salad","Ham Salad","Assorted Dressings"],
+                   ["Roast Turkey","Bar-B-Q Ribs","Baked Sweet Potatoes","Wild Rice"],
+                   [0,0,0,0], ["Garbanzo Beans","Red Potato Salad","Assorted Dressings"]),
+      Wednesday: d(["Egg Cheese Sausage on Biscuit","Hard Boiled Eggs","Poached Eggs","Creamed Beef","Bacon","Cinnamon Rolls"],
+                   [0,0,0,0,0,0], ["Assorted Fruit","Fruit Cocktail","Assorted Cereals"],
+                   ["Veal Parmesan","Roasted Turkey Breast","Yellow Rice","String Beans","Garlic Bread"],
+                   [0,0,0,0,0], ["Iceberg Salad Mix","Red Coleslaw","Broccoli Salad","Assorted Dressings"],
+                   ["Salisbury Steak","Roast Pork Loin","Au Gratin Potatoes","Brown Rice"],
+                   [0,0,0,0], ["Iceberg Salad Mix","Broccoli Salad","Assorted Dressings"]),
+      Thursday:  d(["Cheese Frittata","Scrambled Eggs","Turkey Sausage Links","Corned Beef Hash","Hash Brown Patties","Cinnamon Oatmeal"],
+                   [0,0,0,0,0,0], ["Assorted Fruit","Fruit Cocktail","Assorted Cereals"],
+                   ["Baked Potato Bar","Cheeseburgers","Hot Dogs","Mixed Vegetables"],
+                   [0,0,0,1], ["Fresh Spinach","Lo-Mein Salad","Broccoli Florets","Assorted Dressings"],
+                   ["Asian Baked Chicken","Pepper Steak","Stir-Fry Vegetables","Vegetable Fried Rice"],
+                   [0,0,0,1], ["Fresh Spinach","Grape Tomatoes","Assorted Dressings"]),
+      Friday:    d(["Croissant French Toast","Scrambled Eggs","Turkey Sausage","Turkey Bacon","Hash Brown Patties"],
+                   [0,0,0,0,0], ["Assorted Fruit","Assorted Cereals","Assorted Yogurt"],
+                   ["Braised Knockwurst/Rolls","Beef Riblets","Corn on Cob","Baked Beans"],
+                   [0,0,0,0], ["Salad Mix","Potato Salad","Coleslaw","Assorted Dressings"],
+                   ["Seafood Newburg","Baked Veal Cutlets","Onion Rings","Steamed Broccoli"],
+                   [0,0,0,0], ["Salad Mix","Potato Salad","Assorted Dressings"]),
+      Saturday:  d([],[],[],  [],[],[],
+                   ["Turkey Sub Sandwiches","Grilled Hot Dogs","Lyonnaise Potatoes","Macaroni and Cheese"],
+                   [0,0,0,0], ["Iceberg Salad Mix","Fruit Jell-O","Assorted Dressings"],
+                   ["Assorted Omelets","Egg McMuffin","Hot Grits","Home Fries","Turkey Bacon","Turkey Sausage Patties","Pancakes"],
+                   [0,0,0,0,0,0,0], ["Assorted Fruit","Assorted Yogurt","Assorted Cereals"]),
+      Sunday:    d([],[],[],  [],[],[],
+                   ["Roast Turkey","Baked Pork Chops","Seasoned Collard Greens","Roasted Brussels Sprouts"],
+                   [0,0,0,0], ["Cole Slaw","Macaroni Salad","Assorted Dressings"],
+                   ["Scrambled Eggs","Breakfast Burrito","Creamed Chipped Beef","Hot Biscuits","Sausage Links","Potato Tots"],
+                   [0,0,0,0,0,0], ["Assorted Donuts","Assorted Fruit","Assorted Cereals"])
+    }},
+    { label:"Week 4", dates:"Mar 11, Mar 18, Mar 25, Apr 1", days:{
+      Monday:    d(["Scrambled Eggs","Fried Eggs","Turkey Bacon","Sausage Links","Grits","Home Fries"],
+                   [0,0,0,0,0,0], ["Assorted Bagels","Assorted Jellies","Assorted Fruit","Assorted Cereals"],
+                   ["Cheese Quesadillas","Chicken Fajitas","Spanish Rice","Mexican Corn"],
+                   [1,0,0,0], ["Fresh Mesclun Mix","Tuna Fish Salad","Potato Salad","Assorted Dressings"],
+                   ["Grilled Strip Steak","Chicken Marsala","Baked Sweet Potato","Rice Pilaf"],
+                   [0,0,0,0], ["Tuna Fish Salad","Three Bean Salad","Assorted Dressings"]),
+      Tuesday:   d(["Scrambled Cheese Eggs","Hard Boiled Eggs","Cheese Toast","Grits","Sliced Ham","Turkey Bacon"],
+                   [0,0,0,0,0,0], ["Assorted Donuts","Assorted Fruit","Assorted Cereals","Assorted Jellies"],
+                   ["Braised Beef Tips","Braised Short Ribs","Red Beans and Rice","Fried Plantains"],
+                   [0,0,0,0], ["Fresh Spinach","Fruit Salad","Israeli Salad","Assorted Dressings"],
+                   ["Turkey Meatloaf","Roast Pork Loin","Mashed Red Potatoes","Steamed Cabbage"],
+                   [0,0,0,0], ["Fresh Spinach","Carrot Raisin Salad","Assorted Dressings"]),
+      Wednesday: d(["Western Omelet","Fried Eggs","Creamed Beef","Bacon","Biscuits"],
+                   [0,0,0,0,0], ["Assorted Fresh Fruit","Assorted Breads","Fruit Cocktail","Assorted Cereals"],
+                   ["Chicken Chow Mein","Lo Mein Noodles","Beef and Broccoli","Buttered Carrots"],
+                   [0,0,0,0], ["Salad Mix","Wild Rice Salad","Cucumber Onion Salad","Assorted Dressings"],
+                   ["Salmon Cakes","Turkey Tetrazzini","Brown Rice","Western Fries"],
+                   [0,0,0,0], ["Wild Rice Salad","Cucumber Onion Salad","Assorted Dressings"]),
+      Thursday:  d(["Poached Eggs","Scrambled Eggs","Turkey Sausage Patties","Waffles","Hot Grits"],
+                   [0,0,0,0,0], ["Assorted Fruit","Assorted Breads","Assorted Cereals"],
+                   ["Corn Dogs","Assorted Pizza","Western Fries","Vegetarian Pasta"],
+                   [0,0,0,1], ["Chopped Romaine","Macaroni Salad","Tomato Salad","Assorted Dressings"],
+                   ["Roast Brisket of Beef","Baked Chicken Pieces","Stuffed Peppers","Rice Pilaf"],
+                   [0,0,0,0], ["Chopped Romaine","Macaroni Salad","Assorted Dressings"]),
+      Friday:    d(["Spanish Omelet","Scrambled Eggs","Sliced Ham Steaks","French Toast","Hash Browns","Turkey Bacon"],
+                   [0,0,0,0,0,0], ["Assorted Fruit","Canned Fruit","Assorted Cereals"],
+                   ["Vegetable Lasagna","Beef Lasagna","Breaded Veal Patties","Garlic Bread"],
+                   [1,0,0,0], ["Mixed Greens","Tomato Mozzarella Salad","Grape Tomatoes","Assorted Dressings"],
+                   ["Fried Breaded Shrimp","Baked Chicken Pieces","Baked Potato","Brown Rice"],
+                   [0,0,0,0], ["Mixed Greens","Tomato Mozzarella Salad","Assorted Dressings"]),
+      Saturday:  d([],[],[],  [],[],[],
+                   ["Roast Beef Subs","Turkey Club Sandwiches","Potato Chips","Broccoli with Cheese"],
+                   [0,0,0,0], ["Fresh Spinach","Pasta Salad","Assorted Dressings"],
+                   ["Breakfast Pizza","Fried Eggs","Potato Tarts","Turkey Bacon","Sausage Links","Fresh Waffles"],
+                   [0,0,0,0,0,0], ["Assorted Fresh Fruit","Assorted Dry Cereal","Assorted Breads"]),
+      Sunday:    d([],[],[],  [],[],[],
+                   ["Braised Ribs","Chicken Cordon Blue","Parsley Buttered Potatoes","Fried Okra"],
+                   [0,0,0,0], ["Fresh Iceberg Lettuce","Fruit Salad","Assorted Dressings"],
+                   ["Scrambled Eggs","Boiled Eggs","Sausage Wrap","Grilled Minute Steaks","Pancakes/Syrup","Potato Patties"],
+                   [0,0,0,0,0,0], ["Assorted Donuts","Assorted Fruit","Assorted Cereals"])
+    }}
+  ]
+};
+
+// ═══════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════
+let D = JSON.parse(JSON.stringify(DEF));
+try { var _s = localStorage.getItem(SK); if (_s) D = JSON.parse(_s); } catch(e) {}
+var WI = 0, sel = {wi:null, day:null}, AT = "bf", dragSrc = null, svT = null;
+var prevSlides = [], prevIdx = 0;
+
+function clone(o){ return JSON.parse(JSON.stringify(o)); }
+function esc(s){ return String(s||"").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
+
+function save(){
+  clearTimeout(svT);
+  document.getElementById("sdot").classList.add("bsy");
+  document.getElementById("stxt").textContent = "Saving…";
+  svT = setTimeout(function(){
+    try { localStorage.setItem(SK, JSON.stringify(D)); } catch(e) {}
+    document.getElementById("sdot").classList.remove("bsy");
+    document.getElementById("stxt").textContent = "Saved";
+  }, 500);
+}
+function resetData(){
+  if (!confirm("Reset all data to original defaults?")) return;
+  D = clone(DEF); localStorage.removeItem(SK); WI = 0; sel = {wi:null,day:null};
+  closeEditor(); initUI(); toast("Reset to defaults.");
+}
+function toast(m){
+  var t = document.createElement("div"); t.className = "toast"; t.textContent = m;
+  document.body.appendChild(t); setTimeout(function(){ t.remove(); }, 3000);
+}
+
+// ═══════════════════════════════════════════════
+// DATE / CYCLE DETECTION
+// ═══════════════════════════════════════════════
+function getTodayInfo(){
+  if (!D.anchorDate) return null;
+  var anchor = new Date(D.anchorDate + "T00:00:00");
+  var now = new Date(); now.setHours(0,0,0,0); anchor.setHours(0,0,0,0);
+  var diff = Math.floor((now - anchor) / 86400000);
+  if (diff < 0) return null;
+  var wkIdx = Math.floor(diff / 7) % 4;
+  var dNames = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  return {
+    wkIdx     : wkIdx,
+    dayName   : dNames[now.getDay()],
+    cycleDay  : (diff % 28) + 1,
+    cycleWeek : wkIdx + 1,
+    dateStr   : now.toLocaleDateString("en-US", {weekday:"short", month:"short", day:"numeric"})
+  };
+}
+function applyToday(){
+  var info = getTodayInfo();
+  var val  = document.getElementById("todayVal");
+  var badge = document.getElementById("todayBadge");
+  if (info) {
+    val.textContent = info.dateStr;
+    badge.textContent = "W" + info.cycleWeek + " · D" + info.cycleDay;
+    badge.style.display = "inline-block";
+    document.getElementById("sbToday").textContent =
+      "Cycle Week " + info.cycleWeek + " of 4 · Day " + info.cycleDay + " of 28 · " + info.dayName;
+    document.querySelectorAll(".wtab").forEach(function(t,i){
+      t.classList.toggle("today-wk", i === info.wkIdx);
+    });
+  } else {
+    val.textContent = "—";
+    badge.style.display = "none";
+    document.getElementById("sbToday").textContent = "Set cycle start date to enable today detection";
+    document.querySelectorAll(".wtab").forEach(function(t){ t.classList.remove("today-wk"); });
+  }
+  return info;
+}
+
+// ═══════════════════════════════════════════════
+// GRID
+// ═══════════════════════════════════════════════
+function updateTabs(){
+  D.weeks.forEach(function(w,i){
+    var e = document.getElementById("ws"+i); if(e) e.textContent = w.dates.split(",")[0].trim();
+  });
+  document.getElementById("wdi").value = D.weeks[WI].dates;
+}
+function pickWeek(i){
+  WI = i;
+  document.querySelectorAll(".wtab").forEach(function(t,j){ t.classList.toggle("active", j===i); });
+  document.getElementById("wdi").value = D.weeks[i].dates;
+  if (sel.wi !== null && sel.wi !== i) closeEditor();
+  renderGrid();
+}
+function renderGrid(){
+  var info = applyToday();
+  var g = document.getElementById("grid"); g.innerHTML = "";
+  var row = document.createElement("div"); row.className = "wr";
+  var lbl = document.createElement("div"); lbl.className = "wrl";
+  var wk = D.weeks[WI];
+  lbl.innerHTML = '<span class="wrln">'+wk.label+'</span><span class="wrls">'+wk.dates.split(",").slice(0,2).join(",")+'</span>';
+  row.appendChild(lbl);
+  DAYS.forEach(function(day){ row.appendChild(makeCard(WI, day, info)); });
+  g.appendChild(row);
+}
+function makeCard(wi, day, info){
+  var dd = D.weeks[wi].days[day];
+  var isW = WKND.has(day);
+  var isSel   = sel.wi===wi && sel.day===day;
+  var isToday = info && info.wkIdx===wi && info.dayName===day;
+  var bfItems = isW ? (dd.br||[]) : (dd.bf||[]);
+  var lnItems = dd.ln||[], dnItems = dd.dn||[];
+  var c = document.createElement("div");
+  c.className = "dc" + (isSel?" sel":"") + (isToday?" today-card":"");
+  (function(wi2, day2){ c.onclick = function(){ openEditor(wi2, day2); }; })(wi, day);
+  if (isToday) { var tb = document.createElement("div"); tb.className = "today-badge"; tb.textContent = "TODAY"; c.appendChild(tb); }
+  var inner = document.createElement("div");
+  inner.innerHTML =
+    '<div class="dc-h"><span class="dc-d'+(isW?" wk":"")+'">'+day.slice(0,3).toUpperCase()+'</span>'+
+    '<div class="dc-dots"><div class="dd'+(bfItems.length?" b":"")+'"></div><div class="dd'+(lnItems.length?" l":"")+'"></div><div class="dd'+(dnItems.length?" d":"")+'"></div></div></div>'+
+    '<div class="dc-meals">'+
+      mRow(bfItems,"dc-bf","☀")+
+      (isW ? '<div class="dc-m dc-ln"><span class="dci" style="color:#ddd">·</span><div class="dct"><span class="r">No lunch</span></div></div>' : mRow(lnItems,"dc-ln","🍽"))+
+      mRow(dnItems,"dc-dn","🌙")+
+    '</div>';
+  c.appendChild(inner);
+  return c;
+}
+function mRow(items, cls, icon){
+  return '<div class="dc-m '+cls+'"><span class="dci">'+icon+'</span><div class="dct">'+
+    (items.length
+      ? '<span class="f">'+items[0]+'</span>'+(items.length>1?'<span class="r">+'+( items.length-1)+'</span>':"")
+      : '<span class="r" style="font-style:italic;color:var(--ml)">—</span>')+
+    '</div></div>';
+}
+
+// ═══════════════════════════════════════════════
+// EDITOR
+// ═══════════════════════════════════════════════
+function openEditor(wi, day){
+  sel = {wi:wi, day:day}; AT = "bf";
+  document.getElementById("ep").classList.add("open");
+  document.getElementById("epWel").style.display = "none";
+  var inn = document.getElementById("epIn");
+  inn.style.cssText = "display:flex;flex-direction:column;overflow:hidden;flex:1";
+  buildEp(); renderGrid();
+  document.getElementById("sbDay").textContent = "Editing: " + day + " · " + D.weeks[wi].label;
+}
+function closeEditor(){
+  sel = {wi:null,day:null};
+  document.getElementById("ep").classList.remove("open");
+  document.getElementById("epWel").style.display = "flex";
+  document.getElementById("epIn").style.display = "none";
+  document.getElementById("sbDay").textContent = "No day selected";
+  renderGrid();
+}
+function mealKey(){ var isW=WKND.has(sel.day); return AT==="bf"?(isW?"br":"bf"): AT==="ln"?"ln":"dn"; }
+function vegKey(){  return mealKey()+"V"; }
+function sidesKey(){ var isW=WKND.has(sel.day); return AT==="bf"?(isW?"brS":"bfS"): AT==="ln"?"lnS":"dnS"; }
+function gDay(){ return D.weeks[sel.wi].days[sel.day]; }
+function gItems(){ var dd=gDay(),k=mealKey(); if(!dd[k])dd[k]=[]; return dd[k]; }
+function gVegs(){  var dd=gDay(),k=vegKey();  if(!dd[k])dd[k]=[]; return dd[k]; }
+function gSides(){ var dd=gDay(),k=sidesKey();if(!dd[k])dd[k]=[]; return dd[k]; }
+
+function buildEp(){
+  var isW=WKND.has(sel.day), wk=D.weeks[sel.wi], dd=gDay();
+  var bfK = isW?"br":"bf";
+  var bfCt=(dd[bfK]||[]).length, lnCt=(dd.ln||[]).length, dnCt=(dd.dn||[]).length;
+  document.getElementById("epIn").innerHTML =
+    '<div class="ep-hdr" style="position:relative">'+
+      '<div class="ep-ttl">'+sel.day+'</div>'+
+      '<div class="ep-sub">'+wk.label+'  ·  '+wk.dates.split(",").slice(0,2).join(",")+'</div>'+
+      '<button class="ep-x" onclick="closeEditor()">✕</button>'+
+    '</div>'+
+    '<div class="ep-mts">'+
+      '<button class="ep-mt bf'+(AT==="bf"?" act":"")+(isW?" act bf":"")+'" onclick="setAT(\'bf\')">'+
+        '<span class="ic">'+(isW?"🌤️":"☀️")+'</span>'+(isW?"Brunch":"Breakfast")+'<span class="ct">'+bfCt+' items</span></button>'+
+      '<button class="ep-mt ln'+(AT==="ln"?" act":"")+(isW?' disabled style="opacity:.35"':"")+'" onclick="setAT(\'ln\')" '+(isW?'disabled':"")+'>'+
+        '<span class="ic">🍽️</span>Lunch<span class="ct">'+lnCt+' items</span></button>'+
+      '<button class="ep-mt dn'+(AT==="dn"?" act":"")+(isW?" ":"")+'" onclick="setAT(\'dn\')">'+
+        '<span class="ic">🌙</span>Dinner<span class="ct">'+dnCt+' items</span></button>'+
+    '</div>'+
+    '<div class="ep-body" id="epBody"></div>'+
+    '<div class="ep-act">'+
+      '<select class="bsm" id="cpSel" onchange="copyFrom(this.value)"><option value="">⊕ Copy from…</option></select>'+
+      '<button class="bsm d" onclick="clearMeal()">✕ Meal</button>'+
+      '<button class="bsm d" onclick="clearAll()">✕ All</button>'+
+    '</div>';
+  buildCopyFrom();
+  renderEpBody();
+}
+function setAT(t){ if (WKND.has(sel.day) && t==="ln") return; AT=t; buildEp(); }
+
+function renderEpBody(){
+  var body=document.getElementById("epBody"); if(!body) return;
+  var items=gItems(), vegs=gVegs(), sides=gSides();
+  var html = '<div class="ep-lbl">Menu Items<button onclick="clearMeal()">Clear all</button></div><div id="iList">';
+  items.forEach(function(it,i){
+    html += '<div class="ir" draggable="true" data-i="'+i+'" ondragstart="dStart(event,'+i+')" ondragover="dOver(event)" ondrop="dDrop(event,'+i+')" ondragleave="dLeave(event)">'+
+      '<span class="dh">⋮⋮</span>'+
+      '<input class="ii'+(vegs[i]?" veg":"")+'\" value="'+esc(it)+'" onchange="updItem('+i+',this.value)" onkeydown="kItem(event,'+i+')" placeholder="Menu item…">'+
+      '<button class="vb'+(vegs[i]?" on":"")+'\" onclick="togVeg('+i+')" title="Toggle vegetarian">🌿</button>'+
+      '<button class="rb" onclick="rmItem('+i+')">×</button></div>';
+  });
+  html += '</div><button class="add-btn" onclick="addItem()">＋ Add Item &nbsp;<span style="font-size:.63rem;opacity:.5">(or press Enter)</span></button>';
+  html += '<div class="sides-sec"><div class="ep-lbl">Sides &amp; Options</div><div class="sw">';
+  sides.forEach(function(s,i){
+    html += '<div class="sc"><input value="'+esc(s)+'" onchange="updSide('+i+',this.value)" onkeydown="kSide(event,'+i+')"><button class="srm" onclick="rmSide('+i+')">×</button></div>';
+  });
+  html += '<button class="as" onclick="addSide()">＋ side</button></div></div>';
+  body.innerHTML = html;
+}
+
+function updItem(i,v){ gItems()[i]=v; save(); rcrd(); }
+function rmItem(i){  gItems().splice(i,1); gVegs().splice(i,1); save(); buildEp(); rcrd(); }
+function addItem(){
+  gItems().push("New Item"); gVegs().push(0); save(); renderEpBody(); rcrd();
+  setTimeout(function(){ var a=document.querySelectorAll(".ii"); if(a.length){a[a.length-1].focus();a[a.length-1].select();} },50);
+}
+function togVeg(i){ var v=gVegs(); v[i]=v[i]?0:1; save(); renderEpBody(); rcrd(); }
+function updSide(i,v){ gSides()[i]=v; save(); }
+function rmSide(i){ gSides().splice(i,1); save(); renderEpBody(); }
+function addSide(){
+  gSides().push("New Side"); save(); renderEpBody();
+  setTimeout(function(){ var a=document.querySelectorAll(".sc input"); if(a.length){a[a.length-1].focus();a[a.length-1].select();} },50);
+}
+function kItem(e,i){
+  if(e.key==="Enter")   { e.preventDefault(); addItem(); }
+  if(e.key==="Backspace"&&e.target.value==="") { e.preventDefault(); if(gItems().length>1) rmItem(i); }
+  if(e.key==="ArrowDown") { e.preventDefault(); var a=document.querySelectorAll(".ii"); if(a[i+1])a[i+1].focus(); }
+  if(e.key==="ArrowUp")   { e.preventDefault(); var a=document.querySelectorAll(".ii"); if(a[i-1])a[i-1].focus(); }
+}
+function kSide(e,i){
+  if(e.key==="Enter")   { e.preventDefault(); addSide(); }
+  if(e.key==="Backspace"&&e.target.value==="") { e.preventDefault(); if(gSides().length>1) rmSide(i); }
+}
+function clearMeal(){
+  if(!confirm("Clear this meal?")) return;
+  var dd=gDay(),k=mealKey(),vk=vegKey(),sk=sidesKey();
+  dd[k]=[]; dd[vk]=[]; dd[sk]=[]; save(); buildEp(); rcrd(); toast("Meal cleared.");
+}
+function clearAll(){
+  if(!confirm("Clear ALL meals for this day?")) return;
+  ["bf","bfV","bfS","ln","lnV","lnS","dn","dnV","dnS","br","brV","brS"].forEach(function(k){ gDay()[k]=[]; });
+  save(); buildEp(); rcrd(); toast("All meals cleared.");
+}
+function buildCopyFrom(){
+  var s=document.getElementById("cpSel"); if(!s) return;
+  s.innerHTML="<option value=\"\">⊕ Copy from…</option>";
+  D.weeks.forEach(function(wk,wi){
+    DAYS.forEach(function(day){
+      if(wi===sel.wi&&day===sel.day) return;
+      var o=document.createElement("option"); o.value=wi+"__"+day; o.textContent=wk.label+" · "+day; s.appendChild(o);
+    });
+  });
+}
+function copyFrom(val){
+  if(!val) return; if(!confirm("Copy all meals? Overwrites current day.")) return;
+  var parts=val.split("__"), wi=parseInt(parts[0]), day=parts[1];
+  D.weeks[sel.wi].days[sel.day] = clone(D.weeks[wi].days[day]);
+  save(); buildEp(); rcrd(); document.getElementById("cpSel").value="";
+  toast("Copied from "+D.weeks[wi].label+" · "+day);
+}
+function rcrd(){
+  var old=document.querySelector(".dc.sel"); if(!old) return;
+  var info=getTodayInfo(); old.replaceWith(makeCard(sel.wi,sel.day,info));
+}
+function dStart(e,i){ dragSrc=i; e.target.classList.add("dragging"); e.dataTransfer.effectAllowed="move"; }
+function dOver(e){ e.preventDefault(); e.currentTarget.classList.add("drag-ov"); }
+function dLeave(e){ e.currentTarget.classList.remove("drag-ov"); }
+function dDrop(e,i){
+  e.stopPropagation();
+  document.querySelectorAll(".ir").forEach(function(r){ r.classList.remove("drag-ov","dragging"); });
+  if(dragSrc!==null && dragSrc!==i){
+    var it=gItems(), vt=gVegs();
+    var item=it.splice(dragSrc,1)[0]; var veg=vt.splice(dragSrc,1)[0];
+    var ni=dragSrc<i?i-1:i; it.splice(ni,0,item); vt.splice(ni,0,veg);
+    save(); renderEpBody(); rcrd();
+  }
+  dragSrc=null;
+}
+
+// ═══════════════════════════════════════════════
+// EXPORT DROPDOWN
+// ═══════════════════════════════════════════════
+function toggleExp(){
+  document.getElementById("expMenu").classList.toggle("open");
+}
+function stopProp(e){ e.stopPropagation(); }
+document.addEventListener("click",function(e){
+  var w=document.getElementById("expWrap");
+  if(w && !w.contains(e.target)) document.getElementById("expMenu").classList.remove("open");
+});
+
+function getExpWeek(id){ var s=document.getElementById(id); return s ? parseInt(s.value)||0 : WI; }
+function getExpDay(){ var s=document.getElementById("selDay"); return s ? s.value : "Monday"; }
+
+async function runExport(fmt, type){
+  document.getElementById("expMenu").classList.remove("open");
+  var expWeek = type==="weekly" ? getExpWeek("selWeekPptx")
+              : type==="daily"  ? getExpWeek("selWeekDay")
+              : type==="display"? getExpWeek("selWeekDisp")
+              : WI;
+  var expDay = getExpDay();
+  toast("⏳ Generating…");
+  await new Promise(function(r){ setTimeout(r,60); });
+  try {
+    if (fmt==="pptx"){
+      if(type==="28day")  await exp28Day();
+      else if(type==="weekly") await expWeekly(expWeek);
+      else if(type==="daily")  await expDaily(expWeek, expDay);
+      else await expDisplay(expWeek);
+    } else if(fmt==="html-display"){
+      exportHtmlDisplay(expWeek);
+    } else {
+      exportHtmlPrint(expWeek);
+    }
+    toast("✅ Downloaded!");
+  } catch(err){ alert("Export failed: "+err.message); }
+}
+
+// ═══════════════════════════════════════════════
+// SLIDE RENDERER (shared by preview + PPTX)
+// ═══════════════════════════════════════════════
+// Preview renders at 768×432 (16:9), scale factor = 768/13.3 ≈ 57.7
+var SC = 57.7;
+function px(n){ return Math.round(n * SC); }
+var CF="#1B3729", CFM="#254D38", CA="#C07B18", CAL="#E09830", COW="#F2EDE4", CTL="#1A6B58", CW="#FFFFFF", CD="#1A1814";
+
+function slHdr(title, sub){
+  return '<div style="position:absolute;top:0;left:0;right:0;height:'+px(.82)+'px;background:'+CF+';display:flex;align-items:center;padding:0 '+px(.3)+'px">'+
+    '<span style="color:'+CW+';font-size:12px;font-weight:700;font-family:Playfair Display,serif;flex:1">'+title+'</span>'+
+    '<span style="color:'+CAL+';font-size:9px">'+sub+'</span></div>';
+}
+function slFtr(center){
+  return '<div style="position:absolute;bottom:0;left:0;right:0;height:'+px(.28)+'px;background:'+CFM+';display:flex;align-items:center;padding:0 '+px(.25)+'px">'+
+    '<span style="color:'+CAL+';font-size:8px">'+(center||D.center||"MJCC Miami")+' | Food Service</span>'+
+    '<span style="color:#888;font-size:7px;margin-left:auto">🌿 Vegetarian available</span></div>';
+}
+function slTitle(s1,s2){
+  return '<div class="sl" style="background:'+CF+'">'+
+    '<div style="position:absolute;width:'+px(4)+'px;height:'+px(4)+'px;border-radius:50%;background:'+CFM+';top:'+px(-1)+'px;right:'+px(.5)+'px"></div>'+
+    '<div style="position:absolute;top:'+px(1)+'px;left:'+px(.8)+'px;font-family:Playfair Display,serif;font-size:'+px(.82)+'px;font-weight:700;color:'+CW+';line-height:1">CAFETERIA<br>MENU</div>'+
+    '<div style="position:absolute;top:'+px(.98)+'px;left:'+px(.8)+'px;font-size:'+px(.13)+'px;color:'+CAL+';letter-spacing:3px">'+(D.center||"MJCC MIAMI").toUpperCase()+'</div>'+
+    '<div style="position:absolute;top:'+px(4.45)+'px;left:'+px(.8)+'px;background:'+CA+';color:'+CW+';font-size:'+px(.13)+'px;font-weight:700;padding:3px 10px;border-radius:3px">'+s1+'</div>'+
+    (s2?'<div style="position:absolute;top:'+px(5.15)+'px;left:'+px(.8)+'px;background:'+CTL+';color:'+CW+';font-size:'+px(.12)+'px;font-weight:700;padding:2px 8px;border-radius:3px">'+s2+'</div>':'')+
+    '<div style="position:absolute;bottom:'+px(.18)+'px;left:0;right:0;text-align:center;font-size:'+px(.1)+'px;color:#888">Food Service Department</div></div>';
+}
+function slWeekGrid(wk){
+  var cols = ["Monday","Tuesday","Wednesday","Thursday","Friday"].map(function(day,i){
+    var dd=wk.days[day]||{};
+    var li=dd.ln||[], di=dd.dn||[];
+    var cw=px(2.5), x=px(.15)+i*(cw+px(.13));
+    return '<div style="position:absolute;left:'+x+'px;width:'+cw+'px;top:0;bottom:0">'+
+      '<div style="background:'+CF+';color:'+CW+';font-size:7px;font-weight:700;letter-spacing:.08em;text-align:center;padding:2px 0">'+day.slice(0,3).toUpperCase()+'</div>'+
+      '<div style="background:'+CTL+';color:'+CW+';font-size:6px;font-weight:700;text-align:center;padding:1px 0">LUNCH</div>'+
+      '<div style="background:#F0FAFA;border:1px solid #C0DDD8;font-size:6px;line-height:1.5;padding:2px 3px;color:'+CD+'">'+( li.slice(0,4).join("<br>")||"—")+'</div>'+
+      '<div style="background:'+CF+';color:'+CW+';font-size:6px;font-weight:700;text-align:center;padding:1px 0;margin-top:3px">DINNER</div>'+
+      '<div style="background:#F2F5F2;border:1px solid #BECABE;font-size:6px;line-height:1.5;padding:2px 3px;color:'+CD+'">'+( di.slice(0,4).join("<br>")||"—")+'</div></div>';
+  }).join("");
+  return '<div class="sl" style="background:'+COW+'">'+slHdr("Monthly Cycle — "+wk.label, wk.dates)+
+    '<div style="position:absolute;top:'+px(.82)+'px;left:0;right:0;bottom:'+px(.28)+'px;padding:5px">'+cols+'</div>'+slFtr()+'</div>';
+}
+function slDay(wk, day){
+  var dd=wk.days[day], isW=WKND.has(day);
+  var bfI=isW?(dd.br||[]):(dd.bf||[]), lnI=dd.ln||[], dnI=dd.dn||[];
+  var bfV=isW?(dd.brV||[]):(dd.bfV||[]), lnV=dd.lnV||[], dnV=dd.dnV||[];
+  function col(x,cw,bg,lbl,items,vegs){
+    return '<div style="position:absolute;left:'+x+'px;width:'+cw+'px;top:0;bottom:0;background:'+bg+'">'+
+      '<div style="color:'+CW+';font-size:6.5px;font-weight:700;letter-spacing:.08em;padding:4px 5px">'+lbl+'</div>'+
+      '<div style="padding:4px 6px">'+
+        items.slice(0,5).map(function(it,i){
+          return '<div style="color:'+(vegs[i]?"#A8EED8":CW)+';font-size:'+(i===0?8:6.5)+'px;font-weight:'+(i===0?"700":"400")+';line-height:1.5">'+(vegs[i]?"🌿 ":"")+it+'</div>';
+        }).join("")+'</div></div>';
+  }
+  var body = isW
+    ? col(px(.15), px(6.5), "#B57010","WEEKEND BRUNCH", bfI, bfV) + col(px(6.85), px(6.2), CF,"DINNER", dnI, dnV)
+    : col(px(.15), px(4.18),"#B57010","BREAKFAST", bfI, bfV) + col(px(4.52), px(4.18), CTL,"LUNCH", lnI, lnV) + col(px(8.89), px(4.25), CF,"DINNER", dnI, dnV);
+  return '<div class="sl" style="background:'+COW+'">'+slHdr(day.toUpperCase()+" — Today's Menu", wk.label)+
+    '<div style="position:absolute;top:'+px(.82)+'px;left:0;right:0;bottom:'+px(.28)+'px">'+body+'</div>'+slFtr()+'</div>';
+}
+function slEvents(){
+  var evs=[["JAN","Asian Heritage"],["FEB","Black History Month"],["MAR","Mardi Gras"],["APR","Earth Day"],["MAY","Haitian Flag Day"],["JUN","Middle Eastern Culture"],["JUL","4th of July"],["AUG","Taste of Chicago"],["SEP","Taste of The Islands",true],["OCT","Hispanic Heritage"],["NOV","Thanksgiving"],["DEC","Holiday Season"]];
+  var bw=px(3.0), bh=px(1.62), sx=px(.22), sy=px(.9);
+  var cells=evs.map(function(ev,i){
+    var cur=ev[2], x=sx+(i%4)*(bw+px(.2)), y=sy+Math.floor(i/4)*(bh+px(.16));
+    return '<div style="position:absolute;left:'+x+'px;top:'+y+'px;width:'+bw+'px;height:'+bh+'px;background:'+(cur?CA:CF)+'">'+
+      '<div style="font-size:6px;font-weight:700;color:'+(cur?"#BC3D2C":CAL)+';padding:2px 4px">'+ev[0]+'</div>'+
+      '<div style="font-size:'+(cur?9:8.5)+'px;font-weight:700;color:'+CW+';padding:3px 4px;font-family:Playfair Display,serif">'+ev[1]+'</div>'+
+      (cur?'<div style="position:absolute;right:0;top:0;bottom:0;width:'+px(.5)+'px;background:#BC3D2C;display:flex;align-items:center;justify-content:center"><span style="color:'+CW+';font-size:6px;writing-mode:vertical-rl;font-weight:700">NOW</span></div>':'')+
+      '</div>';
+  }).join("");
+  return '<div class="sl" style="background:'+COW+'">'+slHdr("Food Service Diversity Calendar — 2025","Last Thursday Every Month")+
+    '<div style="position:absolute;top:'+px(.82)+'px;left:0;right:0;bottom:'+px(.28)+'px">'+cells+'</div>'+slFtr()+'</div>';
+}
+function slDrinks(){
+  var drinks=["Milk (2%)","Bottled Water","Orange Juice","Cranberry Juice","Apple Juice","Grape Juice","Iced Tea","V8 Splash","Lemonade","Gatorade Orange","Gatorade Fruit Punch"];
+  var snacks=["Assorted Fruit","Granola + Yogurt (8oz)","Pear","Banana","Apple","Orange","Potato Chips","Granola Bar"];
+  var drs=drinks.map(function(dr,i){
+    return '<div style="position:absolute;left:'+px(.5+(i%2)*2.93)+'px;top:'+px(3.06+(Math.floor(i/2))*.44)+'px;width:'+px(2.8)+'px;height:'+px(.37)+'px;background:'+CFM+';display:flex;align-items:center;padding:0 5px"><span style="color:'+CW+';font-size:7.5px">'+dr+'</span></div>';
+  }).join("");
+  var sns=snacks.map(function(sn,i){
+    return '<div style="position:absolute;left:'+px(7.1)+'px;top:'+px(1.18+i*.48)+'px;width:'+px(5.9)+'px;height:'+px(.4)+'px;background:'+(i%2?CF:CFM)+';display:flex;align-items:center;padding:0 6px"><span style="color:'+CW+';font-size:7px">'+sn+'</span></div>';
+  }).join("");
+  return '<div class="sl" style="background:'+CF+'">'+
+    '<div style="position:absolute;top:'+px(.3)+'px;left:'+px(.5)+'px;font-family:Playfair Display,serif;font-size:'+px(.55)+'px;font-weight:700;color:'+CW+';line-height:1.05">ALWAYS<br>AVAILABLE</div>'+
+    '<div style="position:absolute;left:'+px(.5)+'px;top:'+px(2.65)+'px;width:'+px(5.8)+'px;height:'+px(.36)+'px;background:'+CTL+';display:flex;align-items:center;justify-content:center"><span style="color:'+CW+';font-size:7.5px;font-weight:700;letter-spacing:1px">BEVERAGES — ALL MEALS</span></div>'+
+    drs+
+    '<div style="position:absolute;left:'+px(7.1)+'px;top:'+px(.48)+'px;width:'+px(5.9)+'px;height:'+px(.36)+'px;background:'+CA+';display:flex;align-items:center;justify-content:center"><span style="color:'+CW+';font-size:8px;font-weight:700;letter-spacing:1px">NIGHT SNACK OPTIONS</span></div>'+
+    sns+slFtr()+'</div>';
+}
+function buildSlides(wi){
+  var wk=D.weeks[wi||WI], slides=[];
+  slides.push({html:slTitle(D.currentWeek||wk.dates,"🌴 Taste of The Islands"), lbl:"Title"});
+  slides.push({html:slEvents(), lbl:"Cultural Events"});
+  slides.push({html:slWeekGrid(wk), lbl:"Week Overview"});
+  DAYS.forEach(function(day){ slides.push({html:slDay(wk,day), lbl:day}); });
+  slides.push({html:slDrinks(), lbl:"Beverages & Snacks"});
+  return slides;
+}
+
+// ═══════════════════════════════════════════════
+// PREVIEW OVERLAY
+// ═══════════════════════════════════════════════
+function openPreview(){
+  var info = getTodayInfo();
+  var wi = (info && info.wkIdx >= 0) ? info.wkIdx : WI;
+  prevSlides = buildSlides(wi);
+  prevIdx = 0;
+  // if today is known, jump to today's day slide
+  if (info) {
+    var todayIdx = 3 + DAYS.indexOf(info.dayName); // 0=Title,1=Events,2=Overview,3+=days
+    if (todayIdx >= 3 && todayIdx < prevSlides.length - 1) prevIdx = todayIdx;
+  }
+  renderPrevSlide();
+  renderFilmstrip();
+  document.getElementById("prevOverlay").classList.add("open");
+  document.getElementById("prevOverlay").focus();
+}
+function closePreview(){ document.getElementById("prevOverlay").classList.remove("open"); }
+function renderPrevSlide(){
+  document.getElementById("slideFrame").innerHTML = prevSlides[prevIdx].html;
+  document.getElementById("prevCtr").textContent = (prevIdx+1)+" / "+prevSlides.length;
+  document.getElementById("prevP").disabled = prevIdx===0;
+  document.getElementById("prevN").disabled = prevIdx===prevSlides.length-1;
+  document.querySelectorAll(".thumb").forEach(function(t,i){ t.classList.toggle("act", i===prevIdx); });
+}
+function renderFilmstrip(){
+  document.getElementById("filmstrip").innerHTML = prevSlides.map(function(sl,i){
+    return '<div class="thumb'+(i===prevIdx?" act":"")+'\" onclick="goSlide('+i+')">'+
+      '<div class="thumb-inner">'+sl.html+'</div>'+
+      '<div class="thumb-n">'+sl.lbl+'</div></div>';
+  }).join("");
+}
+function navSlide(dir){ prevIdx=Math.max(0,Math.min(prevSlides.length-1,prevIdx+dir)); renderPrevSlide(); }
+function goSlide(i){ prevIdx=i; renderPrevSlide(); document.querySelectorAll(".thumb").forEach(function(t,j){ t.classList.toggle("act",j===i); }); }
+document.addEventListener("keydown",function(e){
+  var ov=document.getElementById("prevOverlay");
+  if(!ov.classList.contains("open")) return;
+  if(e.key==="ArrowRight"||e.key==="ArrowDown") navSlide(1);
+  if(e.key==="ArrowLeft"||e.key==="ArrowUp") navSlide(-1);
+  if(e.key==="Escape") closePreview();
+});
+
+// ═══════════════════════════════════════════════
+// HTML DISPLAY EXPORT
+// ═══════════════════════════════════════════════
+function exportHtmlDisplay(wi){
+  var wk=D.weeks[wi||WI], center=D.center||"MJCC Miami Job Corps";
+  var drinks=["Milk (2%)","Bottled Water","Orange Juice","Cranberry Juice","Apple Juice","Grape Juice","Iced Tea","V8 Splash","Lemonade","Gatorade Orange","Gatorade Fruit Punch"];
+  var snacks=["Assorted Fruit","Granola + Yogurt (8oz)","Pear","Banana","Apple","Orange","Potato Chips","Granola Bar"];
+  function daySlide(dd,day){
+    var isW=WKND.has(day), bfI=isW?(dd.br||[]):(dd.bf||[]), lnI=dd.ln||[], dnI=dd.dn||[];
+    var bfV=isW?(dd.brV||[]):(dd.bfV||[]), lnV=dd.lnV||[], dnV=dd.dnV||[];
+    function col(bg,lbl,items,vegs){
+      return '<div style="flex:1;background:'+bg+';border-radius:8px;padding:16px;overflow:hidden">'+
+        '<div style="color:white;font-size:12px;font-weight:700;letter-spacing:.1em;margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,.2);padding-bottom:5px">'+lbl+'</div>'+
+        items.map(function(it,i){
+          return '<div style="color:'+(vegs[i]?"#A8EED8":"white")+';font-size:'+(i===0?22:15)+'px;font-weight:'+(i===0?"700":"400")+';line-height:1.5">'+(vegs[i]?"🌿 ":"")+it+'</div>';
+        }).join("")+'</div>';
+    }
+    return isW
+      ? '<div style="display:flex;gap:14px;height:calc(100% - 58px)">'+col("#B57010","WEEKEND BRUNCH",bfI,bfV)+col("#1B3729","DINNER",dnI,dnV)+'</div>'
+      : '<div style="display:flex;gap:10px;height:calc(100% - 58px)">'+col("#B57010","BREAKFAST",bfI,bfV)+col("#1A6B58","LUNCH",lnI,lnV)+col("#1B3729","DINNER",dnI,dnV)+'</div>';
+  }
+  var slideData=[{type:"title"},{type:"events"},{type:"overview"}].concat(DAYS.map(function(day){return{type:"day",day:day};})).concat([{type:"drinks"}]);
+  var N=slideData.length;
+  var slidesHtml=slideData.map(function(sl,idx){
+    var content="";
+    if(sl.type==="title") content='<div style="height:100%;background:#1B3729;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding:40px 60px"><div style="font-size:11px;letter-spacing:4px;color:#E09830;margin-bottom:8px">'+center.toUpperCase()+'</div><div style="font-family:Georgia,serif;font-size:80px;font-weight:700;color:white;line-height:1;margin-bottom:20px">CAFETERIA<br>MENU</div><div style="background:#C07B18;color:white;font-size:14px;font-weight:700;border-radius:6px;padding:8px 20px;margin-bottom:8px">'+(D.currentWeek||wk.dates)+'</div><div style="background:#1A6B58;color:white;font-size:13px;font-weight:700;border-radius:6px;padding:6px 16px">🌴 Taste of The Islands</div></div>';
+    else if(sl.type==="day"){ var dd2=wk.days[sl.day]; content='<div style="height:100%;background:#F2EDE4"><div style="background:#1B3729;color:white;padding:12px 24px;font-family:Georgia,serif;font-size:24px;font-weight:700;margin-bottom:12px">'+sl.day.toUpperCase()+' — Today\'s Menu</div><div style="padding:0 16px 10px">'+daySlide(dd2,sl.day)+'</div></div>'; }
+    else if(sl.type==="overview"){
+      var cols=["Monday","Tuesday","Wednesday","Thursday","Friday"].map(function(day2){ var dd2=wk.days[day2]||{}; return '<div style="flex:1;border:1px solid #DDD4C0;border-radius:8px;overflow:hidden"><div style="background:#1B3729;color:white;text-align:center;padding:6px;font-size:12px;font-weight:700">'+day2.slice(0,3).toUpperCase()+'</div><div style="background:#1A6B58;color:white;text-align:center;padding:3px;font-size:9px;font-weight:700">LUNCH</div><div style="padding:5px 7px;font-size:11px;line-height:1.5;background:#F0FAFA">'+((dd2.ln||[]).slice(0,3).join("<br>")||"—")+'</div><div style="background:#1B3729;color:white;text-align:center;padding:3px;font-size:9px;font-weight:700;margin-top:4px">DINNER</div><div style="padding:5px 7px;font-size:11px;line-height:1.5;background:#F2F5F2">'+((dd2.dn||[]).slice(0,3).join("<br>")||"—")+'</div></div>'; }).join("");
+      content='<div style="height:100%;background:#F2EDE4"><div style="background:#1B3729;color:white;padding:12px 24px;font-family:Georgia,serif;font-size:22px;font-weight:700;margin-bottom:12px">This Week — '+(D.currentWeek||wk.dates)+'</div><div style="display:flex;gap:8px;padding:0 16px">'+cols+'</div></div>';
+    }
+    else if(sl.type==="events") content='<div style="height:100%;background:#F2EDE4"><div style="background:#1B3729;color:white;padding:12px 24px;font-family:Georgia,serif;font-size:22px;font-weight:700;margin-bottom:12px">Diversity Calendar — 2025</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:0 16px">'+ [["JAN","Asian Heritage"],["FEB","Black History Month"],["MAR","Mardi Gras"],["APR","Earth Day"],["MAY","Haitian Flag Day"],["JUN","Middle Eastern"],["JUL","4th of July"],["AUG","Taste of Chicago"],["SEP","Taste of The Islands",true],["OCT","Hispanic Heritage"],["NOV","Thanksgiving"],["DEC","Holiday Season"]].map(function(ev){return '<div style="background:'+(ev[2]?"#C07B18":"#1B3729")+';border-radius:6px;padding:8px 12px"><div style="font-size:9px;font-weight:700;color:'+(ev[2]?"#BC3D2C":"#E09830")+';margin-bottom:3px">'+ev[0]+'</div><div style="font-size:13px;font-weight:700;color:white;font-family:Georgia,serif">'+ev[1]+'</div>'+(ev[2]?'<div style="font-size:9px;color:rgba(255,255,255,.7);margin-top:2px">▶ Current Month</div>':'')+' </div>';}).join("")+'</div></div>';
+    else content='<div style="height:100%;background:#1B3729;display:flex;gap:18px;padding:18px 22px"><div style="flex:1"><div style="background:#1A6B58;color:white;border-radius:6px;padding:7px 14px;font-weight:700;font-size:12px;letter-spacing:.08em;text-align:center;margin-bottom:10px">BEVERAGES — ALL MEALS</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:5px">'+drinks.map(function(dr,i){return '<div style="background:'+(i%2===0?"#254D38":"#1B3729")+';color:white;padding:6px 10px;border-radius:5px;font-size:13px">'+dr+'</div>';}).join("")+'</div></div><div style="width:320px"><div style="background:#C07B18;color:white;border-radius:6px;padding:7px 14px;font-weight:700;font-size:12px;text-align:center;margin-bottom:6px">NIGHT SNACKS</div>'+snacks.map(function(sn,i){return '<div style="background:'+(i%2?"#1B3729":"#254D38")+';color:white;padding:5px 10px;border-radius:5px;font-size:13px;margin-bottom:4px">'+sn+'</div>';}).join("")+'</div></div>';
+    return '<div id="s'+idx+'" class="slide" style="'+(idx===0?"":"display:none;")+' position:absolute;top:0;left:0;right:0;bottom:0">'+content+'</div>';
+  }).join("");
+  var dots=""; for(var i=0;i<N;i++){ dots+='<div class="dot'+(i===0?" act":"")+'\" onclick="goTo('+i+')"></div>'; }
+  var out='<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>'+center+' Cafeteria Display</title>'+
+    '<style>*{box-sizing:border-box;margin:0;padding:0}body{background:#111;font-family:Segoe UI,Arial,sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}'+
+    '.tb2{height:42px;background:#1B3729;display:flex;align-items:center;padding:0 16px;gap:12px;flex-shrink:0}.logo{font-size:13px;font-weight:700;color:white}'+
+    '.clk{color:#E09830;font-size:12px;margin-left:auto}.prg{height:3px;background:#F5A623;width:0;transition:width .4s linear;flex-shrink:0}'+
+    '.stage{flex:1;position:relative;overflow:hidden;background:#F2EDE4}.slide{font-size:16px}'+
+    '.nbar{height:34px;background:#1B3729;display:flex;align-items:center;padding:0 12px;gap:7px;flex-shrink:0}'+
+    '.nb{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);color:white;border-radius:4px;cursor:pointer;padding:3px 12px;font-size:11px}'+
+    '.nb:hover{background:rgba(255,255,255,.22)}.si{font-size:10px;color:rgba(255,255,255,.5)}'+
+    '.pb{margin-left:auto;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);color:#E09830;border-radius:4px;cursor:pointer;padding:3px 12px;font-size:11px;font-weight:700}'+
+    '.dots{display:flex;gap:4px;align-items:center}.dot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.25);cursor:pointer;transition:all .2s}'+
+    '.dot.act{background:#F5A623;width:14px;border-radius:3px}</style></head>'+
+    '<body><div class="tb2"><div class="logo">'+center.toUpperCase()+' · FOOD SERVICE</div><div class="clk" id="clk">—</div></div>'+
+    '<div class="prg" id="prg"></div><div class="stage" id="stg">'+slidesHtml+'</div>'+
+    '<div class="nbar"><button class="nb" onclick="go(-1)">◀</button><button class="nb" onclick="go(1)">Next ▶</button>'+
+    '<div class="dots">'+dots+'</div><span class="si" id="si">1/'+N+'</span>'+
+    '<button class="pb" id="pb" onclick="tog()">⏸ Pause</button>'+
+    '<button class="pb" onclick="document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen()">⛶ Full</button></div>'+
+    '<script>var N='+N+',D=10000,cur=0,paused=false,prog=0,tmr,ptmr;'+
+    'function clk(){document.getElementById("clk").textContent=new Date().toLocaleString("en-US",{weekday:"short",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});}clk();setInterval(clk,30000);'+
+    'function show(i){document.querySelectorAll(".slide").forEach(function(s,j){s.style.display=j===i?"block":"none";});document.querySelectorAll(".dot").forEach(function(d,j){d.classList.toggle("act",j===i);});document.getElementById("si").textContent=(i+1)+"/"+N;cur=i;prog=0;document.getElementById("prg").style.width="0%";}'+
+    'function go(d){goTo((cur+d+N)%N);}function goTo(i){clearInterval(tmr);clearInterval(ptmr);show(i);if(!paused)start();}'+
+    'function start(){ptmr=setInterval(function(){prog+=100/(D/100);document.getElementById("prg").style.width=Math.min(prog,100)+"%";},100);tmr=setInterval(function(){goTo((cur+1)%N);},D);}'+
+    'function tog(){paused=!paused;document.getElementById("pb").textContent=paused?"▶ Resume":"⏸ Pause";if(paused){clearInterval(tmr);clearInterval(ptmr);}else start();}'+
+    'start();document.addEventListener("keydown",function(e){if(e.key==="ArrowRight"||e.key==="ArrowDown")go(1);else if(e.key==="ArrowLeft"||e.key==="ArrowUp")go(-1);else if(e.key===" ")tog();});'+
+    '<\/script></body></html>';
+  dlFile(fn()+"_Web_Display.html", out, "text/html");
+}
+function exportHtmlPrint(wi){
+  var wk=D.weeks[wi||WI];
+  var rows=DAYS.map(function(day){
+    var dd=wk.days[day], isW=WKND.has(day);
+    var bfI=isW?(dd.br||[]):(dd.bf||[]), lnI=dd.ln||[], dnI=dd.dn||[];
+    return '<tr><td style="font-weight:700;color:#1B3729;background:#F2EDE4;padding:7px 10px;border-bottom:1px solid #DDD4C0">'+day+(isW?'<br><span style="font-size:9px;color:#C07B18">Weekend</span>':'')+'</td>'+
+      '<td style="padding:7px 10px;border-bottom:1px solid #DDD4C0"><b style="font-size:10px;color:#B5740A">'+(isW?"BRUNCH":"BREAKFAST")+'</b><br>'+(bfI.slice(0,5).join("<br>")||"—")+'</td>'+
+      '<td style="padding:7px 10px;border-bottom:1px solid #DDD4C0"><b style="font-size:10px;color:#1A6B58">LUNCH</b><br>'+(isW?'<em style="color:#aaa">Weekend — no lunch</em>':(lnI.slice(0,4).join("<br>")||"—"))+'</td>'+
+      '<td style="padding:7px 10px;border-bottom:1px solid #DDD4C0"><b style="font-size:10px;color:#1B3729">DINNER</b><br>'+(dnI.slice(0,4).join("<br>")||"—")+'</td></tr>';
+  }).join("");
+  var out='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+(D.center||"MJCC")+' Print Menu</title>'+
+    '<style>body{font-family:Arial,sans-serif;font-size:12px;margin:20px;color:#1A1814}h1{color:#1B3729;border-bottom:2px solid #C07B18;padding-bottom:6px;margin-bottom:4px}'+
+    'table{width:100%;border-collapse:collapse}th{background:#1B3729;color:white;padding:7px 10px;text-align:left;font-size:11px}td{vertical-align:top}@media print{body{margin:0}}</style></head>'+
+    '<body><h1>'+(D.center||"MJCC Miami")+" — "+wk.label+' Menu</h1>'+
+    '<p style="color:#847A6E;font-size:11px;margin-bottom:12px">Repeat dates: '+wk.dates+' · Printed: '+new Date().toLocaleDateString()+'</p>'+
+    '<table><tr><th>Day</th><th>Breakfast / Brunch</th><th>Lunch</th><th>Dinner</th></tr>'+rows+'</table>'+
+    '<p style="margin-top:12px;font-size:10px;color:#847A6E">🌿 Vegetarian available upon request · Beverages: Milk, Water, Juices, Iced Tea, Gatorade · Night Snacks: Fruit, Yogurt, Granola Bar, Chips</p></body></html>';
+  dlFile(fn()+"_"+wk.label.replace(" ","")+"_Print.html", out, "text/html");
+}
+function dlFile(name,content,mime){ var a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([content],{type:mime})); a.download=name; a.click(); URL.revokeObjectURL(a.href); }
+function fn(){ return (D.center||"MJCC_Miami").replace(/\s+/g,"_"); }
+
+// ═══════════════════════════════════════════════
+// PPTX EXPORTS
+// ═══════════════════════════════════════════════
+var PC={F:"1B3729",FM:"254D38",A:"C07B18",AL:"E09830",OW:"F2EDE4",TL:"1A6B58",W:"FFFFFF",D:"1A1814"};
+function np(){ var p=new PptxGenJS(); p.layout="LAYOUT_WIDE"; return p; }
+function ph(p,s,t,sb){ s.addShape(p.shapes.RECTANGLE,{x:0,y:0,w:13.3,h:.82,fill:{color:PC.F}}); s.addText(t,{x:.3,y:0,w:9.8,h:.82,fontSize:21,bold:true,color:PC.W,fontFace:"Cambria",valign:"middle",margin:0}); if(sb) s.addText(sb,{x:9.3,y:0,w:3.8,h:.82,fontSize:10,color:PC.AL,fontFace:"Calibri",align:"right",valign:"middle",margin:0}); }
+function pf(p,s){ s.addShape(p.shapes.RECTANGLE,{x:0,y:7.2,w:13.3,h:.3,fill:{color:PC.FM}}); s.addText((D.center||"MJCC Miami")+" | Food Service",{x:.3,y:7.2,w:8,h:.3,fontSize:9,color:PC.AL,fontFace:"Calibri",valign:"middle",margin:0}); s.addText("🌿 Vegetarian available",{x:8,y:7.2,w:5,h:.3,fontSize:8.5,color:"AAAAAA",fontFace:"Calibri",align:"right",valign:"middle",margin:0}); }
+function ptitle(p,s1,s2){ var s=p.addSlide(); s.background={color:PC.F}; s.addShape(p.shapes.OVAL,{x:10.2,y:-1.5,w:5,h:5,fill:{color:PC.FM}}); s.addShape(p.shapes.OVAL,{x:-1.5,y:4.5,w:4,h:4,fill:{color:PC.FM}}); s.addText("CAFETERIA\nMENU",{x:.8,y:.9,w:9,h:3.4,fontSize:88,bold:true,color:PC.W,fontFace:"Cambria",lineSpacingMultiple:1.0}); s.addText((D.center||"MJCC MIAMI").toUpperCase(),{x:.8,y:1.0,w:9,h:.5,fontSize:12,color:PC.AL,fontFace:"Calibri",charSpacing:4}); s.addShape(p.shapes.RECTANGLE,{x:.8,y:4.5,w:5,h:.58,fill:{color:PC.A}}); s.addText(s1,{x:.8,y:4.5,w:5,h:.58,fontSize:13,bold:true,color:PC.W,fontFace:"Calibri",align:"center",valign:"middle",margin:0}); if(s2){ s.addShape(p.shapes.RECTANGLE,{x:.8,y:5.18,w:3.4,h:.44,fill:{color:PC.TL}}); s.addText(s2,{x:.8,y:5.18,w:3.4,h:.44,fontSize:11,bold:true,color:PC.W,fontFace:"Calibri",align:"center",valign:"middle",margin:0}); } s.addText("Food Service Department",{x:0,y:7.1,w:13.3,h:.28,fontSize:9.5,color:"888888",fontFace:"Calibri",align:"center"}); }
+function pwk(p,wk){ var s=p.addSlide(); s.background={color:PC.OW}; ph(p,s,"Monthly Cycle — "+wk.label,wk.dates); pf(p,s); ["Monday","Tuesday","Wednesday","Thursday","Friday"].forEach(function(day,i){ var x=.15+i*(2.5+.13), dd=wk.days[day]||{}; var li=dd.ln||[], di=dd.dn||[]; s.addShape(p.shapes.RECTANGLE,{x:x,y:.95,w:2.5,h:.36,fill:{color:PC.F}}); s.addText(day.toUpperCase(),{x:x,y:.95,w:2.5,h:.36,fontSize:9.5,bold:true,color:PC.W,fontFace:"Calibri",align:"center",valign:"middle",charSpacing:2,margin:0}); var yo=1.35; s.addShape(p.shapes.RECTANGLE,{x:x,y:yo,w:2.5,h:.23,fill:{color:PC.TL}}); s.addText("LUNCH",{x:x,y:yo,w:2.5,h:.23,fontSize:7.5,bold:true,color:PC.W,fontFace:"Calibri",align:"center",valign:"middle",margin:0}); yo+=.23; var ls=li.slice(0,4), lh=Math.max(ls.length*.4+.08,.48); s.addShape(p.shapes.RECTANGLE,{x:x,y:yo,w:2.5,h:lh,fill:{color:"F0FAFA"},line:{color:"C0DDD8",width:1}}); if(ls.length) s.addText(ls.map(function(t,j){return{text:t,options:{breakLine:j<ls.length-1,fontSize:9.5,color:PC.D}};}),{x:x+.08,y:yo+.05,w:2.34,h:lh-.05,fontFace:"Calibri",valign:"top",margin:0}); yo+=lh+.08; s.addShape(p.shapes.RECTANGLE,{x:x,y:yo,w:2.5,h:.23,fill:{color:PC.F}}); s.addText("DINNER",{x:x,y:yo,w:2.5,h:.23,fontSize:7.5,bold:true,color:PC.W,fontFace:"Calibri",align:"center",valign:"middle",margin:0}); yo+=.23; var ds=di.slice(0,4), dh=Math.max(ds.length*.4+.08,.48); s.addShape(p.shapes.RECTANGLE,{x:x,y:yo,w:2.5,h:dh,fill:{color:"F2F5F2"},line:{color:"BECABE",width:1}}); if(ds.length) s.addText(ds.map(function(t,j){return{text:t,options:{breakLine:j<ds.length-1,fontSize:9.5,color:PC.D}};}),{x:x+.08,y:yo+.05,w:2.34,h:dh-.05,fontFace:"Calibri",valign:"top",margin:0}); }); }
+function pday(p,wk,day,hdr){ var s=p.addSlide(); s.background={color:PC.OW}; var dd=wk.days[day], isW=WKND.has(day); ph(p,s,day.toUpperCase()+" — Today's Menu",hdr||wk.label); pf(p,s); function col(x,cw,ch,mK,vK,sK,bg,lbl){ var items=(dd[mK]||[]).slice(0,6), si=(dd[sK]||[]).slice(0,4), vs=dd[vK]||[]; s.addShape(p.shapes.RECTANGLE,{x:x,y:.88,w:cw,h:ch,fill:{color:bg}}); s.addText(lbl,{x:x+.1,y:.9,w:cw-.2,h:.28,fontSize:9,bold:true,color:PC.W,fontFace:"Calibri",charSpacing:2,margin:0}); var arr=[]; if(items.length){ arr.push({text:items[0],options:{bold:true,breakLine:true,fontSize:14,color:PC.W}}); items.slice(1).forEach(function(it,j){ arr.push({text:(vs[j+1]?"🌿 ":"")+it,options:{breakLine:true,fontSize:11,color:vs[j+1]?"A8EED8":PC.W}}); }); } if(si.length) arr.push({text:"\nSides: "+si.join(", "),options:{fontSize:9,color:"DDDDCC",italic:true}}); if(arr.length) s.addText(arr,{x:x+.1,y:1.24,w:cw-.2,h:ch-.4,fontFace:"Calibri",valign:"top",margin:0}); } if(isW){ col(.15,6.5,6.08,"br","brV","brS","B57010","WEEKEND BRUNCH"); col(6.85,6.2,6.08,"dn","dnV","dnS",PC.F,"DINNER"); } else { col(.15,4.18,6.08,"bf","bfV","bfS","B57010","BREAKFAST"); col(4.52,4.18,6.08,"ln","lnV","lnS",PC.TL,"LUNCH"); col(8.89,4.25,6.08,"dn","dnV","dnS",PC.F,"DINNER"); } s.addText("🌿 Vegetarian always available",{x:.15,y:7.04,w:6,h:.18,fontSize:8.5,color:PC.TL,fontFace:"Calibri",italic:true}); }
+async function exp28Day(){ var p=np(); ptitle(p,"Full 28-Day Cycle Menu","All Weeks · All Days"); D.weeks.forEach(function(wk){ pwk(p,wk); }); await p.writeFile({fileName:fn()+"_28Day_Full_Cycle.pptx"}); }
+async function expWeekly(wi){ var p=np(), wk=D.weeks[wi||WI]; ptitle(p,wk.label+" — Weekly Menu",wk.dates); pwk(p,wk); DAYS.forEach(function(day){ pday(p,wk,day,wk.dates); }); await p.writeFile({fileName:fn()+"_"+wk.label.replace(" ","")+"_Weekly.pptx"}); }
+async function expDaily(wi,day){ var p=np(), wk=D.weeks[wi||WI]; ptitle(p,day+" — Daily Menu",wk.label+" · "+wk.dates.split(",")[0]); pday(p,wk,day,wk.label); await p.writeFile({fileName:fn()+"_"+wk.label.replace(" ","")+"_"+day+"_Daily.pptx"}); }
+async function expDisplay(wi){ var p=np(), wk=D.weeks[wi||WI]; ptitle(p,D.currentWeek||wk.dates,"🌴 Taste of The Islands"); var es=p.addSlide(); es.background={color:PC.OW}; ph(p,es,"Food Service Diversity Calendar — 2025","Last Thursday Every Month"); pf(p,es); [["JAN","Asian Heritage"],["FEB","Black History Month"],["MAR","Mardi Gras"],["APR","Earth Day"],["MAY","Haitian Flag Day"],["JUN","Middle Eastern Culture"],["JUL","4th of July"],["AUG","Taste of Chicago"],["SEP","Taste of The Islands",true],["OCT","Hispanic Heritage"],["NOV","Thanksgiving"],["DEC","Holiday Season"]].forEach(function(ev,i){ var x=.22+(i%4)*3.25, y=.92+Math.floor(i/4)*1.72; es.addShape(p.shapes.RECTANGLE,{x:x,y:y,w:3.05,h:1.6,fill:{color:ev[2]?PC.A:PC.F}}); es.addText(ev[0],{x:x+.1,y:y+.08,w:.8,h:.28,fontSize:10,bold:true,color:ev[2]?"BC3D2C":PC.AL,fontFace:"Calibri",margin:0}); es.addText(ev[1],{x:x+.1,y:y+.44,w:ev[2]?2.4:2.9,h:.9,fontSize:13,bold:true,color:PC.W,fontFace:"Cambria",valign:"middle",margin:0}); }); pwk(p,wk); DAYS.forEach(function(day){ pday(p,wk,day,D.currentWeek||wk.dates); }); await p.writeFile({fileName:fn()+"_Display_Board.pptx"}); }
+
+// ═══════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════
+function initUI(){
+  document.getElementById("cnIn").value  = D.center||"MJCC Miami Job Corps";
+  document.getElementById("cwIn").value  = D.currentWeek||"SEP 12 – SEP 18, 2025";
+  document.getElementById("anchorIn").value = D.anchorDate||"";
+  updateTabs();
+  var info = applyToday();
+  if (info) pickWeek(info.wkIdx); else renderGrid();
+}
+initUI();
+</script>
+</body>
+</html>

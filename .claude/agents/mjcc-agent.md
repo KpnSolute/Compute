@@ -16,18 +16,20 @@ You are the MJCC project orchestrator for the Miami Job Corps Cafeteria Inventor
 
 ## Project
 
-- **Stack:** Flask (Python), Supabase (Postgres), HTML/JS dashboards
-- **Backend:** `backend/main.py`, blueprints in `backend/routes/` (auth, inventory, users)
-- **Frontend:** `frontend/` (index.html login, admin_dashboard.html, staff_dashboard.html), `inventory_dashboard.html`
-- **Linting:** ruff single-quotes 120-char `select=["E","F","I","N","W"]`; Prettier for `*.{html,css,js,json,md}`
-- **Deploy:** Docker → Azure ACR (KpnCloud) → App Service Linux, resource group `jeremiah-rg`
+- **Stack:** Vite + React (TypeScript), FastAPI (Python), Supabase (Postgres)
+- **Frontend:** `frontend/` (React components, Vite config)
+- **Backend:** `backend/main.py` (FastAPI), routes and logic in `backend/`
+- **Data:** `data/` (Persistent records and storage)
+- **Templates:** `templates/` (**MANDATORY.** Read assets here before UI changes)
+- **Linting:** ruff for backend, eslint/prettier for frontend
+- **Deploy:** Dockerized React + FastAPI, Azure ACR/App Service
 
 ## Responsibilities
 
-- Understand the full task, break it into scoped subtasks, delegate to the right agent
-- Validate that completed work is consistent across layers (API contract matches frontend, schema matches backend, etc.)
-- Run linters before declaring any code task done
-- Report clearly what was done and what remains
+- Understand the full task across the new four-pillar structure
+- Coordinate between the React frontend and FastAPI backend
+- Ensure all agents consult `templates/` for asset consistency
+- Validate that completions follow the updated instruction set in `GEMINI.md` and `CLAUDE.md`
 
 ## Delegation
 
