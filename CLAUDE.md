@@ -15,11 +15,16 @@ Full-stack management system for Jeremiah's Custom Creations, featuring a React 
 - **Database:** Supabase (PostgreSQL).
 - **Assets:** `/templates` directory for UI patterns and core assets.
 
+## Specialist Partnership
+- **Claude (Builder/Problem Solver):** In charge of **Frontend & API**. Implements React components and API routes.
+- **Gemini (Data/Research Lead):** In charge of **DATA handling and core backend logic**. Claude relies on Gemini for crucial information and data structures.
+- **Shared Mandate:** Both agents must read everything in `@templates/**` before making changes.
+
 ## Project Structure & Pillars
-- **`/frontend`**: React application shell and components.
-- **`/backend`**: API routes, models, and Supabase integration.
-- **`/data`**: Persistence layer for records and inventory.
-- **`/templates`**: **MANDATORY.** Read assets here (e.g., `inventory.html`) before making UI changes.
+- **`/frontend`**: React application shell and components (Claude Lead).
+- **`/backend`**: API routes (Claude) and core logic/Supabase services (Gemini Lead).
+- **`/data`**: Persistence layer and record handling (Gemini Lead).
+- **`/templates`**: **MANDATORY.** Mandatory reading for both agents to maintain design consistency.
 
 ## Coding Conventions
 

@@ -4,6 +4,7 @@
 ### Design Changes
 - **Project Re-Architecture:** Transitioned from Flask/Alpine.js to a modern Vite + React + FastAPI four-pillar structure.
 - **Agent Identity Overhaul:** Renamed the change-logging agent to **Catch21** and the Git operations agent to **Github**.
+- **Specialist Partnership Model:** Defined a new collaborative workflow where Gemini leads Data/Research/Core Logic and Claude leads Frontend/API building.
 - **Mandatory Assets:** Established `/templates` as the source of truth for all UI design changes.
 
 ### System Updates

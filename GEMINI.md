@@ -17,11 +17,16 @@ The project is organized into four primary root-level pillars:
 - **Components:** Functional components with Hooks.
 - **State Management:** React Context or localized state (expand as needed).
 
+### Gemini's Core Role (Data & Backend Lead)
+- **Primary Lead:** DATA handling, core backend functionality, and business logic.
+- **Expertise:** Advanced research, proposing architectural solutions, and providing crucial information to Claude.
+- **Integration Power:** Taps into Supabase and external GitHub repositories quickly to maintain data integrity and sync.
+- **Asset Review:** Must read everything in `@templates/**` to ensure logic matches UI patterns.
+
 ### Backend (FastAPI/Python)
 - **Framework:** FastAPI.
 - **Style:** Ruff for linting and formatting (Single quotes, 120-char limit).
-- **Database:** Supabase (PostgreSQL) via `backend/requirements.txt` dependencies.
-- **Client:** Access Supabase using the `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` from the root `.env`.
+- **Logic:** Gemini designs and implements the core services and Supabase integration.
 
 ### AI Interaction Rules
 - **Mandatory Check-in:** Every AI agent must verify project alignment and check for loggable changes with every prompt.
