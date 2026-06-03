@@ -1,21 +1,9 @@
 # CHANGELOG
 
 ## [1.0.3] - 2026-06-02
-### Design Changes
-- **Project Re-Architecture:** Transitioned from Flask/Alpine.js to a modern Vite + React + FastAPI four-pillar structure.
-- **Agent Identity Overhaul:** Renamed the change-logging agent to **Catch21** and the Git operations agent to **Github**.
-- **Specialist Partnership Model:** Defined a new collaborative workflow where Gemini leads Data/Research/Core Logic and Claude leads Frontend/API building.
-- **Mandatory Assets:** Established `/templates` as the source of truth for all UI design changes.
-
 ### System Updates
-- **Refined Metadata Cleanup:** Enhanced `scripts/strip_metadata.sh` to safely exclude `venv` and `node_modules` while removing Windows `Zone.Identifier` files.
-- **Global Alias Integration:** Configured the `strip` alias in `~/.bashrc` for immediate, system-wide metadata stripping.
-- **Automated Logging:** Integrated **Catch21** to record all structural and design updates in real-time.
-- **Git Modernization:** Established **Github** to manage repository state using Gemini CLI and project memory.
-- **Instruction Alignment:** Synchronized `GEMINI.md` and `CLAUDE.md` to mandate per-prompt check-ins and session close-outs.
-
-### Daily Summary (Close Out)
-- **Current State:** The MJCC project has been completely restructured and modernized. The repository now features clean pillars for `/frontend`, `/backend`, `/data`, and `/templates`. All AI agents are aligned with this new architecture, and automated logging/pushing mechanisms are now active. The system is ready for React-based UI development and FastAPI-based service implementation.
+- **Agent Consolidation:** Removed legacy agents (apy, drew, envy, gitgod, google, judge, mjcc-backend, mjcc-db, mjcc-frontend, mjcc-server, supa). Created `change-logger.md` and `git-operator.md`.
+- **Instruction Refresh:** Rewrote `CLAUDE.md` and `GEMINI.md` with updated project context.
 
 ---
 
@@ -75,3 +63,13 @@
 
 ### Daily Summary (Close Out)
 - **Current State:** Stable initialization. `AGENTS.md` created covering commands, conventions, architecture, and agent roles. `CHANGELOG.md` updated with this session's work. New GitHub PAT registered for MJCC-Portal/mjcc sync. No feature code changed.
+
+## [1.2.0] - 2026-06-03
+### System Updates
+- **Frontend Boilerplate Stripped:** Removed default Vite starter assets (`App.css`, `react.svg`, `vite.svg`, `hero.png`). Reset `App.tsx` to minimal shell. Stripped `index.css` to bare reset — prep for real UI build from `/templates`.
+- **Zone.Identifier Cleanup:** Deleted orphaned `templates/KPN Operations Console.html:Zone.Identifier`.
+- **Template Assets:** Added `templates/New Console.html` and `templates/portal/` with JSX components, services, styles, and data files.
+
+## [1.2.1] - 2026-06-03
+### System Updates
+- **Zone.Identifier Purge:** Removed 21 Zone.Identifier files committed by accident from `templates/portal/`. Added `*:Zone.Identifier` to `.gitignore` to prevent recurrence.
