@@ -28,7 +28,7 @@ app.include_router(events_router)
 app.include_router(menu_router)
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 async def root():
     return {"message": "Welcome to the MJCC API"}
 
