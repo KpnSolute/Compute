@@ -28,7 +28,7 @@ There are **two completely separate GitHub repos**. Confusing them has already b
 
 | Repo | URL | Role | `git remote`? | Render? |
 |------|-----|------|---------------|---------|
-| **SOURCE CODE** | `git@github.com:muttyman2000/MJCC-Managements-.git` | All source code. The Dockerfile lives here. | ✅ **THIS is `origin`.** Every `git push` goes here. | ✅ Render deploys from THIS repo. |
+| **SOURCE CODE** | `git@github.com:muttyman2000/MJCC-Managements-.git` | All source code. The Dockerfile lives here. | ✅ **THIS is `origin`.** Every `git push` goes here. | ✅ Render auto-deploys from THIS repo on push to `main`. |
 | **DATA ARCHIVE** | `https://github.com/MJCC-Portal/mjcc.git` | Data store for the in-app Source Control module. Snapshots/archives pushed here by `github_sync.py` via the GitHub Contents API. | ❌ **NEVER set as a git remote.** | ❌ Render never reads this repo. |
 
 **RULES:**

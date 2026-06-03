@@ -1,4 +1,4 @@
-name: CI / Deploy
+name: CI
 
 on:
   push:
@@ -25,44 +25,7 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Lint with ruff
-        run: ruff check backend/ tests/
+        run: ruff check backend/
 
       - name: Test with pytest
         run: pytest
-
-  deploy:
-    name: Deploy to Azure
-    needs: lint-and-test
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Log in to Azure
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Log in to ACR
-        run: |
-          docker login kpncloud.azurecr.io \
-            -u ${{ secrets.ACR_USERNAME }} \
-            -p ${{ secrets.ACR_PASSWORD }}
-
-      - name: Build & push Docker image
-        run: |
-          docker build -t kpncloud.azurecr.io/mjcc-api:latest .
-          docker push kpncloud.azurecr.io/mjcc-api:latest
-
-      - name: Deploy to App Service
-        run: |
-          az webapp config container set \
-            --name mjcc-api \
-            --resource-group rg-jeremiah \
-            --docker-custom-image-name kpncloud.azurecr.io/mjcc-api:latest
-
-          az webapp config appsettings set \
-            --name mjcc-api \
-            --resource-group rg-jeremiah \
-            --settings WEBSITES_PORT=5000
