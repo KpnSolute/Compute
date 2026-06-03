@@ -16,3 +16,14 @@
 
 ### Daily Summary (Close Out)
 - **Current State:** The MJCC project has been completely restructured and modernized. The repository now features clean pillars for `/frontend`, `/backend`, `/data`, and `/templates`. All AI agents are aligned with this new architecture, and automated logging/pushing mechanisms are now active. The system is ready for React-based UI development and FastAPI-based service implementation.
+
+---
+
+## [1.0.8] - 2026-06-03
+### System Updates
+- **Dependency Fix:** Installed `fastapi`, `uvicorn`, `pydantic-settings`, and `python-multipart` into `.venv` — backend was unrunnable due to missing packages after Flask→FastAPI migration.
+- **Environment Cleanup:** Updated `.env.example` to remove stale Flask variables (`SECRET_KEY` as Flask key, `FLASK_ENV`, `FLASK_DEBUG`, `CORS_ORIGINS=localhost:5000`, `PORT=5000`). Now correctly reflects FastAPI config with `PORT=8000` and `CORS_ORIGINS=localhost:5173`.
+- **Frontend Placeholder Noted:** `frontend/src/App.tsx` remains as default Vite starter — frontend rebuild from `/templates` is queued for a future session.
+
+### Daily Summary (Close Out)
+- **Current State:** Backend is now fully runnable. All FastAPI dependencies are installed and verified. Environment config is aligned with the current FastAPI/Vite stack. Codebase is initialized and stable — ready for feature development or frontend rebuild from templates.
