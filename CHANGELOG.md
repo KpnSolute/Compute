@@ -19,6 +19,41 @@
 
 ---
 
+## [1.0.4] - 2026-06-02
+### Design Changes
+- **Agent Rename:** Renamed `change-logger` → **Catch21**, `git-operator` → **Github** for clearer role identity.
+
+### System Updates
+- **Agent Definitions:** Updated `mjcc-agent.md`, `CLAUDE.md`, and `GEMINI.md` to reflect new agent names and responsibilities.
+- **CHANGELOG format cleanup:** Standardized entry formatting across existing changelog.
+
+---
+
+## [1.0.5] - 2026-06-02
+### Design Changes
+- **Orchestrator Agent:** Created `mjcc-agent.md` as the coordinating agent that delegates to Catch21 and Github.
+- **Specialist Partnership:** Formalized Claude (Frontend/API) and Gemini (Data/Logic) split.
+
+### System Updates
+- **Check-in Protocol:** Updated `CLAUDE.md` and `GEMINI.md` to mandate per-prompt alignment check and loggable-change identification.
+- **Session Close-Out:** Added requirement for end-of-day summary in CHANGELOG.md.
+
+---
+
+## [1.0.6] - 2026-06-02
+### System Updates
+- **Metadata Cleanup Script:** Added `scripts/strip_metadata.sh` to remove Windows Zone.Identifier files.
+- **Template Assets:** Uploaded SOP PDFs, invoice PDFs, and meal documents to `/templates/`.
+
+---
+
+## [1.0.7] - 2026-06-02
+### System Updates
+- **Script Refinement:** Updated `strip_metadata.sh` to exclude `venv` and `node_modules` directories for safety and performance.
+- **CHANGELOG update:** Logged preceding changes.
+
+---
+
 ## [1.0.8] - 2026-06-03
 ### System Updates
 - **Dependency Fix:** Installed `fastapi`, `uvicorn`, `pydantic-settings`, and `python-multipart` into `.venv` — backend was unrunnable due to missing packages after Flask→FastAPI migration.
