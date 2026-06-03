@@ -27,3 +27,16 @@
 
 ### Daily Summary (Close Out)
 - **Current State:** Backend is now fully runnable. All FastAPI dependencies are installed and verified. Environment config is aligned with the current FastAPI/Vite stack. Codebase is initialized and stable — ready for feature development or frontend rebuild from templates.
+
+## [1.0.9] - 2026-06-03
+### Design Changes
+- **AGENTS.md created:** Consolidated canonical agent instructions into a single compact `AGENTS.md` file, removing need for session-to-session context handoff between agents.
+- **Single Memory Source:** Enforced `CHANGELOG.md` as the sole memory state. All agents now reference it for who made changes, why, and current state.
+
+### System Updates
+- **Agent Role Mapping:** Formalized 5-agent team — Orchestrator, Catch21 (changelog), Github (git ops), Claude (frontend/API), Gemini (data/logic).
+- **Key Conventions Captured:** Backend lint (ruff single-quotes 120-char), absolute imports from `backend`, mandatory `/templates/` read for UI changes, Azure ACR deployment.
+- **Repo Discovery:** Confirmed two-repo architecture (app code in `muttyman2000/MJCC-Managements-`, data in `MJCC-Portal/mjcc`), Supabase MCP, `scripts/strip_metadata.sh` for Zone.Identifier cleanup.
+
+### Daily Summary (Close Out)
+- **Current State:** Stable initialization. `AGENTS.md` created covering commands, conventions, architecture, and agent roles. `CHANGELOG.md` updated with this session's work. New GitHub PAT registered for MJCC-Portal/mjcc sync. No feature code changed.
