@@ -1,0 +1,173 @@
+export type Role = 'staff' | 'assistant' | 'manager' | 'admin';
+
+export interface User {
+  id: string;
+  username: string;
+  display_name: string;
+  last_name: string;
+  role: Role;
+  active?: boolean;
+  pin?: string | null;
+  password?: string | null;
+  access_token?: string;
+}
+
+export const ROLE_LEVEL: Record<Role, number> = {
+  staff: 10,
+  assistant: 20,
+  manager: 30,
+  admin: 40,
+};
+
+export const ROLE_LABEL: Record<Role, string> = {
+  staff: 'Staff',
+  assistant: 'Assistant',
+  manager: 'Manager',
+  admin: 'Administrator',
+};
+
+export const MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+export const NAV = [
+  {
+    group: 'Overview',
+    items: [{ key: 'dashboard', label: 'Dashboard', icon: 'grid', min: 10 }],
+  },
+  {
+    group: 'Data Entry',
+    items: [
+      { key: 'inventory', label: 'Inventory', icon: 'box', min: 10 },
+      { key: 'moninv', label: 'Monthly Inventory', icon: 'fileText', min: 20 },
+      { key: 'mballot', label: 'Meal Log', icon: 'users', min: 10 },
+      { key: 'foodreq', label: 'Food Request', icon: 'inbox', min: 10 },
+      { key: 'barcodes', label: 'Barcodes & Scan', icon: 'qr', min: 10 },
+    ],
+  },
+  {
+    group: 'Logs',
+    items: [
+      { key: 'haccp', label: 'HACCP & Logs', icon: 'thermo', min: 10 },
+      { key: 'dailyops', label: 'Daily Operations', icon: 'checkSquare', min: 10 },
+      { key: 'inspection', label: 'Inspection Sheet', icon: 'clipboard', min: 20 },
+      { key: 'snackbar', label: 'Snack Bar', icon: 'coffee', min: 10 },
+    ],
+  },
+  {
+    group: 'Calendar',
+    items: [
+      { key: 'events', label: 'Events & Programs', icon: 'calCheck', min: 10 },
+      { key: 'menu', label: '28-Day Menu', icon: 'book', min: 20 },
+    ],
+  },
+  {
+    group: 'Records',
+    items: [
+      { key: 'sourcectrl', label: 'Source Control', icon: 'branch', min: 10, badge: 'pending' },
+      { key: 'reports', label: 'Reports', icon: 'download', min: 30 },
+      { key: 'archives', label: 'Archives', icon: 'archive', min: 20 },
+    ],
+  },
+  {
+    group: 'Administration',
+    items: [
+      { key: 'users', label: 'Users & Access', icon: 'users', min: 40 },
+      { key: 'settings', label: 'Settings', icon: 'settings', min: 40 },
+    ],
+  },
+];
+
+export const USERS: User[] = [
+  { id: 'u-admin', username: 'amartin', display_name: 'Angela', last_name: 'Martin', role: 'admin', pin: null, password: 'kpn2026', active: true },
+  { id: 'u-mgr', username: 'dcortez', display_name: 'Daniel', last_name: 'Cortez', role: 'manager', pin: null, password: 'kpn2026', active: true },
+  { id: 'u-asst', username: 'lprice', display_name: 'Lena', last_name: 'Price', role: 'assistant', pin: null, password: 'kpn2026', active: true },
+  { id: 'u-staff', username: 'rkhan', display_name: 'Rasheed', last_name: 'Khan', role: 'staff', pin: '4729', password: null, active: true },
+  { id: 'u-staff2', username: 'mlopez', display_name: 'Maria', last_name: 'Lopez', role: 'staff', pin: '1080', password: null, active: true },
+  { id: 'u-asst2', username: 'tobrien', display_name: 'Tara', last_name: "O'Brien", role: 'assistant', pin: null, password: 'kpn2026', active: false },
+];
+
+export const COOKING_TEMPS = [
+  { temp: '165°F (74°C)', hold: '15 sec', foods: 'Poultry (solid & ground); stuffed foods; dishes with previously cooked PHF ingredients.' },
+  { temp: '155°F (68°C)', hold: '15 sec', foods: 'Ground meats (beef, pork, veal, lamb, fish); pork steaks & chops; injected meats; game; shell eggs for hot holding.' },
+  { temp: '155°F (68°C)', hold: '22 sec', foods: 'Pork roasts.' },
+  { temp: '145°F (63°C)', hold: '15 sec', foods: 'Beef, veal, lamb steaks & chops; seafood; shell eggs for immediate service; pasteurized egg dishes.' },
+  { temp: '145°F (63°C)', hold: '4 min', foods: 'Beef, veal and lamb roasts.' },
+  { temp: '140°F (60°C)', hold: '15 sec', foods: 'Commercially processed, ready-to-eat food heated for first time, to be hot-held for service.' },
+  { temp: '135°F (57°C)', hold: '45 min', foods: 'Roast beef (record internal temperature).' },
+];
+
+export const TASTE_CODES = [
+  { code: 'A', label: 'Excellent', tint: '#15803D', bg: '#F0FDF4' },
+  { code: 'B', label: 'Acceptable — recipe review needed', tint: '#CA8A04', bg: '#FEFCE8' },
+  { code: 'C', label: 'Corrective action required', tint: '#D97706', bg: '#FEF3C7' },
+  { code: 'D', label: 'Rejected — product may not be served', tint: '#DC2626', bg: '#FEF2F2' },
+];
+
+export const INSPECTION_Q = [
+  'Rate the quality and taste of food (freshness / nutritional value)',
+  'Serving portions offered (availability of seconds / serving temp.)',
+  'Variety of food offered (minimum of two main entrées at each meal)',
+  'Presentation and appearance of food (eye appeal)',
+  'Availability / appearance / variety of soup and salad bar offering',
+  'Availability of salt, pepper and napkins',
+  'Availability of condiments (ketchup, mustard, mayonnaise, butter, etc.)',
+  'Availability of clean glasses, cups, dishes, silverware',
+  'Availability of fresh fruit',
+  'Availability of beverages (milk / juice / soda)',
+  'Availability of breads, rolls, etc.',
+  'Cleanliness and appearance of Food Services staff',
+  'Friendliness and courtesy shown by Food Services staff',
+  'Rate the level of student satisfaction and response to the meal',
+  'Rate the overall cleanliness and appearance of the dining hall',
+];
+
+export const FOODREQ_FIELDS = [
+  { k: 'originator', label: "Originator's Name", type: 'text', col: 6 },
+  { k: 'date', label: 'Date', type: 'date', col: 3 },
+  { k: 'dept', label: 'Department', type: 'text', col: 6 },
+  { k: 'ext', label: 'Center Extension #', type: 'text', col: 3 },
+  { k: 'eventDate', label: 'Date of Event', type: 'date', col: 4 },
+  { k: 'eventTime', label: 'Time', type: 'time', col: 4 },
+  { k: 'students', label: '# of Students', type: 'number', col: 2 },
+  { k: 'staff', label: '# of Staff', type: 'number', col: 2 },
+  { k: 'location', label: 'Location of Event (include Room #)', type: 'text', col: 8 },
+  { k: 'theme', label: 'Event Theme or Purpose', type: 'text', col: 4 },
+  { k: 'food', label: 'Type & Amount of Food Requested', type: 'textarea', col: 12 },
+  { k: 'drinks', label: 'Type & Amount of Drinks Requested', type: 'textarea', col: 6 },
+  { k: 'other', label: 'Other Items Requested', type: 'textarea', col: 6 },
+];
+
+export const MEAL_COLS = ['Breakfast', 'Lunch', 'Dinner'];
+
+export const DOW_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+export const DOW_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
+export function mockLogin({ username, type, pin, password }: { username: string; type: 'staff' | 'admin'; pin?: string; password?: string }): { ok: boolean; user?: User; error?: string; status?: number } {
+  username = (username || '').trim().toLowerCase();
+  if (!username) return { ok: false, status: 400, error: 'Username is required.' };
+  const u = USERS.find((x) => x.username === username);
+  if (!u) return { ok: false, status: 401, error: 'Username not recognised.' };
+  if (!u.active) return { ok: false, status: 403, error: 'Account is disabled.' };
+  if (type === 'staff') {
+    if (u.role !== 'staff') return { ok: false, status: 401, error: 'Admin & manager accounts must use the Admin / Manager login.' };
+    if (!pin) return { ok: false, status: 400, error: 'PIN is required.' };
+    if (pin !== u.pin) return { ok: false, status: 401, error: 'Incorrect PIN. Please try again.' };
+  } else if (type === 'admin') {
+    if (!['admin', 'manager', 'assistant'].includes(u.role)) return { ok: false, status: 401, error: 'Staff accounts must use the Staff login.' };
+    if (!password) return { ok: false, status: 400, error: 'Password is required.' };
+    if (password !== u.password) return { ok: false, status: 401, error: 'Incorrect password. Please try again.' };
+  } else return { ok: false, status: 400, error: 'Invalid login type.' };
+  return { ok: true, user: { id: u.id, username: u.username, display_name: u.display_name, last_name: u.last_name, role: u.role } };
+}
