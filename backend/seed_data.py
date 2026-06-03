@@ -658,4 +658,8 @@ def seed_database():
 
 
 if __name__ == "__main__":
+    import os as _os
+    if _os.getenv('MJCC_SEED_CONFIRM') != '1':
+        print('ERROR: set MJCC_SEED_CONFIRM=1 to run this against the live database.')
+        raise SystemExit(1)
     seed_database()

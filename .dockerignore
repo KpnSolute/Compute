@@ -1,10 +1,17 @@
 venv/
+.venv/
 .env
+.env.*
 __pycache__/
 *.pyc
 *.pyo
 .ruff_cache/
 node_modules/
+frontend/node_modules
+frontend/dist
+data/
+templates/
+scripts/
 .DS_Store
 Thumbs.db
 opencode.json

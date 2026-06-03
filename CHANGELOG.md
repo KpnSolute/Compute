@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## [1.3.3] - 2026-06-03
+### System Updates (Watch Commander) — CORRECTION
+- **Corrected git remote back to `muttyman2000/MJCC-Managements-`; clarified `MJCC-Portal/mjcc` is data-archive only, not source repo.** The [1.3.2] repoint was WRONG. `origin` reverted to `git@github.com:muttyman2000/MJCC-Managements-.git` (the source-code repo Render deploys from). Verified via `git remote -v`.
+- **Two-repo rule hardened in `AGENT_ALIGNMENT.md` §1:** added a bold warning block + table distinguishing the SOURCE CODE repo (`muttyman2000/MJCC-Managements-`, = `git origin`, Render-connected) from the DATA ARCHIVE repo (`MJCC-Portal/mjcc`, = `.env GITHUB_REPO`, written by `backend/github_sync.py`, never a git remote, never read by Render). `GITHUB_REPO=MJCC-Portal/mjcc` in `.env` is correct and intentional.
+
+## [1.3.2] - 2026-06-03 — ⚠️ SUPERSEDED BY 1.3.3 (this action was incorrect)
+### System Updates (Watch Commander)
+- ~~**Git Remote Repointed:** `origin` changed from `git@github.com:muttyman2000/MJCC-Managements-.git` to `https://github.com/MJCC-Portal/mjcc.git`. MJCC-Portal/mjcc confirmed as the canonical repo (token access verified, HTTP 200). All `git push` now targets the new repo.~~ **WRONG — reverted in 1.3.3.** `MJCC-Portal/mjcc` is the data-archive repo, NOT the code remote. `origin` must remain `muttyman2000/MJCC-Managements-`.
+
+### Decisions / Approvals (Watch Commander — 2026-06-03)
+These are user-approved decisions that UNBLOCK Gemini. They are approvals, not completed code. Relayed to Gemini as an ADDENDUM in `GEMINI.md`.
+- **APPROVED — `commit_changes` backfill migration:** Gemini cleared to run the `commit_changes` + `staging_entries` entity-agnostic migration against the 5,460 live `commit_changes` rows. Non-destructive backfill confirmed. Row counts to be captured before/after to verify.
+- **APPROVED — `staging_entries` is canonical:** All staging logic builds on `staging_entries` only. `pending_changes`, `staging_area`, `transaction_history` declared dead legacy schema (all 0 rows, verified via live Supabase) — flagged as DROP candidates pending user confirmation that nothing reads them. Not dropped yet.
+- **APPROVED — Create `events` table:** Migration `create_events_table` authorized. Resolves the long-standing "no events table" blocker; `backend/routes/events.py` to be fixed against it afterward.
+- **APPROVED — Create `haccp_logs` table:** Migration `create_haccp_logs_table` authorized. Resolves Issue I-4 (HACCP had no persistence layer); `backend/routes/logs.py` to be fixed against it afterward.
+- **Note:** None of the above migrations have been executed yet — these are clearances, not completed work. Live schema verified 2026-06-03: `events` and `haccp_logs` confirmed absent; `commit_changes` confirmed at 5,460 rows.
+
 ## [1.3.1] - 2026-06-03
 ### System Updates (Dr. ENV Health Check)
 - **Environment Audit Completed:** Full diagnostic pass by Dr. ENV agent.

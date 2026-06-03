@@ -22,8 +22,22 @@ See Section 7 (Known Critical Issues) for the full list.
 - **Stack:** Vite + React + TypeScript + Tailwind (frontend) · FastAPI + Python (backend) · Supabase / PostgreSQL (database).
 - **Live Supabase project:** `MJCCv1` (ref `mgvyylvmkxhhataavqjz`, region us-west-1, ACTIVE). This is the one `.env` points to.
   - `MJCCv2` (ref `qprfonxvthmaoxfixigk`) is **INACTIVE** — do not target it without explicit user approval.
-- **Code repo:** `git@github.com:muttyman2000/MJCC-Managements-.git` (origin/main).
-- **Data repo:** `MJCC-Portal/mjcc` (referenced in `.env` as `GITHUB_REPO`) — file/snapshot store, no code.
+### ⚠️ TWO REPOS — NEVER MIX THESE (read before touching git or `.env`)
+
+There are **two completely separate GitHub repos**. Confusing them has already broken `git remote origin` once. Do not let it happen again.
+
+| Repo | URL | Role | `git remote`? | Render? |
+|------|-----|------|---------------|---------|
+| **SOURCE CODE** | `git@github.com:muttyman2000/MJCC-Managements-.git` | All source code. The Dockerfile lives here. | ✅ **THIS is `origin`.** Every `git push` goes here. | ✅ Render deploys from THIS repo. |
+| **DATA ARCHIVE** | `https://github.com/MJCC-Portal/mjcc.git` | Data store for the in-app Source Control module. Snapshots/archives pushed here by `github_sync.py` via the GitHub Contents API. | ❌ **NEVER set as a git remote.** | ❌ Render never reads this repo. |
+
+**RULES:**
+- `git remote origin` MUST be `muttyman2000/MJCC-Managements-.git`. Never change it to `MJCC-Portal/mjcc`.
+- `GITHUB_REPO=MJCC-Portal/mjcc` in `.env` is **correct and intentional** — it is the data-archive target for the backend sync worker, NOT a code remote.
+- If you ever see `MJCC-Portal/mjcc` set as `git remote origin`, that is a BUG. Revert it to the source-code repo immediately.
+
+- **Code repo:** `git@github.com:muttyman2000/MJCC-Managements-.git` (origin/main). Render deploys from here.
+- **Data repo:** `https://github.com/MJCC-Portal/mjcc.git` (referenced in `.env` as `GITHUB_REPO`) — data archive / snapshot store written by `backend/github_sync.py` via GitHub Contents API. **Not a code remote. Not connected to Render.**
 
 ---
 
@@ -63,12 +77,16 @@ See Section 7 (Known Critical Issues) for the full list.
 | GET/POST | `/api/events` | `events` | BROKEN — table does not exist |
 | GET/POST | `/api/menu/{day}` | `cycle_menu` | BROKEN — table does not exist |
 
-### REQUIRED DECISION (escalate to user before building)
-The project has two incompatible data-access patterns. **One must be chosen and the other deleted.** Until the user decides, no new data code is approved:
-- **Option A — Backend-mediated:** Frontend calls FastAPI; FastAPI owns Supabase. Requires adding `VITE_API_BASE` + a frontend API client, and rewriting all backend routes against the real schema. Gemini owns the backend rewrite; Claude owns the frontend client.
-- **Option B — Direct-to-Supabase:** Delete the FastAPI data routes; frontend keeps talking to Supabase directly. Backend becomes thin (auth/cron/sync only). Gemini rewrites `supabase.ts` data functions against the real schema.
+### RESOLVED DECISION (2026-06-03, confirmed by user)
+**Option A — Backend-mediated** is the chosen pattern.
 
-**Do not silently pick one. Flag this to the user.**
+- Frontend calls FastAPI (`VITE_API_BASE=http://localhost:8000`); FastAPI owns all Supabase communication.
+- **Gemini** rewrites all `backend/routes/*` against the real schema (Section 4).
+- **Claude** builds the frontend API client (`frontend/src/lib/api.ts`) and wires components to call FastAPI endpoints instead of Supabase directly.
+- The direct-to-Supabase client in `supabase.ts` is retained only for Supabase Auth (`signInWithPassword`, `signOut`, `getUser`) — all data queries route through FastAPI.
+- The `mjc_supa_url` / `mjc_supa_key` localStorage pattern (demo/live mode toggle) is **deprecated** — app config comes from `VITE_API_BASE` env var going forward.
+
+**No data code should be written that bypasses FastAPI unless it is a Supabase Auth call.**
 
 ---
 

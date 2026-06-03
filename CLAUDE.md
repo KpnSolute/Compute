@@ -34,7 +34,7 @@ The committed backend + frontend data code targets a **schema that does not exis
 ### Frontend
 - Functional components, TypeScript interfaces for props.
 - Match the existing `index.css` design-system + Tailwind; do not introduce a third styling pattern.
-- API/data calls must match whichever pattern `AGENT_ALIGNMENT.md` §3 resolves to. Today the app goes **direct to Supabase**, not through FastAPI.
+- API/data calls go through **FastAPI** (`VITE_API_BASE`). Supabase JS client is retained **only** for Supabase Auth calls (`signInWithPassword`, `signOut`, `getUser`). All data queries route through FastAPI — resolved 2026-06-03.
 
 ## Protocol
 - Read `AGENT_ALIGNMENT.md` → this file, every session.

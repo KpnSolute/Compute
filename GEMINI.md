@@ -67,3 +67,66 @@ Live project `MJCCv1` (`mgvyylvmkxhhataavqjz`), 38 tables, RLS on. Full detail i
 - Log what you ACTUALLY changed in `CHANGELOG.md`. No aspirational "fully operational" claims.
 - Cross-lane work (touching frontend components, `/templates`): stop, name Claude, coordinate.
 - Hit a Section-7 issue from the alignment doc? Surface it. Do not build on broken foundations.
+
+---
+
+## ADDENDUM — RESOLVED BLOCKERS (Watch Commander, 2026-06-03)
+
+Three blockers that previously required user escalation are now **resolved and approved**. These override the "escalate to user" instructions in §3 (Events, HACCP logs) and §4 (tasks 4 and 5) above. Execute, do not re-escalate.
+
+### UNBLOCKED — Migration cleared to run (`commit_changes` backfill)
+User approved the `commit_changes` + `staging_entries` entity-agnostic backfill migration against the **5,460 live `commit_changes` rows**. Approach is **non-destructive backfill** — confirmed safe.
+- Run it via MCP `apply_migration`.
+- **Capture row counts BEFORE and AFTER** to verify all 5,460 rows backfilled correctly. Report both counts in `CHANGELOG.md`.
+- This is the only schema change touching existing live data — treat it with care, but you are cleared to proceed.
+
+### UNBLOCKED — `staging_entries` is the one true staging table
+Build **all** staging logic on `staging_entries` only.
+- `pending_changes`, `staging_area`, `transaction_history` are **dead legacy schema**. Do NOT read or write them. Do NOT build on them.
+- Flag all three in this file (and to the user) as **candidates for DROP** — they will be dropped after the user confirms nothing reads them. Do not DROP them yourself yet.
+
+### UNBLOCKED — Create `events` table (resolves §3 Events / §4 task 4)
+A live table now must exist. Migration name: **`create_events_table`**.
+```sql
+CREATE TABLE events (
+  event_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  title text NOT NULL,
+  event_date date NOT NULL,
+  category text,
+  theme text,
+  description text,
+  suggested_menu text,
+  created_by uuid REFERENCES user_profiles(user_id),
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+ALTER TABLE events ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service_role_all" ON events TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "authenticated_read" ON events FOR SELECT TO authenticated USING (true);
+```
+After the migration lands, fix `backend/routes/events.py` against this table. The 30+ events in `seed_data.py` now have a home.
+
+### UNBLOCKED — Create `haccp_logs` table (resolves §3 HACCP / §4 task 5)
+Migration name: **`create_haccp_logs_table`**.
+```sql
+CREATE TABLE haccp_logs (
+  log_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  log_key text NOT NULL,
+  log_date date NOT NULL,
+  temps jsonb,
+  checks jsonb,
+  notes text,
+  logged_by uuid REFERENCES user_profiles(user_id),
+  created_at timestamptz DEFAULT now(),
+  synced_at timestamptz
+);
+ALTER TABLE haccp_logs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service_role_all" ON haccp_logs TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "authenticated_read" ON haccp_logs FOR SELECT TO authenticated USING (true);
+```
+After the migration lands, fix `backend/routes/logs.py` against this table. This resolves Issue I-4 (HACCP had no persistence layer).
+
+> NOTE on the FK column name: both schemas above reference `user_profiles(user_id)`. The live `user_profiles` PK is **`id`**, not `user_id` (see `AGENT_ALIGNMENT.md` §4). Before running these migrations, verify the PK column name via MCP `list_tables --verbose` and adjust the `REFERENCES user_profiles(...)` clause to the real PK. Do not let the migration fail on a phantom column.
+
+### Verification gate (RLS foot-gun)
+Both new tables have RLS enabled with only `service_role` write + `authenticated` read. Per §5, the anon client will get **zero rows**. Since the chosen pattern is Option A (backend-mediated, FastAPI owns Supabase), the backend must use the **service_role** key for these routes. Confirm the service_role key is wired before declaring the routes "working."
