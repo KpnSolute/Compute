@@ -50,12 +50,15 @@ class JWTValidator:
             # Supabase JWTs include user metadata we can use
             decoded = jwt.decode(
                 token,
-                options={"verify_signature": False}  # We trust Supabase's signed tokens
+                options={
+                    "verify_signature": False
+                },  # We trust Supabase's signed tokens
             )
 
             # Check if token is expired
             if "exp" in decoded:
                 import time
+
                 if decoded["exp"] < time.time():
                     return None
 

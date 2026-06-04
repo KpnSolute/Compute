@@ -1,8 +1,26 @@
 services:
+  # Backend — FastAPI (Docker)
   - type: web
-    name: mjcc
+    name: mjcc-api
     runtime: docker
     dockerfilePath: ./Dockerfile
     envVars:
       - key: PORT
         value: 8000
+      - key: CORS_ORIGINS
+        value: https://mjcc.onrender.com,http://localhost:5173
+
+  # Frontend — Vite static site
+  - type: web
+    name: mjcc
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE
+        value: https://mjcc-managements.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

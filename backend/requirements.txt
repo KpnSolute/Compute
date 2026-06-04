@@ -7,4 +7,5 @@ pydantic-settings
 email-validator
 python-multipart
 PyJWT
+httpx
 

@@ -1,8 +1,6 @@
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from backend.routes.auth import router as auth_router
 from backend.routes.users import router as users_router
@@ -43,25 +41,9 @@ async def health_check():
     return {"status": "ok"}
 
 
-_frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
-if os.path.exists(_frontend_dist):
-    app.mount(
-        "/assets",
-        StaticFiles(directory=os.path.join(_frontend_dist, "assets")),
-        name="assets",
-    )
-
-    @app.api_route("/", methods=["GET", "HEAD"])
-    async def root():
-        return FileResponse(os.path.join(_frontend_dist, "index.html"))
-
-    @app.get("/{full_path:path}")
-    async def serve_frontend(full_path: str):
-        return FileResponse(os.path.join(_frontend_dist, "index.html"))
-else:
-    @app.api_route("/", methods=["GET", "HEAD"])
-    async def root():
-        return {"message": "Welcome to the MJCC API"}
+@app.api_route("/", methods=["GET", "HEAD"])
+async def root():
+    return {"message": "MJCC API"}
 
 
 if __name__ == "__main__":

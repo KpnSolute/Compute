@@ -36,7 +36,7 @@ class SubmitStagingBody(BaseModel):
     entity_id: str
     field_name: str
     old_value: Optional[str] = None
-    new_value: str = ''
+    new_value: str = ""
     change_type: str
     metadata: Optional[dict] = None
     summary: Optional[str] = None
@@ -271,7 +271,9 @@ async def approve_commit(body: ApproveCommitBody):
             fp = entry.get("full_payload")
             if op and fp:
                 result = replay(op, fp)
-                replay_results.append({"entry_id": entry["entry_id"], "operation": op, "result": result})
+                replay_results.append(
+                    {"entry_id": entry["entry_id"], "operation": op, "result": result}
+                )
                 if result.get("error"):
                     raise HTTPException(
                         status_code=500,

@@ -36,13 +36,29 @@ CYCLE_MENU = {
             {"qty": 60, "item": "Biscuit"},
         ],
         "Lunch": [
-            {"qty": 55, "item": "Herb Pork Chop", "desc": "Pork chop w/ herb cream sauce"},
-            {"qty": 60, "item": "Korean Chicken", "desc": "Oven-roasted, Korean BBQ sauce"},
+            {
+                "qty": 55,
+                "item": "Herb Pork Chop",
+                "desc": "Pork chop w/ herb cream sauce",
+            },
+            {
+                "qty": 60,
+                "item": "Korean Chicken",
+                "desc": "Oven-roasted, Korean BBQ sauce",
+            },
             {"qty": 10, "item": "Vegetarian option"},
         ],
         "Dinner": [
-            {"qty": 80, "item": "Lemon Garlic Tilapia", "desc": "Pan-fried w/ lemon garlic sauce"},
-            {"qty": 80, "item": "Curry Chicken", "desc": "West Indian stew chicken w/ curry"},
+            {
+                "qty": 80,
+                "item": "Lemon Garlic Tilapia",
+                "desc": "Pan-fried w/ lemon garlic sauce",
+            },
+            {
+                "qty": 80,
+                "item": "Curry Chicken",
+                "desc": "West Indian stew chicken w/ curry",
+            },
             {"qty": 10, "item": "Vegetarian option"},
         ],
         "Snack": ["Granola Bar", "Banana", "Potato Chips", "Apple", "Orange"],
@@ -72,7 +88,11 @@ CYCLE_MENU = {
     },
     "Wed": {
         "Breakfast": [
-            {"qty": 160, "item": "Cheese Scramble", "desc": "Well-done cheese scramble"},
+            {
+                "qty": 160,
+                "item": "Cheese Scramble",
+                "desc": "Well-done cheese scramble",
+            },
             {"qty": 50, "item": "Bacon"},
             {"qty": 50, "item": "Breakfast Sausage"},
             {"qty": 60, "item": "White Toast"},
@@ -84,12 +104,24 @@ CYCLE_MENU = {
             {"qty": 60, "item": "Biscuit"},
         ],
         "Lunch": [
-            {"qty": 80, "item": "Brown Stew Chicken", "desc": "Stew chicken w/ brown gravy"},
-            {"qty": 80, "item": "Shrimp Alfredo", "desc": "Pasta w/ shrimp in creamy sauce"},
+            {
+                "qty": 80,
+                "item": "Brown Stew Chicken",
+                "desc": "Stew chicken w/ brown gravy",
+            },
+            {
+                "qty": 80,
+                "item": "Shrimp Alfredo",
+                "desc": "Pasta w/ shrimp in creamy sauce",
+            },
             {"qty": 60, "item": "Vegetarian", "desc": "Vegetables in tomato sauce"},
         ],
         "Dinner": [
-            {"qty": 80, "item": "Chicken Parmesan", "desc": "Chicken breast, marinara, mozzarella"},
+            {
+                "qty": 80,
+                "item": "Chicken Parmesan",
+                "desc": "Chicken breast, marinara, mozzarella",
+            },
             {"qty": 80, "item": "Fried Cod", "desc": "Beer-battered cod"},
             {"qty": 60, "item": "Vegetarian option"},
         ],
@@ -115,7 +147,11 @@ CYCLE_MENU = {
         ],
         "Dinner": [
             {"qty": 80, "item": "Crusted Cod", "desc": "Baked crusted cod fish"},
-            {"qty": 80, "item": "Chicken Marsala", "desc": "Pan-fried chicken w/ Marsala sauce"},
+            {
+                "qty": 80,
+                "item": "Chicken Marsala",
+                "desc": "Pan-fried chicken w/ Marsala sauce",
+            },
             {"qty": 60, "item": "Vegetarian option"},
         ],
         "Snack": ["Granola Bar", "Banana", "Chips"],
@@ -134,13 +170,21 @@ CYCLE_MENU = {
             {"qty": 60, "item": "Biscuit"},
         ],
         "Lunch": [
-            {"qty": 80, "item": "Chicken Burrito Bowl", "desc": "Chicken strips on rice w/ toppings"},
+            {
+                "qty": 80,
+                "item": "Chicken Burrito Bowl",
+                "desc": "Chicken strips on rice w/ toppings",
+            },
             {"qty": 80, "item": "Fish Sandwich", "desc": "Fried fish w/ tartar sauce"},
             {"qty": 60, "item": "Beef Taco", "desc": "Ground beef on soft shell"},
             {"qty": 10, "item": "Vegetarian Burrito Bowl"},
         ],
         "Dinner": [
-            {"qty": 80, "item": "Tuscan Chicken", "desc": "Pan-fried chicken w/ creamy sauce"},
+            {
+                "qty": 80,
+                "item": "Tuscan Chicken",
+                "desc": "Pan-fried chicken w/ creamy sauce",
+            },
             {"qty": 80, "item": "Tuna Casserole", "desc": "Pasta in cheese tuna sauce"},
             {"qty": 60, "item": "Vegetarian option"},
         ],
@@ -202,7 +246,9 @@ def seed_cycle_menu(cycle_id: str | None = None):
     db = _client()
 
     if cycle_id is None:
-        result = db.table("menu_cycles").select("id").eq("active", True).limit(1).execute()
+        result = (
+            db.table("menu_cycles").select("id").eq("active", True).limit(1).execute()
+        )
         if not result.data:
             print("No active menu_cycles found. Create one first.")
             return

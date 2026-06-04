@@ -7,19 +7,22 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 class LoginRequest(BaseModel):
     """Frontend login - expects Supabase Auth token or username+PIN for staff."""
+
     access_token: str = ""  # From Supabase Auth (frontend login)
-    username: str = ""      # Fallback for PIN-based login (staff)
+    username: str = ""  # Fallback for PIN-based login (staff)
     pin: str = ""
 
 
 class LoginResponse(BaseModel):
     """Response after successful login."""
+
     access_token: str
     user: dict
 
 
 class UserInfo(BaseModel):
     """Current user info."""
+
     id: str
     username: str
     display_name: str
@@ -86,32 +89,24 @@ async def login(req: LoginRequest):
         claims = jwt_validator.verify_token(req.access_token)
         if not claims:
             raise HTTPException(
-                status_code=401,
-                detail="Invalid or expired access token"
+                status_code=401, detail="Invalid or expired access token"
             )
 
         user_id = claims.get("sub")
         email = claims.get("email")
 
         if not user_id:
-            raise HTTPException(
-                status_code=401,
-                detail="Token missing user ID"
-            )
+            raise HTTPException(status_code=401, detail="Token missing user ID")
 
         # Fetch user profile to get role and other metadata
         user = await _get_user_profile(user_id)
         if not user:
             raise HTTPException(
-                status_code=401,
-                detail="User profile not found in database"
+                status_code=401, detail="User profile not found in database"
             )
 
         if not user.get("active"):
-            raise HTTPException(
-                status_code=401,
-                detail="User account is inactive"
-            )
+            raise HTTPException(status_code=401, detail="User account is inactive")
 
         # Return the Supabase token as-is for session management
         return LoginResponse(
@@ -124,7 +119,7 @@ async def login(req: LoginRequest):
                 "role": user.get("role"),
                 "active": user.get("active"),
                 "email": email,  # From JWT
-            }
+            },
         )
 
     # Mode 2: PIN-based login (staff)
@@ -135,8 +130,7 @@ async def login(req: LoginRequest):
 
         if user["role"] != "staff":
             raise HTTPException(
-                status_code=401,
-                detail="PIN login only available for staff"
+                status_code=401, detail="PIN login only available for staff"
             )
 
         if req.pin != user.get("pin", ""):
@@ -156,13 +150,12 @@ async def login(req: LoginRequest):
                 "last_name": user.get("last_name"),
                 "role": user.get("role"),
                 "active": user.get("active"),
-            }
+            },
         )
 
     else:
         raise HTTPException(
-            status_code=400,
-            detail="Provide either access_token or username+pin"
+            status_code=400, detail="Provide either access_token or username+pin"
         )
 
 
@@ -209,4 +202,3 @@ async def me(authorization: str = Header("")):
         raise HTTPException(status_code=401, detail="User not found or inactive")
 
     return UserInfo(**user)
-
