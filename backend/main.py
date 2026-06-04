@@ -34,11 +34,6 @@ app.include_router(sourcectrl_router)
 app.include_router(github_sync_router)
 
 
-@app.api_route("/", methods=["GET", "HEAD"])
-async def root():
-    return {"message": "Welcome to the MJCC API"}
-
-
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
@@ -52,9 +47,17 @@ if os.path.exists(_frontend_dist):
         name="assets",
     )
 
+    @app.api_route("/", methods=["GET", "HEAD"])
+    async def root():
+        return FileResponse(os.path.join(_frontend_dist, "index.html"))
+
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
         return FileResponse(os.path.join(_frontend_dist, "index.html"))
+else:
+    @app.api_route("/", methods=["GET", "HEAD"])
+    async def root():
+        return {"message": "Welcome to the MJCC API"}
 
 
 if __name__ == "__main__":
