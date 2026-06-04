@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [1.3.4] - 2026-06-03
+### System Updates (Dr. ENV — Docker / Render Single-Service)
+- **Dockerfile rewritten as multi-stage build:** Stage 1 (`node:20-slim`) installs frontend deps and runs `vite build` with `VITE_API_BASE=/api` baked in via ARG. Stage 2 (`python:3.13-slim`) installs backend deps and copies the compiled `frontend/dist` into the image. Single service, no separate Render static-site config needed.
+- **FastAPI static-file serving added (`backend/main.py`):** Imports `StaticFiles` and `FileResponse`. At startup, if `frontend/dist` exists, mounts `/assets` as a StaticFiles directory and registers a catch-all `GET /{full_path:path}` route that serves `index.html`. Catch-all is registered AFTER all API routers so API routes are never intercepted.
+- **render.yaml created:** Declares a single `web` service using `runtime: docker` pointing to `./Dockerfile` with `PORT=8000`. Previously the service config lived only in the Render dashboard.
+- **Confirmed healthy:** `frontend/src/lib/api.ts` already reads `import.meta.env.VITE_API_BASE` with `http://localhost:8000` as dev fallback — no frontend changes needed. `backend/requirements.txt` has all required packages. `ruff check backend/` passes; 1 file auto-formatted by `ruff format`. Committed and pushed to `origin/main` (commit `919d946`).
+
 ## [1.3.3] - 2026-06-03
 ### System Updates (Watch Commander) — CORRECTION
 - **Corrected git remote back to `muttyman2000/MJCC-Managements-`; clarified `MJCC-Portal/mjcc` is data-archive only, not source repo.** The [1.3.2] repoint was WRONG. `origin` reverted to `git@github.com:muttyman2000/MJCC-Managements-.git` (the source-code repo Render deploys from). Verified via `git remote -v`.
