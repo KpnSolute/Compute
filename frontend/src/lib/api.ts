@@ -162,6 +162,63 @@ export const api = {
     return req('/api/events', { method: 'POST', body: JSON.stringify(body) });
   },
 
+  // Opening Checklist
+  async getOpeningChecklist(): Promise<any[]> {
+    return req('/api/opening-checklist');
+  },
+
+  // ServSafe Certifications
+  async getServSafe(): Promise<any[]> {
+    return req('/api/servsafe');
+  },
+
+  // Meal Periods
+  async getMealPeriods(): Promise<any[]> {
+    return req('/api/meal-periods');
+  },
+
+  // Incidents
+  async getIncidents(limit?: number, type?: string): Promise<any[]> {
+    const params = new URLSearchParams();
+    if (limit !== undefined) params.set('limit', String(limit));
+    if (type) params.set('type', type);
+    const qs = params.toString();
+    return req(`/api/incidents${qs ? '?' + qs : ''}`);
+  },
+  async createIncident(body: any): Promise<any> {
+    return req('/api/incidents', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  // Invoices
+  async getInvoices(month?: number, year?: number): Promise<any[]> {
+    const params = new URLSearchParams();
+    if (month !== undefined) params.set('month', String(month));
+    if (year !== undefined) params.set('year', String(year));
+    const qs = params.toString();
+    return req(`/api/invoices${qs ? '?' + qs : ''}`);
+  },
+  async getInvoiceItems(invoiceId: string): Promise<any[]> {
+    return req(`/api/invoices/${encodeURIComponent(invoiceId)}/items`);
+  },
+
+  // Inventory Categories
+  async getInventoryCategories(): Promise<any[]> {
+    return req('/api/inventory-categories');
+  },
+
+  // Dashboard
+  async getDashboardStats(): Promise<any> {
+    return req('/api/dashboard/stats');
+  },
+
+  // Archives
+  async getArchives(): Promise<any[]> {
+    return req('/api/archives');
+  },
+  async getArchiveDetail(year: number, month: number): Promise<any> {
+    return req(`/api/archives/${year}/${month}`);
+  },
+
   // Logs
   async getHaccpLogs(limit?: number, location?: string): Promise<any[]> {
     const params = new URLSearchParams();

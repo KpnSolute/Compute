@@ -39,38 +39,38 @@ export const DS = {
     });
   },
   async openingChecklist() {
-    return populate('opening_checklist', () => api.getDailyLogs(50, 'opening_checklist'));
+    return populate('opening_checklist', () => api.getOpeningChecklist());
   },
   async mealSchedule() {
-    return populate('meal_schedule', () => api.getDailyLogs(50, 'meal_schedule'));
+    return populate('meal_schedule', () => api.getMealPeriods());
   },
   catMeta() {
-    return {};
+    return populate('catMeta', () => api.getInventoryCategories().then(cats => {
+      const m: Record<string, any> = {};
+      cats.forEach(c => m[c.name] = { label: c.name, color: c.color, bg: c.color + '20', dot: c.color });
+      return m;
+    }));
   },
-  servsafe() {
-    return [];
+  async servsafe() {
+    return populate('servsafe', () => api.getServSafe());
   },
   incidentTypes() {
     return ['Safety', 'Behavior', 'Medical', 'Facility', 'Other'];
   },
-  snackHours() {
-    return [
-      { day: 'Monday', open: '07:00', close: '14:30' },
-      { day: 'Tuesday', open: '07:00', close: '14:30' },
-      { day: 'Wednesday', open: '07:00', close: '14:30' },
-      { day: 'Thursday', open: '07:00', close: '14:30' },
-      { day: 'Friday', open: '07:00', close: '14:30' },
-    ];
+  async snackHours() {
+    return populate('snackHours', () => api.getMealPeriods().then(periods =>
+      periods.map(p => ({ day: p.label, open: String(p.open_hour || 0), close: String(p.close_hour || 0) }))
+    ));
   },
-  mealRates() {
-    return [
-      { type: 'Student', breakfast: 2.50, lunch: 4.00, dinner: 5.50 },
-      { type: 'Staff', breakfast: 3.50, lunch: 5.50, dinner: 7.00 },
-      { type: 'Visitor', breakfast: 4.00, lunch: 6.50, dinner: 8.50 },
-    ];
+  async mealRates() {
+    return populate('mealRates', () => api.getMealPeriods().then(periods =>
+      periods.map(p => ({ type: p.label, rate: p.rate }))
+    ));
   },
-  mealTypes() {
-    return ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Brunch'];
+  async mealTypes() {
+    return populate('mealTypes', () => api.getMealPeriods().then(periods =>
+      periods.map(p => ({ key: p.meal, label: p.label }))
+    ));
   },
   submitTypes() {
     return ['inventory', 'menu', 'user', 'compliance', 'event', 'ops'];
@@ -82,8 +82,8 @@ export const DS = {
   async commits() {
     return populate('commits', () => api.getCommits());
   },
-  invoices(_period: [number, number]) {
-    return [];
+  async invoices(period: [number, number]) {
+    return populate('invoices', () => api.getInvoices(period[0], period[1]));
   },
 
   /* ── sync cache accessors (call after async methods have been awaited) ── */
@@ -105,6 +105,12 @@ export const DS = {
   syncMealSchedule() {
     return cached<any[]>('meal_schedule', []);
   },
+  syncServSafe() { return cached<any[]>('servsafe', []); },
+  syncCatMeta() { return cached<any>('catMeta', {}); },
+  syncInvoices() { return cached<any[]>('invoices', []); },
+  syncSnackHours() { return cached<any[]>('snackHours', []); },
+  syncMealRates() { return cached<any[]>('mealRates', []); },
+  syncMealTypes() { return cached<any[]>('mealTypes', []); },
 
   /* ── export helpers ── */
   toCSV(columns: { label: string; key?: string; get?: (r: any) => any }[], rows: any[]) {

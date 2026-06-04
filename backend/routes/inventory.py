@@ -2,9 +2,10 @@
 Inventory Management API Endpoints
 
 Provides endpoints for inventory snapshots, history, and reorder management.
+Uses normalized tables: inventory_items, inventory_categories, monthly_inventory, live_inventory.
 
 Endpoints:
-- GET /api/inventory - Get latest inventory snapshot
+- GET /api/inventory - Get inventory snapshot (specific month/year or latest)
 - POST /api/inventory - Save inventory snapshot
 - GET /api/inventory/history - Get past snapshots
 - GET /api/inventory/reorders - Get low-stock items
@@ -15,37 +16,42 @@ from fastapi import APIRouter, HTTPException, Query, Header, Depends
 from pydantic import BaseModel, Field
 from backend.routes import supabase, jwt_validator
 
-router = APIRouter(prefix='/api/inventory', tags=['inventory'])
+router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 
 
 class InventoryItem(BaseModel):
-    """Individual inventory item."""
     sku: str
     desc: str
     onHand: int = Field(..., ge=0)
     par: int = Field(..., ge=0)
     category: str
+    price: float = 0.0
+    on_hand: int = 0
+    w1r: int = 0
+    w2r: int = 0
+    w3r: int = 0
+    w4r: int = 0
+    w1i: int = 0
+    w2i: int = 0
+    w3i: int = 0
+    w4i: int = 0
 
 
 class InventorySnapshot(BaseModel):
-    """Inventory snapshot payload."""
     items: list[InventoryItem]
     metadata: dict = Field(default_factory=dict)
-    notes: str = ''
+    notes: str = ""
 
 
 class InventoryResponse(BaseModel):
-    """Response model for inventory snapshot."""
     id: str
     items: list[InventoryItem]
     metadata: dict
     notes: str
     created_at: str
-    created_by: str
 
 
 class LowStockItem(BaseModel):
-    """Low stock item in reorder response."""
     sku: str
     desc: str
     category: str
@@ -54,7 +60,7 @@ class LowStockItem(BaseModel):
     short: int
 
 
-async def _get_auth_user(authorization: str = Header('')) -> dict:
+async def _get_auth_user(authorization: str = Header("")) -> dict:
     """
     Extract authenticated user from Bearer token.
 
@@ -63,18 +69,18 @@ async def _get_auth_user(authorization: str = Header('')) -> dict:
     Raises:
         401: Missing or invalid token
     """
-    token = authorization.replace('Bearer ', '') if authorization else ''
+    token = authorization.replace("Bearer ", "") if authorization else ""
     if not token:
-        raise HTTPException(status_code=401, detail='Missing authorization token')
+        raise HTTPException(status_code=401, detail="Missing authorization token")
 
     # Handle PIN-based tokens
-    if token.startswith('pin_'):
-        user_id = token.replace('pin_', '')
+    if token.startswith("pin_"):
+        user_id = token.replace("pin_", "")
         try:
             result = (
-                supabase.table('user_profiles')
-                .select('*')
-                .eq('id', user_id)
+                supabase.table("user_profiles")
+                .select("*")
+                .eq("id", user_id)
                 .single()
                 .execute()
             )
@@ -82,24 +88,24 @@ async def _get_auth_user(authorization: str = Header('')) -> dict:
         except Exception:
             user = None
 
-        if not user or not user.get('active'):
-            raise HTTPException(status_code=401, detail='Invalid session')
+        if not user or not user.get("active"):
+            raise HTTPException(status_code=401, detail="Invalid session")
         return user
 
     # Handle Supabase JWT tokens
     claims = jwt_validator.verify_token(token)
     if not claims:
-        raise HTTPException(status_code=401, detail='Invalid or expired token')
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    user_id = claims.get('sub')
+    user_id = claims.get("sub")
     if not user_id:
-        raise HTTPException(status_code=401, detail='Token missing user ID')
+        raise HTTPException(status_code=401, detail="Token missing user ID")
 
     try:
         result = (
-            supabase.table('user_profiles')
-            .select('*')
-            .eq('id', user_id)
+            supabase.table("user_profiles")
+            .select("*")
+            .eq("id", user_id)
             .single()
             .execute()
         )
@@ -107,20 +113,68 @@ async def _get_auth_user(authorization: str = Header('')) -> dict:
     except Exception:
         user = None
 
-    if not user or not user.get('active'):
-        raise HTTPException(status_code=401, detail='User not found or inactive')
+    if not user or not user.get("active"):
+        raise HTTPException(status_code=401, detail="User not found or inactive")
 
     return user
 
 
-@router.get('', response_model=InventoryResponse)
+def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
+    """Flatten nested Supabase join result into InventoryItem list."""
+    items = []
+    for row in rows:
+        inv_item = row.get("inventory_items") or {}
+        cat = inv_item.get("inventory_categories") or {}
+        oh = max(0, row.get("on_hand", 0) or 0)
+        items.append(
+            InventoryItem(
+                sku=inv_item.get("sku", ""),
+                desc=inv_item.get("description", ""),
+                onHand=oh,
+                par=max(0, inv_item.get("par_level", 0) or 0),
+                category=cat.get("name", ""),
+                price=float(row.get("unit_price", 0) or 0),
+                on_hand=oh,
+                w1r=row.get("w1_received", 0) or 0,
+                w2r=row.get("w2_received", 0) or 0,
+                w3r=row.get("w3_received", 0) or 0,
+                w4r=row.get("w4_received", 0) or 0,
+                w1i=row.get("w1_issued", 0) or 0,
+                w2i=row.get("w2_issued", 0) or 0,
+                w3i=row.get("w3_issued", 0) or 0,
+                w4i=row.get("w4_issued", 0) or 0,
+            )
+        )
+    return items
+
+
+def _serialize_dt(dt) -> str:
+    if dt is None:
+        return ""
+    if hasattr(dt, "isoformat"):
+        return dt.isoformat()
+    return str(dt)
+
+
+_JOIN_SELECT = (
+    "id, month, year, on_hand, "
+    "w1_received, w2_received, w3_received, w4_received, "
+    "w1_issued, w2_issued, w3_issued, w4_issued, "
+    "unit_price, created_at, "
+    "inventory_items!inner(sku, description, par_level, unit, "
+    "  inventory_categories!inner(name)"
+    ")"
+)
+
+
+@router.get("", response_model=InventoryResponse)
 async def get_inventory(
     month: int = Query(None),
     year: int = Query(None),
-    auth_user: dict = Depends(_get_auth_user)
+    auth_user: dict = Depends(_get_auth_user),
 ):
     """
-    Get latest inventory snapshot or specific period.
+    Get inventory snapshot for a specific month/year or latest.
 
     Requires: Valid authentication token
 
@@ -130,7 +184,7 @@ async def get_inventory(
     - If both provided, returns snapshot for that month; else returns latest
 
     Returns:
-        Latest or specified inventory snapshot
+        Inventory snapshot with items grouped by category
 
     Raises:
         401: Missing or invalid auth
@@ -139,47 +193,55 @@ async def get_inventory(
     """
     try:
         if month is not None and year is not None:
-            # Validate month range
             if month < 1 or month > 12:
-                raise HTTPException(status_code=400, detail='Month must be 1-12')
-
-            period_id = f'{year}-{month:02d}'
-            result = (
-                supabase.table('inventory_sync')
-                .select('*')
-                .eq('period', period_id)
-                .single()
-                .execute()
-            )
+                raise HTTPException(status_code=400, detail="Month must be 1-12")
         else:
-            # Get latest snapshot
-            result = (
-                supabase.table('inventory_sync')
-                .select('*')
-                .order('created_at', desc=True)
+            latest = (
+                supabase.table("monthly_inventory")
+                .select("month, year")
+                .order("year", desc=True)
+                .order("month", desc=True)
                 .limit(1)
                 .execute()
             )
+            if not latest.data:
+                raise HTTPException(status_code=404, detail="No inventory found")
+            month = latest.data[0]["month"]
+            year = latest.data[0]["year"]
+
+        result = (
+            supabase.table("monthly_inventory")
+            .select(_JOIN_SELECT)
+            .eq("month", month)
+            .eq("year", year)
+            .order("inventory_items.sku")
+            .execute()
+        )
 
         if not result.data:
-            raise HTTPException(status_code=404, detail='Inventory not found')
+            raise HTTPException(status_code=404, detail="Inventory not found")
 
-        snapshot = result.data[0] if isinstance(result.data, list) else result.data
-        return InventoryResponse(**snapshot)
+        items = _flatten_rows(result.data)
+        period_id = f"{year}-{month:02d}"
+        created_at = _serialize_dt(result.data[0].get("created_at"))
+
+        return InventoryResponse(
+            id=period_id,
+            items=items,
+            metadata={"month": month, "year": year, "period": period_id},
+            notes="",
+            created_at=created_at or datetime.utcnow().isoformat(),
+        )
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f'Database error: {str(e)}'
-        )
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
-@router.post('', response_model=InventoryResponse, status_code=201)
+@router.post("", response_model=InventoryResponse, status_code=201)
 async def save_inventory(
-    payload: InventorySnapshot,
-    auth_user: dict = Depends(_get_auth_user)
+    payload: InventorySnapshot, auth_user: dict = Depends(_get_auth_user)
 ):
     """
     Save a new inventory snapshot.
@@ -187,8 +249,8 @@ async def save_inventory(
     Requires: Valid authentication token (manager or admin recommended)
 
     Request Body:
-    - items: List of inventory items with sku, desc, onHand, par, category
-    - metadata: Optional metadata dict
+    - items: List of inventory items
+    - metadata: Optional metadata dict (can contain month/year)
     - notes: Optional notes about this snapshot
 
     Returns:
@@ -199,51 +261,111 @@ async def save_inventory(
         401: Missing or invalid auth
         500: Database error
     """
-    # Validate items not empty
     if not payload.items:
-        raise HTTPException(status_code=400, detail='Items list cannot be empty')
+        raise HTTPException(status_code=400, detail="Items list cannot be empty")
 
-    # Validate each item
     for item in payload.items:
         if item.onHand < 0 or item.par < 0:
             raise HTTPException(
-                status_code=400,
-                detail='onHand and par must be non-negative'
+                status_code=400, detail="onHand and par must be non-negative"
             )
 
+    meta = payload.metadata or {}
+    month = meta.get("month")
+    year = meta.get("year")
+    if month is None or year is None:
+        now = datetime.utcnow()
+        month = month or now.month
+        year = year or now.year
+
+    if month < 1 or month > 12:
+        raise HTTPException(status_code=400, detail="Month must be 1-12")
+
     try:
-        now = datetime.utcnow().isoformat()
+        # Pre-fetch category name -> id mapping
+        cat_result = supabase.table("inventory_categories").select("id, name").execute()
+        category_map = {}
+        for c in cat_result.data or []:
+            category_map[c["name"]] = c["id"]
+
+        created_at = datetime.utcnow().isoformat()
+
+        for item in payload.items:
+            cat_id = category_map.get(item.category)
+            if not cat_id:
+                raise HTTPException(
+                    status_code=400, detail=f"Unknown category: {item.category}"
+                )
+
+            # Upsert inventory_items by SKU
+            inv_result = (
+                supabase.table("inventory_items")
+                .upsert(
+                    {
+                        "sku": item.sku,
+                        "description": item.desc,
+                        "category_id": cat_id,
+                        "unit_price": item.price,
+                        "par_level": item.par,
+                        "on_hand": item.onHand,
+                    },
+                    on_conflict="sku",
+                )
+                .select("id")
+                .execute()
+            )
+            inv_item_id = inv_result.data[0]["id"]
+
+            # Upsert monthly_inventory by item_id + month + year
+            supabase.table("monthly_inventory").upsert(
+                {
+                    "item_id": inv_item_id,
+                    "month": month,
+                    "year": year,
+                    "on_hand": item.onHand,
+                    "unit_price": item.price,
+                    "w1_received": item.w1r,
+                    "w2_received": item.w2r,
+                    "w3_received": item.w3r,
+                    "w4_received": item.w4r,
+                    "w1_issued": item.w1i,
+                    "w2_issued": item.w2i,
+                    "w3_issued": item.w3i,
+                    "w4_issued": item.w4i,
+                },
+                on_conflict="item_id,month,year",
+            ).execute()
+
+        # Rebuild and return the full snapshot
         result = (
-            supabase.table('inventory_sync')
-            .insert({
-                'items': [item.dict() for item in payload.items],
-                'metadata': payload.metadata,
-                'notes': payload.notes,
-                'created_at': now,
-                'created_by': auth_user.get('id'),
-            })
+            supabase.table("monthly_inventory")
+            .select(_JOIN_SELECT)
+            .eq("month", month)
+            .eq("year", year)
+            .order("inventory_items.sku")
             .execute()
         )
 
-        snapshot = result.data[0] if result.data else None
-        if not snapshot:
-            raise HTTPException(status_code=500, detail='Failed to save inventory')
+        items = _flatten_rows(result.data or [])
+        period_id = f"{year}-{month:02d}"
 
-        return InventoryResponse(**snapshot)
+        return InventoryResponse(
+            id=period_id,
+            items=items,
+            metadata={"month": month, "year": year, "period": period_id},
+            notes=payload.notes,
+            created_at=created_at,
+        )
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f'Database error: {str(e)}'
-        )
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
-@router.get('/history', response_model=list[InventoryResponse])
+@router.get("/history", response_model=list[InventoryResponse])
 async def get_inventory_history(
-    limit: int = Query(10, ge=1, le=100),
-    auth_user: dict = Depends(_get_auth_user)
+    limit: int = Query(10, ge=1, le=100), auth_user: dict = Depends(_get_auth_user)
 ):
     """
     Get historical inventory snapshots.
@@ -261,81 +383,104 @@ async def get_inventory_history(
         500: Database error
     """
     try:
-        result = (
-            supabase.table('inventory_sync')
-            .select('*')
-            .order('created_at', desc=True)
-            .limit(limit)
+        # Get distinct (month, year) pairs ordered desc
+        periods = (
+            supabase.table("monthly_inventory")
+            .select("month, year")
+            .order("year", desc=True)
+            .order("month", desc=True)
             .execute()
         )
 
-        snapshots = result.data if result.data else []
-        return [InventoryResponse(**s) for s in snapshots]
+        if not periods.data:
+            return []
+
+        # Deduplicate in Python
+        seen = set()
+        distinct = []
+        for p in periods.data:
+            key = (p["year"], p["month"])
+            if key not in seen:
+                seen.add(key)
+                distinct.append(p)
+                if len(distinct) >= limit:
+                    break
+
+        snapshots = []
+        for p in distinct:
+            y, m = p["year"], p["month"]
+            result = (
+                supabase.table("monthly_inventory")
+                .select(_JOIN_SELECT)
+                .eq("month", m)
+                .eq("year", y)
+                .order("inventory_items.sku")
+                .execute()
+            )
+            if not result.data:
+                continue
+
+            items = _flatten_rows(result.data)
+            period_id = f"{y}-{m:02d}"
+            created_at = _serialize_dt(result.data[0].get("created_at"))
+
+            snapshots.append(
+                InventoryResponse(
+                    id=period_id,
+                    items=items,
+                    metadata={"month": m, "year": y, "period": period_id},
+                    notes="",
+                    created_at=created_at or "",
+                )
+            )
+
+        return snapshots
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f'Database error: {str(e)}'
-        )
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
-@router.get('/reorders', response_model=list[LowStockItem])
-async def get_reorders(
-    auth_user: dict = Depends(_get_auth_user)
-):
+@router.get("/reorders", response_model=list[LowStockItem])
+async def get_reorders(auth_user: dict = Depends(_get_auth_user)):
     """
     Get low-stock items requiring reorder.
 
     Requires: Valid authentication token
 
-    Returns items where onHand < par, sorted by shortage.
+    Returns items where on_hand < par_level, sorted by shortage.
 
     Returns:
         List of low-stock items
 
     Raises:
         401: Missing or invalid auth
-        404: No inventory found
         500: Database error
     """
     try:
-        # Get latest inventory
         result = (
-            supabase.table('inventory_sync')
-            .select('*')
-            .order('created_at', desc=True)
-            .limit(1)
+            supabase.table("live_inventory")
+            .select("sku, description, category, on_hand, par_level")
             .execute()
         )
 
-        if not result.data:
-            raise HTTPException(status_code=404, detail='No inventory found')
-
-        snapshot = result.data[0] if isinstance(result.data, list) else result.data
-        items = snapshot.get('items', [])
-
         low_items = []
-        for item in items:
-            on_hand = item.get('onHand', 0)
-            par = item.get('par', 0)
-            if on_hand < par:
-                low_items.append(LowStockItem(
-                    sku=item.get('sku'),
-                    desc=item.get('desc'),
-                    category=item.get('category'),
-                    onHand=on_hand,
-                    par=par,
-                    short=par - on_hand
-                ))
+        for row in result.data or []:
+            on_hand = max(0, row.get("on_hand", 0) or 0)
+            par = max(0, row.get("par_level", 0) or 0)
+            if par > 0 and on_hand < par:
+                low_items.append(
+                    LowStockItem(
+                        sku=row.get("sku", ""),
+                        desc=row.get("description", ""),
+                        category=row.get("category", ""),
+                        onHand=on_hand,
+                        par=par,
+                        short=par - on_hand,
+                    )
+                )
 
-        # Sort by shortage descending
         low_items.sort(key=lambda x: x.short, reverse=True)
         return low_items
 
-    except HTTPException:
-        raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f'Database error: {str(e)}'
-        )
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")

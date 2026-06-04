@@ -1,53 +1,25 @@
-"""Seed data — extract from portal JS files and insert into Supabase tables."""
+"""Seed data — insert 28-day cycle menu into menu_entries."""
 
 import json
 import os
-from datetime import datetime
-from backend.routes import supabase
+from supabase import create_client
+from dotenv import load_dotenv
 
-TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "..", "templates", "portal")
+load_dotenv()
 
-
-def _parse_js_var(filepath, var_name):
-    """Extract a JS variable assigned to ``window.VAR = <json>`` or ``VAR = <json>``."""
-    with open(filepath) as f:
-        content = f.read()
-
-    for prefix in (f"window.{var_name} = ", f"{var_name} = "):
-        if prefix in content:
-            start = content.index(prefix) + len(prefix)
-            break
-    else:
-        raise ValueError(f"Variable {var_name} not found in {filepath}")
-
-    depth = 0
-    in_str = False
-    esc = False
-    for i in range(start, len(content)):
-        c = content[i]
-        if esc:
-            esc = False
-            continue
-        if c == "\\" and in_str:
-            esc = True
-            continue
-        if c == '"' and not esc:
-            in_str = not in_str
-            continue
-        if not in_str:
-            if c in ("{", "["):
-                depth += 1
-            elif c in ("}", "]"):
-                depth -= 1
-                if depth == 0:
-                    return json.loads(content[start : i + 1])
-
-    raise ValueError(f"Could not parse {var_name} from {filepath}")
+_svc = None
 
 
-DEMO_INV = None
-DEMO_HISTORY = None
-DEMO_ARCHIVES = None
+def _client():
+    global _svc
+    if _svc is None:
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_SERVICE_KEY")
+        if not url or not key:
+            raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set.")
+        _svc = create_client(url, key)
+    return _svc
+
 
 CYCLE_MENU = {
     "Mon": {
@@ -64,29 +36,13 @@ CYCLE_MENU = {
             {"qty": 60, "item": "Biscuit"},
         ],
         "Lunch": [
-            {
-                "qty": 55,
-                "item": "Herb Pork Chop",
-                "desc": "Pork chop w/ herb cream sauce",
-            },
-            {
-                "qty": 60,
-                "item": "Korean Chicken",
-                "desc": "Oven-roasted, Korean BBQ sauce",
-            },
+            {"qty": 55, "item": "Herb Pork Chop", "desc": "Pork chop w/ herb cream sauce"},
+            {"qty": 60, "item": "Korean Chicken", "desc": "Oven-roasted, Korean BBQ sauce"},
             {"qty": 10, "item": "Vegetarian option"},
         ],
         "Dinner": [
-            {
-                "qty": 80,
-                "item": "Lemon Garlic Tilapia",
-                "desc": "Pan-fried w/ lemon garlic sauce",
-            },
-            {
-                "qty": 80,
-                "item": "Curry Chicken",
-                "desc": "West Indian stew chicken w/ curry",
-            },
+            {"qty": 80, "item": "Lemon Garlic Tilapia", "desc": "Pan-fried w/ lemon garlic sauce"},
+            {"qty": 80, "item": "Curry Chicken", "desc": "West Indian stew chicken w/ curry"},
             {"qty": 10, "item": "Vegetarian option"},
         ],
         "Snack": ["Granola Bar", "Banana", "Potato Chips", "Apple", "Orange"],
@@ -116,11 +72,7 @@ CYCLE_MENU = {
     },
     "Wed": {
         "Breakfast": [
-            {
-                "qty": 160,
-                "item": "Cheese Scramble",
-                "desc": "Well-done cheese scramble",
-            },
+            {"qty": 160, "item": "Cheese Scramble", "desc": "Well-done cheese scramble"},
             {"qty": 50, "item": "Bacon"},
             {"qty": 50, "item": "Breakfast Sausage"},
             {"qty": 60, "item": "White Toast"},
@@ -132,24 +84,12 @@ CYCLE_MENU = {
             {"qty": 60, "item": "Biscuit"},
         ],
         "Lunch": [
-            {
-                "qty": 80,
-                "item": "Brown Stew Chicken",
-                "desc": "Stew chicken w/ brown gravy",
-            },
-            {
-                "qty": 80,
-                "item": "Shrimp Alfredo",
-                "desc": "Pasta w/ shrimp in creamy sauce",
-            },
+            {"qty": 80, "item": "Brown Stew Chicken", "desc": "Stew chicken w/ brown gravy"},
+            {"qty": 80, "item": "Shrimp Alfredo", "desc": "Pasta w/ shrimp in creamy sauce"},
             {"qty": 60, "item": "Vegetarian", "desc": "Vegetables in tomato sauce"},
         ],
         "Dinner": [
-            {
-                "qty": 80,
-                "item": "Chicken Parmesan",
-                "desc": "Chicken breast, marinara, mozzarella",
-            },
+            {"qty": 80, "item": "Chicken Parmesan", "desc": "Chicken breast, marinara, mozzarella"},
             {"qty": 80, "item": "Fried Cod", "desc": "Beer-battered cod"},
             {"qty": 60, "item": "Vegetarian option"},
         ],
@@ -175,11 +115,7 @@ CYCLE_MENU = {
         ],
         "Dinner": [
             {"qty": 80, "item": "Crusted Cod", "desc": "Baked crusted cod fish"},
-            {
-                "qty": 80,
-                "item": "Chicken Marsala",
-                "desc": "Pan-fried chicken w/ Marsala sauce",
-            },
+            {"qty": 80, "item": "Chicken Marsala", "desc": "Pan-fried chicken w/ Marsala sauce"},
             {"qty": 60, "item": "Vegetarian option"},
         ],
         "Snack": ["Granola Bar", "Banana", "Chips"],
@@ -198,21 +134,13 @@ CYCLE_MENU = {
             {"qty": 60, "item": "Biscuit"},
         ],
         "Lunch": [
-            {
-                "qty": 80,
-                "item": "Chicken Burrito Bowl",
-                "desc": "Chicken strips on rice w/ toppings",
-            },
+            {"qty": 80, "item": "Chicken Burrito Bowl", "desc": "Chicken strips on rice w/ toppings"},
             {"qty": 80, "item": "Fish Sandwich", "desc": "Fried fish w/ tartar sauce"},
             {"qty": 60, "item": "Beef Taco", "desc": "Ground beef on soft shell"},
             {"qty": 10, "item": "Vegetarian Burrito Bowl"},
         ],
         "Dinner": [
-            {
-                "qty": 80,
-                "item": "Tuscan Chicken",
-                "desc": "Pan-fried chicken w/ creamy sauce",
-            },
+            {"qty": 80, "item": "Tuscan Chicken", "desc": "Pan-fried chicken w/ creamy sauce"},
             {"qty": 80, "item": "Tuna Casserole", "desc": "Pasta in cheese tuna sauce"},
             {"qty": 60, "item": "Vegetarian option"},
         ],
@@ -245,422 +173,113 @@ CYCLE_MENU = {
     },
 }
 
-EVENTS_DATA = [
-    {
-        "id": 1,
-        "cat": "cultural",
-        "title": "Asian Heritage Dinner",
-        "date": "2026-01-29",
-        "theme": "Asian Heritage",
-        "desc": "Vegetable fried rice, beef or tofu stir-fry, spring rolls, egg drop soup, fortune cookies, jasmine tea. Lanterns & chopstick place settings. Coordinate with the Diversity / Multi-Cultural Awareness Committee.",
-        "suggestedMenu": "Fried Rice · Beef/Tofu Stir-Fry · Spring Rolls · Egg Drop Soup · Fortune Cookies · Jasmine Tea",
-        "status": "planned",
-    },
-    {
-        "id": 2,
-        "cat": "cultural",
-        "title": "Black History Month Celebration Meal",
-        "date": "2026-02-26",
-        "theme": "Black History Month",
-        "desc": "Fried chicken, collard greens, mac & cheese, cornbread, sweet potato pie, lemonade. Recognize student & staff achievements. Historical figures display in the dining hall.",
-        "suggestedMenu": "Fried Chicken · Collard Greens · Mac & Cheese · Cornbread · Sweet Potato Pie · Lemonade",
-        "status": "planned",
-    },
-    {
-        "id": 3,
-        "cat": "cultural",
-        "title": "Mardi Gras Celebration Dinner",
-        "date": "2026-03-26",
-        "theme": "Mardi Gras",
-        "desc": "Shrimp étouffée, red beans & rice, jambalaya, beignets, king cake, jazz playlist. Purple, gold & green decorations; beads and festive settings.",
-        "suggestedMenu": "Shrimp Étouffée · Red Beans & Rice · Jambalaya · Cornbread · Beignets · King Cake",
-        "status": "planned",
-    },
-    {
-        "id": 4,
-        "cat": "cultural",
-        "title": "Earth Day Green & Clean Meal",
-        "date": "2026-04-30",
-        "theme": "Earth Day",
-        "desc": "Plant-forward menu highlighting sustainable, seasonal produce. Roasted vegetable grain bowl, salad bar feature, lentil soup, fruit smoothies, whole grain rolls.",
-        "suggestedMenu": "Roasted Vegetable Grain Bowl · Lentil Soup · Garden Salad Feature · Whole Grain Rolls · Seasonal Fruit · Infused Water",
-        "status": "planned",
-    },
-    {
-        "id": 5,
-        "cat": "cultural",
-        "title": "Haitian Flag Day Dinner",
-        "date": "2026-05-28",
-        "theme": "Haitian Flag Day",
-        "desc": "Celebrate Haitian Flag Day (May 18). Griot, rice & peas (diri ak pwa), pikliz, plantains (banan peze), soup joumou. Red & blue decorations; Haitian flag displayed.",
-        "suggestedMenu": "Griot · Diri ak Pwa · Banan Peze · Pikliz · Soup Joumou · Haitian Rum Cake",
-        "status": "planned",
-    },
-    {
-        "id": 6,
-        "cat": "cultural",
-        "title": "Middle Eastern Cuisine Night",
-        "date": "2026-06-25",
-        "theme": "Middle Eastern",
-        "desc": "Chicken shawarma, falafel, hummus & pita, tabbouleh, basmati rice, baklava, mint tea. Maps & cultural facts displayed. Vegetarian options prominently featured.",
-        "suggestedMenu": "Chicken Shawarma · Falafel · Hummus & Pita · Tabbouleh · Basmati Rice · Baklava · Mint Tea",
-        "status": "planned",
-    },
-    {
-        "id": 7,
-        "cat": "cultural",
-        "title": "4th of July Independence Day BBQ",
-        "date": "2026-07-30",
-        "theme": "4th of July",
-        "desc": "American cookout. Burgers, hot dogs, BBQ ribs, corn on the cob, coleslaw, baked beans, watermelon, apple pie. Per SOP: holiday = two meals + healthy snacks.",
-        "suggestedMenu": "Burgers & Hot Dogs · BBQ Ribs · Corn on the Cob · Coleslaw · Baked Beans · Watermelon · Apple Pie",
-        "status": "planned",
-    },
-    {
-        "id": 8,
-        "cat": "cultural",
-        "title": "Taste of Chicago Dinner",
-        "date": "2026-08-27",
-        "theme": "Taste of Chicago",
-        "desc": "Inspired by the Chicago food festival. Deep dish pizza, Chicago hot dogs, Italian beef, cheese fries, Italian lemon ice. Skyline decorations.",
-        "suggestedMenu": "Deep Dish Pizza · Chicago-Style Hot Dogs · Italian Beef · Cheese Fries · Italian Lemon Ice · Chicago Mix Popcorn",
-        "status": "planned",
-    },
-    {
-        "id": 9,
-        "cat": "cultural",
-        "title": "Taste of the Islands Dinner",
-        "date": "2026-09-24",
-        "theme": "Taste of the Islands",
-        "desc": "Caribbean flavors. Jerk chicken, curry goat, oxtail stew, rice & peas, fried plantains, festival, sorrel drink, coconut cake. Steel drum playlist.",
-        "suggestedMenu": "Jerk Chicken · Curry Goat · Rice & Peas · Fried Plantains · Festival · Sorrel Drink · Coconut Cake",
-        "status": "planned",
-    },
-    {
-        "id": 10,
-        "cat": "cultural",
-        "title": "Hispanic Heritage Month Dinner",
-        "date": "2026-10-29",
-        "theme": "Hispanic Heritage",
-        "desc": "Hispanic Heritage Month (Sept 15 – Oct 15). Pernil, arroz con gandules, tostones, ceviche, tres leches cake, horchata. Flags of Hispanic nations displayed.",
-        "suggestedMenu": "Pernil · Arroz con Gandules · Tostones · Black Beans · Ceviche · Tres Leches Cake · Horchata",
-        "status": "planned",
-    },
-    {
-        "id": 11,
-        "cat": "cultural",
-        "title": "Thanksgiving Special Dinner",
-        "date": "2026-11-26",
-        "theme": "Thanksgiving",
-        "desc": "Traditional feast. Roast turkey, cornbread stuffing, mashed potatoes & gravy, candied yams, green bean casserole, cranberry sauce, pumpkin & apple pie. Gratitude wall.",
-        "suggestedMenu": "Roast Turkey · Cornbread Stuffing · Mashed Potatoes · Candied Yams · Green Bean Casserole · Cranberry Sauce · Pumpkin Pie",
-        "status": "planned",
-    },
-    {
-        "id": 12,
-        "cat": "cultural",
-        "title": "Holiday Season Celebration Dinner",
-        "date": "2026-12-31",
-        "theme": "Holiday Season",
-        "desc": "End-of-year celebration. Glazed ham, beef tenderloin, mac & cheese, sweet potato casserole, dinner rolls, cookie assortment, eggnog, hot cocoa.",
-        "suggestedMenu": "Glazed Ham · Beef Tenderloin · Mac & Cheese · Sweet Potato Casserole · Dinner Rolls · Cookie Assortment · Eggnog",
-        "status": "planned",
-    },
-    {
-        "id": 20,
-        "cat": "special",
-        "title": "Community Relations Luncheon",
-        "date": "2026-05-14",
-        "desc": "Quarterly luncheon for community partners and stakeholders. Meal tickets waived by DOL Regional Office. Submit Food Request Form FA510.01c at least 10 days prior.",
-        "status": "planned",
-    },
-    {
-        "id": 21,
-        "cat": "special",
-        "title": "SGA Food Services Committee Meeting",
-        "date": "2026-05-07",
-        "desc": "Monthly SGA Food Services Committee meeting. Food Services Manager / Supervisor must attend. Record & maintain minutes.",
-        "status": "planned",
-    },
-    {
-        "id": 22,
-        "cat": "special",
-        "title": "SGA Food Services Committee Meeting",
-        "date": "2026-06-04",
-        "desc": "Monthly SGA Food Services Committee meeting.",
-        "status": "planned",
-    },
-    {
-        "id": 24,
-        "cat": "special",
-        "title": "Graduation Celebration Dinner",
-        "date": "2026-06-25",
-        "desc": "Special dinner for graduating students and families. Submit Food Request Form FA510.01c at least 10 days prior.",
-        "status": "planned",
-    },
-    {
-        "id": 25,
-        "cat": "special",
-        "title": "Off-Center Activity — Sack Lunches",
-        "date": "2026-05-22",
-        "desc": "Submit Food Request Form at least 2 working days in advance. Include student names, destination, and return time.",
-        "status": "planned",
-    },
-    {
-        "id": 27,
-        "cat": "special",
-        "title": "4th of July Holiday BBQ",
-        "date": "2026-07-04",
-        "desc": "Actual Independence Day holiday cookout. Per SOP: holiday = two meals + healthy snacks. Red, white & blue decorations.",
-        "status": "planned",
-    },
-    {
-        "id": 30,
-        "cat": "training",
-        "title": "ServSafe Manager Recertification",
-        "date": "2026-07-15",
-        "desc": "Food Services Manager / Supervisor must be ServSafe Proctor certified. Coordinate with HR to track expiration dates.",
-        "status": "planned",
-    },
-    {
-        "id": 31,
-        "cat": "training",
-        "title": "New Staff ServSafe 90-Day Deadline",
-        "date": "2026-06-01",
-        "desc": "All food services staff must be ServSafe certified within 90 days of employment per company SOP.",
-        "status": "planned",
-    },
-    {
-        "id": 32,
-        "cat": "training",
-        "title": "HACCP Annual Procedures Review",
-        "date": "2026-05-28",
-        "desc": "Annual review of all HACCP critical control points, daily temperature logs, and corrective action procedures.",
-        "status": "planned",
-    },
-    {
-        "id": 33,
-        "cat": "training",
-        "title": "Food Safety & Sanitation Training",
-        "date": "2026-08-10",
-        "desc": "Annual refresher on local, state, and federal sanitation codes. All food service staff required.",
-        "status": "planned",
-    },
-    {
-        "id": 35,
-        "cat": "training",
-        "title": "Quarterly Safety Inspection",
-        "date": "2026-06-15",
-        "desc": "Safety & Security Manager inspects kitchen, dining hall, culinary arts classroom, and snack bar. Results filed with Food Services Manager, Admin Director and Center Director.",
-        "status": "planned",
-    },
-    {
-        "id": 40,
-        "cat": "heals",
-        "title": "HEALs Committee Meeting",
-        "date": "2026-05-21",
-        "desc": "Monthly meeting: Health & Wellness Mgr, Food Services Mgr, Recreation Supervisor, TEAP Specialist, Social Development Director, student reps.",
-        "status": "planned",
-    },
-    {
-        "id": 44,
-        "cat": "heals",
-        "title": "HEALs Committee Meeting & No-Soda Day",
-        "date": "2026-04-16",
-        "desc": "Monthly HEALs committee meeting (3rd Thursday). No-soda day. Plan Earth Day meal coordination (Apr 30) and spring wellness activities.",
-        "status": "planned",
-    },
-    {
-        "id": 45,
-        "cat": "heals",
-        "title": "HEALs Committee Meeting",
-        "date": "2026-06-18",
-        "desc": "Monthly HEALs committee meeting.",
-        "status": "planned",
-    },
-    {
-        "id": 46,
-        "cat": "heals",
-        "title": "Nutrition Education Workshop",
-        "date": "2026-06-09",
-        "desc": "Student nutrition session — MyPlate guidelines, reading food labels, healthy snack choices.",
-        "status": "planned",
-    },
-    {
-        "id": 47,
-        "cat": "heals",
-        "title": "Active Lifestyle Day",
-        "date": "2026-06-20",
-        "desc": "Collaborative event with Recreation Dept: healthy outdoor meal, fitness activities, wellness info tables.",
-        "status": "planned",
-    },
-    {
-        "id": 49,
-        "cat": "heals",
-        "title": "Farm-to-Table Feature Week",
-        "date": "2026-09-08",
-        "desc": "Week-long focus on fresh, locally-sourced produce. Menus feature seasonal vegetables and whole grains.",
-        "status": "planned",
-    },
-]
-
-SERVSAFE_STAFF = [
-    {
-        "name": "Food Services Manager / Supervisor",
-        "cert": "ServSafe Manager",
-        "expiry": "2026-08-15",
-        "proctor": True,
-    },
-    {
-        "name": "Assistant Manager",
-        "cert": "ServSafe Food Handler",
-        "expiry": "2026-11-30",
-        "proctor": False,
-    },
-    {
-        "name": "Cook 1",
-        "cert": "ServSafe Food Handler",
-        "expiry": "2027-02-10",
-        "proctor": False,
-    },
-    {
-        "name": "Cook 2",
-        "cert": "ServSafe Food Handler",
-        "expiry": "2026-06-01",
-        "proctor": False,
-    },
-    {
-        "name": "Assistant Cook",
-        "cert": "ServSafe Food Handler",
-        "expiry": "2026-12-20",
-        "proctor": False,
-    },
-    {
-        "name": "Food Services Assistant 1",
-        "cert": "ServSafe Food Handler",
-        "expiry": "2027-01-05",
-        "proctor": False,
-    },
-    {
-        "name": "WBL Student (Culinary)",
-        "cert": "Pending (90-day deadline)",
-        "expiry": "",
-        "proctor": False,
-    },
-]
-
-DEMO_USERS = [
-    {
-        "username": "admin",
-        "display_name": "Angela",
-        "last_name": "Martin",
-        "role": "admin",
-        "password": "admin123",
-        "pin": "",
-        "active": True,
-    },
-    {
-        "username": "manager",
-        "display_name": "Daniel",
-        "last_name": "Cortez",
-        "role": "manager",
-        "password": "mgr123",
-        "pin": "",
-        "active": True,
-    },
-    {
-        "username": "assistant",
-        "display_name": "Lena",
-        "last_name": "Price",
-        "role": "assistant",
-        "password": "asst123",
-        "pin": "",
-        "active": True,
-    },
-    {
-        "username": "rkhan",
-        "display_name": "Rasheed",
-        "last_name": "Khan",
-        "role": "staff",
-        "password": "",
-        "pin": "1111",
-        "active": True,
-    },
-    {
-        "username": "mlopez",
-        "display_name": "Maria",
-        "last_name": "Lopez",
-        "role": "staff",
-        "password": "",
-        "pin": "2222",
-        "active": True,
-    },
-]
+MEAL_PERIODS = {
+    "Mon": ["Breakfast", "Lunch", "Dinner", "Snack"],
+    "Tue": ["Breakfast", "Lunch", "Dinner", "Snack"],
+    "Wed": ["Breakfast", "Lunch", "Dinner", "Snack"],
+    "Thu": ["Breakfast", "Lunch", "Dinner", "Snack"],
+    "Fri": ["Breakfast", "Lunch", "Dinner", "Snack"],
+    "Sat": ["Brunch", "Dinner", "Snack"],
+    "Sun": ["Brunch", "Dinner", "Snack"],
+}
 
 
-def load_data():
-    """Parse DEMO_INV, DEMO_HISTORY, DEMO_ARCHIVES from the JS file."""
-    global DEMO_INV, DEMO_HISTORY, DEMO_ARCHIVES
-    inv_file = os.path.join(TEMPLATES_DIR, "inventory_data.js")
-    DEMO_INV = _parse_js_var(inv_file, "DEMO_INV")
-    DEMO_HISTORY = _parse_js_var(inv_file, "DEMO_HISTORY")
-    DEMO_ARCHIVES = _parse_js_var(inv_file, "DEMO_ARCHIVES")
+def _serialize_items(items) -> str:
+    """Serialize a menu entry's items list to JSON string for storage."""
+    serializable = []
+    for it in items:
+        if isinstance(it, str):
+            serializable.append(it)
+        elif isinstance(it, dict):
+            serializable.append(it)
+        else:
+            serializable.append(str(it))
+    return json.dumps(serializable)
 
 
-def seed_database():
-    """Seed all tables with demo data from portal JS files and inline constants."""
-    if DEMO_INV is None:
-        load_data()
+def seed_cycle_menu(cycle_id: str | None = None):
+    """Insert CYCLE_MENU data into menu_entries for the active cycle."""
+    db = _client()
 
-    now = datetime.utcnow().isoformat()
+    if cycle_id is None:
+        result = db.table("menu_cycles").select("id").eq("active", True).limit(1).execute()
+        if not result.data:
+            print("No active menu_cycles found. Create one first.")
+            return
+        cycle_id = result.data[0]["id"]
 
-    for user in DEMO_USERS:
-        supabase.table("user_profiles").upsert(user, on_conflict="username").execute()
-    print(f"Seeded {len(DEMO_USERS)} users")
+    now = __import__("datetime").datetime.utcnow().isoformat()
+    total = 0
 
-    supabase.table("inventory_sync").upsert(
-        {
-            "id": 202605,
-            "data": DEMO_INV,
-            "synced_by": "seed",
-        }
-    ).execute()
-    print("Seeded current inventory (period 202605)")
-
-    if DEMO_HISTORY:
-        for period_str, data in DEMO_HISTORY.items():
-            y, m = period_str.split("-")
-            supabase.table("inventory_sync").upsert(
-                {
-                    "id": int(y) * 100 + int(m),
-                    "data": data,
-                    "synced_by": "seed",
-                }
-            ).execute()
-        print(f"Seeded {len(DEMO_HISTORY)} historical snapshots")
-
-    for ev in EVENTS_DATA:
-        supabase.table("events").upsert(ev, on_conflict="id").execute()
-    print(f"Seeded {len(EVENTS_DATA)} events")
-
-    for day, menu_data in CYCLE_MENU.items():
-        supabase.table("cycle_menu").upsert(
-            {
-                "id": day,
-                "data": menu_data,
-                "updated_by": "seed",
+    for day, meals in CYCLE_MENU.items():
+        periods = MEAL_PERIODS.get(day, [])
+        for sort_order, meal_type in enumerate(periods):
+            items = meals.get(meal_type, [])
+            if not items:
+                continue
+            row = {
+                "cycle_id": cycle_id,
+                "week_number": 1,
+                "day_of_week": day,
+                "meal_type": meal_type,
+                "items": _serialize_items(items),
+                "sort_order": sort_order,
+                "created_at": now,
                 "updated_at": now,
             }
-        ).execute()
-    print(f"Seeded {len(CYCLE_MENU)} menu days")
+            db.table("menu_entries").upsert(
+                row,
+                on_conflict="cycle_id,day_of_week,meal_type",
+            ).execute()
+            total += 1
 
-    print("Database seeding complete")
+    print(f"Seeded {total} menu entries for cycle {cycle_id}")
+
+
+def import_github_archive(repo: str = "MJCC-Portal/mjcc", branch: str = "main"):
+    """Fetch inventory snapshots from the GitHub archive repo and insert into monthly_snapshots."""
+    import httpx
+
+    db = _client()
+    api_url = f"https://api.github.com/repos/{repo}/contents"
+
+    resp = httpx.get(f"{api_url}?ref={branch}", timeout=30)
+    resp.raise_for_status()
+    items = resp.json()
+
+    total = 0
+    for item in items:
+        name = item.get("name", "")
+        if name.endswith(".json"):
+            file_resp = httpx.get(item["download_url"], timeout=30)
+            file_resp.raise_for_status()
+            data = file_resp.json()
+
+            parts = name.replace(".json", "").split("-")
+            if len(parts) >= 2:
+                year, month = int(parts[0]), int(parts[1])
+            else:
+                continue
+
+            snapshot = {
+                "year": year,
+                "month": month,
+                "source_file": name,
+                "grand_total": data.get("grand_total", 0),
+                "item_count": data.get("item_count", 0),
+                "data": data,
+            }
+            db.table("monthly_snapshots").upsert(
+                snapshot,
+                on_conflict="year,month",
+            ).execute()
+            total += 1
+
+    print(f"Imported {total} archive snapshots from {repo}")
 
 
 if __name__ == "__main__":
-    import os as _os
-
-    if _os.getenv("MJCC_SEED_CONFIRM") != "1":
-        print("ERROR: set MJCC_SEED_CONFIRM=1 to run this against the live database.")
+    if os.getenv("MJCC_SEED_CONFIRM") != "1":
+        print("ERROR: set MJCC_SEED_CONFIRM=1 to run against the live database.")
         raise SystemExit(1)
-    seed_database()
+    seed_cycle_menu()
