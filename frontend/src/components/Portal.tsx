@@ -124,7 +124,7 @@ function Sidebar({ user, active, setActive, reorderCount, stagedCount }: {
       })}
       <div className="sidebar-foot">
         Signed in as <b>{ROLE_LABEL[user.role]}</b><br />
-        <span style={{ fontFamily: 'BlinkMacSystemFont' }}>KPN Food Service \u00B7 v3.0</span>
+        <span style={{ fontFamily: 'BlinkMacSystemFont' }}>KpnCompute \u00B7 v3.0</span>
       </div>
     </nav>
   );
