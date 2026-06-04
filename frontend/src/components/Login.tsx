@@ -1,132 +1,7 @@
 import { useState, useEffect } from 'react';
 import { I, KpnMark } from '../lib/icons';
-import { isConnected, getSupaConfig, saveSupaConfig, clearSupaConfig, backendLogin, backendPinLogin } from '../lib/supabase';
+import { backendLogin, backendPinLogin, realLogin } from '../lib/supabase';
 import type { User } from '../lib/constants';
-
-interface SupaSetupModalProps {
-  onClose: () => void;
-  onSaved?: () => void;
-}
-
-const SUPA_SQL = `-- Run in Supabase → SQL Editor
-create table if not exists inventory_sync (
-  id integer primary key,
-  data jsonb,
-  synced_by text,
-  synced_at timestamptz default now()
-);
--- Allow the portal (anon key) to read the directory + inventory.
--- user_profiles must already exist (id, username, display_name,
--- last_name, role, pin, active).
-alter table inventory_sync enable row level security;
-create policy "read inv" on inventory_sync for select using (true);
-create policy "read profiles" on user_profiles for select using (true);`;
-
-export function SupaSetupModal({ onClose, onSaved }: SupaSetupModalProps) {
-  const cfg = getSupaConfig();
-  const [url, setUrl] = useState(cfg.url);
-  const [key, setKey] = useState(cfg.key);
-  const [err, setErr] = useState('');
-  const connected = isConnected();
-
-  function save() {
-    const u = url.trim(),
-      k = key.trim();
-    if (!u.includes('supabase.co')) {
-      setErr('Enter a valid Project URL (ends in .supabase.co).');
-      return;
-    }
-    if (!k.startsWith('eyJ')) {
-      setErr('Enter the anon / public key (starts with eyJ…).');
-      return;
-    }
-    saveSupaConfig(u, k);
-    onSaved && onSaved();
-    onClose();
-  }
-  function disconnect() {
-    clearSupaConfig();
-    setUrl('');
-    setKey('');
-    onSaved && onSaved();
-    onClose();
-  }
-
-  return (
-    <div className="overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <div>
-            <h3>{I.cloud()} Connect data source</h3>
-            <div className="sub">
-              Link this portal to your Supabase project. Logins and inventory then run against your live data — the same
-              project the inventory dashboard syncs to.
-            </div>
-          </div>
-          <button className="modal-x" onClick={onClose} aria-label="Close">
-            {I.x()}
-          </button>
-        </div>
-        <div className="modal-body">
-          <div className={'conn-status ' + (connected ? 'on' : 'off')}>
-            <span className="d"></span>
-            {connected ? 'Connected — using live Supabase data' : 'Not connected — demo mode active'}
-          </div>
-
-          {err && (
-            <div className="auth-err" style={{ marginBottom: 14 }}>
-              {I.alert({ style: { width: 16, height: 16, flexShrink: 0 } })}
-              <span>{err}</span>
-            </div>
-          )}
-
-          <div className="field">
-            <label>Project URL</label>
-            <input
-              className="ipt mono"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://abcdefghijkl.supabase.co"
-            />
-          </div>
-          <div className="field">
-            <label>anon / public key</label>
-            <input
-              className="ipt mono"
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
-              placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…"
-            />
-            <div className="hint">
-              Settings → API in your Supabase dashboard. The anon key is safe for browsers; never paste the{' '}
-              <b>service_role</b> key here.
-            </div>
-          </div>
-
-          <details style={{ margin: '4px 0 6px' }}>
-            <summary style={{ fontSize: 12, fontWeight: 700, cursor: 'pointer', color: 'var(--navy-2)' }}>
-              First-time setup (read policies)
-            </summary>
-            <div className="sql-box">{SUPA_SQL}</div>
-          </details>
-        </div>
-        <div className="modal-foot">
-          {connected && (
-            <button className="btn" style={{ flex: '0 0 auto', color: 'var(--red)' }} onClick={disconnect}>
-              Disconnect
-            </button>
-          )}
-          <button className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn primary" onClick={save}>
-            {I.check({ style: { width: 15, height: 15 } })} Save &amp; connect
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 interface LoginProps {
   onLogin: (user: User, remember: boolean) => void;
@@ -158,7 +33,19 @@ export function Login({ onLogin, layout = 'split' }: LoginProps) {
     if (type === 'staff') {
       res = await backendPinLogin(username, pinVal || '');
     } else {
-      res = await backendLogin(username, password);
+      const supaRes = await realLogin({ username, type: 'admin', password });
+      if (!supaRes.ok) {
+        setBusy(false);
+        setErr(supaRes.error || 'Login failed');
+        return;
+      }
+      if (supaRes.user?.access_token) {
+        res = await backendLogin(supaRes.user.access_token);
+      } else {
+        setBusy(false);
+        setErr('No auth token received from Supabase');
+        return;
+      }
     }
 
     setBusy(false);

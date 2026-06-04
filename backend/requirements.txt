@@ -4,6 +4,7 @@ python-dotenv
 supabase
 pydantic
 pydantic-settings
+email-validator
 python-multipart
 PyJWT
 

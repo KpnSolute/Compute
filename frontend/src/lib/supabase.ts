@@ -186,15 +186,13 @@ export function clearBackendToken() {
 }
 
 /**
- * Backend login for admin/manager using username + password.
- * @param username - Admin/manager username
- * @param password - Password
+ * Backend login for admin/manager using a Supabase Auth access token.
+ * @param accessToken - JWT from Supabase Auth
  * @returns { ok, token, user, error }
  */
-export async function backendLogin(username: string, password: string): Promise<BackendAuthResult> {
-  username = (username || '').trim().toLowerCase();
-  if (!username || !password) {
-    return { ok: false, error: 'Username and password are required' };
+export async function backendLogin(accessToken: string): Promise<BackendAuthResult> {
+  if (!accessToken) {
+    return { ok: false, error: 'Access token is required' };
   }
 
   const BASE = (import.meta.env as Record<string, string>).VITE_API_BASE || 'http://localhost:8000';
@@ -204,7 +202,7 @@ export async function backendLogin(username: string, password: string): Promise<
     const response = await fetch(BASE + '/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ access_token: accessToken }),
     });
 
     if (!response.ok) {

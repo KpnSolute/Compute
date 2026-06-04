@@ -161,3 +161,9 @@ These are user-approved decisions that UNBLOCK Gemini. They are approvals, not c
 
 ### Daily Summary (Close Out)
 - **Honest current state:** Frontend builds and runs against Supabase directly in demo/localStorage mode. Backend is skeleton code written against a non-existent schema and is not wired to anything. The real product data lives in a healthy 38-table Supabase DB the code cannot currently read. Foundation must be reconciled (Gemini) before further feature work. Governance docs and memory are now aligned to reality.
+
+## [1.3.5] - 2026-06-03
+### System Updates (Claude — Auth Flow Fix)
+- **Fixed frontend-backend auth mismatch (`supabase.ts`, `Login.tsx`):** `backendLogin()` was sending `{ username, password }` to the backend, but the backend's `/api/auth/login` only accepts `access_token` (JWT from Supabase Auth) or `username+pin`. Fixed `backendLogin()` to accept a Supabase Auth JWT token instead of raw credentials. Updated `Login.tsx` admin flow to call `realLogin()` first (authenticates via Supabase Auth), then pass the resulting `access_token` to `backendLogin()` for backend validation.
+- **Removed dead code (`Login.tsx`):** Removed the `SupaSetupModal` component (~100 lines), which was no longer rendered after the demo-mode removal commit, along with its unused imports (`isConnected`, `getSupaConfig`, `saveSupaConfig`, `clearSupaConfig`).
+- **Added missing dependency (`requirements.txt`):** Added `email-validator` required by `backend/routes/users.py` which uses Pydantic's `EmailStr` field.
