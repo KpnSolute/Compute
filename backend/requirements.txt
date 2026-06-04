@@ -8,4 +8,6 @@ email-validator
 python-multipart
 PyJWT
 httpx
+pdfplumber
+openpyxl
 

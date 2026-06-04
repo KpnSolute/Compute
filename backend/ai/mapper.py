@@ -1,0 +1,290 @@
+"""
+Deterministic column mapper + AI fallback extractor.
+Maps parsed file rows → dispatch payload shapes.
+"""
+import re
+from typing import Any
+from backend.ai import engine, context
+
+# ── fuzzy column key normaliser ───────────────────────────────────────────────
+
+def _norm(s: str) -> str:
+    return re.sub(r'[^a-z0-9]', '', str(s).lower())
+
+
+# Column aliases → canonical key
+_INV_ALIASES: dict[str, str] = {
+    # sku
+    'sku': 'sku', 'itemno': 'sku', 'itemnum': 'sku', 'itemnumber': 'sku',
+    'item': 'sku', 'code': 'sku', 'productcode': 'sku', 'id': 'sku',
+    # description
+    'description': 'desc', 'desc': 'desc', 'name': 'desc', 'itemname': 'desc',
+    'productname': 'desc', 'product': 'desc', 'itemdescription': 'desc',
+    # category
+    'category': 'category', 'cat': 'category', 'dept': 'category',
+    'department': 'category', 'type': 'category',
+    # price
+    'price': 'price', 'unitprice': 'price', 'cost': 'price', 'unitcost': 'price',
+    'purchaseprice': 'price', 'rate': 'price',
+    # par
+    'par': 'par', 'parlevel': 'par', 'minstock': 'par', 'minimum': 'par',
+    'minqty': 'par', 'reorderpoint': 'par',
+    # on hand
+    'onhand': 'onHand', 'qty': 'onHand', 'quantity': 'onHand', 'stock': 'onHand',
+    'currentstock': 'onHand', 'available': 'onHand', 'balance': 'onHand',
+    # unit
+    'unit': 'unit', 'uom': 'unit', 'unitofmeasure': 'unit', 'measure': 'unit',
+    # weekly received/issued
+    'w1r': 'w1r', 'week1received': 'w1r',
+    'w2r': 'w2r', 'week2received': 'w2r',
+    'w3r': 'w3r', 'week3received': 'w3r',
+    'w4r': 'w4r', 'week4received': 'w4r',
+    'w1i': 'w1i', 'week1issued': 'w1i',
+    'w2i': 'w2i', 'week2issued': 'w2i',
+    'w3i': 'w3i', 'week3issued': 'w3i',
+    'w4i': 'w4i', 'week4issued': 'w4i',
+}
+
+_EVENT_ALIASES: dict[str, str] = {
+    'title': 'title', 'name': 'title', 'event': 'title',
+    'date': 'date', 'eventdate': 'date',
+    'cat': 'cat', 'category': 'cat', 'type': 'cat',
+    'theme': 'theme',
+    'description': 'description', 'desc': 'description', 'notes': 'description',
+    'suggestedmenu': 'suggested_menu', 'menu': 'suggested_menu',
+    'status': 'status',
+}
+
+
+def _map_headers(raw_headers: list[str], alias_map: dict[str, str]) -> dict[str, str]:
+    """Returns {raw_header: canonical_key} for recognized headers."""
+    return {
+        h: alias_map[_norm(h)]
+        for h in raw_headers
+        if _norm(h) in alias_map
+    }
+
+
+def _safe_float(v: Any, default: float = 0.0) -> float:
+    try:
+        return float(str(v).replace('$', '').replace(',', '').strip())
+    except (ValueError, TypeError):
+        return default
+
+
+def _safe_int(v: Any, default: int = 0) -> int:
+    try:
+        return int(float(str(v).replace(',', '').strip()))
+    except (ValueError, TypeError):
+        return default
+
+
+# ── inventory mapper ──────────────────────────────────────────────────────────
+
+def _closest_category(raw: str, categories: dict[str, int]) -> str:
+    """Return the closest known category name, or empty string."""
+    raw_n = _norm(raw)
+    for name in categories:
+        if _norm(name) in raw_n or raw_n in _norm(name):
+            return name
+    return ''
+
+
+_sku_counters: dict[str, int] = {}
+
+
+def _gen_sku(category: str) -> str:
+    prefix = re.sub(r'[^A-Z]', '', category.upper())[:3] or 'GEN'
+    _sku_counters[prefix] = _sku_counters.get(prefix, 0) + 1
+    return f'{prefix}-{_sku_counters[prefix]:03d}'
+
+
+def map_rows_to_inventory(
+    rows: list[dict],
+    categories: dict[str, int],
+    month: int,
+    year: int,
+    notes: str = '',
+) -> dict | None:
+    """
+    Deterministically map structured rows to inventory_save payload.
+    Returns None if too few recognized columns (caller should fall back to AI).
+    """
+    if not rows:
+        return None
+
+    headers = list(rows[0].keys())
+    mapping = _map_headers(headers, _INV_ALIASES)
+
+    # require at least description or sku to proceed deterministically
+    canonical_values = set(mapping.values())
+    if 'desc' not in canonical_values and 'sku' not in canonical_values:
+        return None  # not enough signal — needs AI
+
+    items = []
+    for row in rows:
+        mapped = {mapping[h]: row[h] for h in headers if h in mapping}
+        if not mapped:
+            continue
+
+        raw_cat = str(mapped.get('category') or '')
+        category = _closest_category(raw_cat, categories) or raw_cat or 'Dry Goods'
+        sku = str(mapped.get('sku') or '').strip() or _gen_sku(category)
+        desc = str(mapped.get('desc') or sku).strip()
+
+        items.append({
+            'sku': sku,
+            'desc': desc,
+            'category': category,
+            'price': _safe_float(mapped.get('price')),
+            'par': _safe_int(mapped.get('par')),
+            'onHand': _safe_int(mapped.get('onHand')),
+            'unit': str(mapped.get('unit') or 'each').strip(),
+            'w1r': _safe_int(mapped.get('w1r')), 'w2r': _safe_int(mapped.get('w2r')),
+            'w3r': _safe_int(mapped.get('w3r')), 'w4r': _safe_int(mapped.get('w4r')),
+            'w1i': _safe_int(mapped.get('w1i')), 'w2i': _safe_int(mapped.get('w2i')),
+            'w3i': _safe_int(mapped.get('w3i')), 'w4i': _safe_int(mapped.get('w4i')),
+        })
+
+    if not items:
+        return None
+
+    return {'month': month, 'year': year, 'notes': notes, 'items': items}
+
+
+def map_rows_to_events(rows: list[dict]) -> list[dict]:
+    """Deterministically map structured rows to event_create payloads."""
+    headers = list(rows[0].keys()) if rows else []
+    mapping = _map_headers(headers, _EVENT_ALIASES)
+    if 'title' not in mapping.values():
+        return []
+
+    events = []
+    for row in rows:
+        mapped = {mapping[h]: row[h] for h in headers if h in mapping}
+        if not mapped.get('title'):
+            continue
+        events.append({
+            'title': str(mapped.get('title', '')).strip(),
+            'date': str(mapped.get('date', '')).strip(),
+            'cat': str(mapped.get('cat', 'Event')).strip(),
+            'theme': str(mapped.get('theme') or '').strip() or None,
+            'description': str(mapped.get('description') or '').strip() or None,
+            'suggested_menu': str(mapped.get('suggested_menu') or '').strip() or None,
+            'status': str(mapped.get('status') or 'upcoming').strip(),
+        })
+    return events
+
+
+# ── AI extractor fallback ─────────────────────────────────────────────────────
+
+def ai_extract_inventory(
+    text_or_rows: str | list[dict],
+    categories: dict[str, int],
+    vendors: dict[str, int],
+    month: int,
+    year: int,
+    ai_config: dict | None = None,
+) -> dict:
+    """Use AI to extract inventory_save payload from ambiguous text/rows."""
+    schema_ctx = context.build_inventory_context(categories, vendors)
+    if isinstance(text_or_rows, list):
+        from backend.ai.parser import rows_to_text
+        file_text = rows_to_text(text_or_rows)
+    else:
+        file_text = text_or_rows
+
+    messages = [
+        {
+            'role': 'system',
+            'content': (
+                f'{schema_ctx}\n\n'
+                f'Current date context: month={month}, year={year}.\n'
+                'Extract all inventory items from the file. '
+                'Return ONLY valid JSON — no explanation, no markdown, no extra text. '
+                'If a SKU is missing, generate one in format CATEGORY_PREFIX-NNN. '
+                'Map every category to the closest valid category name from the list.'
+            ),
+        },
+        {
+            'role': 'user',
+            'content': f'FILE CONTENT:\n{file_text[:8000]}',
+        },
+    ]
+
+    raw = engine.complete(messages, ai_config)
+    result = engine.extract_json(raw)
+    if isinstance(result, list):
+        result = {'month': month, 'year': year, 'notes': 'AI extracted', 'items': result}
+    return result
+
+
+def ai_extract_events(
+    text_or_rows: str | list[dict],
+    ai_config: dict | None = None,
+) -> list[dict]:
+    """Use AI to extract event_create payloads."""
+    schema_ctx = context.build_events_context()
+    if isinstance(text_or_rows, list):
+        from backend.ai.parser import rows_to_text
+        file_text = rows_to_text(text_or_rows)
+    else:
+        file_text = text_or_rows
+
+    messages = [
+        {
+            'role': 'system',
+            'content': (
+                f'{schema_ctx}\n\n'
+                'Extract all events from the file. '
+                'Return ONLY a JSON array of event objects — no explanation.'
+            ),
+        },
+        {'role': 'user', 'content': f'FILE CONTENT:\n{file_text[:8000]}'},
+    ]
+
+    raw = engine.complete(messages, ai_config)
+    result = engine.extract_json(raw)
+    return result if isinstance(result, list) else result.get('events', [])
+
+
+def classify_operation(
+    filename: str,
+    hint: str | None,
+    rows: list[dict] | None,
+    ai_config: dict | None = None,
+) -> str:
+    """
+    Determine which operation type a file targets.
+    Uses hint first, then header analysis, then AI classification.
+    """
+    if hint and hint in context.OPERATION_HINTS:
+        return context.OPERATION_HINTS[hint]
+
+    # header-based heuristic
+    if rows:
+        headers_norm = {_norm(h) for h in rows[0].keys()}
+        inv_score = len(headers_norm & {'sku', 'description', 'desc', 'onhand', 'qty', 'price', 'category'})
+        event_score = len(headers_norm & {'title', 'date', 'event', 'theme'})
+        haccp_score = len(headers_norm & {'temperature', 'location', 'checkedby', 'temp'})
+        best = max(
+            ('inventory_save', inv_score),
+            ('event_create', event_score),
+            ('haccp_save', haccp_score),
+            key=lambda x: x[1],
+        )
+        if best[1] >= 2:
+            return best[0]
+
+    # filename heuristic
+    fn = filename.lower()
+    for kw, op in [
+        ('invent', 'inventory_save'), ('stock', 'inventory_save'),
+        ('event', 'event_create'), ('calend', 'event_create'),
+        ('haccp', 'haccp_save'), ('temp', 'haccp_save'),
+        ('menu', 'menu_save'), ('log', 'daily_log_save'),
+    ]:
+        if kw in fn:
+            return op
+
+    return 'inventory_save'  # safest default for cafeteria context
