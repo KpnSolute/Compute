@@ -17,6 +17,7 @@ export interface Commit {
   message: string;
   author_id: string;
   author_name?: string;
+  submitter_role?: string;
   status: string;
   branch: string;
   created_at: string;
