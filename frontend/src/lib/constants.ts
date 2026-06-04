@@ -89,15 +89,6 @@ export const NAV = [
   },
 ];
 
-export const USERS: User[] = [
-  { id: 'u-admin', username: 'amartin', display_name: 'Angela', last_name: 'Martin', role: 'admin', pin: null, password: 'kpn2026', active: true },
-  { id: 'u-mgr', username: 'dcortez', display_name: 'Daniel', last_name: 'Cortez', role: 'manager', pin: null, password: 'kpn2026', active: true },
-  { id: 'u-asst', username: 'lprice', display_name: 'Lena', last_name: 'Price', role: 'assistant', pin: null, password: 'kpn2026', active: true },
-  { id: 'u-staff', username: 'rkhan', display_name: 'Rasheed', last_name: 'Khan', role: 'staff', pin: '4729', password: null, active: true },
-  { id: 'u-staff2', username: 'mlopez', display_name: 'Maria', last_name: 'Lopez', role: 'staff', pin: '1080', password: null, active: true },
-  { id: 'u-asst2', username: 'tobrien', display_name: 'Tara', last_name: "O'Brien", role: 'assistant', pin: null, password: 'kpn2026', active: false },
-];
-
 export const COOKING_TEMPS = [
   { temp: '165°F (74°C)', hold: '15 sec', foods: 'Poultry (solid & ground); stuffed foods; dishes with previously cooked PHF ingredients.' },
   { temp: '155°F (68°C)', hold: '15 sec', foods: 'Ground meats (beef, pork, veal, lamb, fish); pork steaks & chops; injected meats; game; shell eggs for hot holding.' },
@@ -153,21 +144,3 @@ export const MEAL_COLS = ['Breakfast', 'Lunch', 'Dinner'];
 
 export const DOW_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 export const DOW_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-
-export function mockLogin({ username, type, pin, password }: { username: string; type: 'staff' | 'admin'; pin?: string; password?: string }): { ok: boolean; user?: User; error?: string; status?: number } {
-  username = (username || '').trim().toLowerCase();
-  if (!username) return { ok: false, status: 400, error: 'Username is required.' };
-  const u = USERS.find((x) => x.username === username);
-  if (!u) return { ok: false, status: 401, error: 'Username not recognised.' };
-  if (!u.active) return { ok: false, status: 403, error: 'Account is disabled.' };
-  if (type === 'staff') {
-    if (u.role !== 'staff') return { ok: false, status: 401, error: 'Admin & manager accounts must use the Admin / Manager login.' };
-    if (!pin) return { ok: false, status: 400, error: 'PIN is required.' };
-    if (pin !== u.pin) return { ok: false, status: 401, error: 'Incorrect PIN. Please try again.' };
-  } else if (type === 'admin') {
-    if (!['admin', 'manager', 'assistant'].includes(u.role)) return { ok: false, status: 401, error: 'Staff accounts must use the Staff login.' };
-    if (!password) return { ok: false, status: 400, error: 'Password is required.' };
-    if (password !== u.password) return { ok: false, status: 401, error: 'Incorrect password. Please try again.' };
-  } else return { ok: false, status: 400, error: 'Invalid login type.' };
-  return { ok: true, user: { id: u.id, username: u.username, display_name: u.display_name, last_name: u.last_name, role: u.role } };
-}

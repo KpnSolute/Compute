@@ -129,8 +129,8 @@ function buildTemplates() {
       icon: 'checkSquare',
       desc: 'Morning opening tasks, meal schedule & incident lines.',
       note: 'Complete before first meal service · initial each item.',
-      items: () => DS.openingChecklist(),
-      schedule: () => DS.mealSchedule(),
+      items: () => DS.syncOpeningChecklist(),
+      schedule: () => DS.syncMealSchedule(),
     },
     {
       id: 'inspection',

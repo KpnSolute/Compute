@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { I, KpnMark } from '../lib/icons';
-import { isConnected, getSupaConfig, saveSupaConfig, clearSupaConfig, realLogin, backendLogin, backendPinLogin } from '../lib/supabase';
-import { mockLogin, type User } from '../lib/constants';
+import { isConnected, getSupaConfig, saveSupaConfig, clearSupaConfig, backendLogin, backendPinLogin } from '../lib/supabase';
+import type { User } from '../lib/constants';
 
 interface SupaSetupModalProps {
   onClose: () => void;
@@ -128,40 +128,12 @@ export function SupaSetupModal({ onClose, onSaved }: SupaSetupModalProps) {
   );
 }
 
-function DemoCreds({ onUse }: { onUse: (row: any) => void }) {
-  const rows = [
-    { r: 'Administrator', u: 'amartin', s: 'kpn2026', type: 'admin' },
-    { r: 'Manager', u: 'dcortez', s: 'kpn2026', type: 'admin' },
-    { r: 'Staff (PIN)', u: 'rkhan', s: 'PIN 4729', type: 'staff', secret: '4729' },
-  ];
-  return (
-    <div className="demo-creds">
-      <div className="dc-h">{I.lock({ style: { width: 13, height: 13 } })} Demo credentials — click to fill</div>
-      <table>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={i}>
-              <td>{row.r}</td>
-              <td className="k">{row.u}</td>
-              <td className="k">{row.type === 'staff' ? 'PIN 4729' : 'kpn2026'}</td>
-              <td className="use" onClick={() => onUse(row)}>
-                Use →
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 interface LoginProps {
   onLogin: (user: User, remember: boolean) => void;
   layout?: 'split' | 'centered';
-  onConnChange?: (connected: boolean) => void;
 }
 
-export function Login({ onLogin, layout = 'split', onConnChange }: LoginProps) {
+export function Login({ onLogin, layout = 'split' }: LoginProps) {
   const [mode, setMode] = useState<'admin' | 'staff'>('admin');
   const [username, setU] = useState('');
   const [password, setP] = useState('');
@@ -171,55 +143,22 @@ export function Login({ onLogin, layout = 'split', onConnChange }: LoginProps) {
   const [err, setErr] = useState('');
   const [pinErr, setPinErr] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [showSetup, setShowSetup] = useState(false);
-  const [connected, setConnected] = useState(isConnected());
 
   useEffect(() => {
     setErr('');
     setPinErr(false);
   }, [mode]);
 
-  function refreshConn() {
-    const c = isConnected();
-    setConnected(c);
-    onConnChange && onConnChange(c);
-  }
-
   async function doLogin(type: 'admin' | 'staff', pinVal?: string) {
     setBusy(true);
     setErr('');
 
-    let res: any;
+    let res;
 
-    if (connected) {
-      // Real authentication with backend
-      if (type === 'staff') {
-        // Staff PIN login: send to backend
-        res = await backendPinLogin(username, pinVal || '');
-      } else {
-        // Admin/Manager: use Supabase Auth first, then backend
-        const supaRes = await realLogin({ username, type: 'admin', password });
-        if (!supaRes.ok) {
-          setBusy(false);
-          setErr(supaRes.error || 'Login failed');
-          return;
-        }
-
-        // Now send Supabase token to backend
-        if (supaRes.user?.access_token) {
-          res = await backendLogin(supaRes.user.access_token);
-        } else {
-          setBusy(false);
-          setErr('No Supabase token received');
-          return;
-        }
-      }
+    if (type === 'staff') {
+      res = await backendPinLogin(username, pinVal || '');
     } else {
-      // Demo mode
-      await new Promise((r) => setTimeout(r, 420));
-      const payload: any =
-        type === 'staff' ? { username, type: 'staff', pin: pinVal } : { username, type: 'admin', password };
-      res = mockLogin(payload);
+      res = await backendLogin(username, password);
     }
 
     setBusy(false);
@@ -255,19 +194,6 @@ export function Login({ onLogin, layout = 'split', onConnChange }: LoginProps) {
     if (next.length === 4) setTimeout(() => doLogin('staff', next), 160);
   }
 
-  function useCred(row: any) {
-    if (row.type === 'staff') {
-      setMode('staff');
-      setU(row.u);
-      setPin('');
-    } else {
-      setMode('admin');
-      setU(row.u);
-      setP(row.s);
-    }
-    setErr('');
-  }
-
   return (
     <div className="auth" data-layout={layout}>
       <aside className="auth-brand">
@@ -301,7 +227,7 @@ export function Login({ onLogin, layout = 'split', onConnChange }: LoginProps) {
           </div>
         </div>
         <div className="brand-foot">
-          <span className="dot"></span> {connected ? 'Live · Supabase connected' : 'Demo mode · not connected'} · v3.0
+          <span className="dot"></span> Operations Console · v3.0
         </div>
       </aside>
 
@@ -312,7 +238,6 @@ export function Login({ onLogin, layout = 'split', onConnChange }: LoginProps) {
           </div>
           <div className="ac-head">
             <h3>Sign in to the console</h3>
-            <p>Choose your access type to continue.</p>
           </div>
 
           <div className="seg" role="tablist">
@@ -375,9 +300,6 @@ export function Login({ onLogin, layout = 'split', onConnChange }: LoginProps) {
                   <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> Keep me
                   signed in
                 </label>
-                <span className="link" onClick={() => alert('Contact your administrator to reset your password.')}>
-                  Forgot password?
-                </span>
               </div>
               <button className="btn-auth" type="submit" disabled={busy}>
                 {busy ? (
@@ -429,31 +351,8 @@ export function Login({ onLogin, layout = 'split', onConnChange }: LoginProps) {
               </div>
             </div>
           )}
-
-          {!connected && <DemoCreds onUse={useCred} />}
-
-          <div className="auth-note" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-              <span
-                className={'conn-dot'}
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  background: connected ? '#16A34A' : '#94A3B8',
-                  display: 'inline-block',
-                }}
-              ></span>
-              {connected ? 'Connected to Supabase' : 'Demo mode — not connected'}
-            </span>
-            <span className="link" onClick={() => setShowSetup(true)}>
-              {connected ? 'Manage' : 'Connect data source'} →
-            </span>
-          </div>
         </div>
       </main>
-
-      {showSetup && <SupaSetupModal onClose={() => setShowSetup(false)} onSaved={refreshConn} />}
     </div>
   );
 }

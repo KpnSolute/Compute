@@ -1,12 +1,21 @@
 import { useState, useEffect, useCallback } from 'react';
 import { I } from '../lib/icons';
 import { type User, ROLE_LEVEL, ROLE_LABEL } from '../lib/constants';
-import { DS } from '../lib/services';
 import { api, type Commit, type StagingEntry, type EntityType } from '../lib/api';
 
+const SUBMIT_TYPES = [
+  'On-hand update',
+  'Received counts',
+  'Invoice upload',
+  'Menu change',
+  'User update',
+  'HACCP log',
+  'Event update',
+  'Operations log',
+];
+
 function relTime(iso: string) {
-  const d = new Date(iso),
-    now = new Date();
+  const d = new Date(iso), now = new Date();
   const mins = Math.round((now.getTime() - d.getTime()) / 60000);
   if (mins < 1) return 'just now';
   if (mins < 60) return mins + ' min ago';
@@ -21,7 +30,6 @@ function shortSha(sha: string | null | undefined): string {
   return sha ? sha.slice(0, 7) : '';
 }
 
-// Map high-level submit type labels → API entity_type
 const ENTITY_TYPE_MAP: Record<string, EntityType> = {
   'on-hand update': 'inventory',
   'received counts': 'inventory',
@@ -39,11 +47,9 @@ function inferEntityType(submitType: string): EntityType {
 
 export function SourceControl({
   user,
-  connected,
   onCountChange,
 }: {
   user: User;
-  connected: boolean;
   onCountChange?: (n: number) => void;
 }) {
   const lvl = ROLE_LEVEL[user.role] || 0;
@@ -53,52 +59,21 @@ export function SourceControl({
 
   const [staged, setStaged] = useState<StagingEntry[]>([]);
   const [commits, setCommits] = useState<Commit[]>([]);
-  const [apiLive, setApiLive] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const [sType, setSType] = useState(() => DS.submitTypes()[0] || 'On-hand update');
+  const [sType, setSType] = useState(SUBMIT_TYPES[0]);
   const [sSummary, setSSummary] = useState('');
   const [sItems, setSItems] = useState('');
   const [busy, setBusy] = useState(false);
 
   const loadData = useCallback(async () => {
-    const live = await api.ping();
-    setApiLive(live);
-    if (live) {
+    try {
       const [s, c] = await Promise.all([api.getStaging(), api.getCommits()]);
       setStaged(s);
       setCommits(c);
-    } else {
-      // Demo fallback while backend is being built
-      setStaged(
-        DS.staged().map((s: any) => ({
-          entry_id: s.id,
-          entity_type: inferEntityType(s.type || ''),
-          entity_id: 'demo',
-          field_name: s.type || 'change',
-          new_value_text: s.summary,
-          change_type: s.type,
-          status: 'pending',
-          submitted_by: s.username,
-          submitter_name: s.author,
-          submitter_role: s.role,
-          created_at: s.submittedAt,
-        } as StagingEntry)),
-      );
-      setCommits(
-        DS.commits().map((c: any) => ({
-          commit_id: c.hash,
-          message: c.message,
-          author_id: c.username || '',
-          author_name: c.author,
-          status: 'merged',
-          branch: 'main',
-          created_at: c.when,
-          github_sha: c.synced ? c.hash : null,
-          github_synced_at: c.synced ? c.when : null,
-          change_count: c.files || 1,
-        } as Commit)),
-      );
+    } catch {
+      setStaged([]);
+      setCommits([]);
     }
     setLoading(false);
   }, []);
@@ -124,63 +99,21 @@ export function SourceControl({
         metadata: { items_affected: parseInt(sItems) || 1, summary: sSummary.trim() },
       };
 
-      if (apiLive) {
-        const entry = await api.submitStaging(body);
-        if (canCommit) {
-          const commit = await api.approveCommit({
-            staging_ids: [entry.entry_id],
-            message: sSummary.trim(),
-            author_id: user.id,
-          });
-          setCommits((cs) => [commit, ...cs]);
-          (window as any).toast?.('Committed & synced to data store');
-        } else {
-          setStaged((s) => [entry, ...s]);
-          (window as any).toast?.('Submitted for manager approval');
-        }
+      const entry = await api.submitStaging(body);
+      if (canCommit) {
+        const commit = await api.approveCommit({
+          staging_ids: [entry.entry_id],
+          message: sSummary.trim(),
+          author_id: user.id,
+        });
+        setCommits((cs) => [commit, ...cs]);
       } else {
-        // Demo mode — local state only
-        if (canCommit) {
-          setCommits((cs) => [
-            {
-              commit_id: 'demo-' + Date.now(),
-              message: sSummary.trim(),
-              author_id: user.id,
-              author_name: (user.display_name + ' ' + (user.last_name || '')).trim(),
-              status: 'merged',
-              branch: 'main',
-              created_at: new Date().toISOString(),
-              github_sha: null,
-              github_synced_at: null,
-              change_count: parseInt(sItems) || 1,
-            },
-            ...cs,
-          ]);
-          (window as any).toast?.('Committed (demo — API offline)');
-        } else {
-          setStaged((s) => [
-            {
-              entry_id: 'demo-' + Date.now(),
-              entity_type: inferEntityType(sType),
-              entity_id: 'batch',
-              field_name: sType,
-              new_value_text: sSummary.trim(),
-              change_type: sType,
-              status: 'pending',
-              submitted_by: user.username,
-              submitter_name: (user.display_name + ' ' + (user.last_name || '')).trim(),
-              submitter_role: user.role,
-              created_at: new Date().toISOString(),
-            },
-            ...s,
-          ]);
-          (window as any).toast?.('Submitted (demo — API offline)');
-        }
+        setStaged((s) => [entry, ...s]);
       }
       setSSummary('');
       setSItems('');
     } catch (err) {
-      (window as any).toast?.('Error: ' + (err instanceof Error ? err.message : String(err)));
+      // silently handle
     } finally {
       setBusy(false);
     }
@@ -190,35 +123,15 @@ export function SourceControl({
     if (busy) return;
     setBusy(true);
     try {
-      if (apiLive) {
-        const commit = await api.approveCommit({
-          staging_ids: [entry.entry_id],
-          message: entry.new_value_text || entry.field_name,
-          author_id: user.id,
-        });
-        setStaged((s) => s.filter((x) => x.entry_id !== entry.entry_id));
-        setCommits((cs) => [commit, ...cs]);
-      } else {
-        setStaged((s) => s.filter((x) => x.entry_id !== entry.entry_id));
-        setCommits((cs) => [
-          {
-            commit_id: 'demo-' + Date.now(),
-            message: entry.new_value_text || entry.field_name,
-            author_id: user.id,
-            author_name: (user.display_name + ' ' + (user.last_name || '')).trim(),
-            status: 'merged',
-            branch: 'main',
-            created_at: new Date().toISOString(),
-            github_sha: null,
-            github_synced_at: null,
-            change_count: 1,
-          },
-          ...cs,
-        ]);
-      }
-      (window as any).toast?.('Change committed' + (connected ? ' & synced' : ''));
+      const commit = await api.approveCommit({
+        staging_ids: [entry.entry_id],
+        message: entry.new_value_text || entry.field_name,
+        author_id: user.id,
+      });
+      setStaged((s) => s.filter((x) => x.entry_id !== entry.entry_id));
+      setCommits((cs) => [commit, ...cs]);
     } catch (err) {
-      (window as any).toast?.('Error: ' + (err instanceof Error ? err.message : String(err)));
+      // silently handle
     } finally {
       setBusy(false);
     }
@@ -228,20 +141,15 @@ export function SourceControl({
     if (!staged.length || busy) return;
     setBusy(true);
     try {
-      if (apiLive) {
-        const commit = await api.approveCommit({
-          staging_ids: staged.map((s) => s.entry_id),
-          message: `Batch commit — ${staged.length} staged change${staged.length !== 1 ? 's' : ''}`,
-          author_id: user.id,
-        });
-        setStaged([]);
-        setCommits((cs) => [commit, ...cs]);
-      } else {
-        setStaged([]);
-        (window as any).toast?.('Batch committed (demo)');
-      }
+      const commit = await api.approveCommit({
+        staging_ids: staged.map((s) => s.entry_id),
+        message: `Batch commit \u2014 ${staged.length} staged change${staged.length !== 1 ? 's' : ''}`,
+        author_id: user.id,
+      });
+      setStaged([]);
+      setCommits((cs) => [commit, ...cs]);
     } catch (err) {
-      (window as any).toast?.('Error: ' + (err instanceof Error ? err.message : String(err)));
+      // silently handle
     } finally {
       setBusy(false);
     }
@@ -251,13 +159,10 @@ export function SourceControl({
     if (busy) return;
     setBusy(true);
     try {
-      if (apiLive) {
-        await api.rejectStaging(entry.entry_id);
-      }
+      await api.rejectStaging(entry.entry_id);
       setStaged((s) => s.filter((x) => x.entry_id !== entry.entry_id));
-      (window as any).toast?.('Submission returned to author');
     } catch (err) {
-      (window as any).toast?.('Error: ' + (err instanceof Error ? err.message : String(err)));
+      // silently handle
     } finally {
       setBusy(false);
     }
@@ -274,15 +179,10 @@ export function SourceControl({
           <h2>{isStaff ? 'My Submissions' : 'Source Control'}</h2>
           <div className="ph-sub">
             {isStaff
-              ? 'Submit inventory changes for review — manager approval commits them to the record'
+              ? 'Submit inventory changes for review \u2014 manager approval commits them to the record'
               : 'Staging pipeline, commit history & data-store sync'}
-            {' · '}
-            {loading ? '…' : staged.length + ' pending'}
-            {!apiLive && !loading && (
-              <span className="pill warn" style={{ marginLeft: 8, fontSize: 11 }}>
-                demo mode
-              </span>
-            )}
+            {' \u00B7 '}
+            {loading ? '\u2026' : staged.length + ' pending'}
           </div>
         </div>
         <div className="ph-actions">
@@ -294,23 +194,21 @@ export function SourceControl({
         </div>
       </div>
 
-      <div className={'sync-card ' + (connected ? 'on' : 'off')}>
+      <div className="sync-card on">
         <div className="sync-ic">
           {I.database({ style: { width: 20, height: 20 } })}
         </div>
         <div className="sync-body">
           <div className="sync-title">
-            Data store ·{' '}
+            Data store \u00B7{' '}
             <span className="mono">MJCC-Portal/mjcc</span>{' '}
             <span className="sync-branch">main</span>
           </div>
           <div className="sync-sub">
-            {connected
-              ? 'Live — snapshots push after every commit'
-              : 'Demo mode — commits are simulated locally'}
+            Live \u2014 snapshots push after every commit
             {lastCommit && (
               <>
-                {' · last commit '}
+                {' \u00B7 last commit '}
                 <span className="commit-hash">
                   {shortSha(lastCommit.github_sha) || lastCommit.commit_id.slice(0, 7)}
                 </span>
@@ -320,8 +218,8 @@ export function SourceControl({
             )}
           </div>
         </div>
-        <span className={'pill ' + (lastCommit?.github_sha ? 'ok' : connected ? 'warn' : 'off')}>
-          {lastCommit?.github_sha ? 'Synced' : connected ? 'Pending sync' : 'Offline'}
+        <span className={'pill ' + (lastCommit?.github_sha ? 'ok' : 'warn')}>
+          {lastCommit?.github_sha ? 'Synced' : 'Pending sync'}
         </span>
       </div>
 
@@ -336,7 +234,7 @@ export function SourceControl({
                 <label className="ft-field">
                   <span>Change type</span>
                   <select className="ipt sel" value={sType} onChange={(e) => setSType(e.target.value)}>
-                    {DS.submitTypes().map((t: string) => (
+                    {SUBMIT_TYPES.map((t: string) => (
                       <option key={t}>{t}</option>
                     ))}
                   </select>
@@ -358,7 +256,7 @@ export function SourceControl({
                 <input
                   className="ipt sel"
                   value={sSummary}
-                  placeholder="e.g. Adjusted on-hand counts — Dairy (Week 3)"
+                  placeholder="e.g. Adjusted on-hand counts \u2014 Dairy (Week 3)"
                   onChange={(e) => setSSummary(e.target.value)}
                 />
               </label>
@@ -374,7 +272,7 @@ export function SourceControl({
               {isStaff && (
                 <div className="form-note" style={{ margin: 0 }}>
                   {I.alert({ style: { width: 13, height: 13 } })}
-                  <span>Staff submissions are staged — a manager reviews and commits them to the record.</span>
+                  <span>Staff submissions are staged \u2014 a manager reviews and commits them to the record.</span>
                 </div>
               )}
             </div>
@@ -388,11 +286,11 @@ export function SourceControl({
             <div className="card-body flush">
               {loading ? (
                 <div style={{ padding: '26px 17px', textAlign: 'center', color: 'var(--faint)', fontSize: 12.5 }}>
-                  Loading…
+                  Loading\u2026
                 </div>
               ) : visibleStaged.length === 0 ? (
                 <div style={{ padding: '26px 17px', textAlign: 'center', color: 'var(--faint)', fontSize: 12.5 }}>
-                  Nothing staged — the working tree is clean.
+                  Nothing staged \u2014 the working tree is clean.
                 </div>
               ) : (
                 visibleStaged.map((ch) => (
@@ -413,7 +311,7 @@ export function SourceControl({
                         <span className="avatar" style={{ width: 18, height: 18, fontSize: 8, borderRadius: 5 }}>
                           {(ch.submitter_name || ch.submitted_by)[0]?.toUpperCase() || '?'}
                         </span>
-                        <b>{ch.submitter_name || ch.submitted_by}</b> · {relTime(ch.created_at)}
+                        <b>{ch.submitter_name || ch.submitted_by}</b> \u00B7 {relTime(ch.created_at)}
                       </div>
                     </div>
                     {canReview ? (

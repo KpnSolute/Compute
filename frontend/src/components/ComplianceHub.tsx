@@ -3,6 +3,7 @@ import type { User } from '../lib/constants';
 import { ROLE_LEVEL, MONTHS, COOKING_TEMPS, TASTE_CODES } from '../lib/constants';
 import { I } from '../lib/icons';
 import { saveLog, fetchLog, loadLog } from '../lib/supabase';
+import { api } from '../lib/api';
 
 interface TempRow {
   am?: string;
@@ -32,7 +33,6 @@ interface SubTabProps {
   user: User;
   period: [number, number];
   setPeriod: (p: [number, number]) => void;
-  connected: boolean;
   canEdit: boolean;
 }
 
@@ -86,6 +86,13 @@ function useLog<T>(key: string, initial: T) {
     const r = await saveLog(key, data, syncedBy);
     setSaved(true);
     setSavedAt(new Date());
+    try {
+      await api.saveDailyLog({
+        entry_type: 'haccp',
+        title: 'HACCP Log',
+        data: JSON.stringify({ key, data }),
+      });
+    } catch { /* local save succeeded */ }
     return r;
   };
 
@@ -153,14 +160,12 @@ function SaveBar({
   savedAt,
   onSave,
   canEdit,
-  connected,
   note,
 }: {
   saved: boolean;
   savedAt: Date | null;
   onSave: () => void;
   canEdit: boolean;
-  connected: boolean;
   note?: React.ReactNode;
 }) {
   return (
@@ -184,8 +189,7 @@ function SaveBar({
       </div>
       {canEdit && (
         <button className="btn primary" onClick={onSave} disabled={saved}>
-          {I.save({ style: { width: 15, height: 15 } })}{' '}
-          {connected ? 'Save to Supabase' : 'Save log'}
+          {I.save({ style: { width: 15, height: 15 } })} Save
         </button>
       )}
     </div>
@@ -232,7 +236,6 @@ function TemperatureLog({
   user,
   period,
   setPeriod,
-  connected,
   canEdit,
 }: SubTabProps) {
   const [appId, setAppId] = useState(APPLIANCES[0].id);
@@ -380,7 +383,6 @@ function TemperatureLog({
         savedAt={savedAt}
         onSave={() => save(user.display_name)}
         canEdit={canEdit}
-        connected={connected}
         note={
           <span className="formbar-meta">
             {app.name} \u00B7 {MONTHS[m]} {y}
@@ -395,7 +397,6 @@ function SanitizerLog({
   user,
   period,
   setPeriod,
-  connected,
   canEdit,
 }: SubTabProps) {
   const [m, y] = period;
@@ -519,7 +520,6 @@ function SanitizerLog({
         savedAt={savedAt}
         onSave={() => save(user.display_name)}
         canEdit={canEdit}
-        connected={connected}
         note={
           <span className="formbar-meta">
             Sanitizer \u00B7 {MONTHS[m]} {y}
@@ -533,7 +533,6 @@ function SanitizerLog({
 function TastePanel({
   user,
   period: _period,
-  connected,
   canEdit,
 }: SubTabProps) {
   const today = new Date().toISOString().slice(0, 10);
@@ -742,7 +741,6 @@ function TastePanel({
         savedAt={savedAt}
         onSave={() => save(user.display_name)}
         canEdit={canEdit}
-        connected={connected}
         note={
           <span className="formbar-meta">
             Taste panel \u00B7 {new Date().toLocaleDateString()}
@@ -771,10 +769,8 @@ function CoolingLogPlaceholder(_props: SubTabProps) {
 
 export function ComplianceHub({
   user,
-  connected,
 }: {
   user: User;
-  connected: boolean;
 }) {
   const lvl = ROLE_LEVEL[user.role] || 0;
   const canEdit = lvl >= 10;
@@ -784,7 +780,7 @@ export function ComplianceHub({
     return [d.getMonth(), d.getFullYear()];
   });
 
-  const props: SubTabProps = { user, period, setPeriod, connected, canEdit };
+  const props: SubTabProps = { user, period, setPeriod, canEdit };
 
   let body: React.ReactNode;
   if (tab === 'temp') body = <TemperatureLog {...props} />;
@@ -800,7 +796,6 @@ export function ComplianceHub({
           <h2>Compliance &amp; HACCP Logs</h2>
           <div className="ph-sub">
             Digital temperature, sanitation and food-safety records
-            {connected ? ' \u00B7 synced' : ' \u00B7 saved on device'}
           </div>
         </div>
       </div>

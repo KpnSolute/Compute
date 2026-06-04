@@ -1,16 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { I, KpnMark } from '../lib/icons';
 import {
-  type User, ROLE_LEVEL, ROLE_LABEL, MONTHS, NAV, DOW_FULL, DOW_KEYS, USERS
+  type User, ROLE_LEVEL, ROLE_LABEL, MONTHS, NAV, DOW_FULL
 } from '../lib/constants';
-import { DS } from '../lib/services';
 import {
-  isConnected,
   realLogout, loadLog, fetchInventory,
   fetchProfiles, invToList, catTotals, reorders, iTotal,
   grandTotal, fmtMoney, fmtMoneyFull, catColor
 } from '../lib/supabase';
-import { SupaSetupModal } from './Login';
+import { api } from '../lib/api';
 import { ComplianceHub } from './ComplianceHub';
 import { DailyOps } from './DailyOps';
 import { EventsCalendar } from './EventsCalendar';
@@ -38,27 +36,20 @@ const initials = (u: User) =>
   ((u.display_name?.[0] || '') + (u.last_name?.[0] || '')).toUpperCase() ||
   (u.username || '?').slice(0, 2).toUpperCase();
 
-const MEAL_ICON: Record<string, string> = {
-  Breakfast: '\u{1F305}', Brunch: '\u{1F373}', Lunch: '\u{2600}\uFE0F',
-  Dinner: '\u{1F319}', Snack: '\u{1F34E}'
-};
-
-function useInventory(connected: boolean): [any, () => Promise<void>] {
+function useInventory(): [any, () => Promise<void>] {
   const [state, setState] = useState({ loading: false, inv: null as any, syncedBy: null as string | null, syncedAt: null as string | null, error: null as string | null });
   const load = useCallback(async () => {
-    if (!connected) { setState({ loading: false, inv: null, syncedBy: null, syncedAt: null, error: null }); return; }
     setState(s => ({ ...s, loading: true, error: null }));
     const res = await fetchInventory();
     if (res.ok) setState({ loading: false, inv: res.inv, syncedBy: res.syncedBy ?? null, syncedAt: res.syncedAt ?? null, error: res.inv ? null : 'empty' });
     else setState({ loading: false, inv: null, syncedBy: null, syncedAt: null, error: res.error });
-  }, [connected]);
+  }, []);
   useEffect(() => { load(); }, [load]);
   return [state, load];
 }
 
-function Topbar({ user, period, setPeriod, connected, syncState, onSync, onOpenSetup }: {
+function Topbar({ user, period, setPeriod }: {
   user: User; period: [number, number]; setPeriod: (p: [number, number]) => void;
-  connected: boolean; syncState: string; onSync: () => void; onOpenSetup: () => void;
 }) {
   const [menu, setMenu] = useState(false);
   useEffect(() => {
@@ -66,11 +57,6 @@ function Topbar({ user, period, setPeriod, connected, syncState, onSync, onOpenS
     if (menu) { window.addEventListener('click', close); return () => window.removeEventListener('click', close); }
   }, [menu]);
   const [m, y] = period;
-  let badgeClass = 'inv-badge', badgeText: string;
-  if (!connected) { badgeClass += ' demo'; badgeText = 'Demo mode'; }
-  else if (syncState === 'loading') { badgeClass += ' syncing'; badgeText = 'Syncing\u2026'; }
-  else if (syncState === 'error') { badgeClass += ' err'; badgeText = 'Sync error'; }
-  else badgeText = 'LIVE \u00B7 Supabase';
 
   return (
     <header className="topbar">
@@ -82,8 +68,8 @@ function Topbar({ user, period, setPeriod, connected, syncState, onSync, onOpenS
         </div>
       </div>
       <div className="tb-right">
-        <span className={badgeClass} onClick={connected ? onSync : onOpenSetup} title={connected ? 'Click to refresh' : 'Click to connect'}>
-          <span className="rt"></span>{badgeText}
+        <span className="inv-badge">
+          <span className="rt"></span>LIVE \u00B7 API Connected
         </span>
         <select className="tb-select" value={m} onChange={e => setPeriod([+e.target.value, y])}>
           {MONTHS.map((nm, i) => <option key={i} value={i}>{nm}</option>)}
@@ -104,7 +90,6 @@ function Topbar({ user, period, setPeriod, connected, syncState, onSync, onOpenS
                 <div className="em">{user.username}@mjc-cafeteria.com</div>
               </div>
               <button className="um-item">{I.user()} My profile</button>
-              <button className="um-item" onClick={onOpenSetup}>{I.database()} Data source</button>
               <button className="um-item danger" onClick={() => { realLogout(); (window as any).__logout?.(); }}>{I.logout()} Sign out</button>
             </div>
           )}
@@ -149,23 +134,39 @@ function Loading({ label = 'Loading live data\u2026' }) {
   return <div className="load-wrap"><div className="spinner"></div><div>{label}</div></div>;
 }
 
-function ConnectBanner({ onOpen }: { onOpen: () => void }) {
-  return (
-    <div className="banner info">
-      {I.cloud()}
-      <span>Showing demo data. Connect your Supabase project to see live inventory.</span>
-      <span className="bx" onClick={onOpen}>Connect \u2192</span>
-    </div>
-  );
-}
-
-function Dashboard({ user, period, connected, invState, onSync, onOpenSetup, go }: {
-  user: User; period: [number, number]; connected: boolean;
-  invState: any; onSync: () => void; onOpenSetup: () => void; go: (k: string) => void;
+function Dashboard({ user, period, invState, onSync, go }: {
+  user: User; period: [number, number];
+  invState: any; onSync: () => void; go: (k: string) => void;
 }) {
   const lvl = ROLE_LEVEL[user.role];
-  const live = connected ? invState.inv : (window as any).demoInvFor?.(period[0], period[1]);
+  const live = invState.inv;
   const todayISO = new Date().toISOString().slice(0, 10);
+
+  const [menuData, setMenuData] = useState<any>({});
+  const [menuLoading, setMenuLoading] = useState(true);
+  const [events, setEvents] = useState<any[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setMenuLoading(true);
+      const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date().getDay()];
+      const res = await api.getMenu(day);
+      if (alive) { setMenuData(res?.data || {}); setMenuLoading(false); }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setEventsLoading(true);
+      const data = await api.getEvents();
+      if (alive) { setEvents(data); setEventsLoading(false); }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   let gt = 0, reorderList: any[] = [], catRows: any[] = [], itemCount = 0;
   if (live) {
@@ -189,9 +190,7 @@ function Dashboard({ user, period, connected, invState, onSync, onOpenSetup, go 
     a.close += Math.max(0, r.opening + r.received - r.issued) * r.price; return a;
   }, { open: 0, recv: 0, close: 0 });
 
-  const dayKey = DOW_KEYS[new Date().getDay()];
-  const menu: any = DS.cycleMenu()[dayKey] || {};
-  const menuMeals = ['Breakfast', 'Brunch', 'Lunch', 'Dinner', 'Snack'].filter(m => menu[m] && menu[m].length);
+  const menuMeals = ['Breakfast', 'Brunch', 'Lunch', 'Dinner', 'Snack'].filter(m => menuData[m] && menuData[m].length);
 
   const ml = loadLog('meallog:' + todayISO, null);
   const mlRows = (ml && ml.rows) || [];
@@ -201,11 +200,8 @@ function Dashboard({ user, period, connected, invState, onSync, onOpenSetup, go 
     T: mlRows.filter((r: any) => r.ticket && !String(r.ticket).toUpperCase().includes('COMP')).length
   };
 
-  const upcoming = DS.events().filter((e: any) => e.date >= todayISO).sort((a: any, b: any) => a.date.localeCompare(b.date));
+  const upcoming = events.filter((e: any) => e.date >= todayISO).sort((a: any, b: any) => a.date.localeCompare(b.date));
   const nextEvent = upcoming[0];
-  const invoices = DS.invoices(period);
-  const invoiceTotal = invoices.reduce((s: number, i: any) => s + (i.total || 0), 0);
-  const invoiceCount = invoices.length;
 
   const fmtShort = (iso: string) => new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
@@ -214,7 +210,6 @@ function Dashboard({ user, period, connected, invState, onSync, onOpenSetup, go 
     { key: 'low', label: 'Below Par', icon: 'alert', tint: '#D97706', bg: '#FEF3C7', val: String(reorderList.length), sub: 'flagged for reorder', to: 'inventory' },
     { key: 'meals', label: 'Meals Logged', icon: 'users', tint: '#1B3A6B', bg: '#EEF2F8', val: String(mlTotals.B + mlTotals.L + mlTotals.D), sub: 'today', to: 'mballot' },
     { key: 'mi', label: 'Closing Value', icon: 'fileText', tint: '#0E7490', bg: '#ECFEFF', val: fmtMoney(miSum.close), sub: 'monthly inventory', to: 'moninv' },
-    { key: 'inv', label: 'Invoices', icon: 'inbox', tint: '#059669', bg: '#F0FDF4', val: String(invoiceCount), sub: fmtMoney(invoiceTotal) + ' this month', to: 'moninv' },
     { key: 'evt', label: 'Next Event', icon: 'calCheck', tint: '#6D28D9', bg: '#EDE9FE', val: nextEvent ? fmtShort(nextEvent.date) : '\u2014', sub: nextEvent ? nextEvent.title : 'none scheduled', to: 'events', small: true },
   ];
 
@@ -238,19 +233,16 @@ function Dashboard({ user, period, connected, invState, onSync, onOpenSetup, go 
           </div>
         </div>
         <div className="ph-actions">
-          {connected
-            ? <button className="btn" onClick={onSync}>{I.refresh()} Refresh</button>
-            : <button className="btn" onClick={onOpenSetup}>{I.cloud()} Connect</button>}
+          <button className="btn" onClick={onSync}>{I.refresh()} Refresh</button>
           {lvl >= 20 && <button className="btn primary" onClick={() => go('moninv')}>{I.plus()} New entry</button>}
         </div>
       </div>
 
-      {!connected && <ConnectBanner onOpen={onOpenSetup} />}
-      {connected && invState.loading && <Loading />}
-      {connected && invState.error && invState.error !== 'empty' &&
+      {invState.loading && <Loading />}
+      {invState.error && invState.error !== 'empty' &&
         <div className="banner warn">{I.alert()}<span>Couldn\u2019t load live data: {invState.error}</span><span className="bx" onClick={onSync}>Retry</span></div>}
 
-      <div className="stat-grid kpi6">
+      <div className="stat-grid kpi5">
         {KPIS.map(s => (
           <div className="stat-card kpi-card" key={s.key} onClick={() => go(s.to)}>
             <div className="sc-top"><div className="sc-ic" style={{ background: s.bg, color: s.tint }}>{I[s.icon]()}</div></div>
@@ -269,24 +261,27 @@ function Dashboard({ user, period, connected, invState, onSync, onOpenSetup, go 
               <span className="ch-link" onClick={() => go('menu')} style={{ cursor: 'pointer' }}>Full menu \u2192</span>
             </div>
             <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
-              {menuMeals.length === 0 && <div style={{ fontSize: 12, color: 'var(--faint)' }}>No menu for today.</div>}
-              {menuMeals.map(meal => (
-                <div key={meal} className="dash-meal">
-                  <div className="dm-head">{MEAL_ICON[meal]} {meal}</div>
-                  <div className="dm-items">
-                    {meal === 'Snack'
-                      ? menu[meal].join(' \u00B7 ')
-                      : menu[meal].map((it: any) => typeof it === 'string' ? it : it.item).join(' \u00B7 ')}
-                  </div>
-                </div>
-              ))}
+              {menuLoading
+                ? <div style={{ fontSize: 12, color: 'var(--faint)' }}>Loading menu\u2026</div>
+                : menuMeals.length === 0
+                  ? <div style={{ fontSize: 12, color: 'var(--faint)' }}>No menu for today.</div>
+                  : menuMeals.map(meal => (
+                    <div key={meal} className="dash-meal">
+                      <div className="dm-head">{meal}</div>
+                      <div className="dm-items">
+                        {meal === 'Snack'
+                          ? menuData[meal].join(' \u00B7 ')
+                          : menuData[meal].map((it: any) => typeof it === 'string' ? it : it.item).join(' \u00B7 ')}
+                      </div>
+                    </div>
+                  ))}
             </div>
           </div>
 
           <div className="card">
             <div className="card-head">
               <h3>Inventory value by category</h3>
-              <span className="ch-link" onClick={() => go('inventory')} style={{ cursor: 'pointer' }}>{connected ? 'Live' : MONTHS[period[0]] + ' ' + period[1]}</span>
+              <span className="ch-link" onClick={() => go('inventory')} style={{ cursor: 'pointer' }}>Live</span>
             </div>
             <div className="card-body flush">
               {catRows.map((c: any) => (
@@ -353,16 +348,17 @@ function Dashboard({ user, period, connected, invState, onSync, onOpenSetup, go 
               <span className="ch-link" onClick={() => go('events')} style={{ cursor: 'pointer' }}>Calendar \u2192</span>
             </div>
             <div className="card-body flush">
-              {upcoming.slice(0, 4).map((e: any) => {
-                const meta = DS.catMeta()[e.cat] || { color: '#475569', bg: '#F1F5F9', dot: '#64748B' };
-                return (
-                  <div className="up-ev" key={e.id} onClick={() => go('events')}>
-                    <span className="up-dot" style={{ background: meta.dot }}></span>
-                    <span className="up-title">{e.title}</span>
-                    <span className="up-date">{fmtShort(e.date)}</span>
-                  </div>
-                );
-              })}
+              {eventsLoading
+                ? <div style={{ padding: 12, fontSize: 12, color: 'var(--faint)' }}>Loading events\u2026</div>
+                : upcoming.slice(0, 4).length === 0
+                  ? <div style={{ padding: 12, fontSize: 12, color: 'var(--faint)' }}>No upcoming events.</div>
+                  : upcoming.slice(0, 4).map((e: any) => (
+                    <div className="up-ev" key={e.id} onClick={() => go('events')}>
+                      <span className="up-dot" style={{ background: '#64748B' }}></span>
+                      <span className="up-title">{e.title}</span>
+                      <span className="up-date">{fmtShort(e.date)}</span>
+                    </div>
+                  ))}
             </div>
           </div>
 
@@ -382,15 +378,15 @@ function Dashboard({ user, period, connected, invState, onSync, onOpenSetup, go 
   );
 }
 
-function InventoryView({ user, period, connected, invState, onSync, onOpenSetup }: {
-  user: User; period: [number, number]; connected: boolean;
-  invState: any; onSync: () => void; onOpenSetup: () => void;
+function InventoryView({ user, period, invState, onSync }: {
+  user: User; period: [number, number];
+  invState: any; onSync: () => void;
 }) {
   const lvl = ROLE_LEVEL[user.role];
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('');
 
-  const live = connected && invState.inv;
+  const live = invState.inv;
   let rows: any[], cats: string[];
   if (live) {
     rows = invToList(invState.inv).map((it: any) => ({
@@ -401,8 +397,8 @@ function InventoryView({ user, period, connected, invState, onSync, onOpenSetup 
     }));
     cats = [...new Set(rows.map((r: any) => r.cat))];
   } else {
-    rows = ((window as any).INVENTORY_SAMPLE || []).map((r: any) => ({ ...r, value: r.price * r.onHand }));
-    cats = [...new Set(rows.map((r: any) => r.cat))];
+    rows = [];
+    cats = [];
   }
   const filtered = rows.filter((r: any) =>
     (!cat || r.cat === cat) &&
@@ -415,22 +411,21 @@ function InventoryView({ user, period, connected, invState, onSync, onOpenSetup 
         <div>
           <h2>Inventory</h2>
           <div className="ph-sub">
-            {MONTHS[period[0]]} {period[1]} \u00B7 {filtered.length} of {rows.length} items{live ? ' \u00B7 live' : ' \u00B7 demo'}
+            {MONTHS[period[0]]} {period[1]} \u00B7 {filtered.length} of {rows.length} items
           </div>
         </div>
         <div className="ph-actions">
           <button className="btn">{I.scan()} Scan</button>
-          {connected && <button className="btn" onClick={onSync}>{I.refresh()} Refresh</button>}
+          <button className="btn" onClick={onSync}>{I.refresh()} Refresh</button>
           {lvl >= 30 && <button className="btn primary">{I.plus()} Add item</button>}
         </div>
       </div>
 
-      {!connected && <ConnectBanner onOpen={onOpenSetup} />}
-      {connected && invState.loading && <Loading />}
-      {connected && invState.error && invState.error !== 'empty' &&
+      {invState.loading && <Loading />}
+      {invState.error && invState.error !== 'empty' &&
         <div className="banner warn">{I.alert()}<span>Couldn\u2019t load live data: {invState.error}</span><span className="bx" onClick={onSync}>Retry</span></div>}
 
-      {(!connected || invState.inv) && (
+      {invState.inv && (
         <div className="card">
           <div className="card-head" style={{ gap: 10, flexWrap: 'wrap' }}>
             <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 340 }}>
@@ -476,11 +471,10 @@ function InventoryView({ user, period, connected, invState, onSync, onOpenSetup 
   );
 }
 
-function UsersView({ connected, onOpenSetup }: { connected: boolean; onOpenSetup: () => void }) {
-  const [state, setState] = useState({ loading: connected, users: null as any[] | null, error: null as string | null });
+function UsersView() {
+  const [state, setState] = useState({ loading: true, users: null as any[] | null, error: null as string | null });
   useEffect(() => {
     let alive = true;
-    if (!connected) { setState({ loading: false, users: USERS, error: null }); return; }
     (async () => {
       setState({ loading: true, users: null, error: null });
       const res = await fetchProfiles();
@@ -489,7 +483,7 @@ function UsersView({ connected, onOpenSetup }: { connected: boolean; onOpenSetup
       else setState({ loading: false, users: null, error: (res as any).error });
     })();
     return () => { alive = false; };
-  }, [connected]);
+  }, []);
 
   const users = state.users || [];
   return (
@@ -497,12 +491,11 @@ function UsersView({ connected, onOpenSetup }: { connected: boolean; onOpenSetup
       <div className="page-head">
         <div>
           <h2>Users &amp; Access</h2>
-          <div className="ph-sub">{users.length} accounts \u00B7 role-based access control{connected ? ' \u00B7 live' : ' \u00B7 demo'}</div>
+          <div className="ph-sub">{users.length} accounts \u00B7 role-based access control</div>
         </div>
         <div className="ph-actions"><button className="btn primary">{I.plus()} Invite user</button></div>
       </div>
 
-      {!connected && <ConnectBanner onOpen={onOpenSetup} />}
       {state.loading && <Loading label="Loading directory\u2026" />}
       {state.error && <div className="banner warn">{I.alert()}<span>Couldn\u2019t load users: {state.error}</span></div>}
 
@@ -542,7 +535,7 @@ const PAGE_INFO: Record<string, { icon: string; title: string; sub: string; feat
   settings: { icon: 'settings', title: 'Settings', sub: 'Configure the data source, AI invoice parsing, and platform preferences.', feats: ['Supabase connection', 'AI provider & model', 'Org preferences', 'API keys'] },
 };
 
-function PlaceholderPage({ pageKey, onOpenSetup }: { pageKey: string; onOpenSetup: () => void }) {
+function PlaceholderPage({ pageKey }: { pageKey: string }) {
   const p = PAGE_INFO[pageKey] || { icon: 'grid', title: 'Page', sub: '', feats: [] as string[] };
   return (
     <div className="fade-in">
@@ -554,53 +547,92 @@ function PlaceholderPage({ pageKey, onOpenSetup }: { pageKey: string; onOpenSetu
         <div className="feature-list">
           {p.feats.map((f, i) => (<div className="fl" key={i}>{I.checkCircle()} {f}</div>))}
         </div>
-        {pageKey === 'settings' && <div style={{ marginTop: 22 }}><button className="btn primary" onClick={onOpenSetup}>{I.database({ style: { width: 15, height: 15 } })} Manage data source</button></div>}
       </div>
     </div>
   );
 }
 
 function ArchivesView(_props: { period: [number, number] }) {
-  const arch = (window as any).DEMO_ARCHIVES || [];
+  const [archives, setArchives] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      const data = await api.getInventoryHistory();
+      if (!alive) return;
+      const arch = (data || []).map((s: any) => {
+        const items = s.items || [];
+        const low = items.filter((i: any) => i.onHand < i.par);
+        const value = items.reduce((sum: number, i: any) => sum + (i.onHand * (i.price || 0)), 0);
+        const dt = s.created_at ? new Date(s.created_at) : new Date();
+        return {
+          period: s.id || dt.toISOString().slice(0, 7),
+          label: s.metadata?.label || dt.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+          value,
+          items: items.length,
+          low: low.length,
+          status: 'archived',
+        };
+      });
+      setArchives(arch);
+      setLoading(false);
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  if (loading) return <Loading label="Loading archives\u2026" />;
+
   return (
     <div className="fade-in">
       <div className="page-head">
         <div><h2>Archives</h2><div className="ph-sub">Monthly inventory snapshots \u00B7 retained for audit</div></div>
         <div className="ph-actions"><button className="btn">{I.download()} Export all</button></div>
       </div>
-      <div className="stat-grid">
-        {arch.slice(0, 4).map((a: any) => (
-          <div className="stat-card" key={a.period}>
-            <div className="sc-top">
-              <div className="sc-ic" style={{ background: a.status === 'live' ? '#F0FDF4' : '#EEF2F8', color: a.status === 'live' ? '#059669' : '#1B3A6B' }}>{I.archive()}</div>
-              {a.status === 'live' && <span className="pill ok">Live</span>}
-            </div>
-            <div className="sc-lbl">{a.label}</div>
-            <div className="sc-val">{fmtMoney(a.value)}</div>
-            <div className="sc-delta eq" style={{ marginTop: 4 }}>{a.items} items \u00B7 {a.low} below par</div>
+      {archives.length === 0 ? (
+        <div className="card">
+          <div className="card-body" style={{ textAlign: 'center', padding: 40, color: 'var(--faint)' }}>
+            {I.archive({ style: { width: 32, height: 32, marginBottom: 12 } })}<br />
+            No archive snapshots yet.
           </div>
-        ))}
-      </div>
-      <div className="card">
-        <div className="card-head"><h3>All snapshots</h3></div>
-        <div className="card-body flush tbl-wrap">
-          <table className="data">
-            <thead><tr><th>Period</th><th className="r">On-Hand Value</th><th className="r">Line Items</th><th className="r">Below Par</th><th>Status</th><th></th></tr></thead>
-            <tbody>
-              {arch.map((a: any) => (
-                <tr key={a.period}>
-                  <td style={{ fontWeight: 700 }}>{a.label}</td>
-                  <td className="r num">{fmtMoneyFull(a.value)}</td>
-                  <td className="r num">{a.items}</td>
-                  <td className="r num" style={{ color: a.low ? 'var(--amber)' : 'var(--green)' }}>{a.low}</td>
-                  <td>{a.status === 'live' ? <span className="pill ok">Live</span> : <span className="pill off">Archived</span>}</td>
-                  <td className="r"><button className="btn" style={{ padding: '5px 11px' }}>{I.download({ style: { width: 14, height: 14 } })} CSV</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </div>
-      </div>
+      ) : (
+        <>
+          <div className="stat-grid">
+            {archives.slice(0, 4).map((a: any) => (
+              <div className="stat-card" key={a.period}>
+                <div className="sc-top">
+                  <div className="sc-ic" style={{ background: '#EEF2F8', color: '#1B3A6B' }}>{I.archive()}</div>
+                </div>
+                <div className="sc-lbl">{a.label}</div>
+                <div className="sc-val">{fmtMoney(a.value)}</div>
+                <div className="sc-delta eq" style={{ marginTop: 4 }}>{a.items} items \u00B7 {a.low} below par</div>
+              </div>
+            ))}
+          </div>
+          <div className="card">
+            <div className="card-head"><h3>All snapshots</h3></div>
+            <div className="card-body flush tbl-wrap">
+              <table className="data">
+                <thead><tr><th>Period</th><th className="r">On-Hand Value</th><th className="r">Line Items</th><th className="r">Below Par</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                  {archives.map((a: any) => (
+                    <tr key={a.period}>
+                      <td style={{ fontWeight: 700 }}>{a.label}</td>
+                      <td className="r num">{fmtMoneyFull(a.value)}</td>
+                      <td className="r num">{a.items}</td>
+                      <td className="r num" style={{ color: a.low ? 'var(--amber)' : 'var(--green)' }}>{a.low}</td>
+                      <td><span className="pill off">Archived</span></td>
+                      <td className="r"><button className="btn" style={{ padding: '5px 11px' }}>{I.download({ style: { width: 14, height: 14 } })} CSV</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -615,55 +647,43 @@ export function Portal({ user, onLogout, density = 'comfortable' }: PortalProps)
   const lvl = ROLE_LEVEL[user.role];
   const [active, setActive] = useState('dashboard');
   const [period, setPeriod] = useState<[number, number]>([4, 2026]);
-  const [connected, setConnected] = useState(isConnected());
-  const [showSetup, setShowSetup] = useState(false);
-  const [invState, reloadInv] = useInventory(connected);
-  const [stagedCount, setStagedCount] = useState(DS.staged().length);
-
+  const [invState, reloadInv] = useInventory();
+  const [stagedCount, setStagedCount] = useState(0);
   useEffect(() => { (window as any).__logout = onLogout; }, [onLogout]);
 
   const navItem = NAV.flatMap(g => g.items).find(it => it.key === active);
   useEffect(() => { if (navItem && lvl < (navItem.min || 0)) setActive('dashboard'); }, [active, lvl, navItem]);
 
-  function onConnSaved() {
-    const c = isConnected();
-    setConnected(c);
-    if (c) { toast('Connected to Supabase'); setTimeout(reloadInv, 60); }
-    else toast('Disconnected \u2014 demo mode');
-  }
   function doSync() { reloadInv(); toast('Refreshing live data\u2026'); }
 
-  const reorderCount = (connected && invState.inv) ? reorders(invState.inv).length : 0;
-  const syncState = invState.loading ? 'loading' : (invState.error && invState.error !== 'empty' ? 'error' : 'ok');
+  const reorderCount = (invState.inv) ? reorders(invState.inv).length : 0;
 
-  const common = { user, period, connected, invState, onSync: doSync, onOpenSetup: () => setShowSetup(true), go: setActive };
+  const common = { user, period, invState, onSync: doSync, go: setActive };
 
   const renderPage = () => {
     if (active === 'dashboard') return <Dashboard {...common} />;
     if (active === 'inventory') return <InventoryView {...common} />;
-    if (active === 'haccp') return <ComplianceHub user={user} connected={connected} />;
-    if (active === 'dailyops') return <DailyOps user={user} connected={connected} />;
+    if (active === 'haccp') return <ComplianceHub user={user} />;
+    if (active === 'dailyops') return <DailyOps user={user} />;
     if (active === 'events') return <EventsCalendar user={user} />;
     if (active === 'menu' && lvl >= 20) return <CycleMenu user={user} />;
-    if (active === 'mballot') return <MealLog user={user} connected={connected} />;
-    if (active === 'inspection' && lvl >= 20) return <InspectionSheet user={user} connected={connected} />;
-    if (active === 'foodreq') return <FoodRequest user={user} connected={connected} />;
-    if (active === 'snackbar') return <SnackBar user={user} connected={connected} />;
-    if (active === 'moninv' && lvl >= 20) return <MonthlyInventory user={user} period={period} connected={connected} />;
-    if (active === 'sourcectrl') return <SourceControl user={user} connected={connected} onCountChange={(n) => setStagedCount(n)} />;
-    if (active === 'reports' && lvl >= 30) return <Reports user={user} period={period} connected={connected} invState={invState} />;
-    if (active === 'users' && lvl >= 40) return <UsersView connected={connected} onOpenSetup={() => setShowSetup(true)} />;
+    if (active === 'mballot') return <MealLog user={user} />;
+    if (active === 'inspection' && lvl >= 20) return <InspectionSheet user={user} />;
+    if (active === 'foodreq') return <FoodRequest user={user} />;
+    if (active === 'snackbar') return <SnackBar user={user} />;
+    if (active === 'moninv' && lvl >= 20) return <MonthlyInventory user={user} period={period} />;
+    if (active === 'sourcectrl') return <SourceControl user={user} onCountChange={(n) => setStagedCount(n)} />;
+    if (active === 'reports' && lvl >= 30) return <Reports user={user} period={period} />;
+    if (active === 'users' && lvl >= 40) return <UsersView />;
     if (active === 'archives' && lvl >= 20) return <ArchivesView period={period} />;
-    return <PlaceholderPage pageKey={active} onOpenSetup={() => setShowSetup(true)} />;
+    return <PlaceholderPage pageKey={active} />;
   };
 
   return (
     <div className="portal" data-density={density}>
-      <Topbar user={user} period={period} setPeriod={setPeriod} connected={connected}
-        syncState={syncState} onSync={doSync} onOpenSetup={() => setShowSetup(true)} />
+      <Topbar user={user} period={period} setPeriod={setPeriod} />
       <Sidebar user={user} active={active} setActive={setActive} reorderCount={reorderCount} stagedCount={stagedCount} />
       <main className="main">{renderPage()}</main>
-      {showSetup && <SupaSetupModal onClose={() => setShowSetup(false)} onSaved={onConnSaved} />}
     </div>
   );
 }

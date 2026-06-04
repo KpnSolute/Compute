@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from backend.routes.auth import router as auth_router
+from backend.routes.users import router as users_router
 from backend.routes.inventory import router as inventory_router
 from backend.routes.logs import router as logs_router
 from backend.routes.events import router as events_router
@@ -26,6 +27,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(users_router)
 app.include_router(inventory_router)
 app.include_router(logs_router)
 app.include_router(events_router)

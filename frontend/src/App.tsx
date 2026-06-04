@@ -34,8 +34,6 @@ function App() {
 
   function handleLogout() {
     clearBackendToken();
-    const { realLogout } = window as any;
-    if (realLogout) realLogout();
     setUser(null);
     try { localStorage.removeItem(SKEY); } catch {}
   }

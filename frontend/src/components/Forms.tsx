@@ -4,6 +4,7 @@ import { ROLE_LEVEL, MONTHS, MEAL_COLS, INSPECTION_Q, FOODREQ_FIELDS } from '../
 import { I } from '../lib/icons';
 import { DS } from '../lib/services';
 import { loadLog, saveLog, fetchLog } from '../lib/supabase';
+import { api } from '../lib/api';
 
 /* ── shared persistence hook ── */
 function useLog(key: string, initial: any) {
@@ -25,9 +26,9 @@ function useLog(key: string, initial: any) {
 }
 
 /* ── SaveBar ── */
-function SaveBar({ saved, savedAt, onSave, canEdit, connected, note }: {
+function SaveBar({ saved, savedAt, onSave, canEdit, note }: {
   saved: boolean; savedAt: Date | null; onSave: () => void;
-  canEdit: boolean; connected?: boolean; note: React.ReactNode;
+  canEdit: boolean; note: React.ReactNode;
 }) {
   return (
     <div className="formbar">
@@ -37,7 +38,7 @@ function SaveBar({ saved, savedAt, onSave, canEdit, connected, note }: {
         {saved && savedAt && <span className="saved-chip">{I.check({ style: { width: 12, height: 12 } })} Saved {savedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
       </div>
       {canEdit && <button className="btn primary" onClick={onSave} disabled={saved}>
-        {I.save({ style: { width: 15, height: 15 } })} {connected ? 'Save to Supabase' : 'Save log'}</button>}
+        {I.save({ style: { width: 15, height: 15 } })} Save</button>}
     </div>
   );
 }
@@ -94,7 +95,6 @@ function mealToggle(val: string, onChange: (v: string) => void, canEdit: boolean
 /* ── shared form types ── */
 interface FormProps {
   user: User;
-  connected?: boolean;
 }
 
 interface PeriodFormProps extends FormProps {
@@ -110,7 +110,7 @@ const MACHINES = [
   { id: 'jackson-low', name: 'Jackson Avenger (Low-Temp)', type: 'low' as const },
 ];
 
-export function MachineLog({ user, period, setPeriod, connected }: PeriodFormProps) {
+export function MachineLog({ user, period, setPeriod }: PeriodFormProps) {
   const lvl = ROLE_LEVEL[user.role] || 0;
   const canEdit = lvl >= 10;
   const [mid, setMid] = useState(MACHINES[0].id);
@@ -167,7 +167,7 @@ export function MachineLog({ user, period, setPeriod, connected }: PeriodFormPro
         </div>
         {canEdit && <div style={{ padding: '10px 14px' }}><button className="btn-addrow" onClick={addR}>{I.plus({ style: { width: 13, height: 13 } })} Add reading</button></div>}
       </div>
-      <SaveBar saved={saved} savedAt={savedAt} onSave={() => save(user.display_name)} canEdit={canEdit} connected={connected}
+      <SaveBar saved={saved} savedAt={savedAt} onSave={() => save(user.display_name)} canEdit={canEdit}
         note={<span className="formbar-meta">{machine.name} \u00B7 {MONTHS[m]} {y}</span>} />
     </div>
   );
@@ -176,7 +176,7 @@ export function MachineLog({ user, period, setPeriod, connected }: PeriodFormPro
 /* ═══════════════════════════════════════════════
    Cooling & Reheating Chart
    ═══════════════════════════════════════════════ */
-export function CoolingLog({ user, period, setPeriod, connected }: PeriodFormProps) {
+export function CoolingLog({ user, period, setPeriod }: PeriodFormProps) {
   const lvl = ROLE_LEVEL[user.role] || 0;
   const canEdit = lvl >= 10;
   const [m, y] = period;
@@ -233,7 +233,7 @@ export function CoolingLog({ user, period, setPeriod, connected }: PeriodFormPro
         </div>
         {canEdit && <div style={{ padding: '10px 14px' }}><button className="btn-addrow" onClick={addR}>{I.plus({ style: { width: 13, height: 13 } })} Add product</button></div>}
       </div>
-      <SaveBar saved={saved} savedAt={savedAt} onSave={() => save(user.display_name)} canEdit={canEdit} connected={connected}
+      <SaveBar saved={saved} savedAt={savedAt} onSave={() => save(user.display_name)} canEdit={canEdit}
         note={<span className="formbar-meta">Cooling &amp; Reheating \u00B7 {MONTHS[m]} {y}</span>} />
     </div>
   );
@@ -242,7 +242,7 @@ export function CoolingLog({ user, period, setPeriod, connected }: PeriodFormPro
 /* ═══════════════════════════════════════════════
    Daily Staff / Visitor Meal Log
    ═══════════════════════════════════════════════ */
-export function MealLog({ user, connected }: FormProps) {
+export function MealLog({ user }: FormProps) {
   const lvl = ROLE_LEVEL[user.role] || 0;
   const canEdit = lvl >= 10;
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
@@ -259,6 +259,13 @@ export function MealLog({ user, connected }: FormProps) {
   const signedRows = rows.filter((r: any) => r.B || r.L || r.D);
   const paidCount = signedRows.filter((r: any) => paidSet.has(r.type)).length;
   const compCount = signedRows.length - paidCount;
+
+  async function handleSave() {
+    await save(user.display_name);
+    try {
+      await api.saveDailyLog({ entry_type: 'meal_log', title: 'Meal Log', data: JSON.stringify(data) });
+    } catch { /* local save succeeded */ }
+  }
 
   return (
     <div className="fade-in">
@@ -311,7 +318,7 @@ export function MealLog({ user, connected }: FormProps) {
           <p className="mc-note">Count actual number of persons \u2014 do not count signatures. Monitors &amp; comp guests are recorded in the <b>Type</b> column and are not charged.</p>
         </div>
       </div>
-      <SaveBar saved={saved} savedAt={savedAt} onSave={() => save(user.display_name)} canEdit={canEdit} connected={connected}
+      <SaveBar saved={saved} savedAt={savedAt} onSave={handleSave} canEdit={canEdit}
         note={<span className="formbar-meta">Meal log \u00B7 {new Date(date).toLocaleDateString()}</span>} />
     </div>
   );
@@ -320,7 +327,7 @@ export function MealLog({ user, connected }: FormProps) {
 /* ═══════════════════════════════════════════════
    Food Services Inspection Sheet
    ═══════════════════════════════════════════════ */
-export function InspectionSheet({ user, connected }: FormProps) {
+export function InspectionSheet({ user }: FormProps) {
   const lvl = ROLE_LEVEL[user.role] || 0;
   const canEdit = lvl >= 20;
   const today = new Date().toISOString().slice(0, 10);
@@ -331,6 +338,13 @@ export function InspectionSheet({ user, connected }: FormProps) {
   function setRating(i: number, v: string) { update((d: any) => ({ ...d, ratings: { ...d.ratings, [i]: v } })); }
   const done = Object.keys(ratings).length, total = INSPECTION_Q.length;
   const poor = Object.values(ratings).filter(v => v === 'POOR').length;
+
+  async function handleSave() {
+    await save(user.display_name);
+    try {
+      await api.saveDailyLog({ entry_type: 'inspection', title: 'Inspection', data: JSON.stringify(data) });
+    } catch { /* local save succeeded */ }
+  }
 
   return (
     <div className="fade-in">
@@ -370,7 +384,7 @@ export function InspectionSheet({ user, connected }: FormProps) {
             value={data.comments || ''} disabled={!canEdit} onChange={e => update((d: any) => ({ ...d, comments: e.target.value }))}></textarea>
         </div>
       </div>
-      <SaveBar saved={saved} savedAt={savedAt} onSave={() => save(user.display_name)} canEdit={canEdit} connected={connected}
+      <SaveBar saved={saved} savedAt={savedAt} onSave={handleSave} canEdit={canEdit}
         note={<span className="formbar-meta">Inspection \u00B7 {new Date(data.date || today).toLocaleDateString()}</span>} />
     </div>
   );
@@ -379,7 +393,7 @@ export function InspectionSheet({ user, connected }: FormProps) {
 /* ═══════════════════════════════════════════════
    Food Request form
    ═══════════════════════════════════════════════ */
-export function FoodRequest({ user, connected: _connected }: FormProps) {
+export function FoodRequest({ user }: FormProps) {
   const lvl = ROLE_LEVEL[user.role] || 0;
   const canEdit = lvl >= 10;
   const [submitted, setSubmitted] = useState(false);
@@ -387,6 +401,22 @@ export function FoodRequest({ user, connected: _connected }: FormProps) {
   const { data, update, saved, save, savedAt } = useLog(key, { vals: {}, status: 'draft' });
   const vals = data.vals || {};
   function setV(k: string, v: string) { update((d: any) => ({ ...d, vals: { ...d.vals, [k]: v } })); }
+
+  const foodRequestData = { ...data };
+
+  async function handleSave() {
+    await save(user.display_name);
+    try {
+      await api.saveDailyLog({ entry_type: 'food_request', title: foodRequestData.originator || user.display_name, data: JSON.stringify(foodRequestData) });
+    } catch { /* local save succeeded */ }
+  }
+
+  async function handleSubmit() {
+    await save(user.display_name);
+    await api.saveDailyLog({ entry_type: 'food_request', title: user.display_name, data: JSON.stringify(data) }).catch(() => {});
+    setSubmitted(true);
+    (window as any).toast?.('Food request submitted');
+  }
 
   return (
     <div className="fade-in">
@@ -422,8 +452,8 @@ export function FoodRequest({ user, connected: _connected }: FormProps) {
           {saved && savedAt && !submitted && <span className="saved-chip">Draft saved {savedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
         </div>
         {canEdit && <div style={{ display: 'flex', gap: 9 }}>
-          <button className="btn" onClick={() => save(user.display_name)} disabled={saved}>{I.save({ style: { width: 15, height: 15 } })} Save draft</button>
-          <button className="btn primary" onClick={() => { save(user.display_name); setSubmitted(true); (window as any).toast?.('Food request submitted'); }}>{I.inbox({ style: { width: 15, height: 15 } })} Submit request</button>
+          <button className="btn" onClick={handleSave} disabled={saved}>{I.save({ style: { width: 15, height: 15 } })} Save draft</button>
+          <button className="btn primary" onClick={handleSubmit}>{I.inbox({ style: { width: 15, height: 15 } })} Submit request</button>
         </div>}
       </div>
     </div>

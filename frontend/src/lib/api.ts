@@ -2,14 +2,21 @@ import { getBackendToken } from './supabase';
 
 const BASE = (import.meta.env as Record<string, string>).VITE_API_BASE || 'http://localhost:8000';
 
+class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+    this.name = 'ApiError';
+  }
+}
+
 async function req<T>(path: string, opts?: RequestInit): Promise<T> {
   const token = getBackendToken();
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
-  // Add Authorization header if token exists
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
-    console.debug('[API] Using backend token for request:', path);
   }
 
   const res = await fetch(BASE + path, {
@@ -17,9 +24,16 @@ async function req<T>(path: string, opts?: RequestInit): Promise<T> {
     ...opts,
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => res.statusText);
-    throw new Error(`${res.status}: ${body}`);
+    let body: string;
+    try {
+      const json = await res.json();
+      body = json.detail || JSON.stringify(json);
+    } catch {
+      body = await res.text().catch(() => res.statusText);
+    }
+    throw new ApiError(res.status, body);
   }
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
@@ -75,6 +89,109 @@ export interface ApproveCommitBody {
 }
 
 export const api = {
+  // Auth
+  async login(body: { username?: string; password?: string; pin?: string; access_token?: string }): Promise<{ user: any; token: string }> {
+    const data: any = await req('/api/auth/login', { method: 'POST', body: JSON.stringify(body) });
+    return { user: data.user, token: data.access_token };
+  },
+
+  async getMe(): Promise<any> {
+    return req('/api/auth/me');
+  },
+
+  async logout(): Promise<void> {
+    await req('/api/auth/logout', { method: 'POST' });
+  },
+
+  // Users
+  async getUsers(activeOnly?: boolean): Promise<any[]> {
+    const q = activeOnly ? '?active_only=true' : '';
+    const data: any = await req(`/api/users${q}`);
+    return data.users || [];
+  },
+
+  async createUser(body: any): Promise<any> {
+    return req('/api/users', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  async updateUser(userId: string, body: any): Promise<any> {
+    return req(`/api/users/${userId}`, { method: 'PUT', body: JSON.stringify(body) });
+  },
+
+  async deleteUser(userId: string): Promise<void> {
+    return req(`/api/users/${userId}`, { method: 'DELETE' });
+  },
+
+  // Inventory
+  async getInventory(month?: number, year?: number): Promise<any> {
+    const params = new URLSearchParams();
+    if (month !== undefined) params.set('month', String(month));
+    if (year !== undefined) params.set('year', String(year));
+    const qs = params.toString();
+    return req(`/api/inventory${qs ? '?' + qs : ''}`);
+  },
+
+  async saveInventory(body: any): Promise<any> {
+    return req('/api/inventory', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  async getInventoryHistory(limit?: number): Promise<any[]> {
+    const q = limit ? `?limit=${limit}` : '';
+    return req(`/api/inventory/history${q}`);
+  },
+
+  async getReorders(): Promise<any[]> {
+    return req('/api/inventory/reorders');
+  },
+
+  // Menu
+  async getMenu(day: string): Promise<any> {
+    return req(`/api/menu/${encodeURIComponent(day)}`);
+  },
+
+  async saveMenu(day: string, body: any): Promise<any> {
+    return req(`/api/menu/${encodeURIComponent(day)}`, { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  // Events
+  async getEvents(): Promise<any[]> {
+    return req('/api/events');
+  },
+
+  async createEvent(body: any): Promise<any> {
+    return req('/api/events', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  // Logs
+  async getHaccpLogs(limit?: number, location?: string): Promise<any[]> {
+    const params = new URLSearchParams();
+    if (limit !== undefined) params.set('limit', String(limit));
+    if (location) params.set('location', location);
+    const qs = params.toString();
+    return req(`/api/logs/haccp${qs ? '?' + qs : ''}`);
+  },
+
+  async saveHaccpLog(body: any): Promise<any> {
+    return req('/api/logs/haccp', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  async getDailyLogs(limit?: number, entryType?: string): Promise<any[]> {
+    const params = new URLSearchParams();
+    if (limit !== undefined) params.set('limit', String(limit));
+    if (entryType) params.set('entry_type', entryType);
+    const qs = params.toString();
+    return req(`/api/logs/daily${qs ? '?' + qs : ''}`);
+  },
+
+  async saveDailyLog(body: any): Promise<any> {
+    return req('/api/logs/daily', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  async getCompliance(): Promise<any> {
+    return req('/api/logs/compliance');
+  },
+
+  // Source Control
   async getCommits(limit = 50, offset = 0): Promise<Commit[]> {
     return req(`/api/commits?limit=${limit}&offset=${offset}`);
   },
@@ -99,12 +216,4 @@ export const api = {
     });
   },
 
-  async ping(): Promise<boolean> {
-    try {
-      await req('/health');
-      return true;
-    } catch {
-      return false;
-    }
-  },
 };

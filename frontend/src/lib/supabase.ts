@@ -39,8 +39,7 @@ export function clearSupaConfig() {
 }
 
 export function isConnected(): boolean {
-  const c = getSupaConfig();
-  return !!(c.url && c.key);
+  return !!getBackendToken() || localStorage.getItem('mjc_backend_token') !== null;
 }
 
 /* memoised client */
@@ -187,24 +186,25 @@ export function clearBackendToken() {
 }
 
 /**
- * Backend login for admin/manager using Supabase JWT token.
- * This is called after Supabase Auth succeeds.
- * @param accessToken - Supabase Auth access_token
+ * Backend login for admin/manager using username + password.
+ * @param username - Admin/manager username
+ * @param password - Password
  * @returns { ok, token, user, error }
  */
-export async function backendLogin(accessToken: string): Promise<BackendAuthResult> {
-  if (!accessToken) {
-    return { ok: false, error: 'No access token provided' };
+export async function backendLogin(username: string, password: string): Promise<BackendAuthResult> {
+  username = (username || '').trim().toLowerCase();
+  if (!username || !password) {
+    return { ok: false, error: 'Username and password are required' };
   }
 
   const BASE = (import.meta.env as Record<string, string>).VITE_API_BASE || 'http://localhost:8000';
-  console.debug('[Auth] Sending token to backend /api/auth/login...');
+  console.debug('[Auth] Sending login to backend /api/auth/login...');
 
   try {
     const response = await fetch(BASE + '/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ access_token: accessToken }),
+      body: JSON.stringify({ username, password }),
     });
 
     if (!response.ok) {

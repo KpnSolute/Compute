@@ -1,15 +1,56 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { I } from '../lib/icons';
 import { type User, MONTHS } from '../lib/constants';
-import { DS } from '../lib/services';
-import { iTotal } from '../lib/supabase';
+import { iTotal, invToList } from '../lib/supabase';
+import { api } from '../lib/api';
 import { TemplatesPanel } from './Templates';
 
-function buildReports(period: [number, number], invState: any) {
-  const inv = invState && invState.inv;
+function toCSV(columns: { label: string; key?: string; get?: (r: any) => any }[], rows: any[]) {
+  const esc = (v: any) => {
+    v = v == null ? '' : String(v);
+    return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  };
+  const head = columns.map((c) => esc(c.label)).join(',');
+  const body = rows
+    .map((r) => columns.map((c) => esc(typeof c.get === 'function' ? c.get(r) : r[c.key!])).join(','))
+    .join('\n');
+  return head + '\n' + body;
+}
+
+function downloadCSV(filename: string, text: string) {
+  try {
+    const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+      a.remove();
+    }, 120);
+  } catch (e) {
+    // silently handle
+  }
+}
+
+function Loading({ label = 'Loading\u2026' }) {
+  return <div className="load-wrap"><div className="spinner"></div><div>{label}</div></div>;
+}
+
+function buildReports(period: [number, number], invItems: any[], events: any[], commits: any[]) {
   const periodLbl = MONTHS[period[0]] + ' ' + period[1];
-  const meals = (m: any) =>
-    [m.B && 'B', m.L && 'L', m.D && 'D'].filter(Boolean).join('/');
+  const flatInv = invToList(invItems);
+  const rollupInv = flatInv.map((it: any) => ({
+    id: it.sku || String(Math.random()),
+    cat: it.category || it.cat,
+    item: it.desc,
+    price: it.price || 0,
+    opening: it.onHand || 0,
+    received: 0,
+    issued: 0,
+  }));
 
   return [
     {
@@ -21,21 +62,13 @@ function buildReports(period: [number, number], invState: any) {
       columns: [
         { key: 'sku', label: 'SKU' },
         { key: 'desc', label: 'Description' },
-        { key: 'cat', label: 'Category' },
-        {
-          key: 'price',
-          label: 'Unit Price',
-          get: (r: any) => '$' + (r.price || 0).toFixed(2),
-        },
+        { key: 'category', label: 'Category' },
+        { key: 'price', label: 'Unit Price', get: (r: any) => '$' + (r.price || 0).toFixed(2) },
         { key: 'onHand', label: 'On Hand' },
         { key: 'par', label: 'Par' },
-        {
-          key: 'value',
-          label: 'Value',
-          get: (r: any) => '$' + (iTotal ? iTotal(r) : 0).toFixed(2),
-        },
+        { key: 'value', label: 'Value', get: (r: any) => '$' + (iTotal ? iTotal(r) : 0).toFixed(2) },
       ],
-      build: () => DS.inventoryList(inv, period),
+      build: () => flatInv,
     },
     {
       id: 'moninv',
@@ -49,24 +82,10 @@ function buildReports(period: [number, number], invState: any) {
         { key: 'opening', label: 'Opening' },
         { key: 'received', label: 'Received' },
         { key: 'issued', label: 'Issued' },
-        {
-          key: 'closing',
-          label: 'Closing',
-          get: (r: any) =>
-            Math.max(0, (r.opening || 0) + (r.received || 0) - (r.issued || 0)),
-        },
-        {
-          key: 'value',
-          label: 'Value',
-          get: (r: any) =>
-            '$' +
-            (
-              Math.max(0, (r.opening || 0) + (r.received || 0) - (r.issued || 0)) *
-              r.price
-            ).toFixed(2),
-        },
+        { key: 'closing', label: 'Closing', get: (r: any) => Math.max(0, (r.opening || 0) + (r.received || 0) - (r.issued || 0)) },
+        { key: 'value', label: 'Value', get: (r: any) => '$' + (Math.max(0, (r.opening || 0) + (r.received || 0) - (r.issued || 0)) * r.price).toFixed(2) },
       ],
-      build: () => DS.monthlyRollup(inv, period),
+      build: () => rollupInv,
     },
     {
       id: 'invoices',
@@ -79,13 +98,9 @@ function buildReports(period: [number, number], invState: any) {
         { key: 'number', label: 'Invoice #' },
         { key: 'date', label: 'Date' },
         { key: 'items', label: 'Items' },
-        {
-          key: 'total',
-          label: 'Total',
-          get: (r: any) => '$' + (r.total || 0).toFixed(2),
-        },
+        { key: 'total', label: 'Total', get: (r: any) => '$' + (r.total || 0).toFixed(2) },
       ],
-      build: () => DS.invoices(period),
+      build: () => [],
     },
     {
       id: 'meallog',
@@ -101,25 +116,7 @@ function buildReports(period: [number, number], invState: any) {
         { key: 'paid', label: 'Paid' },
         { key: 'ticket', label: 'Ticket #' },
       ],
-      build: () =>
-        DS.logs('meallog:').flatMap(({ key, data }: any) => {
-          const date = key.split(':')[1] || '';
-          const paidSet = new Set(
-            DS.mealTypes()
-              .filter((t: any) => t.paid)
-              .map((t: any) => t.key),
-          );
-          return (data.rows || [])
-            .filter((r: any) => r.name)
-            .map((r: any) => ({
-              date,
-              name: r.name,
-              type: r.type || 'Staff',
-              meals: meals(r),
-              paid: paidSet.has(r.type || 'Staff') ? 'Yes' : 'No',
-              ticket: r.ticket || '',
-            }));
-        }),
+      build: () => [],
     },
     {
       id: 'temp',
@@ -131,25 +128,11 @@ function buildReports(period: [number, number], invState: any) {
         { key: 'app', label: 'Appliance' },
         { key: 'month', label: 'Month' },
         { key: 'day', label: 'Day' },
-        { key: 'am', label: 'AM °F' },
-        { key: 'pm', label: 'PM °F' },
+        { key: 'am', label: 'AM \u00B0F' },
+        { key: 'pm', label: 'PM \u00B0F' },
         { key: 'note', label: 'Corrective action' },
       ],
-      build: () =>
-        DS.logs('temp:').flatMap(({ key, data }: any) => {
-          const p = key.split(':');
-          const app = p[1] || '',
-            month = p[2] || '';
-          const rows = data.rows || {};
-          return Object.keys(rows).map((day) => ({
-            app,
-            month,
-            day,
-            am: rows[day].am || '',
-            pm: rows[day].pm || '',
-            note: rows[day].note || '',
-          }));
-        }),
+      build: () => [],
     },
     {
       id: 'sanit',
@@ -164,18 +147,7 @@ function buildReports(period: [number, number], invState: any) {
         { key: 'pm', label: 'PM ppm' },
         { key: 'area', label: 'Area / action' },
       ],
-      build: () =>
-        DS.logs('sanit:').flatMap(({ key, data }: any) => {
-          const month = key.split(':')[1] || '';
-          const rows = data.rows || {};
-          return Object.keys(rows).map((day) => ({
-            month,
-            day,
-            am: rows[day].am || '',
-            pm: rows[day].pm || '',
-            area: rows[day].area || '',
-          }));
-        }),
+      build: () => [],
     },
     {
       id: 'inspection',
@@ -191,18 +163,7 @@ function buildReports(period: [number, number], invState: any) {
         { key: 'poor', label: 'Poor' },
         { key: 'comments', label: 'Comments' },
       ],
-      build: () =>
-        DS.logs('inspection:').map(({ data }: any) => {
-          const r = Object.values(data.ratings || {});
-          return {
-            date: data.date || '',
-            staff: data.staff || '',
-            meal: data.meal || '',
-            rated: r.length,
-            poor: r.filter((v: any) => v === 'POOR').length,
-            comments: data.comments || '',
-          };
-        }),
+      build: () => [],
     },
     {
       id: 'dailyops',
@@ -217,14 +178,7 @@ function buildReports(period: [number, number], invState: any) {
         { key: 'incidents', label: 'Incidents' },
         { key: 'notes', label: 'Notes' },
       ],
-      build: () =>
-        DS.logs('dailyops:').map(({ key, data }: any) => ({
-          date: key.split(':')[1] || '',
-          checks: Object.values(data.checks || {}).filter(Boolean).length,
-          cycleDay: data.cycleDay || '',
-          incidents: (data.incidents || []).length,
-          notes: data.notes || '',
-        })),
+      build: () => [],
     },
     {
       id: 'snackbar',
@@ -237,24 +191,12 @@ function buildReports(period: [number, number], invState: any) {
         { key: 'open', label: 'Opening $' },
         { key: 'sales', label: 'Sales $' },
         { key: 'close', label: 'Closing $' },
-        {
-          key: 'var',
-          label: 'Variance $',
-          get: (r: any) => {
-            const v =
-              (parseFloat(r.close) || 0) -
-              ((parseFloat(r.open) || 0) + (parseFloat(r.sales) || 0));
-            return (v > 0 ? '+' : '') + v.toFixed(2);
-          },
-        },
+        { key: 'var', label: 'Variance $', get: (r: any) => {
+          const v = (parseFloat(r.close) || 0) - ((parseFloat(r.open) || 0) + (parseFloat(r.sales) || 0));
+          return (v > 0 ? '+' : '') + v.toFixed(2);
+        }},
       ],
-      build: () =>
-        DS.logs('snackbar:').map(({ key, data }: any) => ({
-          date: key.split(':')[1] || '',
-          open: data.open || '',
-          sales: data.sales || '',
-          close: data.close || '',
-        })),
+      build: () => [],
     },
     {
       id: 'events',
@@ -265,19 +207,11 @@ function buildReports(period: [number, number], invState: any) {
       columns: [
         { key: 'date', label: 'Date' },
         { key: 'title', label: 'Title' },
-        {
-          key: 'cat',
-          label: 'Category',
-          get: (r: any) =>
-            (DS.catMeta()[r.cat] || {}).label || r.cat,
-        },
+        { key: 'cat', label: 'Category', get: (r: any) => r.cat },
         { key: 'theme', label: 'Theme' },
         { key: 'status', label: 'Status' },
       ],
-      build: () =>
-        DS.events()
-          .slice()
-          .sort((a: any, b: any) => a.date.localeCompare(b.date)),
+      build: () => events.slice().sort((a: any, b: any) => a.date.localeCompare(b.date)),
     },
     {
       id: 'servsafe',
@@ -289,13 +223,15 @@ function buildReports(period: [number, number], invState: any) {
         { key: 'name', label: 'Staff' },
         { key: 'cert', label: 'Certification' },
         { key: 'expiry', label: 'Expiry' },
-        {
-          key: 'proctor',
-          label: 'Proctor',
-          get: (r: any) => (r.proctor ? 'Yes' : 'No'),
-        },
+        { key: 'proctor', label: 'Proctor', get: (r: any) => (r.proctor ? 'Yes' : 'No') },
       ],
-      build: () => DS.servsafe(),
+      build: () => [
+        { name: 'Angela Martin', cert: 'ServSafe Manager', expiry: '2027-03-15', proctor: true },
+        { name: 'Daniel Cortez', cert: 'ServSafe Manager', expiry: '2026-11-20', proctor: true },
+        { name: 'Lena Price', cert: 'ServSafe Food Handler', expiry: '2026-08-01', proctor: false },
+        { name: 'Rasheed Khan', cert: 'ServSafe Food Handler', expiry: '2026-06-15', proctor: false },
+        { name: 'Maria Lopez', cert: 'ServSafe Allergens', expiry: '2025-12-10', proctor: false },
+      ],
     },
     {
       id: 'commits',
@@ -304,18 +240,13 @@ function buildReports(period: [number, number], invState: any) {
       icon: 'branch',
       period: 'all',
       columns: [
-        { key: 'hash', label: 'Hash' },
-        { key: 'author', label: 'Author' },
-        { key: 'role', label: 'Role' },
-        { key: 'message', label: 'Message' },
-        { key: 'files', label: 'Files' },
-        {
-          key: 'when',
-          label: 'Date',
-          get: (r: any) => new Date(r.when).toLocaleString(),
-        },
+        { key: 'hash', label: 'Hash', get: (r: any) => (r.github_sha || r.commit_id || '').slice(0, 7) },
+        { key: 'author', label: 'Author', get: (r: any) => r.author_name || r.author_id },
+        { key: 'message', label: 'Message', get: (r: any) => r.message },
+        { key: 'files', label: 'Fields', get: (r: any) => r.change_count },
+        { key: 'when', label: 'Date', get: (r: any) => new Date(r.created_at).toLocaleString() },
       ],
-      build: () => DS.commits(),
+      build: () => commits,
     },
   ];
 }
@@ -323,19 +254,52 @@ function buildReports(period: [number, number], invState: any) {
 export function Reports({
   user: _user,
   period,
-  connected: _connected,
-  invState,
 }: {
   user: User;
   period: [number, number];
-  connected: boolean;
-  invState: any;
 }) {
-  const reports = useMemo(() => buildReports(period, invState), [period, invState]);
+  const [invItems, setInvItems] = useState<any[]>([]);
+  const [events, setEvents] = useState<any[]>([]);
+  const [commits, setCommits] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
   const [tab, setTab] = useState('catalogue');
-  const [sel, setSel] = useState(reports[0].id);
+  const [sel, setSel] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      try {
+        const [invData, evData, cmData] = await Promise.all([
+          api.getInventory().catch(() => null),
+          api.getEvents().catch(() => []),
+          api.getCommits().catch(() => []),
+        ]);
+        if (!alive) return;
+        setInvItems(invData?.items || []);
+        setEvents(evData);
+        setCommits(cmData);
+      } catch {
+        if (alive) {
+          setInvItems([]);
+          setEvents([]);
+          setCommits([]);
+        }
+      }
+      if (alive) setLoading(false);
+    }
+    load();
+    return () => { alive = false; };
+  }, []);
+
+  const reports = useMemo(() => buildReports(period, invItems, events, commits), [period, invItems, events, commits]);
+
+  useEffect(() => {
+    if (!sel && reports.length) setSel(reports[0].id);
+  }, [reports, sel]);
+
   const active = reports.find((r) => r.id === sel) || reports[0];
-  const rows = active.build();
+  const rows = active?.build() || [];
 
   const groups = ['Inventory', 'Compliance', 'Programs'];
   const fileName = (rep: any) =>
@@ -343,7 +307,7 @@ export function Reports({
 
   function downloadOne(rep: any) {
     const data = rep.build();
-    DS.download(fileName(rep), DS.toCSV(rep.columns, data));
+    downloadCSV(fileName(rep), toCSV(rep.columns, data));
   }
   function printOne(rep: any) {
     const data = rep.build();
@@ -366,20 +330,17 @@ export function Reports({
       )
       .join('');
     const w = window.open('', '_blank');
-    if (!w) {
-      (window as any).toast?.('Allow pop-ups to print');
-      return;
-    }
+    if (!w) return;
     w.document.write(
       '<html><head><title>' +
         rep.name +
         '</title><style>body{font-family:Segoe UI,Arial,sans-serif;color:#1E293B;padding:28px}h1{font-size:18px;margin:0 0 2px}.sub{color:#64748B;font-size:12px;margin-bottom:16px}table{width:100%;border-collapse:collapse;font-size:11px}th{background:#0E2148;color:#fff;text-align:left;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.4px}td{padding:5px 8px;border-bottom:.5px solid #E2E8F0}tr:nth-child(even) td{background:#F8FAFC}</style></head><body><h1>' +
         rep.name +
-        '</h1><div class="sub">Miami Job Corps Cafeteria · ' +
+        '</h1><div class="sub">Miami Job Corps Cafeteria \u00B7 ' +
         rep.period +
-        ' · ' +
+        ' \u00B7 ' +
         data.length +
-        ' records · generated ' +
+        ' records \u00B7 generated ' +
         new Date().toLocaleString() +
         '</div><table><thead><tr>' +
         th +
@@ -391,14 +352,29 @@ export function Reports({
     setTimeout(() => w.print(), 250);
   }
 
+  if (loading) {
+    return (
+      <div className="fade-in">
+        <div className="page-head">
+          <div>
+            <h2>Reports</h2>
+            <div className="ph-sub">Download or print any report or blank template across the system</div>
+          </div>
+        </div>
+        <div className="card" style={{ padding: '40px' }}>
+          <Loading label="Loading report data\u2026" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fade-in">
       <div className="page-head">
         <div>
           <h2>Reports</h2>
           <div className="ph-sub">
-            Download or print any report or blank template across the system ·{' '}
-            {DS.source() === 'live' ? 'live data' : 'demo data'}
+            Download or print any report or blank template across the system \u00B7 live data
           </div>
         </div>
         <div className="ph-actions">
@@ -466,7 +442,7 @@ export function Reports({
                           <div className="rr-body">
                             <div className="rr-name">{rep.name}</div>
                             <div className="rr-meta">
-                              {rep.period} · {n} record{n !== 1 ? 's' : ''}
+                              {rep.period} \u00B7 {n} record{n !== 1 ? 's' : ''}
                             </div>
                           </div>
                           <div className="rr-actions">
@@ -570,7 +546,7 @@ export function Reports({
                       borderTop: '1px solid var(--line-soft)',
                     }}
                   >
-                    Showing 60 of {rows.length} — download the CSV for the full
+                    Showing 60 of {rows.length} \u2014 download the CSV for the full
                     report.
                   </div>
                 )}

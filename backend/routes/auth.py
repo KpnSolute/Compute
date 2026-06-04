@@ -39,7 +39,7 @@ async def _get_user_profile(user_id: str) -> dict | None:
             .execute()
         )
         return result.data if result.data else None
-    except Exception as e:
+    except Exception:
         # User may not exist yet, return None
         return None
 

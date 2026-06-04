@@ -1,93 +1,109 @@
-import { isConnected, loadLog, invToList } from './supabase';
+import { api } from './api';
+
+const cache = new Map<string, { data: any; ts: number }>();
+const CACHE_TTL = 30000;
+
+function cached<T>(key: string, defaultVal: T): T {
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.ts < CACHE_TTL) return hit.data as T;
+  return defaultVal;
+}
+
+async function populate<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
+  const data = await fetcher();
+  cache.set(key, { data, ts: Date.now() });
+  return data;
+}
 
 export const DS = {
-  /* current provider — 'live' once a backend is connected, else 'demo' */
   source() {
-    return isConnected() ? 'live' : 'demo';
+    return 'live';
   },
 
-  /* ── reference / seed datasets (backend: GET endpoints) ── */
-  // These would typically fetch from Supabase in a real app
-  // For now, they return from window if available, or empty
-  events() {
-    return (window as any).EVENTS || [];
+  async events() {
+    return populate('events', () => api.getEvents());
+  },
+  async cycleMenu() {
+    return populate('cycleMenu', async () => {
+      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const results: Record<string, any> = {};
+      for (const day of days) {
+        try {
+          const menu = await api.getMenu(day);
+          results[day.toLowerCase()] = menu?.data || null;
+        } catch {
+          results[day.toLowerCase()] = null;
+        }
+      }
+      return results;
+    });
+  },
+  async openingChecklist() {
+    return populate('opening_checklist', () => api.getDailyLogs(50, 'opening_checklist'));
+  },
+  async mealSchedule() {
+    return populate('meal_schedule', () => api.getDailyLogs(50, 'meal_schedule'));
   },
   catMeta() {
-    return (window as any).CAT_META || {};
+    return {};
   },
   servsafe() {
-    return (window as any).SERVSAFE_STAFF || [];
-  },
-  cycleMenu() {
-    return (window as any).CYCLE_MENU || {};
-  },
-  menuSides() {
-    return (window as any).MENU_SIDES || {};
-  },
-  openingChecklist() {
-    return (window as any).OPENING_CHECKLIST || [];
-  },
-  mealSchedule() {
-    return (window as any).MEAL_SCHEDULE || [];
+    return [];
   },
   incidentTypes() {
-    return (window as any).INCIDENT_TYPES || [];
+    return ['Safety', 'Behavior', 'Medical', 'Facility', 'Other'];
   },
   snackHours() {
-    return (window as any).SNACK_HOURS || [];
+    return [
+      { day: 'Monday', open: '07:00', close: '14:30' },
+      { day: 'Tuesday', open: '07:00', close: '14:30' },
+      { day: 'Wednesday', open: '07:00', close: '14:30' },
+      { day: 'Thursday', open: '07:00', close: '14:30' },
+      { day: 'Friday', open: '07:00', close: '14:30' },
+    ];
   },
   mealRates() {
-    return (window as any).MEAL_RATES || [];
+    return [
+      { type: 'Student', breakfast: 2.50, lunch: 4.00, dinner: 5.50 },
+      { type: 'Staff', breakfast: 3.50, lunch: 5.50, dinner: 7.00 },
+      { type: 'Visitor', breakfast: 4.00, lunch: 6.50, dinner: 8.50 },
+    ];
   },
   mealTypes() {
-    return (window as any).MEAL_TYPES || [];
+    return ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Brunch'];
   },
   submitTypes() {
-    return (window as any).SUBMIT_TYPES || [];
+    return ['inventory', 'menu', 'user', 'compliance', 'event', 'ops'];
   },
-  staged() {
-    return ((window as any).STAGED_CHANGES || []).map((s: any) => ({ ...s }));
+
+  async staged() {
+    return populate('staged', () => api.getStaging());
   },
-  commits() {
-    return ((window as any).COMMITS || []).map((c: any) => ({ ...c }));
+  async commits() {
+    return populate('commits', () => api.getCommits());
   },
   invoices(_period: [number, number]) {
-    return ((window as any).MONTHLY_INVOICES || []).map((i: any) => ({ ...i }));
+    return [];
   },
 
-  /* ── inventory (backend: GET /inventory?period=) ── */
-  inventoryList(inv: any, period: [number, number]) {
-    const src = inv || ((window as any).demoInvFor ? (window as any).demoInvFor(period[0], period[1]) : {});
-    return invToList(src);
+  /* ── sync cache accessors (call after async methods have been awaited) ── */
+  syncEvents() {
+    return cached<any[]>('events', []);
   },
-  monthlyRollup(inv: any, period: [number, number]) {
-    return this.inventoryList(inv, period).map((it: any) => ({
-      id: it.id || String(it.sku || Math.random()),
-      cat: it.cat,
-      item: it.desc,
-      price: it.price || 0,
-      opening: it.onHand || 0,
-      received: (it.w1r || 0) + (it.w2r || 0) + (it.w3r || 0) + (it.w4r || 0),
-      issued: 0,
-    }));
+  syncCycleMenu() {
+    return cached<any>('cycleMenu', {});
   },
-
-  /* ── log store (real entered records) ── */
-  logKeys(prefix: string) {
-    const out: string[] = [];
-    const p = 'mjc_log_' + (prefix || '');
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.indexOf(p) === 0) out.push(k.slice('mjc_log_'.length));
-      }
-    } catch (e) {}
-    return out.sort();
+  syncStaged() {
+    return cached<any[]>('staged', []);
   },
-  logs(prefix: string) {
-    return this.logKeys(prefix)
-      .map((key) => ({ key, data: loadLog(key, null) }))
-      .filter((x) => x.data);
+  syncCommits() {
+    return cached<any[]>('commits', []);
+  },
+  syncOpeningChecklist() {
+    return cached<any[]>('opening_checklist', []);
+  },
+  syncMealSchedule() {
+    return cached<any[]>('meal_schedule', []);
   },
 
   /* ── export helpers ── */
@@ -115,9 +131,8 @@ export const DS = {
         URL.revokeObjectURL(url);
         a.remove();
       }, 120);
-      (window as any).toast && (window as any).toast('Downloaded ' + filename);
     } catch (e) {
-      (window as any).toast && (window as any).toast('Download failed');
+      console.warn('Download failed:', e);
     }
   },
 };

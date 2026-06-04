@@ -1,21 +1,13 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { I } from '../lib/icons';
 import { type User, ROLE_LEVEL } from '../lib/constants';
-import { DS } from '../lib/services';
-import { loadLog, saveLog, fetchLog } from '../lib/supabase';
+import { api } from '../lib/api';
 
 interface Incident {
   id: string;
   type: string;
   detail: string;
   t: string;
-}
-
-interface DailyOpsData {
-  checks: Record<number, boolean>;
-  cycleDay: string;
-  notes: string;
-  incidents: Incident[];
 }
 
 interface MealScheduleItem {
@@ -31,140 +23,149 @@ interface MealStatus {
   txt: string;
 }
 
-function useLog(key: string, initial: DailyOpsData) {
-  const [data, setData] = useState<DailyOpsData>(() => loadLog(key, null) ?? initial);
-  const [saved, setSaved] = useState(true);
-  const [savedAt, setSavedAt] = useState<Date | null>(null);
-  const initialRef = useRef(initial);
+const DEFAULT_CHECKLIST = [
+  'Turn on & test all cooking equipment',
+  'Check walk-in cooler & freezer temperatures',
+  'Verify hot-hold & cold-hold temperatures',
+  'Prepare & set up serving lines',
+  'Check inventory par levels for breakfast',
+  'Review menu board & cycle day',
+  'Complete HACCP temperature log (AM)',
+  'Confirm cleaning supplies stocked',
+  'Inspect dining area cleanliness',
+  'Verify hand-washing stations stocked',
+];
 
-  useEffect(() => {
-    setData(loadLog(key, null) ?? initialRef.current);
-    setSaved(true);
-    let alive = true;
-    fetchLog(key).then((r) => {
-      if (alive && r?.data) setData(r.data as DailyOpsData);
-    });
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+const DEFAULT_MEAL_SCHEDULE: MealScheduleItem[] = [
+  { meal: 'Breakfast', hours: '6:30 AM \u2013 8:00 AM', monitor: 'Lead Cook', open: 6, close: 8 },
+  { meal: 'Lunch', hours: '11:00 AM \u2013 1:00 PM', monitor: 'Manager', open: 11, close: 13 },
+  { meal: 'Dinner', hours: '4:30 PM \u2013 6:00 PM', monitor: 'Suprv Cook', open: 16, close: 18 },
+];
 
-  const update = (u: DailyOpsData | ((d: DailyOpsData) => DailyOpsData)) => {
-    setData((d) => (typeof u === 'function' ? u(d) : u));
-    setSaved(false);
-  };
+const INCIDENT_TYPES = [
+  'Food safety',
+  'Equipment malfunction',
+  'Staff injury',
+  'Student conduct',
+  'Supply shortage',
+  'Fire/safety',
+  'Other',
+];
 
-  const save = async (userName?: string) => {
-    const r = await saveLog(key, data, userName);
-    setSaved(true);
-    setSavedAt(new Date());
-    return r;
-  };
-
-  return { data, update, saved, save, savedAt };
+function Loading({ label = 'Loading\u2026' }) {
+  return <div className="load-wrap"><div className="spinner"></div><div>{label}</div></div>;
 }
 
-function SaveBar({
-  saved,
-  savedAt,
-  onSave,
-  canEdit,
-  connected,
-  note,
-}: {
-  saved: boolean;
-  savedAt: Date | null;
-  onSave: () => void;
-  canEdit: boolean;
-  connected: boolean;
-  note: React.ReactNode;
-}) {
-  return (
-    <div className="formbar">
-      <div className="formbar-l">
-        {note}
-        {!saved && canEdit && (
-          <span className="dirty-chip">
-            {I.alert({ style: { width: 12, height: 12 } })} Unsaved
-          </span>
-        )}
-        {saved && savedAt && (
-          <span className="saved-chip">
-            {I.check({ style: { width: 12, height: 12 } })}{' '}
-            Saved{' '}
-            {savedAt.toLocaleTimeString([], {
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
-          </span>
-        )}
-      </div>
-      {canEdit && (
-        <button className="btn primary" onClick={onSave} disabled={saved}>
-          {I.save({ style: { width: 15, height: 15 } })}{' '}
-          {connected ? 'Save to Supabase' : 'Save log'}
-        </button>
-      )}
-    </div>
-  );
-}
-
-export function DailyOps({
-  user,
-  connected,
-}: {
-  user: User;
-  connected: boolean;
-}) {
+export function DailyOps({ user }: { user: User }) {
   const lvl = ROLE_LEVEL[user.role] || 0;
   const canEdit = lvl >= 10;
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const key = `dailyops:${date}`;
-  const { data, update, saved, save, savedAt } = useLog(key, {
-    checks: {},
-    cycleDay: '1',
-    notes: '',
-    incidents: [],
-  });
 
-  const checklist = DS.openingChecklist() as string[];
-  const checks = data.checks || {};
-  const doneCount = checklist.filter((_, i) => checks[i]).length;
-  const pct = Math.round((doneCount / checklist.length) * 100);
+  const [checklist, setChecklist] = useState<string[]>(DEFAULT_CHECKLIST);
+  const [checks, setChecks] = useState<Record<number, boolean>>({});
+  const [checklistLoading, setChecklistLoading] = useState(true);
+
+  const [mealSchedule, setMealSchedule] = useState<MealScheduleItem[]>(DEFAULT_MEAL_SCHEDULE);
+  const [mealLoading, setMealLoading] = useState(true);
+
+  const [cycleDay, setCycleDay] = useState('1');
+  const [notes, setNotes] = useState('');
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [saved, setSaved] = useState(true);
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+
+  const [iType, setIType] = useState(INCIDENT_TYPES[0]);
+  const [iDetail, setIDetail] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      try {
+        const logs = await api.getDailyLogs(50, 'opening_checklist');
+        const items = logs
+          .filter((l: any) => l.title)
+          .map((l: any) => l.title);
+        if (alive && items.length) setChecklist(items);
+      } catch {
+        if (alive) setChecklist(DEFAULT_CHECKLIST);
+      }
+      if (alive) setChecklistLoading(false);
+    }
+    load();
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      try {
+        const logs = await api.getDailyLogs(50, 'meal_schedule');
+        const items = logs
+          .filter((l: any) => l.title)
+          .map((l: any) => {
+            const parts = l.description ? l.description.split('|') : [];
+            return {
+              meal: l.title,
+              hours: parts[0] || '',
+              monitor: parts[1] || '',
+              open: parseInt(parts[2]) || 0,
+              close: parseInt(parts[3]) || 0,
+            };
+          });
+        if (alive && items.length) setMealSchedule(items);
+      } catch {
+        if (alive) setMealSchedule(DEFAULT_MEAL_SCHEDULE);
+      }
+      if (alive) setMealLoading(false);
+    }
+    load();
+    return () => { alive = false; };
+  }, []);
+
+  const doneCount = Object.values(checks).filter(Boolean).length;
+  const pct = checklist.length ? Math.round((doneCount / checklist.length) * 100) : 0;
 
   function toggle(i: number) {
     if (!canEdit) return;
-    update((d) => ({
-      ...d,
-      checks: { ...d.checks, [i]: !d.checks?.[i] },
-    }));
+    setChecks((prev) => ({ ...prev, [i]: !prev[i] }));
+    setSaved(false);
   }
 
-  const [iType, setIType] = useState(
-    (DS.incidentTypes() as string[])[0] || ''
-  );
-  const [iDetail, setIDetail] = useState('');
   function addIncident() {
     if (!iDetail.trim()) return;
     const t = new Date().toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
     });
-    update((d) => ({
-      ...d,
-      incidents: [
-        ...(d.incidents || []),
-        { id: 'i' + Date.now(), type: iType, detail: iDetail.trim(), t },
-      ],
-    }));
+    setIncidents((prev) => [
+      ...prev,
+      { id: 'i' + Date.now(), type: iType, detail: iDetail.trim(), t },
+    ]);
     setIDetail('');
+    setSaved(false);
   }
+
   function delIncident(id: string) {
-    update((d) => ({
-      ...d,
-      incidents: (d.incidents || []).filter((x) => x.id !== id),
-    }));
+    setIncidents((prev) => prev.filter((x) => x.id !== id));
+    setSaved(false);
   }
-  const incidents = data.incidents || [];
+
+  async function handleSave() {
+    for (const inc of incidents) {
+      try {
+        await api.saveDailyLog({
+          entry_type: 'incident',
+          title: inc.type,
+          description: `${inc.detail} [${inc.t}]`,
+          severity: 'info',
+        });
+      } catch {
+        // silently continue
+      }
+    }
+    setSaved(true);
+    setSavedAt(new Date());
+  }
 
   const h = new Date().getHours();
   const isToday = date === new Date().toISOString().slice(0, 10);
@@ -182,7 +183,6 @@ export function DailyOps({
           <h2>Daily Operations</h2>
           <div className="ph-sub">
             Opening checklist, meal schedule &amp; incident log
-            {connected ? ' \u00B7 synced' : ' \u00B7 saved on device'}
           </div>
         </div>
         <div className="ph-actions">
@@ -207,41 +207,49 @@ export function DailyOps({
                 {doneCount}/{checklist.length} complete
               </span>
             </div>
-            <div className="card-body flush">
-              {checklist.map((item, i) => (
-                <label
-                  className={'check-row' + (checks[i] ? ' on' : '')}
-                  key={i}
-                >
-                  <input
-                    type="checkbox"
-                    className="mealchk"
-                    checked={!!checks[i]}
-                    disabled={!canEdit}
-                    onChange={() => toggle(i)}
-                  />
-                  <span>{item}</span>
-                </label>
-              ))}
-            </div>
-            <div className="card-body" style={{ paddingTop: 12 }}>
-              <div className="prog-track">
-                <div
-                  className="prog-bar2"
-                  style={{ width: pct + '%' }}
-                ></div>
+            {checklistLoading ? (
+              <div className="card-body" style={{ padding: '20px 17px' }}>
+                <Loading label="Loading checklist\u2026" />
               </div>
-              <div
-                style={{
-                  fontSize: 11.5,
-                  color: 'var(--muted)',
-                  marginTop: 7,
-                  fontWeight: 600,
-                }}
-              >
-                {pct}% of opening tasks complete
-              </div>
-            </div>
+            ) : (
+              <>
+                <div className="card-body flush">
+                  {checklist.map((item, i) => (
+                    <label
+                      className={'check-row' + (checks[i] ? ' on' : '')}
+                      key={i}
+                    >
+                      <input
+                        type="checkbox"
+                        className="mealchk"
+                        checked={!!checks[i]}
+                        disabled={!canEdit}
+                        onChange={() => toggle(i)}
+                      />
+                      <span>{item}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="card-body" style={{ paddingTop: 12 }}>
+                  <div className="prog-track">
+                    <div
+                      className="prog-bar2"
+                      style={{ width: pct + '%' }}
+                    ></div>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 11.5,
+                      color: 'var(--muted)',
+                      marginTop: 7,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {pct}% of opening tasks complete
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="card">
@@ -267,11 +275,12 @@ export function DailyOps({
                     min="1"
                     max="28"
                     style={{ width: 96 }}
-                    value={data.cycleDay || ''}
+                    value={cycleDay}
                     disabled={!canEdit}
-                    onChange={(e) =>
-                      update((d) => ({ ...d, cycleDay: e.target.value }))
-                    }
+                    onChange={(e) => {
+                      setCycleDay(e.target.value);
+                      setSaved(false);
+                    }}
                   />
                 </label>
               </div>
@@ -281,12 +290,13 @@ export function DailyOps({
                   className="ipt sel"
                   rows={3}
                   style={{ resize: 'vertical' }}
-                  value={data.notes || ''}
+                  value={notes}
                   disabled={!canEdit}
                   placeholder="e.g. Hispanic Heritage Month \u2014 rice and beans, plantains\u2026"
-                  onChange={(e) =>
-                    update((d) => ({ ...d, notes: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    setNotes(e.target.value);
+                    setSaved(false);
+                  }}
                 ></textarea>
               </label>
             </div>
@@ -298,42 +308,48 @@ export function DailyOps({
             <div className="card-head">
               <h3>Today&rsquo;s meal schedule</h3>
             </div>
-            <div className="card-body flush tbl-wrap">
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>Meal</th>
-                    <th>Hours</th>
-                    <th>Lead monitor</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(DS.mealSchedule() as MealScheduleItem[]).map((s) => {
-                    const st = mealStatus(s);
-                    return (
-                      <tr key={s.meal}>
-                        <td style={{ fontWeight: 700 }}>{s.meal}</td>
-                        <td
-                          style={{
-                            color: 'var(--muted)',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {s.hours}
-                        </td>
-                        <td style={{ color: 'var(--muted)' }}>
-                          {s.monitor}
-                        </td>
-                        <td>
-                          <span className={'pill ' + st.cls}>{st.txt}</span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            {mealLoading ? (
+              <div className="card-body" style={{ padding: '20px 17px' }}>
+                <Loading label="Loading schedule\u2026" />
+              </div>
+            ) : (
+              <div className="card-body flush tbl-wrap">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th>Meal</th>
+                      <th>Hours</th>
+                      <th>Lead monitor</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mealSchedule.map((s) => {
+                      const st = mealStatus(s);
+                      return (
+                        <tr key={s.meal}>
+                          <td style={{ fontWeight: 700 }}>{s.meal}</td>
+                          <td
+                            style={{
+                              color: 'var(--muted)',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {s.hours}
+                          </td>
+                          <td style={{ color: 'var(--muted)' }}>
+                            {s.monitor}
+                          </td>
+                          <td>
+                            <span className={'pill ' + st.cls}>{st.txt}</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           <div className="card">
@@ -356,7 +372,7 @@ export function DailyOps({
                       value={iType}
                       onChange={(e) => setIType(e.target.value)}
                     >
-                      {(DS.incidentTypes() as string[]).map((t) => (
+                      {INCIDENT_TYPES.map((t) => (
                         <option key={t}>{t}</option>
                       ))}
                     </select>
@@ -422,19 +438,34 @@ export function DailyOps({
         </div>
       </div>
 
-      <SaveBar
-        saved={saved}
-        savedAt={savedAt}
-        onSave={() => save(user.display_name)}
-        canEdit={canEdit}
-        connected={connected}
-        note={
+      <div className="formbar">
+        <div className="formbar-l">
           <span className="formbar-meta">
             Daily operations \u00B7{' '}
             {new Date(date + 'T12:00:00').toLocaleDateString()}
           </span>
-        }
-      />
+          {!saved && canEdit && (
+            <span className="dirty-chip">
+              {I.alert({ style: { width: 12, height: 12 } })} Unsaved
+            </span>
+          )}
+          {saved && savedAt && (
+            <span className="saved-chip">
+              {I.check({ style: { width: 12, height: 12 } })}{' '}
+              Saved{' '}
+              {savedAt.toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </span>
+          )}
+        </div>
+        {canEdit && (
+          <button className="btn primary" onClick={handleSave} disabled={saved}>
+            {I.save({ style: { width: 15, height: 15 } })} Save
+          </button>
+        )}
+      </div>
     </div>
   );
 }
