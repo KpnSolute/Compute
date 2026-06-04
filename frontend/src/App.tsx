@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { User } from './lib/constants';
+import { clearBackendToken } from './lib/supabase';
 import { Login } from './components/Login';
 import { Portal } from './components/Portal';
 
@@ -32,6 +33,7 @@ function App() {
   }
 
   function handleLogout() {
+    clearBackendToken();
     const { realLogout } = window as any;
     if (realLogout) realLogout();
     setUser(null);

@@ -5,3 +5,5 @@ supabase
 pydantic
 pydantic-settings
 python-multipart
+PyJWT
+

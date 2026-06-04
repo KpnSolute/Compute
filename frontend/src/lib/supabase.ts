@@ -154,11 +154,139 @@ function _publicUser(p: any): User {
   };
 }
 
+/* ── BACKEND AUTHENTICATION ── */
+const BACKEND_TOKEN_KEY = 'mjc_backend_token';
+
+export interface BackendAuthResult {
+  ok: boolean;
+  token?: string;
+  user?: User;
+  error?: string;
+}
+
+export function getBackendToken(): string | null {
+  try {
+    return localStorage.getItem(BACKEND_TOKEN_KEY) || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+export function saveBackendToken(token: string) {
+  try {
+    localStorage.setItem(BACKEND_TOKEN_KEY, token);
+  } catch (e) {
+    console.warn('[Auth] Failed to save backend token:', e);
+  }
+}
+
+export function clearBackendToken() {
+  try {
+    localStorage.removeItem(BACKEND_TOKEN_KEY);
+  } catch (e) {}
+}
+
+/**
+ * Backend login for admin/manager using Supabase JWT token.
+ * This is called after Supabase Auth succeeds.
+ * @param accessToken - Supabase Auth access_token
+ * @returns { ok, token, user, error }
+ */
+export async function backendLogin(accessToken: string): Promise<BackendAuthResult> {
+  if (!accessToken) {
+    return { ok: false, error: 'No access token provided' };
+  }
+
+  const BASE = (import.meta.env as Record<string, string>).VITE_API_BASE || 'http://localhost:8000';
+  console.debug('[Auth] Sending token to backend /api/auth/login...');
+
+  try {
+    const response = await fetch(BASE + '/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ access_token: accessToken }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text().catch(() => response.statusText);
+      console.warn('[Auth] Backend login failed:', error);
+      try {
+        const json = JSON.parse(error);
+        return { ok: false, error: json.detail || 'Login failed' };
+      } catch {
+        return { ok: false, error: `Login failed: ${response.status}` };
+      }
+    }
+
+    const data = await response.json();
+    console.debug('[Auth] Backend login succeeded, token saved');
+    saveBackendToken(data.access_token);
+
+    return {
+      ok: true,
+      token: data.access_token,
+      user: _publicUser(data.user),
+    };
+  } catch (e: any) {
+    console.warn('[Auth] Backend login error:', e.message);
+    return { ok: false, error: e.message || 'Network error' };
+  }
+}
+
+/**
+ * Backend login for staff using username + PIN.
+ * @param username - Staff username
+ * @param pin - 4-digit PIN
+ * @returns { ok, token, user, error }
+ */
+export async function backendPinLogin(username: string, pin: string): Promise<BackendAuthResult> {
+  username = (username || '').trim().toLowerCase();
+  if (!username || !pin) {
+    return { ok: false, error: 'Username and PIN are required' };
+  }
+
+  const BASE = (import.meta.env as Record<string, string>).VITE_API_BASE || 'http://localhost:8000';
+  console.debug('[Auth] Sending PIN login to backend /api/auth/login...');
+
+  try {
+    const response = await fetch(BASE + '/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, pin }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text().catch(() => response.statusText);
+      console.warn('[Auth] Backend PIN login failed:', error);
+      try {
+        const json = JSON.parse(error);
+        return { ok: false, error: json.detail || 'PIN login failed' };
+      } catch {
+        return { ok: false, error: `PIN login failed: ${response.status}` };
+      }
+    }
+
+    const data = await response.json();
+    console.debug('[Auth] Backend PIN login succeeded, token saved');
+    saveBackendToken(data.access_token);
+
+    return {
+      ok: true,
+      token: data.access_token,
+      user: _publicUser(data.user),
+    };
+  } catch (e: any) {
+    console.warn('[Auth] Backend PIN login error:', e.message);
+    return { ok: false, error: e.message || 'Network error' };
+  }
+}
+
 export async function realLogout() {
   try {
     const db = getSupaClient();
     if (db) await db.auth.signOut();
   } catch (e) {}
+  clearBackendToken();
 }
 
 export function _logKey(key: string) {

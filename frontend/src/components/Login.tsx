@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { I, KpnMark } from '../lib/icons';
-import { isConnected, getSupaConfig, saveSupaConfig, clearSupaConfig, realLogin } from '../lib/supabase';
+import { isConnected, getSupaConfig, saveSupaConfig, clearSupaConfig, realLogin, backendLogin, backendPinLogin } from '../lib/supabase';
 import { mockLogin, type User } from '../lib/constants';
 
 interface SupaSetupModalProps {
@@ -188,15 +188,40 @@ export function Login({ onLogin, layout = 'split', onConnChange }: LoginProps) {
   async function doLogin(type: 'admin' | 'staff', pinVal?: string) {
     setBusy(true);
     setErr('');
-    const payload: any =
-      type === 'staff' ? { username, type: 'staff', pin: pinVal } : { username, type: 'admin', password };
-    let res;
+
+    let res: any;
+
     if (connected) {
-      res = await realLogin(payload);
+      // Real authentication with backend
+      if (type === 'staff') {
+        // Staff PIN login: send to backend
+        res = await backendPinLogin(username, pinVal || '');
+      } else {
+        // Admin/Manager: use Supabase Auth first, then backend
+        const supaRes = await realLogin({ username, type: 'admin', password });
+        if (!supaRes.ok) {
+          setBusy(false);
+          setErr(supaRes.error || 'Login failed');
+          return;
+        }
+
+        // Now send Supabase token to backend
+        if (supaRes.user?.access_token) {
+          res = await backendLogin(supaRes.user.access_token);
+        } else {
+          setBusy(false);
+          setErr('No Supabase token received');
+          return;
+        }
+      }
     } else {
+      // Demo mode
       await new Promise((r) => setTimeout(r, 420));
+      const payload: any =
+        type === 'staff' ? { username, type: 'staff', pin: pinVal } : { username, type: 'admin', password };
       res = mockLogin(payload);
     }
+
     setBusy(false);
     if (!res.ok) {
       setErr(res.error || 'Login failed');

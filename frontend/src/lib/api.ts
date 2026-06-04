@@ -1,8 +1,19 @@
+import { getBackendToken } from './supabase';
+
 const BASE = (import.meta.env as Record<string, string>).VITE_API_BASE || 'http://localhost:8000';
 
 async function req<T>(path: string, opts?: RequestInit): Promise<T> {
+  const token = getBackendToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+
+  // Add Authorization header if token exists
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+    console.debug('[API] Using backend token for request:', path);
+  }
+
   const res = await fetch(BASE + path, {
-    headers: { 'Content-Type': 'application/json', ...opts?.headers },
+    headers: { ...headers, ...opts?.headers },
     ...opts,
   });
   if (!res.ok) {
