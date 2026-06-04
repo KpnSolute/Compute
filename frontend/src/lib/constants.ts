@@ -59,10 +59,10 @@ export const NAV = [
   {
     group: 'Logs',
     items: [
-      { key: 'haccp', label: 'HACCP & Logs', icon: 'thermo', min: 10 },
-      { key: 'dailyops', label: 'Daily Operations', icon: 'checkSquare', min: 10 },
+      { key: 'haccp', label: 'HACCP & Logs', icon: 'thermo', min: 20 },
+      { key: 'dailyops', label: 'Daily Operations', icon: 'checkSquare', min: 20 },
       { key: 'inspection', label: 'Inspection Sheet', icon: 'clipboard', min: 20 },
-      { key: 'snackbar', label: 'Snack Bar', icon: 'coffee', min: 10 },
+      { key: 'snackbar', label: 'Snack Bar', icon: 'coffee', min: 20 },
     ],
   },
   {

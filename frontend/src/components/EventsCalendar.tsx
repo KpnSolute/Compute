@@ -4,6 +4,8 @@ import { ROLE_LEVEL, MONTHS } from '../lib/constants';
 import { I } from '../lib/icons';
 import { api } from '../lib/api';
 
+const t = (msg: string) => (window as any).toast?.(msg);
+
 const EV_DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 const CAT_META: Record<string, { bg: string; color: string; dot: string; label: string }> = {
@@ -276,16 +278,14 @@ export function EventsCalendar({ user }: { user: User }) {
           CAT_META={CAT_META} defaultMonth={monthStr} onClose={() => setAdding(false)}
           onAdd={async (ev) => {
             try {
-              const created = await api.createEvent({
-                title: ev.title,
-                date: ev.date,
-                cat: ev.cat,
-                theme: ev.theme,
-                description: ev.desc,
-              });
-              setEvents((es) => [...es, { ...created, desc: created.description }]);
+              await api.stageChange(
+                'event_create', 'event', ev.title,
+                { title: ev.title, date: ev.date, cat: ev.cat, theme: ev.theme, description: ev.desc },
+                `New event: ${ev.title}`
+              );
+              t('Event submitted for review');
             } catch {
-              setEvents((es) => [...es, { ...ev, id: Date.now() }]);
+              t('Failed to submit event');
             }
             setAdding(false);
           }}

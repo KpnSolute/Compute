@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-06-04 — Watch Commander Team Audit
+### Brutally Honest Status
+- **VERIFIED WORKING (against live Supabase MCP):** The schema fiction is largely DEAD. Gemini created the previously-missing tables — `events` (29 live rows), `haccp_logs`, `daily_operations_logs`, `opening_checklist_items` (8), `servsafe_certifications` (7), `incident_logs`, `meal_periods` (5). Migration `003_staging_gateway.sql` (adds `operation` + `full_payload` to `staging_entries`) is ALREADY APPLIED live — columns confirmed present. `data.py` endpoints (opening-checklist, servsafe, meal-periods, incidents, invoices, dashboard/stats, archives) target real tables. The event-staging path is column-valid: frontend sends `{title,date,cat,theme,description}`, all real `events` columns.
+- **BROKEN / UNVERIFIED:**
+  1. **LATENT BUG (schema-invalid, not yet reachable): `backend/staging/dispatch.py::dispatch_user_create` writes a `password` field to `user_profiles` — that column DOES NOT EXIST. The insert is schema-invalid and will fail the moment a `user_create` op is ever staged.** Verified: NO frontend component currently stages `user_create`/`user_update` (only `inventory_save` and `event_create` are wired). So it is a landmine, not an active failure — but it must be fixed before the Users UI wires to it. `dispatch_user_update` has the SAME flaw (passthrough sends `password` if present). This is Issue I-3 resurfacing. GEMINI fixes both (remove `password`) — backend data logic is Gemini's lane, not Claude's.
+  2. The staging gateway (`backend/staging/`), `dispatch.py`, and the `sourcectrl.py`/`SourceControl.tsx`/`api.ts` changes are **UNCOMMITTED and UNVERIFIED** — no build or runtime test was run this session. Do not treat as working until verified.
+  3. CHANGELOG version ordering is wrong below this entry: [1.4.0] and [1.3.5] sit BELOW [1.3.4] dated the same day. Pre-existing; flagged, NOT reordered (history is append-only per AGENT_ALIGNMENT §5). Going forward keep newest on top.
+  4. `dispatch_event_create` does an unconstrained insert (raw payload minus nulls). Safe for the CURRENT frontend payload (`title,date,cat,theme,description` are all real columns) but fragile — any new key the frontend adds that isn't an `events` column will 400. Gemini to whitelist columns.
+- **ALSO VERIFIED WORKING:** `data.py::get_dashboard_stats` references `live_inventory` — confirmed it EXISTS as a live relation/view. That endpoint is valid, not broken.
+- **NEXT PRIORITY (in order):** (1) Verify the uncommitted staging/sourcectrl work with `tsc --noEmit` + `ruff check backend/` + a live smoke test of the wired ops (`inventory_save`, `event_create`), then commit with a descriptive message (NOT `Update X.X.X`). (2) GEMINI fixes the `dispatch_user_create`/`dispatch_user_update` `password` flaw before the Users UI wires `user_create` — latent now, guaranteed failure once reachable. (3) THEN proceed with API reorganization before returning to the portal — reorg is sensible housekeeping (routes are domain-separated, not duplicated) but it is LOWER priority than shipping/verifying the staging gateway. Greenlit, not urgent.
+
+### Governance (Watch Commander)
+- **Reconciled `AGENT_ALIGNMENT.md` §0/§4/§7 to live schema** — `events`/`haccp_logs`/`daily_operations_logs` and the new ops tables documented as REAL; I-1 marked partially resolved; I-3 marked still-critical with the new dispatch.py instance called out.
+- **Reinforced CHANGELOG-before-close rule** in `AGENT_ALIGNMENT.md` §8 and `OPENCODE.md` §5 Protocol — OpenCode's repeated failure to log is now an explicit named violation.
+
 ## [1.3.4] - 2026-06-03
 ### System Updates (Dr. ENV — Docker / Render Single-Service)
 - **Dockerfile rewritten as multi-stage build:** Stage 1 (`node:20-slim`) installs frontend deps and runs `vite build` with `VITE_API_BASE=/api` baked in via ARG. Stage 2 (`python:3.13-slim`) installs backend deps and copies the compiled `frontend/dist` into the image. Single service, no separate Render static-site config needed.

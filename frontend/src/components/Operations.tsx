@@ -314,7 +314,8 @@ export function MonthlyInventory({
         par: 0,
         category: r.cat,
       }));
-      await api.saveInventory({ items, metadata: { period: `${MONTHS[m]} ${y}` } });
+      const payload = { items, month: m + 1, year: y, notes: `${MONTHS[m]} ${y}` };
+      await api.stageChange('inventory_save', 'inventory', 'batch', payload, `Monthly inventory \u2014 ${MONTHS[m]} ${y}`);
       setSaved(true);
       setSavedAt(new Date());
     } catch {

@@ -68,6 +68,8 @@ export interface StagingEntry {
   review_note?: string | null;
   created_at: string;
   expires_at?: string | null;
+  operation?: string;
+  full_payload?: Record<string, unknown>;
 }
 
 export type EntityType = 'inventory' | 'menu' | 'user' | 'compliance' | 'event' | 'ops';
@@ -80,6 +82,8 @@ export interface SubmitStagingBody {
   new_value: string;
   change_type: string;
   metadata?: Record<string, unknown>;
+  operation?: string;
+  full_payload?: Record<string, unknown>;
 }
 
 export interface ApproveCommitBody {
@@ -260,6 +264,19 @@ export const api = {
 
   async submitStaging(body: SubmitStagingBody): Promise<StagingEntry> {
     return req('/api/staging', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  async stageChange(operation: string, entityType: EntityType, entityId: string, payload: any, summary: string): Promise<StagingEntry> {
+    return this.submitStaging({
+      entity_type: entityType,
+      entity_id: entityId,
+      field_name: operation,
+      change_type: operation,
+      new_value: summary,
+      metadata: { summary },
+      operation,
+      full_payload: payload,
+    });
   },
 
   async approveCommit(body: ApproveCommitBody): Promise<Commit> {

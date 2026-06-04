@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from supabase import create_client
 from dotenv import load_dotenv
 from typing import Optional
+from backend.staging.dispatch import replay
 
 load_dotenv()
 
@@ -35,10 +36,12 @@ class SubmitStagingBody(BaseModel):
     entity_id: str
     field_name: str
     old_value: Optional[str] = None
-    new_value: str
+    new_value: str = ''
     change_type: str
     metadata: Optional[dict] = None
     summary: Optional[str] = None
+    operation: Optional[str] = None
+    full_payload: Optional[dict] = None
 
 
 class ApproveCommitBody(BaseModel):
@@ -230,6 +233,8 @@ async def submit_staging(body: SubmitStagingBody):
             "status": "pending",
             "submitted_by": author_id,
             "source": "dashboard",
+            "operation": body.operation,
+            "full_payload": body.full_payload,
         }
         r = _client().table("staging_entries").insert(row).execute()
         if not r.data:
@@ -249,7 +254,31 @@ async def approve_commit(body: ApproveCommitBody):
         author_id = _resolve_author(body.author_id)
         now = datetime.now(timezone.utc).isoformat()
 
-        # 1 — create commit row
+        # 1 — fetch staging entries
+        staging_r = (
+            _client()
+            .table("staging_entries")
+            .select("*")
+            .in_("entry_id", body.staging_ids)
+            .execute()
+        )
+        entries = staging_r.data or []
+
+        # 2 — replay operations (entries with an operation key get dispatched to live tables)
+        replay_results = []
+        for entry in entries:
+            op = entry.get("operation")
+            fp = entry.get("full_payload")
+            if op and fp:
+                result = replay(op, fp)
+                replay_results.append({"entry_id": entry["entry_id"], "operation": op, "result": result})
+                if result.get("error"):
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Replay failed for {op}: {result['error']}",
+                    )
+
+        # 3 — create commit row
         commit_r = (
             _client()
             .table("commits")
@@ -271,18 +300,9 @@ async def approve_commit(body: ApproveCommitBody):
         commit = commit_r.data[0]
         commit_id = commit["commit_id"]
 
-        # 2 — fetch staging entries
-        staging_r = (
-            _client()
-            .table("staging_entries")
-            .select("*")
-            .in_("entry_id", body.staging_ids)
-            .execute()
-        )
-
-        # 3 — insert commit_changes for each staging entry
+        # 4 — insert commit_changes for each staging entry
         changes = []
-        for entry in staging_r.data or []:
+        for entry in entries:
             changes.append(
                 {
                     "commit_id": commit_id,
@@ -293,7 +313,6 @@ async def approve_commit(body: ApproveCommitBody):
                     "new_value_text": entry.get("new_value_text"),
                     "change_type": entry.get("change_type", "update"),
                     "metadata": entry.get("metadata", {}),
-                    # Legacy inventory columns — set defaults so NOT NULL isn't violated if old rows exist
                     "field": entry.get("field_name", ""),
                     "action": entry.get("change_type", "update"),
                 }
@@ -301,7 +320,7 @@ async def approve_commit(body: ApproveCommitBody):
         if changes:
             _client().table("commit_changes").insert(changes).execute()
 
-        # 4 — mark staging entries approved
+        # 5 — mark staging entries approved
         _client().table("staging_entries").update(
             {
                 "status": "approved",
@@ -310,7 +329,7 @@ async def approve_commit(body: ApproveCommitBody):
             }
         ).in_("entry_id", body.staging_ids).execute()
 
-        # 5 — enqueue github sync
+        # 6 — enqueue github sync
         _client().table("github_sync_queue").insert(
             {
                 "operation": "push_snapshot",
@@ -324,7 +343,11 @@ async def approve_commit(body: ApproveCommitBody):
             }
         ).execute()
 
-        return {**commit, "change_count": len(changes)}
+        return {
+            **commit,
+            "change_count": len(changes),
+            "replayed": len(replay_results),
+        }
     except HTTPException:
         raise
     except Exception as e:

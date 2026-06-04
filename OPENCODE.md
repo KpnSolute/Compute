@@ -50,7 +50,7 @@ Likewise, the frontend does not call the backend at all. Do not wire up a random
 
 - Read `AGENT_ALIGNMENT.md` → this file, every session.
 - Confirm the task is mechanical and in-scope. If it needs design judgment, route it (Gemini=data/schema/backend, Claude=frontend/API) and stop.
-- Log what you actually changed in `CHANGELOG.md`.
+- **MANDATORY — LOG BEFORE YOU CLOSE.** After every task, BEFORE you report done or close out, append a concise entry to `CHANGELOG.md` describing what you actually changed. No exceptions. A finished task with no CHANGELOG entry is a protocol violation the Watch Commander will catch and flag against you. This is your single most-repeated failure — fix it.
 - Never build on top of the §7 critical issues.
 
 ---

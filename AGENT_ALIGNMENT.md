@@ -4,15 +4,15 @@
 This file overrides any conflicting statement in `CLAUDE.md`, `GEMINI.md`, `OPENCODE.md`, or `AGENTS.md`.
 If you find a contradiction between this file and another doc, **this file wins** and you must flag the other doc for correction.
 
-Last aligned: 2026-06-03 (Watch Commander full audit).
+Last aligned: 2026-06-04 (Watch Commander team audit — live schema reconciled).
 
 ---
 
 ## 0. THE ONE THING YOU MUST UNDERSTAND FIRST
 
-The committed backend and frontend code was written against an **imaginary database schema that does not exist** in the live Supabase project. The live database is real, large, and normalized. The code is fiction. **Before writing any data code, read Section 4 (Real Data Model) and verify against live Supabase via MCP. Do NOT trust table/column names found in existing `.py` or `.ts` files — they are wrong.**
+The original committed code was written against an **imaginary database schema**. As of 2026-06-04 this is **partially reconciled**: Gemini created the missing `events`, `haccp_logs`, `daily_operations_logs` tables (and others) so the newer route/staging code now targets REAL tables. The live database is real, large, and normalized. **Before writing any data code, read Section 4 (Real Data Model) and verify against live Supabase via MCP. Do NOT assume table/column names are correct just because they appear in `.py`/`.ts` files — verify.** Known still-broken spots: `user_profiles` has NO `password` column (I-3), and `cycle_menu`/`inventory_sync` names are still fiction.
 
-See Section 7 (Known Critical Issues) for the full list.
+See Section 7 (Known Critical Issues) for the full list and current status.
 
 ---
 
@@ -102,12 +102,16 @@ This is the **authoritative schema**. 38 tables, RLS enabled on all. Key tables 
 - **`monthly_snapshots`** (76 rows): `id, month, year, grand_total, category_totals, item_count, reorder_count, preset, data, wk1_total..wk4_total, starting_total, saved_by, saved_at`
 - **`inventory_master`** (316 rows) / **`item_barcodes`** (316) / **`barcodes`** (409): barcode + master item layers.
 - **`vendors`** (3) · **`invoices`** (7) · **`invoice_items`** (64): purchasing/invoicing.
-- **`menu_cycles`** (1) + **`menu_entries`** (0): cycle menu. `menu_entries`: `cycle_id, week_number, day_of_week, meal_type, items, sides, is_vegetarian, sort_order`. NOTE: the `events` and `cycle_menu` tables the code expects **do not exist**; events have no live table at all.
-- **Source-control layer:** `commits` (76), `commit_changes` (5460), `inventory_versions` (76), `staging_entries` (0), `pending_changes` (0), `github_sync_queue` (0).
-- **Ops:** `centers` (1), `month_status` (1), `month_tabs` (1), `app_settings` (6), `audit_log` (0).
-- **Empty/scaffolded:** `budgets`, `weekly_counts`, `inventory_transactions`, `reorder_alerts`, `email_templates`, `email_log`, `documents`, `qr_codes`, `staging_area`, `transaction_history`, `uploads`, `month_tab_items`.
+- **`menu_cycles`** (1) + **`menu_entries`** (0): cycle menu. `menu_entries`: `cycle_id, week_number, day_of_week, meal_type, items, sides, is_vegetarian, sort_order`.
+- **`events`** (29 rows — CREATED since the 2026-06-03 audit): `id, cat, title, date, theme, description, suggested_menu, status, created_at, updated_at`. NOTE the category column is **`cat`**, not `category`.
+- **`haccp_logs`** (0 rows — CREATED): `id, location, temperature, unit, timestamp, checked_by, notes, created_at`.
+- **`daily_operations_logs`** (0 rows — CREATED): `id, entry_type, title, description, severity, data, created_by, created_at`.
+- **Other tables CREATED since 2026-06-03:** `opening_checklist_items` (8), `servsafe_certifications` (7), `incident_logs` (0), `meal_periods` (5), `archive_import_log` (0).
+- **Source-control layer:** `commits` (76), `commit_changes` (5460), `inventory_versions` (76), `staging_entries` (0 — now has `operation` + `full_payload` columns added by migration `003_staging_gateway.sql`), `github_sync_queue` (0).
+- **Ops:** `centers` (1), `month_status` (1), `app_settings` (6), `audit_log` (0).
+- **Empty/scaffolded:** `weekly_counts`, `inventory_transactions`, `reorder_alerts`, `email_templates`, `email_log`, `documents`, `qr_codes`, `uploads`.
 
-**There is NO `events` table, NO `cycle_menu` table, NO `inventory_sync` table, NO `haccp_logs` table in live Supabase.** Any code referencing those names is operating on fiction.
+**`events`, `haccp_logs`, and `daily_operations_logs` NOW EXIST (created by Gemini between 2026-06-03 and 2026-06-04) and are verified against live Supabase.** The schema fiction (I-1) is largely resolved for these tables. STILL fiction: `cycle_menu`, `inventory_sync` (use `menu_entries` / `inventory_items` instead). And `user_profiles` STILL has NO `password` column — see I-3, which is NOT resolved.
 
 ---
 
@@ -120,6 +124,8 @@ This is the **authoritative schema**. 38 tables, RLS enabled on all. Key tables 
 | `frontend/src/lib/services.ts`, `constants.ts`, `icons.tsx` | **Claude** | read only |
 | `frontend/src/lib/supabase.ts` (data access) | **Gemini** (schema), **Claude** (auth/UI glue) | coordinate |
 | `backend/routes/**` data logic | **Gemini** | Claude reviews route shape |
+| `backend/staging/**` (gateway, `dispatch.py`) | **Gemini** (data logic) | Claude reviews op contract shape |
+| `backend/migrations/**` | **Gemini** (schema/DDL) | nobody else writes |
 | `backend/routes/auth.py` | **Gemini** (must align to real auth model) | — |
 | `backend/main.py` (app wiring/CORS) | **Claude** | Gemini reviews |
 | `backend/seed_data.py` | **Gemini** | — |
@@ -159,9 +165,9 @@ This is the **authoritative schema**. 38 tables, RLS enabled on all. Key tables 
 
 ## 7. KNOWN CRITICAL ISSUES (root causes of the consistency problem)
 
-- **I-1 — Schema fiction (SEVERITY: CRITICAL).** All backend routes + `seed_data.py` + parts of `supabase.ts` target tables that don't exist (`inventory_sync`, `cycle_menu`, `events`, `haccp_logs`). Live DB has a different 38-table normalized schema. **Root cause:** code was written from the `templates/portal/*.jsx` demo data shape, never reconciled against the real Supabase project.
+- **I-1 — Schema fiction (SEVERITY: PARTIALLY RESOLVED 2026-06-04, was CRITICAL).** Gemini created `events` (29 rows), `haccp_logs`, `daily_operations_logs`, `opening_checklist_items`, `servsafe_certifications`, `incident_logs`, `meal_periods` — the newer `data.py`/`sourcectrl.py`/`staging/dispatch.py` code targets REAL tables now, verified via MCP. **STILL fiction:** `inventory_sync` and `cycle_menu` table names (use `inventory_items` / `menu_entries`). Old `seed_data.py` may still reference dead names — Gemini to audit. **Root cause:** code was written from `templates/portal/*.jsx` demo shape; schema has since been built to match.
 - **I-2 — Frontend/backend disconnect (CRITICAL).** Frontend never calls the backend. Two competing data layers exist. Section 3 decision required.
-- **I-3 — Auth model conflict (CRITICAL).** Backend `auth.py` expects a `password` column on `user_profiles` (doesn't exist) and a custom in-memory session store. Frontend `supabase.ts` uses Supabase Auth for admins + `pin` for staff. These are incompatible. The frontend model matches the real schema; the backend does not.
+- **I-3 — Auth model conflict (STILL CRITICAL, NEW INSTANCE 2026-06-04).** `user_profiles` has NO `password` column (verified: columns are id, username, display_name, role, pin, active, created_at, updated_at, last_name, email, last_login). Real model = Supabase Auth for admin/manager + `pin` for staff. **NEW VIOLATION:** `backend/staging/dispatch.py::dispatch_user_create` writes a `password` field to `user_profiles` — this insert WILL FAIL at runtime whenever a `user_create` op replays. Gemini must remove the `password` key. The old `auth.py` password assumption may also linger — Gemini to verify.
 - **I-4 — HACCP logs have no persistence layer (HIGH).** Frontend writes HACCP data to localStorage `mjc_log_*` and optionally a `haccp_logs` Supabase table that **does not exist**. Data is effectively browser-local and lost on cache clear.
 - **I-5 — Styling contract violated (MEDIUM).** Docs say "Tailwind only" but the app ships a large bespoke `index.css`. Pick one story.
 - **I-6 — Changelog vs git history mismatch (MEDIUM).** `CHANGELOG.md` versions (1.0.x → 1.3.0) do not line up with git tags (`Update 1.1.0` … `1.2.3`). Changelog claims "1.3.0 fully operational" while the build cannot reach live data. Commits are opaque `Update X.X.X`. The changelog is aspirational marketing, not an accurate log.
@@ -177,7 +183,7 @@ Every agent, every session:
 1. **Read this file first.** Then read the relevant agent doc (`CLAUDE.md` / `GEMINI.md` / `OPENCODE.md`).
 2. **Verify before assuming.** Schema claims in code are presumed wrong (Section 0). Confirm tables/columns against live Supabase via MCP before writing data code.
 3. **Stay in your lane** (Section 5). If a task crosses ownership, name the other agent and coordinate; do not silently cross.
-4. **Log accurately.** Append to `CHANGELOG.md` what you ACTUALLY changed and whether it works end-to-end. Do not write aspirational "fully operational" claims that aren't verified by a passing build against live data.
+4. **Log accurately — MANDATORY BEFORE CLOSING ANY TASK.** Append to `CHANGELOG.md` what you ACTUALLY changed and whether it works end-to-end, BEFORE you consider the task done. This applies to EVERY agent including **OpenCode** — a completed task with no CHANGELOG entry is a protocol violation. Do not write aspirational "fully operational" claims that aren't verified by a passing build against live data. If you forget and the Watch Commander finds an unlogged change, that is on you.
 5. **Flag, don't paper over.** If you hit one of the Section 7 issues, surface it to the user. Do not build new features on top of broken foundations.
 
 ---

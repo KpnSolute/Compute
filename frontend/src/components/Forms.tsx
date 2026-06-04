@@ -254,7 +254,7 @@ export function MealLog({ user }: FormProps) {
   function addR() { update((d: any) => ({ ...d, rows: [...d.rows, blankRow()] })); }
   function delR(id: string) { update((d: any) => ({ ...d, rows: d.rows.filter((r: any) => r.id !== id) })); }
   const counts = MEAL_COLS.reduce((a: Record<string, number>, c) => { a[c] = rows.filter((r: any) => r[c[0]]).length; return a; }, {});
-  const mealTypes = DS.mealTypes();
+  const mealTypes = DS.syncMealTypes();
   const paidSet = new Set(mealTypes.filter((t: any) => t.paid).map((t: any) => t.key));
   const signedRows = rows.filter((r: any) => r.B || r.L || r.D);
   const paidCount = signedRows.filter((r: any) => paidSet.has(r.type)).length;

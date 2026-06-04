@@ -1,0 +1,168 @@
+import os
+from datetime import datetime, timezone
+from supabase import create_client
+
+_svc = None
+
+def _client():
+    global _svc
+    if _svc is None:
+        url = os.getenv('SUPABASE_URL')
+        key = os.getenv('SUPABASE_SERVICE_KEY')
+        if not url or not key:
+            raise RuntimeError('SUPABASE_URL and SUPABASE_SERVICE_KEY must be set.')
+        _svc = create_client(url, key)
+    return _svc
+
+def dispatch_inventory_save(payload: dict) -> dict:
+    month = payload.get('month') or datetime.now().month
+    year = payload.get('year') or datetime.now().year
+    items = payload.get('items', [])
+    notes = payload.get('notes', '')
+    if not items:
+        return {'applied': 0, 'error': 'No items in payload'}
+
+    sup = _client()
+    cat_r = sup.table('inventory_categories').select('id,name').execute()
+    cat_map = {r['name']: r['id'] for r in (cat_r.data or [])}
+
+    count = 0
+    for item in items:
+        cat_id = cat_map.get(item.get('category', ''))
+        if not cat_id:
+            continue
+        inv = sup.table('inventory_items').upsert({
+            'sku': item['sku'],
+            'description': item.get('desc', ''),
+            'category_id': cat_id,
+            'unit_price': item.get('price', 0.0),
+            'par_level': item.get('par', 0),
+            'on_hand': item.get('onHand', 0),
+        }, on_conflict='sku').execute()
+        item_row = inv.data[0] if inv.data else None
+        if not item_row:
+            continue
+        sup.table('monthly_inventory').upsert({
+            'item_id': item_row['id'],
+            'month': month,
+            'year': year,
+            'on_hand': item.get('onHand', 0),
+            'unit_price': item.get('price', 0.0),
+            'w1_received': item.get('w1r', 0),
+            'w2_received': item.get('w2r', 0),
+            'w3_received': item.get('w3r', 0),
+            'w4_received': item.get('w4r', 0),
+            'w1_issued': item.get('w1i', 0),
+            'w2_issued': item.get('w2i', 0),
+            'w3_issued': item.get('w3i', 0),
+            'w4_issued': item.get('w4i', 0),
+        }, on_conflict='item_id,month,year').execute()
+        count += 1
+    return {'applied': count, 'month': month, 'year': year, 'notes': notes}
+
+def dispatch_menu_save(payload: dict) -> dict:
+    day = payload.get('day')
+    data = payload.get('data', {})
+    if not day or not data:
+        return {'applied': 0, 'error': 'Missing day or data'}
+
+    sup = _client()
+    cycle_r = sup.table('menu_cycles').select('id').eq('active', True).limit(1).execute()
+    if not cycle_r.data:
+        return {'applied': 0, 'error': 'No active cycle found'}
+    cycle_id = cycle_r.data[0]['id']
+
+    sup.table('menu_entries').delete().eq('day_of_week', day).eq('cycle_id', cycle_id).execute()
+
+    inserts = []
+    sort_order = 0
+    for meal_type, items in data.items():
+        inserts.append({
+            'cycle_id': cycle_id,
+            'week_number': 1,
+            'day_of_week': day,
+            'meal_type': meal_type,
+            'items': items if isinstance(items, list) else [],
+            'sort_order': sort_order,
+            'created_at': datetime.now(timezone.utc).isoformat(),
+            'updated_at': datetime.now(timezone.utc).isoformat(),
+        })
+        sort_order += 1
+
+    if inserts:
+        sup.table('menu_entries').insert(inserts).execute()
+    return {'applied': len(inserts), 'day': day, 'cycle_id': cycle_id}
+
+def dispatch_event_create(payload: dict) -> dict:
+    sup = _client()
+    clean = {k: v for k, v in payload.items() if v is not None}
+    r = sup.table('events').insert(clean).execute()
+    return {'applied': 1, 'event': r.data[0] if r.data else None}
+
+def dispatch_haccp_save(payload: dict) -> dict:
+    sup = _client()
+    row = {
+        'location': payload.get('location', ''),
+        'temperature': payload.get('temperature', 0),
+        'unit': payload.get('unit', 'F'),
+        'timestamp': payload.get('timestamp', datetime.now(timezone.utc).isoformat()),
+        'checked_by': payload.get('checked_by', ''),
+        'notes': payload.get('notes', ''),
+        'created_at': datetime.now(timezone.utc).isoformat(),
+    }
+    r = sup.table('haccp_logs').insert(row).execute()
+    return {'applied': 1, 'log': r.data[0] if r.data else None}
+
+def dispatch_daily_log_save(payload: dict) -> dict:
+    sup = _client()
+    row = {
+        'entry_type': payload.get('entry_type', ''),
+        'title': payload.get('title', ''),
+        'description': payload.get('description', ''),
+        'severity': payload.get('severity', 'info'),
+        'data': payload.get('data', ''),
+        'created_by': payload.get('created_by', ''),
+        'created_at': datetime.now(timezone.utc).isoformat(),
+    }
+    r = sup.table('daily_operations_logs').insert(row).execute()
+    return {'applied': 1, 'log': r.data[0] if r.data else None}
+
+def dispatch_user_create(payload: dict) -> dict:
+    sup = _client()
+    row = {
+        'username': payload.get('username', ''),
+        'display_name': payload.get('display_name', ''),
+        'last_name': payload.get('last_name', ''),
+        'role': payload.get('role', 'staff'),
+        'pin': payload.get('pin'),
+        'password': payload.get('password'),
+        'active': payload.get('active', True),
+        'email': payload.get('email', ''),
+    }
+    r = sup.table('user_profiles').insert(row).execute()
+    return {'applied': 1, 'user': r.data[0] if r.data else None}
+
+def dispatch_user_update(payload: dict) -> dict:
+    sup = _client()
+    user_id = payload.get('user_id')
+    if not user_id:
+        return {'applied': 0, 'error': 'Missing user_id'}
+    fields = {k: v for k, v in payload.items() if k != 'user_id' and v is not None}
+    r = sup.table('user_profiles').update(fields).eq('id', user_id).execute()
+    return {'applied': 1, 'user': r.data[0] if r.data else None}
+
+REGISTRY = {
+    'inventory_save': dispatch_inventory_save,
+    'menu_save': dispatch_menu_save,
+    'event_create': dispatch_event_create,
+    'haccp_save': dispatch_haccp_save,
+    'daily_log_save': dispatch_daily_log_save,
+    'user_create': dispatch_user_create,
+    'user_update': dispatch_user_update,
+}
+
+def replay(operation: str, full_payload: dict) -> dict:
+    handler = REGISTRY.get(operation)
+    if not handler:
+        return {'applied': 0, 'error': f'Unknown operation: {operation}'}
+    return handler(full_payload)
