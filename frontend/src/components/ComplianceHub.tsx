@@ -295,8 +295,8 @@ function TemperatureLog({
               ? I.snow({ style: { width: 13, height: 13 } })
               : I.thermo({ style: { width: 13, height: 13 } })}
             {app.type === 'freezer'
-              ? 'Freezer \u00B7 0\u00B0F or lower'
-              : 'Refrigerator \u00B7 41\u00B0F or lower'}
+              ? 'Freezer · 0\u00B0F or lower'
+              : 'Refrigerator · 41\u00B0F or lower'}
           </span>
         </div>
         <MonthNav period={period} setPeriod={setPeriod} />
@@ -385,7 +385,7 @@ function TemperatureLog({
         canEdit={canEdit}
         note={
           <span className="formbar-meta">
-            {app.name} \u00B7 {MONTHS[m]} {y}
+            {app.name} · {MONTHS[m]} {y}
           </span>
         }
       />
@@ -522,7 +522,7 @@ function SanitizerLog({
         canEdit={canEdit}
         note={
           <span className="formbar-meta">
-            Sanitizer \u00B7 {MONTHS[m]} {y}
+            Sanitizer · {MONTHS[m]} {y}
           </span>
         }
       />
@@ -704,7 +704,7 @@ function TastePanel({
                         <option value="">\u2014</option>
                         {TASTE_CODES.map(c => (
                           <option key={c.code} value={c.code}>
-                            {c.code} \u00B7 {c.label.split(' \u2014')[0]}
+                            {c.code} · {c.label.split(' \u2014')[0]}
                           </option>
                         ))}
                       </select>
@@ -743,7 +743,7 @@ function TastePanel({
         canEdit={canEdit}
         note={
           <span className="formbar-meta">
-            Taste panel \u00B7 {new Date().toLocaleDateString()}
+            Taste panel · {new Date().toLocaleDateString()}
           </span>
         }
       />

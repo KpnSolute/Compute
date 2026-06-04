@@ -133,7 +133,7 @@ export function MachineLog({ user, period, setPeriod }: PeriodFormProps) {
               {MACHINES.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
             </select></label>
           <span className={'thresh-chip ' + (machine.type === 'high' ? 'rfg' : 'frz')}>
-            {machine.type === 'high' ? 'High-temp \u00B7 see data plate' : 'Low-temp \u00B7 chemical sanitizer 50\u2013100 ppm'} \u00B7 Flow 15\u201325 psi
+            {machine.type === 'high' ? 'High-temp · see data plate' : 'Low-temp · chemical sanitizer 50\u2013100 ppm'} · Flow 15\u201325 psi
           </span>
         </div>
         <MonthNav period={period} setPeriod={setPeriod} />
@@ -168,7 +168,7 @@ export function MachineLog({ user, period, setPeriod }: PeriodFormProps) {
         {canEdit && <div style={{ padding: '10px 14px' }}><button className="btn-addrow" onClick={addR}>{I.plus({ style: { width: 13, height: 13 } })} Add reading</button></div>}
       </div>
       <SaveBar saved={saved} savedAt={savedAt} onSave={() => save(user.display_name)} canEdit={canEdit}
-        note={<span className="formbar-meta">{machine.name} \u00B7 {MONTHS[m]} {y}</span>} />
+        note={<span className="formbar-meta">{machine.name} · {MONTHS[m]} {y}</span>} />
     </div>
   );
 }
@@ -190,7 +190,7 @@ export function CoolingLog({ user, period, setPeriod }: PeriodFormProps) {
 
   return (
     <div>
-      <div className="form-toolbar"><div className="ft-l"><span className="thresh-chip frz">{I.snow({ style: { width: 13, height: 13 } })} 140\u00B0F \u2192 70\u00B0F \u2264 2h \u2192 40\u00B0F \u2264 6h total \u00B7 Reheat to 165\u00B0F \u2264 2h</span></div>
+      <div className="form-toolbar"><div className="ft-l"><span className="thresh-chip frz">{I.snow({ style: { width: 13, height: 13 } })} 140\u00B0F \u2192 70\u00B0F \u2264 2h \u2192 40\u00B0F \u2264 6h total · Reheat to 165\u00B0F \u2264 2h</span></div>
         <MonthNav period={period} setPeriod={setPeriod} /></div>
       <div className="form-note">Time/temperature log for potentially hazardous foods. Cool from 140\u00B0F to 70\u00B0F within 2 hours, then to 40\u00B0F within an additional 4 hours. Reheat for hot holding rapidly to 165\u00B0F for 15 seconds.</div>
       <div className="card" style={{ marginBottom: 14 }}>
@@ -234,7 +234,7 @@ export function CoolingLog({ user, period, setPeriod }: PeriodFormProps) {
         {canEdit && <div style={{ padding: '10px 14px' }}><button className="btn-addrow" onClick={addR}>{I.plus({ style: { width: 13, height: 13 } })} Add product</button></div>}
       </div>
       <SaveBar saved={saved} savedAt={savedAt} onSave={() => save(user.display_name)} canEdit={canEdit}
-        note={<span className="formbar-meta">Cooling &amp; Reheating \u00B7 {MONTHS[m]} {y}</span>} />
+        note={<span className="formbar-meta">Cooling &amp; Reheating · {MONTHS[m]} {y}</span>} />
     </div>
   );
 }
@@ -319,7 +319,7 @@ export function MealLog({ user }: FormProps) {
         </div>
       </div>
       <SaveBar saved={saved} savedAt={savedAt} onSave={handleSave} canEdit={canEdit}
-        note={<span className="formbar-meta">Meal log \u00B7 {new Date(date).toLocaleDateString()}</span>} />
+        note={<span className="formbar-meta">Meal log · {new Date(date).toLocaleDateString()}</span>} />
     </div>
   );
 }
@@ -385,7 +385,7 @@ export function InspectionSheet({ user }: FormProps) {
         </div>
       </div>
       <SaveBar saved={saved} savedAt={savedAt} onSave={handleSave} canEdit={canEdit}
-        note={<span className="formbar-meta">Inspection \u00B7 {new Date(data.date || today).toLocaleDateString()}</span>} />
+        note={<span className="formbar-meta">Inspection · {new Date(data.date || today).toLocaleDateString()}</span>} />
     </div>
   );
 }

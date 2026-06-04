@@ -208,7 +208,7 @@ export function SnackBar({ user }: { user: User }) {
       <div className="formbar">
         {<div className="formbar-note">
           <span className="formbar-meta">
-            Snack bar \u00B7 {new Date(date + 'T12:00:00').toLocaleDateString()}
+            Snack bar · {new Date(date + 'T12:00:00').toLocaleDateString()}
           </span>
         </div>}
         <div className="formbar-status">
@@ -330,7 +330,7 @@ export function MonthlyInventory({
         <div>
           <h2>Monthly Inventory</h2>
           <div className="ph-sub">
-            {MONTHS[m]} {y} \u00B7 opening \u2192 received \u2192 issued \u2192 closing \u00B7{' '}
+            {MONTHS[m]} {y} · opening \u2192 received \u2192 issued \u2192 closing ·{' '}
             {rows.length} items
           </div>
         </div>
@@ -483,7 +483,7 @@ export function MonthlyInventory({
                 Invoice register \u2014 {MONTHS[m]} {y}
               </h3>
               <span className="ch-link">
-                {invoices.length} invoices \u00B7{' '}
+                {invoices.length} invoices ·{' '}
                 {fmtMoney(
                   invoices.reduce((s: number, i: any) => s + i.total, 0),
                 )}
@@ -524,7 +524,7 @@ export function MonthlyInventory({
       <div className="formbar">
         {<div className="formbar-note">
           <span className="formbar-meta">
-            Monthly inventory \u00B7 {MONTHS[m]} {y}
+            Monthly inventory · {MONTHS[m]} {y}
           </span>
         </div>}
         <div className="formbar-status">

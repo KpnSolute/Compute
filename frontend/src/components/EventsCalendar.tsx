@@ -260,7 +260,7 @@ export function EventsCalendar({ user }: { user: User }) {
                       <div className="ss-row" key={i}>
                         <div className="ss-info">
                           <div className="ss-name">{s.name}{s.proctor && <span className="ss-proctor">{I.award({ style: { width: 11, height: 11 } })} Proctor</span>}</div>
-                          <div className="ss-cert">{s.cert}{s.expiry && ' \u00B7 exp ' + s.expiry}</div>
+                          <div className="ss-cert">{s.cert}{s.expiry && ' · exp ' + s.expiry}</div>
                         </div>
                         <span className={'pill ' + st.cls}>{st.txt}</span>
                       </div>

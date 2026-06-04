@@ -63,7 +63,7 @@ export function CycleMenu({ user: _user }: { user: User }) {
       <div className="page-head">
         <div>
           <h2>28-Day Cycle Menu</h2>
-          <div className="ph-sub">Rotating week template \u00B7 {DOW_FULL[dayIdx >= 0 ? dayIdx : 0]} \u00B7 {totalItems} line items</div>
+          <div className="ph-sub">Rotating week template · {DOW_FULL[dayIdx >= 0 ? dayIdx : 0]} · {totalItems} line items</div>
         </div>
         <div className="ph-actions">
           <button className="btn">{I.printer()} Print menu</button>
@@ -122,7 +122,7 @@ export function CycleMenu({ user: _user }: { user: User }) {
                     {sd && (
                       <div className="menu-sides">
                         <span className="ms-label">Sides</span>
-                        <span className="ms-list">{sd.join(' \u00B7 ')}</span>
+                        <span className="ms-list">{sd.join(' · ')}</span>
                       </div>
                     )}
                   </div>

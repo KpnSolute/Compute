@@ -158,7 +158,7 @@ export function SourceControl({
     if (op === 'inventory_save' && fp?.items) return `${fp.items.length} item${fp.items.length !== 1 ? 's' : ''}`;
     if (op === 'menu_save' && fp?.day) return `Menu for ${fp.day}`;
     if (op === 'event_create' && fp?.title) return fp.title;
-    if (op === 'haccp_save' && fp?.location) return `${fp.location} \u00B7 ${fp.temperature}${fp.unit}`;
+    if (op === 'haccp_save' && fp?.location) return `${fp.location} · ${fp.temperature}${fp.unit}`;
     if (op === 'daily_log_save' && fp?.title) return fp.title;
     return '';
   };
@@ -184,7 +184,7 @@ export function SourceControl({
             {isStaff
               ? 'Submit changes for review \u2014 an admin approves and commits them'
               : 'Review queue, commit history & data-store sync'}
-            {' \u00B7 '}
+            {' · '}
             {loading ? '\u2026' : staged.length + ' pending'}
           </div>
         </div>
@@ -206,12 +206,12 @@ export function SourceControl({
         <div className="sync-ic">{I.database({ style: { width: 20, height: 20 } })}</div>
         <div className="sync-body">
           <div className="sync-title">
-            Data store \u00B7 <span className="mono">MJCC-Portal/mjcc</span> <span className="sync-branch">main</span>
+            Data store · <span className="mono">MJCC-Portal/mjcc</span> <span className="sync-branch">main</span>
           </div>
           <div className="sync-sub">
             Live \u2014 snapshots push after every commit
             {lastCommit && (
-              <>{' \u00B7 last commit '}<span className="commit-hash">{shortSha(lastCommit.github_sha) || lastCommit.commit_id.slice(0, 7)}</span> {relTime(lastCommit.created_at)}</>
+              <>{' · last commit '}<span className="commit-hash">{shortSha(lastCommit.github_sha) || lastCommit.commit_id.slice(0, 7)}</span> {relTime(lastCommit.created_at)}</>
             )}
           </div>
         </div>

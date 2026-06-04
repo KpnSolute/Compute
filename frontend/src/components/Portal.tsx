@@ -64,12 +64,12 @@ function Topbar({ user, period, setPeriod }: {
         <span style={{ display: 'flex' }}><KpnMark size={26} /></span>
         <div>
           <div className="tb-title">KpnCompute · MJCC Portal</div>
-          <div className="tb-sub">Inventory \u00B7 28-Day Menu \u00B7 Sourcing</div>
+          <div className="tb-sub">Inventory · 28-Day Menu · Sourcing</div>
         </div>
       </div>
       <div className="tb-right">
         <span className="inv-badge">
-          <span className="rt"></span>LIVE \u00B7 API Connected
+          <span className="rt"></span>LIVE · API Connected
         </span>
         <select className="tb-select" value={m} onChange={e => setPeriod([+e.target.value, y])}>
           {MONTHS.map((nm, i) => <option key={i} value={i}>{nm}</option>)}
@@ -124,7 +124,7 @@ function Sidebar({ user, active, setActive, reorderCount, stagedCount }: {
       })}
       <div className="sidebar-foot">
         Signed in as <b>{ROLE_LABEL[user.role]}</b><br />
-        <span style={{ fontFamily: 'BlinkMacSystemFont' }}>KpnCompute \u00B7 v3.0</span>
+        <span style={{ fontFamily: 'BlinkMacSystemFont' }}>KpnCompute · v3.0</span>
       </div>
     </nav>
   );
@@ -228,8 +228,8 @@ function Dashboard({ user, period, invState, onSync, go }: {
         <div>
           <h2>Welcome back, {user.display_name || user.username}</h2>
           <div className="ph-sub">
-            Operations overview \u00B7 {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-            {live && invState.syncedAt && <> \u00B7 synced {new Date(invState.syncedAt).toLocaleString()}</>}
+            Operations overview · {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+            {live && invState.syncedAt && <> · synced {new Date(invState.syncedAt).toLocaleString()}</>}
           </div>
         </div>
         <div className="ph-actions">
@@ -257,7 +257,7 @@ function Dashboard({ user, period, invState, onSync, go }: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card">
             <div className="card-head">
-              <h3>Today\u2019s menu \u00B7 {DOW_FULL[new Date().getDay()]}</h3>
+              <h3>Today\u2019s menu · {DOW_FULL[new Date().getDay()]}</h3>
               <span className="ch-link" onClick={() => go('menu')} style={{ cursor: 'pointer' }}>Full menu \u2192</span>
             </div>
             <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
@@ -270,8 +270,8 @@ function Dashboard({ user, period, invState, onSync, go }: {
                       <div className="dm-head">{meal}</div>
                       <div className="dm-items">
                         {meal === 'Snack'
-                          ? menuData[meal].join(' \u00B7 ')
-                          : menuData[meal].map((it: any) => typeof it === 'string' ? it : it.item).join(' \u00B7 ')}
+                          ? menuData[meal].join(' · ')
+                          : menuData[meal].map((it: any) => typeof it === 'string' ? it : it.item).join(' · ')}
                       </div>
                     </div>
                   ))}
@@ -316,7 +316,7 @@ function Dashboard({ user, period, invState, onSync, go }: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card">
             <div className="card-head">
-              <h3>Meal log \u00B7 today</h3>
+              <h3>Meal log · today</h3>
               <span className="ch-link" onClick={() => go('mballot')} style={{ cursor: 'pointer' }}>Full log \u2192</span>
             </div>
             <div className="card-body">
@@ -330,7 +330,7 @@ function Dashboard({ user, period, invState, onSync, go }: {
 
           <div className="card">
             <div className="card-head">
-              <h3>Monthly inventory \u00B7 {MONTHS[period[0]]}</h3>
+              <h3>Monthly inventory · {MONTHS[period[0]]}</h3>
               <span className="ch-link" onClick={() => go('moninv')} style={{ cursor: 'pointer' }}>Manage \u2192</span>
             </div>
             <div className="card-body">
@@ -411,7 +411,7 @@ function InventoryView({ user, period, invState, onSync }: {
         <div>
           <h2>Inventory</h2>
           <div className="ph-sub">
-            {MONTHS[period[0]]} {period[1]} \u00B7 {filtered.length} of {rows.length} items
+            {MONTHS[period[0]]} {period[1]} · {filtered.length} of {rows.length} items
           </div>
         </div>
         <div className="ph-actions">
@@ -491,7 +491,7 @@ function UsersView() {
       <div className="page-head">
         <div>
           <h2>Users &amp; Access</h2>
-          <div className="ph-sub">{users.length} accounts \u00B7 role-based access control</div>
+          <div className="ph-sub">{users.length} accounts · role-based access control</div>
         </div>
         <div className="ph-actions"><button className="btn primary">{I.plus()} Invite user</button></div>
       </div>
@@ -587,7 +587,7 @@ function ArchivesView(_props: { period: [number, number] }) {
   return (
     <div className="fade-in">
       <div className="page-head">
-        <div><h2>Archives</h2><div className="ph-sub">Monthly inventory snapshots \u00B7 retained for audit</div></div>
+        <div><h2>Archives</h2><div className="ph-sub">Monthly inventory snapshots · retained for audit</div></div>
         <div className="ph-actions"><button className="btn">{I.download()} Export all</button></div>
       </div>
       {archives.length === 0 ? (
@@ -607,7 +607,7 @@ function ArchivesView(_props: { period: [number, number] }) {
                 </div>
                 <div className="sc-lbl">{a.label}</div>
                 <div className="sc-val">{fmtMoney(a.value)}</div>
-                <div className="sc-delta eq" style={{ marginTop: 4 }}>{a.items} items \u00B7 {a.low} below par</div>
+                <div className="sc-delta eq" style={{ marginTop: 4 }}>{a.items} items · {a.low} below par</div>
               </div>
             ))}
           </div>

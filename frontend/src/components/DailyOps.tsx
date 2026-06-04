@@ -441,7 +441,7 @@ export function DailyOps({ user }: { user: User }) {
       <div className="formbar">
         <div className="formbar-l">
           <span className="formbar-meta">
-            Daily operations \u00B7{' '}
+            Daily operations ·{' '}
             {new Date(date + 'T12:00:00').toLocaleDateString()}
           </span>
           {!saved && canEdit && (

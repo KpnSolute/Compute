@@ -336,11 +336,11 @@ export function Reports({
         rep.name +
         '</title><style>body{font-family:Segoe UI,Arial,sans-serif;color:#1E293B;padding:28px}h1{font-size:18px;margin:0 0 2px}.sub{color:#64748B;font-size:12px;margin-bottom:16px}table{width:100%;border-collapse:collapse;font-size:11px}th{background:#0E2148;color:#fff;text-align:left;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.4px}td{padding:5px 8px;border-bottom:.5px solid #E2E8F0}tr:nth-child(even) td{background:#F8FAFC}</style></head><body><h1>' +
         rep.name +
-        '</h1><div class="sub">Miami Job Corps Cafeteria \u00B7 ' +
+        '</h1><div class="sub">Miami Job Corps Cafeteria · ' +
         rep.period +
-        ' \u00B7 ' +
+        ' · ' +
         data.length +
-        ' records \u00B7 generated ' +
+        ' records · generated ' +
         new Date().toLocaleString() +
         '</div><table><thead><tr>' +
         th +
@@ -374,7 +374,7 @@ export function Reports({
         <div>
           <h2>Reports</h2>
           <div className="ph-sub">
-            Download or print any report or blank template across the system \u00B7 live data
+            Download or print any report or blank template across the system · live data
           </div>
         </div>
         <div className="ph-actions">
@@ -442,7 +442,7 @@ export function Reports({
                           <div className="rr-body">
                             <div className="rr-name">{rep.name}</div>
                             <div className="rr-meta">
-                              {rep.period} \u00B7 {n} record{n !== 1 ? 's' : ''}
+                              {rep.period} · {n} record{n !== 1 ? 's' : ''}
                             </div>
                           </div>
                           <div className="rr-actions">
