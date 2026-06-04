@@ -63,7 +63,7 @@ function Topbar({ user, period, setPeriod }: {
       <div className="tb-left">
         <span style={{ display: 'flex' }}><KpnMark size={26} /></span>
         <div>
-          <div className="tb-title">Food Service Data Management</div>
+          <div className="tb-title">KpnCompute · MJCC Portal</div>
           <div className="tb-sub">Inventory \u00B7 28-Day Menu \u00B7 Sourcing</div>
         </div>
       </div>

@@ -121,7 +121,7 @@ export function Login({ onLogin, layout = 'split' }: LoginProps) {
       <main className="auth-form-wrap">
         <div className="auth-card fade-in">
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
-            <img src="/icons.svg#logo" alt="KpnCompute" style={{ height: 60, objectFit: 'contain' }} />
+            <img src="/logo.svg" alt="KpnCompute" style={{ height: 60, objectFit: 'contain' }} />
           </div>
           <div className="ac-head">
             <h3>Sign in to the console</h3>
