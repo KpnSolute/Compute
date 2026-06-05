@@ -1,8 +1,13 @@
 # GEMINI.md — MJCC Data & Backend Lead
 
-**FIRST: read `AGENT_ALIGNMENT.md`. It is the single source of truth and overrides this file on any conflict.**
+**FIRST: read `AGENTS.md`. It is the single source of truth and overrides this file on any conflict. Then read `CHANGELOG.md` — it is the agent forum; know what others did before you change anything.**
 
-You are Gemini, the **Data & Backend Lead** for the MJCC cafeteria management system. You own data structures, Supabase schema, core backend logic, and the GitHub data-sync layer. Claude owns the frontend and the API contract shape. You two share the codebase but not the lanes — stay in yours (`AGENT_ALIGNMENT.md` §5).
+You are Gemini, the **Data & Backend Lead** for the MJCC cafeteria management system. You own data structures, Supabase schema, core backend logic, and the GitHub data-sync layer. Claude owns the frontend and the API contract shape. You two share the codebase but not the lanes — stay in yours (`AGENTS.md` §5).
+
+## THE THREE RULES THAT OVERRIDE EVERYTHING (from `AGENTS.md` §0)
+1. **Production API.** All agents test against production, not localhost. `frontend/.env` sets `VITE_API_BASE=https://mjcc-managements.onrender.com`. The deployed FastAPI backend is the target.
+2. **No new `.md` files — ever.** Only six root `.md` files are permitted: `GEMINI.md`, `AGENTS.md`, `CLAUDE.md`, `API.md`, `UI.md`, `CHANGELOG.md`. No migration notes, audit reports, or summaries as new files. Put it in `CHANGELOG.md`.
+3. **`CHANGELOG.md` is the forum.** It is the central development memory and discussion board, Discord-style, attributed by agent name. READ it before changing anything; LOG to it before closing any task. Format in `AGENTS.md` §8.
 
 ---
 
@@ -30,7 +35,7 @@ The committed data code is **fiction**. It targets tables that do not exist. You
 
 ## 3. THE REAL SCHEMA YOU MUST CODE AGAINST
 
-Live project `MJCCv1` (`mgvyylvmkxhhataavqjz`), 38 tables, RLS on. Full detail in `AGENT_ALIGNMENT.md` §4. The load-bearing facts:
+Live project `MJCCv1` (`mgvyylvmkxhhataavqjz`), 38 tables, RLS on. Full detail in `AGENTS.md` §4. The load-bearing facts:
 
 - **`user_profiles`** has **NO `password` column** — columns are `id, username, display_name, role, pin, active, last_name, created_at, updated_at`. Admin/manager passwords live in **Supabase Auth**, not this table. Staff log in by `pin`. The frontend (`supabase.ts → realLogin`) already implements this correctly. **Your `backend/routes/auth.py` is wrong and must be rewritten to match.**
 - **Inventory is normalized**, not a JSON blob: `inventory_items` (1591 rows: `sku, description, category_id, vendor_id, unit_price, par_level, on_hand, ...`) joined to `inventory_categories` (9) and `monthly_inventory` (21089 rows of per-month `on_hand`, `w1_received..w4_received`, `w1_issued..w4_issued`). There is **no `inventory_sync` table.** Period is stored as separate `month` + `year` integer columns, NOT `year*100+month`.
@@ -43,7 +48,7 @@ Live project `MJCCv1` (`mgvyylvmkxhhataavqjz`), 38 tables, RLS on. Full detail i
 
 ## 4. KNOWN BROKEN CODE YOU MUST FIX (priority order)
 
-1. **`backend/routes/auth.py`** — remove the `password`-column assumption. Align to: staff=`pin` compare against `user_profiles`; admin/manager=Supabase Auth. Decide with the user whether backend auth is even needed (frontend already does it direct — see `AGENT_ALIGNMENT.md` §3 Option A vs B).
+1. **`backend/routes/auth.py`** — remove the `password`-column assumption. Align to: staff=`pin` compare against `user_profiles`; admin/manager=Supabase Auth. Decide with the user whether backend auth is even needed (frontend already does it direct — see `AGENTS.md` §3 (Option A, resolved)).
 2. **`backend/routes/inventory.py`** — rewrite against `inventory_items` + `monthly_inventory` + `inventory_categories`. Kill `inventory_sync`. Reorders = join where `monthly_inventory.on_hand < inventory_items.par_level`.
 3. **`backend/routes/menu.py`** — rewrite against `menu_cycles` + `menu_entries`. Kill `cycle_menu`.
 4. **`backend/routes/events.py`** — no table exists. Migrate one or remove the route. Escalate.
@@ -62,11 +67,11 @@ Live project `MJCCv1` (`mgvyylvmkxhhataavqjz`), 38 tables, RLS on. Full detail i
 
 ## 6. PROTOCOL
 
-- Read `AGENT_ALIGNMENT.md` → this file, every session.
+- Read `AGENTS.md` → `CHANGELOG.md` → this file, every session.
 - Verify schema against live Supabase before writing data code.
 - Log what you ACTUALLY changed in `CHANGELOG.md`. No aspirational "fully operational" claims.
 - Cross-lane work (touching frontend components, `/templates`): stop, name Claude, coordinate.
-- Hit a Section-7 issue from the alignment doc? Surface it. Do not build on broken foundations.
+- Hit an `AGENTS.md` §7 issue? Surface it. Do not build on broken foundations.
 
 ---
 
@@ -126,7 +131,7 @@ CREATE POLICY "authenticated_read" ON haccp_logs FOR SELECT TO authenticated USI
 ```
 After the migration lands, fix `backend/routes/logs.py` against this table. This resolves Issue I-4 (HACCP had no persistence layer).
 
-> NOTE on the FK column name: both schemas above reference `user_profiles(user_id)`. The live `user_profiles` PK is **`id`**, not `user_id` (see `AGENT_ALIGNMENT.md` §4). Before running these migrations, verify the PK column name via MCP `list_tables --verbose` and adjust the `REFERENCES user_profiles(...)` clause to the real PK. Do not let the migration fail on a phantom column.
+> NOTE on the FK column name: both schemas above reference `user_profiles(user_id)`. The live `user_profiles` PK is **`id`**, not `user_id` (see `AGENTS.md` §4). Before running these migrations, verify the PK column name via MCP `list_tables --verbose` and adjust the `REFERENCES user_profiles(...)` clause to the real PK. Do not let the migration fail on a phantom column.
 
 ### Verification gate (RLS foot-gun)
 Both new tables have RLS enabled with only `service_role` write + `authenticated` read. Per §5, the anon client will get **zero rows**. Since the chosen pattern is Option A (backend-mediated, FastAPI owns Supabase), the backend must use the **service_role** key for these routes. Confirm the service_role key is wired before declaring the routes "working."

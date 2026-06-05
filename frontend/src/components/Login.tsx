@@ -222,14 +222,14 @@ export function Login({ onLogin, layout = 'split' }: LoginProps) {
               </div>
               <div className="keypad">
                 {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
-                  <button key={d} className="key" onClick={() => pressKey(d)}>
+                  <button key={d} className="key" disabled={busy} onClick={() => pressKey(d)}>
                     {d}
                   </button>
                 ))}
                 <button className="key fn" onClick={() => setPin('')} disabled={busy}>
                   Clear
                 </button>
-                <button className="key" onClick={() => pressKey('0')}>
+                <button className="key" disabled={busy} onClick={() => pressKey('0')}>
                   0
                 </button>
                 <button className="key fn" onClick={() => pressKey('del')} disabled={busy} aria-label="Delete">

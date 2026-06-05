@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { I } from '../lib/icons';
 import { type User, ROLE_LEVEL, MONTHS } from '../lib/constants';
-import { catColor, fmtMoney, fmtMoneyFull, invToList } from '../lib/supabase';
+import { catColor, fmtMoney, fmtMoneyFull } from '../lib/supabase';
 import { api } from '../lib/api';
 
 const SNACK_HOURS = [
@@ -66,8 +66,7 @@ export function SnackBar({ user }: { user: User }) {
       setSaved(true);
       setSavedAt(new Date());
     } catch {
-      setSaved(true);
-      setSavedAt(new Date());
+      setSaved(false);
     }
   }
 
@@ -247,7 +246,7 @@ export function MonthlyInventory({
     async function load() {
       try {
         const inv = await api.getInventory(m + 1, y);
-        const flat = invToList(inv.items || []);
+        const flat = inv.items || [];
         const rollup = flat.map((it: any) => ({
           id: it.sku || String(Math.random()),
           cat: it.category || it.cat,

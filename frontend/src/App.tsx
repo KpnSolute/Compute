@@ -7,7 +7,11 @@ import { Portal } from './components/Portal';
 const SKEY = 'kpn_session';
 
 function loadSession(): User | null {
-  try { return JSON.parse(localStorage.getItem(SKEY) || 'null'); } catch { return null; }
+  try {
+    const u = JSON.parse(localStorage.getItem(SKEY) || 'null');
+    if (!u) clearBackendToken(); // no remembered session → purge stale JWT
+    return u;
+  } catch { return null; }
 }
 
 function App() {

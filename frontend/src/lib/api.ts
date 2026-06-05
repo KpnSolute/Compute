@@ -122,6 +122,10 @@ export const api = {
     return req(`/api/users/${userId}`, { method: 'PUT', body: JSON.stringify(body) });
   },
 
+  async getUser(userId: string): Promise<any> {
+    return req(`/api/users/${userId}`);
+  },
+
   async deleteUser(userId: string): Promise<void> {
     return req(`/api/users/${userId}`, { method: 'DELETE' });
   },
@@ -284,10 +288,40 @@ export const api = {
   },
 
   async rejectStaging(id: string, reviewNote?: string): Promise<void> {
-    return req(`/api/staging/${id}`, {
-      method: 'DELETE',
-      body: JSON.stringify({ review_note: reviewNote }),
-    });
+    const qs = reviewNote ? `?review_note=${encodeURIComponent(reviewNote)}` : '';
+    return req(`/api/staging/${id}${qs}`, { method: 'DELETE' });
+  },
+
+  // Data Entry
+  async uploadDataEntry(file: File, hint: string, month?: number, year?: number): Promise<{ batch_id: string; staged_count: number; operations: string[]; file: string; month: number; year: number }> {
+    const token = getBackendToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const form = new FormData();
+    form.append('file', file);
+    form.append('hint', hint);
+    if (month !== undefined) form.append('month', String(month));
+    if (year !== undefined) form.append('year', String(year));
+    const res = await fetch(BASE + '/api/data-entry/upload', { method: 'POST', headers, body: form });
+    if (!res.ok) {
+      let body: string;
+      try { const json = await res.json(); body = json.detail || JSON.stringify(json); }
+      catch { body = await res.text().catch(() => res.statusText); }
+      throw new ApiError(res.status, body);
+    }
+    return res.json();
+  },
+
+  async getDataEntryPreview(batchId: string): Promise<any[]> {
+    return req(`/api/data-entry/preview/${encodeURIComponent(batchId)}`);
+  },
+
+  async getDataEntrySettings(): Promise<any> {
+    return req('/api/data-entry/settings');
+  },
+
+  async updateDataEntrySettings(body: { provider?: string; model?: string }): Promise<any> {
+    return req('/api/data-entry/settings', { method: 'PUT', body: JSON.stringify(body) });
   },
 
 };

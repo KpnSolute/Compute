@@ -13,7 +13,10 @@ const CAT_META: Record<string, { bg: string; color: string; dot: string; label: 
   special: { bg: '#E0E7FF', color: '#3730A3', dot: '#6366F1', label: 'Special Event' },
   training: { bg: '#D1FAE5', color: '#065F46', dot: '#059669', label: 'ServSafe Training' },
   heals: { bg: '#FCE7F3', color: '#9D174D', dot: '#DB2777', label: 'HEALs Program' },
+  other: { bg: '#F1F5F9', color: '#475569', dot: '#94A3B8', label: 'Other' },
 };
+const CAT_DEFAULT = CAT_META.other;
+function catMeta(cat: string | null | undefined) { return CAT_META[cat ?? ''] ?? CAT_DEFAULT; }
 
 const SERVSAFE_STAFF = [
   { name: 'Angela Martin', cert: 'ServSafe Manager', expiry: '2027-03-15', proctor: true },
@@ -173,8 +176,8 @@ export function EventsCalendar({ user }: { user: User }) {
                     <span className="cal-num">{d}</span>
                     <div className="cal-dots">
                       {evs.slice(0, 3).map(e => (
-                        <span className="cal-ev" key={e.id} style={{ background: CAT_META[e.cat].bg, color: CAT_META[e.cat].color }} title={e.title}>
-                          <span className="ce-dot" style={{ background: CAT_META[e.cat].dot }}></span>{e.title}
+                        <span className="cal-ev" key={e.id} style={{ background: catMeta(e.cat).bg, color: catMeta(e.cat).color }} title={e.title}>
+                          <span className="ce-dot" style={{ background: catMeta(e.cat).dot }}></span>{e.title}
                         </span>
                       ))}
                       {evs.length > 3 && <span className="cal-more">+{evs.length - 3} more</span>}
@@ -196,7 +199,7 @@ export function EventsCalendar({ user }: { user: User }) {
               <div className="card-body flush">
                 {listEvents.length === 0 && <div style={{ padding: '28px 17px', textAlign: 'center', color: 'var(--faint)', fontSize: 12.5 }}>No events {cat !== 'all' ? 'in this category ' : ''}this month.</div>}
                 {listEvents.map(e => {
-                  const meta = CAT_META[e.cat];
+                  const meta = catMeta(e.cat);
                   return (
                     <div className="ev-item" key={e.id}>
                       <div className="ev-date" style={{ background: meta.bg, color: meta.color }}>

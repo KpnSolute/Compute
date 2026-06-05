@@ -1,4 +1,70 @@
-# CHANGELOG
+# CHANGELOG — MJCC Development Forum
+
+This is the **central development memory and discussion board** for all agents (Claude, Gemini, OpenCode, Copilot). Treat it like a Discord server. **READ THIS BEFORE MAKING ANY CHANGE.** All AI thoughts, decisions, and changes go HERE — no new `.md` files are permitted (see `AGENTS.md` §0).
+
+**Format (newest on top):**
+```
+## [vX.X.X] — YYYY-MM-DD — short title
+**AgentName:** what was done and why.
+**OtherAgent:** their changes or acknowledgements.
+**Push:** [agent who pushed] → [git SHA stub] — [timestamp]   (or: pending — not yet pushed)
+```
+**Version convention:** `vX.X.X`. Reset to `v1.0.0` on 2026-06-04 — sequence forward from there. History below the reset line is preserved and append-only; do not rewrite it.
+
+---
+
+## [v1.0.0] — 2026-06-04 — Forum reset, production cutover, doc consolidation (Watch Commander)
+
+**Watch Commander (Claude):** Executed a six-part governance overhaul on user directive.
+- **Production cutover.** `frontend/.env` → `VITE_API_BASE=https://mjcc-managements.onrender.com`. All agents now test against production, not localhost.
+- **Root cleanup.** Deleted `AGENT_ALIGNMENT.md` (content folded into `AGENTS.md`), `README.md`, `API_OVERVIEW.txt`, `FRONTEND_AUTH_EXAMPLES.ts`, `INTEGRATION_DRAFT.md`, `SYNTHESIS_REPORT.md`, root `package.json`, `package-lock.json`, `pyrightconfig.json`, root `requirements-dev.txt`. Root `.md` set is now exactly the six permitted: `GEMINI.md`, `AGENTS.md`, `CLAUDE.md`, `API.md`, `UI.md`, `CHANGELOG.md`.
+- **AGENTS.md rewritten** as the new single source of truth + governance doc — replaces `AGENT_ALIGNMENT.md`. Folds in: the two-repo rule, file-ownership lanes, real schema facts, forbidden zones, the 9 known issues, and the three new override rules (production API, no-new-`.md`-files, CHANGELOG-as-forum).
+- **CLAUDE.md / GEMINI.md updated.** All `AGENT_ALIGNMENT.md` references repointed to `AGENTS.md`. Added the three override rules and the read-CHANGELOG-first protocol to both.
+- **CHANGELOG reset** to this `v1.0.0` and reformatted as the Discord-style forum. History preserved below.
+- **BLOCKER (needs user):** root-level `node_modules/` is owned by `root` and could not be removed without sudo (`sudo rm -rf node_modules`). It exists only because of the now-deleted root `package.json`.
+- **Verification:** `ruff check backend/` clean; `npm run build` passes (0 TS errors, 1 non-blocking chunk-size warning); `httpx` confirmed committed in `backend/requirements.txt`. Working tree carries ~17 pre-existing uncommitted source changes (backend/ai, routes, components) unrelated to this session — flagged for the user before any commit/push.
+
+**Gemini:** _(awaiting acknowledgement — outstanding item: remove `password` key from `backend/staging/dispatch.py` `dispatch_user_create`/`dispatch_user_update`, see `AGENTS.md` I-3.)_
+
+**Push:** pending — not yet pushed.
+
+---
+
+## [v1.0.1] — 2026-06-04 — UI bug fixes, production API wiring, root structure cleanup (Claude)
+
+**Claude:** Three-agent parallel audit + manual fixes. All verified against `npm run build` (0 TS errors).
+
+**Root cleanup (mechanical):**
+- Deleted `FRONTEND_AUTH_EXAMPLES.ts`, root `package.json`, root `package-lock.json`, `API_OVERVIEW.txt`, `requirements-dev.txt` (moved to `backend/requirements-dev.txt`).
+- Updated `.github/workflows/deploy.yml` to reference `backend/requirements-dev.txt`.
+- Root `node_modules/` still present — owned by root; user must run `sudo rm -rf node_modules` to remove.
+
+**Production API switch:**
+- `frontend/.env` → `VITE_API_BASE=https://mjcc-managements.onrender.com`. All frontend testing now targets production.
+
+**Bug fixes — Frontend:**
+- **`Operations.tsx`** — `MonthlyInventory` was calling `invToList(flat_array)` — `invToList` expects a category-keyed object; API returns a flat array. Removed the `invToList` wrapper (and its unused import) and use `inv.items` directly. All rows now populate correctly. (HIGH)
+- **`Operations.tsx`** — `SnackBar` `catch` block was calling `setSaved(true)` — API failure silently showed "Saved" to user. Fixed to `setSaved(false)`. (MEDIUM)
+- **`api.ts` + `DataEntry.tsx`** — `uploadDataEntry` was ignoring the month/year picker. Added `month`/`year` optional params to the API method; call site now passes `month + 1, year`. Added both to `useCallback` dep array. (MEDIUM)
+- **`EventsCalendar.tsx`** — `CAT_META[e.cat]` crashed on unknown category (`null`, `"other"`, or any new cat). Added `other` entry to `CAT_META`, a `catMeta()` helper with fallback, and replaced all direct `CAT_META[e.cat]` accesses with `catMeta(e.cat)`. (MEDIUM)
+- **`Portal.tsx`** — Dashboard `api.getEvents()` assumed a bare array; if backend returns `{ events: [...] }` it would crash. Added null guard: `Array.isArray(data) ? data : data?.events ?? []`. (MEDIUM)
+- **`Portal.tsx`** — Dashboard menu fetch used `res?.data` (undefined) instead of `res?.meals`, and expected capitalized keys (`Breakfast`) while API returns lowercase (`breakfast`). Fixed: normalize keys to Title Case and extract `items` array from each meal object. (MEDIUM)
+- **`Login.tsx`** — PIN digit buttons were not disabled when `busy=true`, allowing double-submission if user tapped a digit during in-flight login request. Added `disabled={busy}` to all number buttons. (MEDIUM)
+- **`App.tsx`** — On fresh page load with no remembered session (`kpn_session` absent), stale backend JWT from a prior non-remembered session could persist and be silently sent. Fixed: `loadSession()` now calls `clearBackendToken()` when no session is found. (MEDIUM)
+
+**Known bugs documented but NOT fixed (stubs / pre-existing):**
+- `Portal.tsx:1021` — "Add item" has no `onClick` (manager+ button, stub)
+- `Portal.tsx:1317` — "Invite user" has no `onClick` (admin, stub)
+- `Portal.tsx:1407,1418` — User row Edit/Delete have no `onClick` (admin, stub)
+- `Portal.tsx:180` — "My profile" has no `onClick` (stub)
+- `Portal.tsx:1587,1679` — Archive export buttons have no `onClick` (stub)
+- `supabase.ts:402` — `fetchProfiles()` still queries `inventory_sync` (dead legacy; known I-2)
+- `supabase.ts:42` — `isConnected()` returns `true` for expired tokens (low risk, future hardening)
+- `constants.ts` — User type lacks `access_token` field; bolted on at runtime (low risk)
+
+**Push:** Claude → pending — 2026-06-04
+
+---
 
 ## [Unreleased] - 2026-06-04 — API/UI Integration: Login, Live Data, Source Control, Permissions (Claude)
 
