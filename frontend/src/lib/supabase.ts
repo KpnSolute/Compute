@@ -1,5 +1,4 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import bcrypt from 'bcryptjs';
 import type { User } from './constants';
 
 /* localStorage keys — identical to the dashboard so config is shared */
@@ -57,18 +56,6 @@ export function getSupaClient(): SupabaseClient | null {
   return _client;
 }
 
-function _checkPin(plain: string, stored: string): boolean {
-  stored = String(stored || '');
-  if (stored.startsWith('$2')) {
-    try {
-      return bcrypt.compareSync(String(plain), stored);
-    } catch (e) {
-      return false;
-    }
-  }
-  return String(plain) === stored;
-}
-
 function buildEmail(username: string) {
   if (username === 'sudo') return 'sudo@mjc.local';
   return `${username}@mjc-cafeteria.com`;
@@ -77,7 +64,7 @@ function buildEmail(username: string) {
 export async function realLogin({
   username,
   type,
-  pin,
+  pin: _pin,
   password,
 }: {
   username: string;
@@ -91,59 +78,47 @@ export async function realLogin({
   const db = getSupaClient();
   if (!db) return { ok: false, error: 'Not connected to Supabase.' };
 
-  // 1. fetch profile
-  let profile: any;
-  try {
-    const { data, error } = await db
-      .from('user_profiles')
-      .select('id, username, display_name, last_name, role, pin, active')
-      .eq('username', username)
-      .single();
-    if (error || !data) {
-      return { ok: false, error: 'Username not recognised.' };
-    }
-    profile = data;
-  } catch (e) {
-    return { ok: false, error: 'Could not reach the directory. Check connection & table access.' };
-  }
-
-  if (!profile.active) return { ok: false, error: 'Account is disabled.' };
-
-  // 2a. STAFF — PIN compare (mirrors backend)
+  // Staff PIN login is handled entirely by backendPinLogin() in Login.tsx.
+  // realLogin() is only called for the admin/manager Supabase Auth flow.
   if (type === 'staff') {
-    if (profile.role !== 'staff')
-      return { ok: false, error: 'Admin & manager accounts must use the Admin / Manager login.' };
-    if (!pin) return { ok: false, error: 'PIN is required.' };
-    let ok;
-    try {
-      ok = _checkPin(pin, profile.pin);
-    } catch (e: any) {
-      return { ok: false, error: e.message };
-    }
-    if (!ok) return { ok: false, error: 'Incorrect PIN. Please try again.' };
-    return { ok: true, user: _publicUser(profile) };
+    return { ok: false, error: 'Staff must use the PIN keypad.' };
   }
 
-  // 2b. ADMIN / MANAGER / ASSISTANT — real Supabase Auth
-  if (type === 'admin') {
-    if (!['admin', 'manager', 'assistant'].includes(profile.role))
-      return { ok: false, error: 'Staff accounts must use the Staff login.' };
-    if (!password) return { ok: false, error: 'Password is required.' };
-    try {
-      const { data, error } = await db.auth.signInWithPassword({
-        email: buildEmail(username),
-        password,
-      });
-      if (error || !data?.session) {
-        return { ok: false, error: 'Incorrect password. Please try again.' };
-      }
-      return { ok: true, user: { ..._publicUser(profile), access_token: data.session.access_token } };
-    } catch (e) {
+  // ADMIN / MANAGER — Supabase Auth FIRST, then fetch profile with authenticated session.
+  // Never query user_profiles with the anon key — RLS blocks it.
+  if (!password) return { ok: false, error: 'Password is required.' };
+  try {
+    const { data: authData, error: authErr } = await db.auth.signInWithPassword({
+      email: buildEmail(username),
+      password,
+    });
+    if (authErr || !authData?.session) {
       return { ok: false, error: 'Incorrect password. Please try again.' };
     }
-  }
 
-  return { ok: false, error: 'Invalid login type.' };
+    // Now authenticated — fetch profile (RLS allows authenticated SELECT)
+    const { data: profile, error: profErr } = await db
+      .from('user_profiles')
+      .select('id, username, display_name, last_name, role, active')
+      .eq('username', username)
+      .single();
+    if (profErr || !profile) {
+      await db.auth.signOut();
+      return { ok: false, error: 'Profile not found. Contact your administrator.' };
+    }
+    if (!profile.active) {
+      await db.auth.signOut();
+      return { ok: false, error: 'Account is disabled.' };
+    }
+    if (!['admin', 'manager', 'assistant'].includes(profile.role)) {
+      await db.auth.signOut();
+      return { ok: false, error: 'Staff accounts must use the Staff login.' };
+    }
+
+    return { ok: true, user: { ..._publicUser(profile), access_token: authData.session.access_token } };
+  } catch (e) {
+    return { ok: false, error: 'Incorrect password. Please try again.' };
+  }
 }
 
 function _publicUser(p: any): User {
