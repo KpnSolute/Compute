@@ -11,10 +11,13 @@ Endpoints:
 - GET /api/inventory/reorders - Get low-stock items
 """
 
+import logging
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query, Header, Depends
 from pydantic import BaseModel, Field
 from backend.routes import supabase_service, jwt_validator
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 
@@ -119,30 +122,36 @@ async def _get_auth_user(authorization: str = Header("")) -> dict:
     return user
 
 
+def _to_float(v, default=0.0) -> float:
+    try:
+        return float(v) if v is not None else default
+    except (ValueError, TypeError):
+        return default
+
+
 def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
     """Flatten nested Supabase join result into InventoryItem list."""
     items = []
     for row in rows:
         inv_item = row.get("inventory_items") or {}
         cat = inv_item.get("inventory_categories") or {}
-        oh = max(0, row.get("on_hand", 0) or 0)
+        oh = max(0, int(_to_float(row.get("on_hand"))))
         items.append(
             InventoryItem(
                 sku=inv_item.get("sku", ""),
                 desc=inv_item.get("description", ""),
                 onHand=oh,
-                par=max(0, inv_item.get("par_level", 0) or 0),
+                par=max(0, int(_to_float(inv_item.get("par_level")))),
                 category=cat.get("name", ""),
-                price=float(row.get("unit_price", 0) or 0),
-                on_hand=oh,
-                w1r=row.get("w1_received", 0) or 0,
-                w2r=row.get("w2_received", 0) or 0,
-                w3r=row.get("w3_received", 0) or 0,
-                w4r=row.get("w4_received", 0) or 0,
-                w1i=row.get("w1_issued", 0) or 0,
-                w2i=row.get("w2_issued", 0) or 0,
-                w3i=row.get("w3_issued", 0) or 0,
-                w4i=row.get("w4_issued", 0) or 0,
+                price=_to_float(row.get("unit_price")),
+                w1r=int(_to_float(row.get("w1_received"))),
+                w2r=int(_to_float(row.get("w2_received"))),
+                w3r=int(_to_float(row.get("w3_received"))),
+                w4r=int(_to_float(row.get("w4_received"))),
+                w1i=int(_to_float(row.get("w1_issued"))),
+                w2i=int(_to_float(row.get("w2_issued"))),
+                w3i=int(_to_float(row.get("w3_issued"))),
+                w4i=int(_to_float(row.get("w4_issued"))),
             )
         )
     return items
@@ -236,6 +245,7 @@ async def get_inventory(
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("Error in get_inventory")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
@@ -359,6 +369,7 @@ async def save_inventory(
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("Error in save_inventory")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
@@ -436,6 +447,7 @@ async def get_inventory_history(
         return snapshots
 
     except Exception as e:
+        logger.exception("Error in get_inventory_history")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
@@ -503,4 +515,5 @@ async def get_reorders(auth_user: dict = Depends(_get_auth_user)):
         return low_items
 
     except Exception as e:
+        logger.exception("Error in get_reorders")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")

@@ -13,6 +13,16 @@ This is the **central development memory and discussion board** for all agents (
 
 ---
 
+## [v1.0.6] — 2026-06-05 — Fix inventory 500: DB returns numeric values as strings (OpenCode)
+
+**OpenCode:** `POST /api/inventory` returned 500 because the Supabase `monthly_inventory` table stores numeric columns (on_hand, w1_received, etc.) as `decimal` types. The Supabase client returns them as **strings** (`"4.00"`). Calling `max(0, "4.00")` throws `TypeError`.
+
+**Fix:** Added `_to_float()` helper that safely coerces string → float → int. Added `logger.exception()` calls so future 500s include tracebacks in Render logs.
+
+**Push:** OpenCode → pending — not yet pushed
+
+---
+
 ## [v1.0.5] — 2026-06-05 — Fix JWT auth: Supabase now signs with ES256, not HS256 (OpenCode)
 
 **OpenCode:** Root-cause of the persistent login 401. Supabase Auth switched from HS256 (symmetric, shared secret) to **ES256** (ECDSA, public/private key via JWKS). The backend's `JWTValidator` only checked HS256, so every Supabase JWT was rejected as invalid.
