@@ -60,6 +60,7 @@ Live project `MJCCv1` (`mgvyylvmkxhhataavqjz`), 38 tables, RLS on. Full detail i
 ## 5. CONVENTIONS
 
 - Ruff: single quotes, 120-char. `ruff check backend/ && ruff format backend/` before commit.
+- **Production logs/deploys:** `render services` → `render logs -r <id>` / `render deploys create <id>`. Full usage in `AGENTS.md` §10.
 - Absolute imports from `backend`.
 - Secrets from root `.env`. Never echo `.env` contents. Never commit it.
 - Schema changes go through MCP `apply_migration` with a descriptive name; never ad-hoc DDL the user can't review. Confirm cost on destructive ops.

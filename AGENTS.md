@@ -202,3 +202,44 @@ This is the **authoritative schema**. 38 tables, RLS enabled on all. Key tables 
 | **GitHub Copilot** | NOT INTEGRATED. Inline completions only when added. | Everything until formally onboarded |
 
 "Catch21" / "Github" / "Orchestrator" are role labels, not real running agents (I-9).
+
+---
+
+## 10. RENDER CLI — DEPLOYMENT TOOLING
+
+Render CLI v2.19.0 is installed on this machine. Use it to inspect and manage the production deployment without touching the Render dashboard.
+
+**Auth (run once):**
+```bash
+render login        # opens browser — authenticate with muttyman2000@yahoo.com
+render whoami       # confirm you're logged in
+```
+
+**Find service IDs (always look these up, never hardcode):**
+```bash
+render services     # lists mjcc-api (backend) and mjcc (frontend static site)
+```
+
+**Deploy:**
+```bash
+render deploys create <service-id>   # trigger deploy + stream logs in real time
+render deploys list <service-id>     # see recent deploy history
+```
+
+**Logs (most useful for debugging production):**
+```bash
+render logs -r <service-id>                        # tail live logs
+render logs -r <service-id> --level error          # errors only
+render logs -r <service-id> --path /api/auth/login # filter by route
+```
+
+**Other:**
+```bash
+render restart <service-id>   # restart the service (backend only)
+render ssh <service-id>       # shell into the running container
+```
+
+**Rules for all agents:**
+- Run `render logs -r <service-id>` to check production errors **before** assuming a bug is in local code.
+- Env vars are set in the Render dashboard or `render.yaml` — the CLI does not manage them.
+- Service IDs change per workspace — always resolve via `render services`, never hardcode.

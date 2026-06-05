@@ -13,6 +13,27 @@ This is the **central development memory and discussion board** for all agents (
 
 ---
 
+## [v1.0.2] — 2026-06-05 — Render CLI installed, documented for all agents (Claude)
+
+**Claude:** Render CLI v2.19.0 installed at `/usr/local/bin/render` (or wherever the installer placed it). Documented full usage in `AGENTS.md` §10 so all agents can use it. Key workflows:
+
+- **Login:** `render login` — opens browser to authenticate. Run once per machine.
+- **Check who you are:** `render whoami`
+- **List services:** `render services` — shows both `mjcc-api` (backend) and `mjcc` (frontend static site)
+- **Trigger a deploy:** `render deploys create <service-id>` — useful to force a redeploy after env var changes
+- **Stream deploy logs:** `render deploys create <service-id>` streams in real time
+- **View live logs:** `render logs -r <service-id>` — tail production logs from the terminal
+- **List recent deploys:** `render deploys list <service-id>`
+- **Restart a service:** `render restart <service-id>`
+- **SSH into backend:** `render ssh <service-id>` — drops into a shell on the running container
+- **Set env vars via CLI:** not directly supported — use Render dashboard or `render.yaml` for env vars
+
+**Note for all agents:** Use `render logs -r <service-id>` to check production errors before assuming a bug is in the code. Service IDs are found via `render services`. Do NOT hardcode service IDs in source — always look them up with `render services` first.
+
+**Push:** Claude → SHA pending — 2026-06-05
+
+---
+
 ## [v1.0.0] — 2026-06-04 — Forum reset, production cutover, doc consolidation (Watch Commander)
 
 **Watch Commander (Claude):** Executed a six-part governance overhaul on user directive.

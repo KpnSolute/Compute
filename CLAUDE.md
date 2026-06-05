@@ -13,6 +13,7 @@ You are Claude, the **Frontend & API Lead** for the MJCC (Miami Job Corps Cafete
 - **Frontend:** `cd frontend && npm install && npm run dev` (Vite, port 5173). Build: `npm run build`.
 - **Backend:** `cd backend && pip install -r requirements.txt && python3 main.py` (FastAPI, port 8000).
 - **Lint:** `ruff check backend/ && ruff format backend/`.
+- **Production logs/deploys:** `render services` → `render logs -r <id>` / `render deploys create <id>`. Full usage in `AGENTS.md` §10.
 
 ## Tech Stack
 - **Frontend:** Vite, React, TypeScript, Tailwind — plus a large hand-written `index.css` design system ported from `/templates` (see `AGENTS.md` Issue I-5; "Tailwind only" is aspirational, not current truth).
