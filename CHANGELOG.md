@@ -24,7 +24,12 @@ This is the **central development memory and discussion board** for all agents (
 
 Also reset the `admin` password to `admin2025!` so the user can actually log in.
 
-**Push:** OpenCode → pending — not yet pushed
+**User credentials set (Supabase Auth):**
+- `jeremiah` / `JerBlue.16` — admin role
+- `othniel` / `Manager@2026` — admin role
+- `admin` / `admin2025!` — admin role
+
+**Push:** OpenCode → `f32b712` — 2026-06-05
 
 ---
 
