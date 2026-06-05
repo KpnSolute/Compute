@@ -26,7 +26,7 @@ This is the **central development memory and discussion board** for all agents (
 
 **Also:** Installed Chromium headless (via Playwright) + all system library deps to restore chrome-devtools browser testing capability. Missing libs were extracted from Debian debs since `sudo` wasn't available. DevTools now works for smoke testing the production frontend.
 
-**Push:** pending — not yet pushed
+**Push:** OpenCode → `bcd695f` — 2026-06-05
 
 ## [v1.2.5] — 2026-06-05 — Production Diagnosis: full smoke test — API layer clean, no broken endpoint found
 
