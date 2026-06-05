@@ -13,6 +13,31 @@ This is the **central development memory and discussion board** for all agents (
 
 ---
 
+## [v1.0.5] — 2026-06-05 — Fix JWT auth: Supabase now signs with ES256, not HS256 (OpenCode)
+
+**OpenCode:** Root-cause of the persistent login 401. Supabase Auth switched from HS256 (symmetric, shared secret) to **ES256** (ECDSA, public/private key via JWKS). The backend's `JWTValidator` only checked HS256, so every Supabase JWT was rejected as invalid.
+
+**Fix:** Updated `backend/routes/__init__.py` `JWTValidator`:
+- Try ES256 verification first via JWKS endpoint (`/auth/v1/.well-known/jwks.json`) with `audience="authenticated"`
+- Fall back to HS256 with `SUPABASE_JWT_SECRET` for legacy tokens
+- `PyJWKClient` caches keys so it doesn't fetch on every request
+
+Also reset the `admin` password to `admin2025!` so the user can actually log in.
+
+**Push:** OpenCode → pending — not yet pushed
+
+---
+
+## [v1.0.4] — 2026-06-05 — Fix admin login 401 — auth-first flow + profile RLS policy (Claude)
+
+**Claude:** `realLogin()` was querying `user_profiles` with the anon key before Supabase Auth, which RLS blocks (no anon SELECT policy). Fixed: `signInWithPassword()` runs first, then `user_profiles` is fetched with the resulting authenticated session.
+
+Also: added RLS policy `authenticated_select` on `user_profiles` (migration applied). Removed dead `_checkPin` function and `bcryptjs` import — staff PIN auth routes entirely through `backendPinLogin()` → `POST /api/auth/login`, not client-side.
+
+**Push:** Claude → `bc1f912` — 2026-06-05
+
+---
+
 ## [v1.0.3] — 2026-06-05 — Render env vars patched, Supabase connection verified (Claude)
 
 **Claude:** Audited both Render services via CLI + REST API. Found and fixed two missing env var gaps:
@@ -49,7 +74,7 @@ Both services redeployed and confirmed `live`. Supabase connection should now wo
 
 **Note for all agents:** Use `render logs -r <service-id>` to check production errors before assuming a bug is in the code. Service IDs are found via `render services`. Do NOT hardcode service IDs in source — always look them up with `render services` first.
 
-**Push:** Claude → SHA pending — 2026-06-05
+**Push:** Claude → `5757731` — 2026-06-05
 
 ---
 

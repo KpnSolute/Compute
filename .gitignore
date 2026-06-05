@@ -15,6 +15,10 @@ node_modules/
 # Personal
 opencode.json
 
+# Editor
+.zed/
+.zsh/
+
 # OS
 .DS_Store
 Thumbs.db
