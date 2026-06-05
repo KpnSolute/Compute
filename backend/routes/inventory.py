@@ -225,7 +225,7 @@ async def get_inventory(
             .select(_JOIN_SELECT)
             .eq("month", db_month)
             .eq("year", year)
-            .order("inventory_items.sku")
+            .order("sku", foreign_table="inventory_items")
             .execute()
         )
 
@@ -355,7 +355,7 @@ async def save_inventory(
             .select(_JOIN_SELECT)
             .eq("month", db_month)
             .eq("year", year)
-            .order("inventory_items.sku")
+            .order("sku", foreign_table="inventory_items")
             .execute()
         )
 
@@ -428,7 +428,7 @@ async def get_inventory_history(
                 .select(_JOIN_SELECT)
                 .eq("month", db_m)
                 .eq("year", y)
-                .order("inventory_items.sku")
+                .order("sku", foreign_table="inventory_items")
                 .execute()
             )
             if not result.data:
