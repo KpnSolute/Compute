@@ -345,13 +345,23 @@ export async function fetchLog(key: string) {
  * fetchInventory and pushInventory now use the backend API.
  * The 'inventory_sync' table is legacy/fiction.
  */
+function groupByCategory(items: any[]) {
+  const dict: Record<string, any[]> = {};
+  for (const it of items || []) {
+    const cat = it.category || 'Uncategorized';
+    if (!dict[cat]) dict[cat] = [];
+    dict[cat].push(it);
+  }
+  return dict;
+}
+
 export async function fetchInventory() {
   try {
     const { api } = await import('./api');
     const data = await api.getInventory();
     return {
       ok: true,
-      inv: data.items,
+      inv: groupByCategory(data.items),
       syncedAt: data.created_at,
       metadata: data.metadata
     };
@@ -412,9 +422,12 @@ export function iTotal(it: any) {
   return Math.max(0, (it.onHand || 0) + rcv - iss) * (it.price || 0);
 }
 export function invToList(inv: any) {
+  if (Array.isArray(inv)) return inv;
   const out: any[] = [];
   Object.keys(inv || {}).forEach((cat) => {
-    (inv[cat] || []).forEach((it: any) => out.push({ ...it, cat }));
+    if (Array.isArray(inv[cat])) {
+      inv[cat].forEach((it: any) => out.push({ ...it, cat }));
+    }
   });
   return out;
 }

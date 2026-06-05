@@ -15,6 +15,51 @@ This is the **central development memory and discussion board** for all agents (
 
 ---
 
+## [v1.2.6] — 2026-06-05 — Fix frontend crash: invToList called with flat array instead of category-keyed dict
+
+**OpenCode:** Root-caused a frontend render crash (`(e[n]||[]).forEach is not a function`) on the production site. The backend API returns inventory as `{items: [...flat list...], ...}` but `fetchInventory` was storing `data.items` directly in state. Downstream code (`invToList`, `catTotals`, `grandTotal`) expects a category-keyed object like `{"Protein & Meat": [{...}], ...}`. When `invToList` iterated `Object.keys(array)` → `["0","1","2",...]` → `array["0"]` returns an item object → `item.forEach(...)` throws.
+
+**Fix (supabase.ts):**
+- Added `groupByCategory()` helper that groups a flat items array by `category` field
+- `fetchInventory` now calls `groupByCategory(data.items)` before storing
+- Added defense-in-depth guard in `invToList` skipping non-array values
+
+**Also:** Installed Chromium headless (via Playwright) + all system library deps to restore chrome-devtools browser testing capability. Missing libs were extracted from Debian debs since `sudo` wasn't available. DevTools now works for smoke testing the production frontend.
+
+**Push:** pending — not yet pushed
+
+## [v1.2.5] — 2026-06-05 — Production Diagnosis: full smoke test — API layer clean, no broken endpoint found
+
+**MJCC-debugger:** User reported "issues on the main production site." Ran a full production smoke test against `https://mjcc-managements.onrender.com` (backend) and `https://kpncompute.onrender.com` (frontend static site, srv-d8gnasbbc2fs73epjcpg). Tested every layer of the chain: Supabase Auth → backend `/api/auth/login` → ES256 JWT validation → data endpoints → response shape vs. frontend interfaces. **Result: every layer I could test returned 200 with real data.** I could not reproduce a broken feature from the API side. Details below — and a request for the concrete symptom, since the API is not where the failure is.
+
+### What's Working (verified this pass, not aspirational)
+- **CORS — correct.** `OPTIONS /api/inventory` preflight with `Origin: https://kpncompute.onrender.com` → `200` with `access-control-allow-origin: https://kpncompute.onrender.com` + `allow-credentials: true`. The `main.py:20` default of `localhost:5173` is overridden in production — `CORS_ORIGINS` env var is correctly set to the frontend domain. (`-I`/HEAD on the GET-only endpoint returns `405`, which is expected, not a bug.)
+- **Backend health & startup — clean.** Render logs show clean Uvicorn startup (`Application startup complete`, port 8000 bound), no import errors, no tracebacks, no 5xx in the last ~80 log lines.
+- **Auth (admin/manager JWT path) — working end to end.** Got a real ES256 JWT from Supabase password grant (`othniel@mjc-cafeteria.com`). `POST /api/auth/login` with `{"access_token":"<jwt>"}` → `200`. `GET /api/auth/me` → `200` `{username:"othniel", role:"admin", ...}`. ES256-first validation (from v1.0.5) is functioning.
+- **Env vars — verified through behavior, not read.** The `render` CLI in this env has no `env` subcommand, so I could not list vars directly. But a successful JWT login + `/api/auth/me` proves `SUPABASE_JWT_SECRET`/JWKS + Supabase keys are correctly set on the backend. CORS success proves `CORS_ORIGINS` is set.
+- **Authenticated endpoint sweep — all 200 with real data:** `/api/inventory` (409 items, real SKUs/prices), `/api/dashboard/stats` (total_value 9299.35, 409 items, 188 low-stock), `/api/events` (real rows), `/api/menu/Mon` (empty day buckets), `/api/logs/haccp` (`[]`), `/api/commits` (real history, also public/200 unauth).
+- **Unauthenticated gating — correct.** All gated endpoints return a clean `401 {"detail":"Missing authorization token"}`. `/api/commits` is intentionally public (200).
+- **Events schema — NO drift.** API returns `"cat":"training"` (v1 schema). Confirmed `frontend/src/components/EventsCalendar.tsx:34` interface declares `cat: string` and reads `e.cat` throughout — matches the API exactly. Events render correctly. (Suspected as a possible drift bug; dismissed by evidence.)
+- **Frontend static site — serving.** `https://kpncompute.onrender.com/` → 200, title "KpnCompute | MJCC Portal", bundle `index-B9HrEBEW.js` references `mjcc-managements.onrender.com` (correct prod API base, no localhost leak).
+
+### What's NOT Broken (ruled out — do not chase)
+- **SPA deep-link 404:** `GET /inventory` on the static site → 404 (no SPA rewrite rule). **Moot for this app:** `App.tsx` uses `useState`-based view switching, NOT react-router — there are no URL routes. The app only ever serves `/`. A user never navigates to a sub-path URL. Cosmetic at most.
+- **Empty `/api/menu/Mon` and `/api/logs/haccp` (`[]`):** almost certainly no-data-entered, not broken — events/inventory/stats all returned populated real data.
+- **PIN login rejecting jeremiah/othniel:** these are admin/manager role; `POST /api/auth/login` correctly returns `401 "PIN login only available for staff"`. Expected behavior.
+
+### Not Verified This Pass (flagging honestly)
+- **Staff PIN login path** (`staff1..6@mjc-cafeteria.com`, role `staff`) was NOT exercised — I don't have staff PINs and only confirmed admins are correctly *rejected*. v1.1.0 claims it works; that remains the only evidence. If the user's issue is staff login, this is the first thing to re-test with a real staff PIN.
+
+### Fix Plan
+**No code fix is warranted from this diagnosis — the API/auth/CORS/data layers are healthy.** To proceed I need the concrete symptom. **User: please answer one of —**
+1. Which page or feature is broken, and what do you see (blank screen, spinner forever, error toast, specific error text)?
+2. Are you logged in as admin (email/password) or staff (PIN) when it fails?
+3. Does the browser console / network tab show a specific failing request (which URL, what status)?
+
+Once a reproducible symptom is named, I'll trace it. Leading hypotheses if a symptom surfaces: (a) a client-side render/state bug in a specific component (Claude's lane), since the data layer is confirmed good; (b) staff-PIN auth regression (untested above); (c) a stale frontend deploy — worth confirming the static site was rebuilt after the latest `services.ts` changes.
+
+**Push:** N/A — diagnosis only, no files changed except this CHANGELOG entry. Not yet pushed.
+
 ## [v1.2.3] — 2026-06-05 — One-team agent config + shared god-mode tooling
 
 **Claude:** Rewrote central agent configs for one-team parity. `AGENTS.md` §9 now defines **one team** (tools unrestricted by lane), **Gemini as research lead** (all agents depend on Gemini for issue investigation), and OpenCode inline config (no `OPENCODE.md`). Added §11 **SHARED TOOLING** — project structure map, full tool palette (GitHub, Supabase MCP+CLI, Render, MJCC-debugger, ruff, ESLint), skills paths, MCP table, standard verification commands. Updated `CLAUDE.md` (builder + research dependency), `GEMINI.md` (dual mandate: research lead + backend writer, §5 tools table), `mjcc-tooling` skill v1.1.0 (synced to `.cursor/`, `.claude/`, `.gemini/`, `.agents/`), and `.claude/agents/` configs (`Debugy.md`, `mjcc-agent.md`, `Github.md`). ESLint documented as frontend formatter policy (no Prettier ships).
