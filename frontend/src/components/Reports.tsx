@@ -35,7 +35,7 @@ function downloadCSV(filename: string, text: string) {
   }
 }
 
-function Loading({ label = 'Loading\u2026' }) {
+function Loading({ label = 'Loading…' }) {
   return <div className="load-wrap"><div className="spinner"></div><div>{label}</div></div>;
 }
 
@@ -128,8 +128,8 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
         { key: 'app', label: 'Appliance' },
         { key: 'month', label: 'Month' },
         { key: 'day', label: 'Day' },
-        { key: 'am', label: 'AM \u00B0F' },
-        { key: 'pm', label: 'PM \u00B0F' },
+        { key: 'am', label: 'AM °F' },
+        { key: 'pm', label: 'PM °F' },
         { key: 'note', label: 'Corrective action' },
       ],
       build: () => [],
@@ -362,7 +362,7 @@ export function Reports({
           </div>
         </div>
         <div className="card" style={{ padding: '40px' }}>
-          <Loading label="Loading report data\u2026" />
+          <Loading label="Loading report data…" />
         </div>
       </div>
     );
@@ -546,7 +546,7 @@ export function Reports({
                       borderTop: '1px solid var(--line-soft)',
                     }}
                   >
-                    Showing 60 of {rows.length} \u2014 download the CSV for the full
+                    Showing 60 of {rows.length} — download the CSV for the full
                     report.
                   </div>
                 )}

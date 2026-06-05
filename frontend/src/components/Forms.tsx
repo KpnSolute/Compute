@@ -142,7 +142,7 @@ function tempCell(
                     fontWeight: bad ? 800 : 400,
                 }}
             >
-                {val || "\u2014"}
+                {val || "—"}
             </span>
         );
     return (
@@ -168,7 +168,7 @@ function textCell(
     if (!canEdit)
         return (
             <span style={{ fontSize: kind === "note" ? 11.5 : 12 }}>
-                {val || (kind === "init" ? "" : "\u2014")}
+                {val || (kind === "init" ? "" : "—")}
             </span>
         );
     return (
@@ -192,7 +192,7 @@ function dateCell(
     canEdit: boolean,
 ) {
     if (!canEdit)
-        return <span style={{ fontSize: 12 }}>{val || "\u2014"}</span>;
+        return <span style={{ fontSize: 12 }}>{val || "—"}</span>;
     return (
         <input
             className="sheet-inp txt"
@@ -210,7 +210,7 @@ function timeCell(
     canEdit: boolean,
 ) {
     if (!canEdit)
-        return <span style={{ fontSize: 12 }}>{val || "\u2014"}</span>;
+        return <span style={{ fontSize: 12 }}>{val || "—"}</span>;
     return (
         <input
             className="sheet-inp txt"
@@ -227,7 +227,7 @@ function mealToggle(
     onChange: (v: string) => void,
     canEdit: boolean,
 ) {
-    if (!canEdit) return <span>{val || "\u2014"}</span>;
+    if (!canEdit) return <span>{val || "—"}</span>;
     const MEAL_PERIODS = ["B", "L", "D"];
     return (
         <div className="meal-toggle">
@@ -338,8 +338,8 @@ export function MachineLog({ user, period, setPeriod }: PeriodFormProps) {
                     >
                         {machine.type === "high"
                             ? "High-temp · see data plate"
-                            : "Low-temp · chemical sanitizer 50\u2013100 ppm"}{" "}
-                        · Flow 15\u201325 psi
+                            : "Low-temp · chemical sanitizer 50–100 ppm"}{" "}
+                        · Flow 15–25 psi
                     </span>
                 </div>
                 <MonthNav period={period} setPeriod={setPeriod} />
@@ -358,10 +358,10 @@ export function MachineLog({ user, period, setPeriod }: PeriodFormProps) {
                                 <th style={{ width: 120 }}>Date</th>
                                 <th style={{ width: 84 }}>Time</th>
                                 <th>Meal</th>
-                                <th className="r">Wash \u00B0F</th>
-                                <th className="r">Rinse \u00B0F</th>
+                                <th className="r">Wash °F</th>
+                                <th className="r">Rinse °F</th>
                                 <th className="r">PSI</th>
-                                <th className="r">Final \u00B0F</th>
+                                <th className="r">Final °F</th>
                                 <th className="r">Sanitizer ppm</th>
                                 <th style={{ width: 70 }}>Init</th>
                                 {canEdit && <th></th>}
@@ -437,7 +437,7 @@ export function MachineLog({ user, period, setPeriod }: PeriodFormProps) {
                                                     color: "var(--faint)",
                                                 }}
                                             >
-                                                \u2014
+                                                —
                                             </span>
                                         )}
                                     </td>
@@ -544,17 +544,17 @@ export function CoolingLog({ user, period, setPeriod }: PeriodFormProps) {
                 <div className="ft-l">
                     <span className="thresh-chip frz">
                         {I.snow({ style: { width: 13, height: 13 } })}{" "}
-                        140\u00B0F \u2192 70\u00B0F \u2264 2h \u2192 40\u00B0F
-                        \u2264 6h total · Reheat to 165\u00B0F \u2264 2h
+                        140°F → 70°F ≤ 2h → 40°F
+                        ≤ 6h total · Reheat to 165°F ≤ 2h
                     </span>
                 </div>
                 <MonthNav period={period} setPeriod={setPeriod} />
             </div>
             <div className="form-note">
                 Time/temperature log for potentially hazardous foods. Cool from
-                140\u00B0F to 70\u00B0F within 2 hours, then to 40\u00B0F within
+                140°F to 70°F within 2 hours, then to 40°F within
                 an additional 4 hours. Reheat for hot holding rapidly to
-                165\u00B0F for 15 seconds.
+                165°F for 15 seconds.
             </div>
             <div className="card" style={{ marginBottom: 14 }}>
                 <div className="tbl-wrap">
@@ -586,7 +586,7 @@ export function CoolingLog({ user, period, setPeriod }: PeriodFormProps) {
                                 <th style={{ width: 110 }}>Date</th>
                                 <th>Meal</th>
                                 <th>Start</th>
-                                <th className="r">Internal \u00B0F</th>
+                                <th className="r">Internal °F</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -916,7 +916,7 @@ export function MealLog({ user }: FormProps) {
                                                         : " comp")
                                                 }
                                             >
-                                                {r.type || "\u2014"}
+                                                {r.type || "—"}
                                             </span>
                                         )}
                                     </td>
@@ -936,7 +936,7 @@ export function MealLog({ user }: FormProps) {
                                                     }
                                                 />
                                             ) : r[c[0]] ? (
-                                                "\u2713"
+                                                "✓"
                                             ) : (
                                                 ""
                                             )}
@@ -1014,7 +1014,7 @@ export function MealLog({ user }: FormProps) {
                         />
                     </label>
                     <p className="mc-note">
-                        Count actual number of persons \u2014 do not count
+                        Count actual number of persons — do not count
                         signatures. Monitors &amp; comp guests are recorded in
                         the <b>Type</b> column and are not charged.
                     </p>
@@ -1132,7 +1132,7 @@ export function InspectionSheet({ user }: FormProps) {
                                 }))
                             }
                         >
-                            <option value="">Select\u2026</option>
+                            <option value="">Select…</option>
                             {["Breakfast", "Lunch", "Brunch", "Dinner"].map(
                                 (x) => (
                                     <option key={x}>{x}</option>
@@ -1176,7 +1176,7 @@ export function InspectionSheet({ user }: FormProps) {
                         className="ipt"
                         rows={4}
                         style={{ width: "100%", resize: "vertical" }}
-                        placeholder="Explain any poor rating or negative student response; suggestions for improvement\u2026"
+                        placeholder="Explain any poor rating or negative student response; suggestions for improvement…"
                         value={data.comments || ""}
                         disabled={!canEdit}
                         onChange={(e) =>

@@ -254,7 +254,7 @@ function Sidebar({
     );
 }
 
-function Loading({ label = "Loading live data\u2026" }) {
+function Loading({ label = "Loading live data…" }) {
     return (
         <div className="load-wrap">
             <div className="spinner"></div>
@@ -437,7 +437,7 @@ function Dashboard({
             icon: "calCheck",
             tint: "#6D28D9",
             bg: "#EDE9FE",
-            val: nextEvent ? fmtShort(nextEvent.date) : "\u2014",
+            val: nextEvent ? fmtShort(nextEvent.date) : "—",
             sub: nextEvent ? nextEvent.title : "none scheduled",
             to: "events",
             small: true,
@@ -503,7 +503,7 @@ function Dashboard({
             {invState.error && invState.error !== "empty" && (
                 <div className="banner warn">
                     {I.alert()}
-                    <span>Couldn\u2019t load live data: {invState.error}</span>
+                    <span>Couldn’t load live data: {invState.error}</span>
                     <span className="bx" onClick={onSync}>
                         Retry
                     </span>
@@ -565,7 +565,7 @@ function Dashboard({
                     <div className="card">
                         <div className="card-head">
                             <h3>
-                                Today\u2019s menu ·{" "}
+                                Today’s menu ·{" "}
                                 {DOW_FULL[new Date().getDay()]}
                             </h3>
                             <span
@@ -573,7 +573,7 @@ function Dashboard({
                                 onClick={() => go("menu")}
                                 style={{ cursor: "pointer" }}
                             >
-                                Full menu \u2192
+                                Full menu →
                             </span>
                         </div>
                         <div
@@ -591,7 +591,7 @@ function Dashboard({
                                         color: "var(--faint)",
                                     }}
                                 >
-                                    Loading menu\u2026
+                                    Loading menu…
                                 </div>
                             ) : menuMeals.length === 0 ? (
                                 <div
@@ -696,7 +696,7 @@ function Dashboard({
                                             onClick={() => go("inventory")}
                                         >
                                             +{reorderList.length - 12} more
-                                            \u2192
+                                            →
                                         </span>
                                     )}
                                 </div>
@@ -720,7 +720,7 @@ function Dashboard({
                                 onClick={() => go("mballot")}
                                 style={{ cursor: "pointer" }}
                             >
-                                Full log \u2192
+                                Full log →
                             </span>
                         </div>
                         <div className="card-body">
@@ -752,7 +752,7 @@ function Dashboard({
                                 onClick={() => go("moninv")}
                                 style={{ cursor: "pointer" }}
                             >
-                                Manage \u2192
+                                Manage →
                             </span>
                         </div>
                         <div className="card-body">
@@ -817,7 +817,7 @@ function Dashboard({
                                 onClick={() => go("events")}
                                 style={{ cursor: "pointer" }}
                             >
-                                Calendar \u2192
+                                Calendar →
                             </span>
                         </div>
                         <div className="card-body flush">
@@ -829,7 +829,7 @@ function Dashboard({
                                         color: "var(--faint)",
                                     }}
                                 >
-                                    Loading events\u2026
+                                    Loading events…
                                 </div>
                             ) : upcoming.slice(0, 4).length === 0 ? (
                                 <div
@@ -1035,7 +1035,7 @@ function InventoryView({
             {invState.error && invState.error !== "empty" && (
                 <div className="banner warn">
                     {I.alert()}
-                    <span>Couldn\u2019t load live data: {invState.error}</span>
+                    <span>Couldn’t load live data: {invState.error}</span>
                     <span className="bx" onClick={onSync}>
                         Retry
                     </span>
@@ -1069,7 +1069,7 @@ function InventoryView({
                             <input
                                 value={q}
                                 onChange={(e) => setQ(e.target.value)}
-                                placeholder="Search SKU or description\u2026"
+                                placeholder="Search SKU or description…"
                                 style={{
                                     width: "100%",
                                     padding: "8px 12px 8px 34px",
@@ -1127,7 +1127,7 @@ function InventoryView({
                                                     color: "var(--muted)",
                                                 }}
                                             >
-                                                {r.sku || "\u2014"}
+                                                {r.sku || "—"}
                                             </td>
                                             <td style={{ fontWeight: 600 }}>
                                                 {r.desc}
@@ -1326,11 +1326,11 @@ function UsersView() {
                 </div>
             </div>
 
-            {state.loading && <Loading label="Loading directory\u2026" />}
+            {state.loading && <Loading label="Loading directory…" />}
             {state.error && (
                 <div className="banner warn">
                     {I.alert()}
-                    <span>Couldn\u2019t load users: {state.error}</span>
+                    <span>Couldn’t load users: {state.error}</span>
                 </div>
             )}
 
@@ -1456,7 +1456,7 @@ const PAGE_INFO: Record<
         sub: "Plan the rotating cycle menu, map recipes to inventory items, and forecast quantities against on-hand counts.",
         feats: [
             "28-day rotation",
-            "Recipe \u2192 SKU mapping",
+            "Recipe → SKU mapping",
             "Quantity forecasting",
             "Nutrition / HACCP notes",
         ],
@@ -1475,7 +1475,7 @@ const PAGE_INFO: Record<
     sourcectrl: {
         icon: "branch",
         title: "Source Control",
-        sub: "Every inventory change is staged, reviewed, and committed \u2014 with full history and one-click revert.",
+        sub: "Every inventory change is staged, reviewed, and committed — with full history and one-click revert.",
         feats: [
             "Staged commits",
             "Diff & review",
@@ -1486,7 +1486,7 @@ const PAGE_INFO: Record<
     archives: {
         icon: "archive",
         title: "Archives",
-        sub: "Monthly snapshots, vendor invoices, and exported reports \u2014 retained and searchable.",
+        sub: "Monthly snapshots, vendor invoices, and exported reports — retained and searchable.",
         feats: [
             "Monthly snapshots",
             "Invoice archive",
@@ -1578,7 +1578,7 @@ function ArchivesView(_props: { period: [number, number] }) {
         };
     }, []);
 
-    if (loading) return <Loading label="Loading archives\u2026" />;
+    if (loading) return <Loading label="Loading archives…" />;
 
     return (
         <div className="fade-in">
@@ -1735,7 +1735,7 @@ export function Portal({
 
     function doSync() {
         reloadInv();
-        toast("Refreshing live data\u2026");
+        toast("Refreshing live data…");
     }
 
     const canAccess = (routeKey: string) => lvl >= (ROUTE_MIN[routeKey] ?? 10);

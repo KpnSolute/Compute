@@ -5,8 +5,8 @@ import { catColor, fmtMoney, fmtMoneyFull } from '../lib/supabase';
 import { api } from '../lib/api';
 
 const SNACK_HOURS = [
-  { day: 'Monday \u2013 Friday', lunch: '11:00 AM \u2013 1:30 PM', eve: '' },
-  { day: 'Saturday', lunch: '11:00 AM \u2013 1:00 PM', eve: '' },
+  { day: 'Monday – Friday', lunch: '11:00 AM – 1:30 PM', eve: '' },
+  { day: 'Saturday', lunch: '11:00 AM – 1:00 PM', eve: '' },
   { day: 'Sunday', lunch: 'Closed', eve: '' },
 ];
 
@@ -16,7 +16,7 @@ const MEAL_RATES = [
   { meal: 'Dinner', rate: '$5.75' },
 ];
 
-function Loading({ label = 'Loading\u2026' }) {
+function Loading({ label = 'Loading…' }) {
   return <div className="load-wrap"><div className="spinner"></div><div>{label}</div></div>;
 }
 
@@ -134,19 +134,19 @@ export function SnackBar({ user }: { user: User }) {
             </label>
 
             <div className={'variance-box ' + vClass}>
-              <span className="vb-lbl">Variance (counted \u2212 expected)</span>
+              <span className="vb-lbl">Variance (counted − expected)</span>
               <span className="vb-val">
                 {variance === null
-                  ? '\u2014'
+                  ? '—'
                   : (variance > 0 ? '+' : '') + '$' + variance.toFixed(2)}
               </span>
               {variance !== null && (
                 <span className="vb-note">
                   {Math.abs(variance) < 0.005
-                    ? 'Balanced \u2014 drawer reconciles.'
+                    ? 'Balanced — drawer reconciles.'
                     : variance < 0
-                      ? 'Short \u2014 recount & note shortage.'
-                      : 'Over \u2014 recount & note overage.'}
+                      ? 'Short — recount & note shortage.'
+                      : 'Over — recount & note overage.'}
                 </span>
               )}
             </div>
@@ -314,7 +314,7 @@ export function MonthlyInventory({
         category: r.cat,
       }));
       const payload = { items, month: m + 1, year: y, notes: `${MONTHS[m]} ${y}` };
-      await api.stageChange('inventory_save', 'inventory', 'batch', payload, `Monthly inventory \u2014 ${MONTHS[m]} ${y}`);
+      await api.stageChange('inventory_save', 'inventory', 'batch', payload, `Monthly inventory — ${MONTHS[m]} ${y}`);
       setSaved(true);
       setSavedAt(new Date());
     } catch {
@@ -329,7 +329,7 @@ export function MonthlyInventory({
         <div>
           <h2>Monthly Inventory</h2>
           <div className="ph-sub">
-            {MONTHS[m]} {y} · opening \u2192 received \u2192 issued \u2192 closing ·{' '}
+            {MONTHS[m]} {y} · opening → received → issued → closing ·{' '}
             {rows.length} items
           </div>
         </div>
@@ -347,7 +347,7 @@ export function MonthlyInventory({
 
       {loading ? (
         <div className="card" style={{ padding: '40px' }}>
-          <Loading label="Loading inventory\u2026" />
+          <Loading label="Loading inventory…" />
         </div>
       ) : (
         <>
@@ -385,7 +385,7 @@ export function MonthlyInventory({
                 <input
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
-                  placeholder="Search items\u2026"
+                  placeholder="Search items…"
                   style={{
                     width: '100%',
                     padding: '7px 12px 7px 33px',
@@ -479,7 +479,7 @@ export function MonthlyInventory({
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-head">
               <h3>
-                Invoice register \u2014 {MONTHS[m]} {y}
+                Invoice register — {MONTHS[m]} {y}
               </h3>
               <span className="ch-link">
                 {invoices.length} invoices ·{' '}

@@ -12,7 +12,7 @@ const MEAL_TINT: Record<string, string> = {
 const EMPTY_MENU: Record<string, any> = {};
 const EMPTY_SIDES: Record<string, any> = {};
 
-function Loading({ label = 'Loading\u2026' }) {
+function Loading({ label = 'Loading…' }) {
   return <div className="load-wrap"><div className="spinner"></div><div>{label}</div></div>;
 }
 
@@ -73,7 +73,7 @@ export function CycleMenu({ user: _user }: { user: User }) {
 
       {loading ? (
         <div className="card" style={{ padding: '40px' }}>
-          <Loading label="Loading menu\u2026" />
+          <Loading label="Loading menu…" />
         </div>
       ) : (
         <>
@@ -115,7 +115,7 @@ export function CycleMenu({ user: _user }: { user: User }) {
                               <span className="ml-item">{o.item}</span>
                               {o.desc && <span className="ml-desc">{o.desc}</span>}
                             </div>
-                            {o.qty && <span className="ml-qty">{'\u00D7'}{o.qty}</span>}
+                            {o.qty && <span className="ml-qty">{'×'}{o.qty}</span>}
                           </div>
                         );
                       })}
@@ -133,7 +133,7 @@ export function CycleMenu({ user: _user }: { user: User }) {
 
           <div className="form-note" style={{ marginTop: 4 }}>
             {I.alert({ style: { width: 13, height: 13 } })}
-            <span>Source: <b>Cafeteria_Cycle_Menu_March_2026.xlsm</b> \u2014 Miami Job Corps. Two protein entrees are offered at every lunch and dinner per the SOP, with a vegetarian option always available.</span>
+            <span>Source: <b>Cafeteria_Cycle_Menu_March_2026.xlsm</b> — Miami Job Corps. Two protein entrees are offered at every lunch and dinner per the SOP, with a vegetarian option always available.</span>
           </div>
         </>
       )}

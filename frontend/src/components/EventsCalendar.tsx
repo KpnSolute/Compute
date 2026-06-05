@@ -53,7 +53,7 @@ interface ServSafeStaff {
   proctor?: boolean;
 }
 
-function Loading({ label = 'Loading\u2026' }) {
+function Loading({ label = 'Loading…' }) {
   return <div className="load-wrap"><div className="spinner"></div><div>{label}</div></div>;
 }
 
@@ -139,7 +139,7 @@ export function EventsCalendar({ user }: { user: User }) {
 
       {loading ? (
         <div className="card" style={{ padding: '40px' }}>
-          <Loading label="Loading events\u2026" />
+          <Loading label="Loading events…" />
         </div>
       ) : (
         <>
@@ -191,9 +191,9 @@ export function EventsCalendar({ user }: { user: User }) {
           <div className="grid-2">
             <div className="card">
               <div className="card-head">
-                <h3>{selDay ? fmtEvDate(selDay) : 'Events \u2014 ' + MONTHS[m] + ' ' + y}</h3>
+                <h3>{selDay ? fmtEvDate(selDay) : 'Events — ' + MONTHS[m] + ' ' + y}</h3>
                 <span className="ch-link" onClick={() => setSelDay(null)} style={{ cursor: 'pointer' }}>
-                  {selDay ? '\u2190 Back to month' : listEvents.length + ' event' + (listEvents.length !== 1 ? 's' : '')}
+                  {selDay ? '← Back to month' : listEvents.length + ' event' + (listEvents.length !== 1 ? 's' : '')}
                 </span>
               </div>
               <div className="card-body flush">
@@ -331,7 +331,7 @@ function AddEventModal({ CAT_META, defaultMonth, onClose, onAdd }: AddEventModal
           <div className="ft-field"><span style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--faint)' }}>Theme (optional)</span>
             <input className="ipt sel" value={f.theme} onChange={e => set('theme', e.target.value)} placeholder="e.g. Black History Month" /></div>
           <div className="ft-field"><span style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--faint)' }}>Notes</span>
-            <textarea className="ipt sel" rows={3} style={{ resize: 'vertical' }} value={f.desc} onChange={e => set('desc', e.target.value)} placeholder="Menu highlights, coordination notes, SOP references\u2026"></textarea></div>
+            <textarea className="ipt sel" rows={3} style={{ resize: 'vertical' }} value={f.desc} onChange={e => set('desc', e.target.value)} placeholder="Menu highlights, coordination notes, SOP references…"></textarea></div>
         </div>
         <div className="modal-foot">
           <button className="btn" onClick={onClose}>Cancel</button>

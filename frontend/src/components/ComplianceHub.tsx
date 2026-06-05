@@ -111,7 +111,7 @@ function tempCell(
         className="num"
         style={{ color: bad ? 'var(--red)' : 'inherit', fontWeight: bad ? 800 : 400 }}
       >
-        {val || '\u2014'}
+        {val || '—'}
       </span>
     );
   return (
@@ -137,7 +137,7 @@ function textCell(
   if (!canEdit)
     return (
       <span style={{ fontSize: kind === 'note' ? 11.5 : 12 }}>
-        {val || (kind === 'init' ? '' : '\u2014')}
+        {val || (kind === 'init' ? '' : '—')}
       </span>
     );
   return (
@@ -295,8 +295,8 @@ function TemperatureLog({
               ? I.snow({ style: { width: 13, height: 13 } })
               : I.thermo({ style: { width: 13, height: 13 } })}
             {app.type === 'freezer'
-              ? 'Freezer · 0\u00B0F or lower'
-              : 'Refrigerator · 41\u00B0F or lower'}
+              ? 'Freezer · 0°F or lower'
+              : 'Refrigerator · 41°F or lower'}
           </span>
         </div>
         <MonthNav period={period} setPeriod={setPeriod} />
@@ -304,8 +304,8 @@ function TemperatureLog({
 
       <div className="form-note">
         Record temperatures <b>twice daily (AM / PM)</b> with staff initials.
-        Notify management immediately if a refrigerator is above 41\u00B0F or a
-        freezer is above 0\u00B0F. Keep on file for one year.
+        Notify management immediately if a refrigerator is above 41°F or a
+        freezer is above 0°F. Keep on file for one year.
         {violations > 0 && (
           <span className="viol-pill">
             {I.alert({ style: { width: 13, height: 13 } })} {violations}{' '}
@@ -367,7 +367,7 @@ function TemperatureLog({
                         canEdit,
                         'note',
                         amBad || pmBad
-                          ? 'Out-of-compliance \u2014 record corrective action'
+                          ? 'Out-of-compliance — record corrective action'
                           : '',
                       )}
                     </td>
@@ -436,13 +436,13 @@ function SanitizerLog({
       <div className="form-toolbar">
         <div className="ft-l">
           <span className="thresh-chip rfg">
-            {I.droplet({ style: { width: 13, height: 13 } })} {(data as any).conc}: 150\u2013400 ppm
+            {I.droplet({ style: { width: 13, height: 13 } })} {(data as any).conc}: 150–400 ppm
           </span>
         </div>
         <MonthNav period={period} setPeriod={setPeriod} />
       </div>
       <div className="form-note">
-        Complete <b>twice daily</b> (AM / PM) for sample testing \u2014 a
+        Complete <b>twice daily</b> (AM / PM) for sample testing — a
         single prep site (e.g. third-compartment pot sink) is recommended. One
         form per month.
         {viol > 0 && (
@@ -652,7 +652,7 @@ function TastePanel({
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="card-head">
           <h3>
-            Today\u2019s taste panel \u2014{' '}
+            Today’s taste panel —{' '}
             {new Date().toLocaleDateString()}
           </h3>
           {canEdit && (
@@ -667,7 +667,7 @@ function TastePanel({
               <tr>
                 <th>Menu item</th>
                 <th className="r" style={{ width: 96 }}>
-                  Internal \u00B0F
+                  Internal °F
                 </th>
                 <th style={{ width: 120 }}>Code</th>
                 <th>Notes</th>
@@ -701,10 +701,10 @@ function TastePanel({
                         value={it.code}
                         onChange={e => setItem(it.id, 'code', e.target.value)}
                       >
-                        <option value="">\u2014</option>
+                        <option value="">—</option>
                         {TASTE_CODES.map(c => (
                           <option key={c.code} value={c.code}>
-                            {c.code} · {c.label.split(' \u2014')[0]}
+                            {c.code} · {c.label.split(' —')[0]}
                           </option>
                         ))}
                       </select>

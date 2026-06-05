@@ -177,7 +177,7 @@ export function SourceControl({
                             ? OP_LABEL[entries[0].operation] ||
                               entries[0].change_type
                             : entries[0].new_value_text || entries[0].field_name
-                        : `Batch commit \u2014 ${entries.length} staged change${entries.length !== 1 ? "s" : ""}`,
+                        : `Batch commit — ${entries.length} staged change${entries.length !== 1 ? "s" : ""}`,
                 author_id: user.id,
             });
             setStaged((s) => s.filter((x) => !ids.includes(x.entry_id)));
@@ -243,10 +243,10 @@ export function SourceControl({
                     <h2>{isStaff ? "My Submissions" : "Source Control"}</h2>
                     <div className="ph-sub">
                         {isStaff
-                            ? "Submit changes for review \u2014 an admin approves and commits them"
+                            ? "Submit changes for review — an admin approves and commits them"
                             : "Review queue, commit history & data-store sync"}
                         {" · "}
-                        {loading ? "\u2026" : staged.length + " pending"}
+                        {loading ? "…" : staged.length + " pending"}
                     </div>
                 </div>
                 <div className="ph-actions">
@@ -304,7 +304,7 @@ export function SourceControl({
                         <span className="sync-branch">main</span>
                     </div>
                     <div className="sync-sub">
-                        Live \u2014 snapshots push after every commit
+                        Live — snapshots push after every commit
                         {lastCommit && (
                             <>
                                 {" · last commit "}
@@ -375,7 +375,7 @@ export function SourceControl({
                                         fontSize: 12.5,
                                     }}
                                 >
-                                    Loading\u2026
+                                    Loading…
                                 </div>
                             ) : visibleStaged.length === 0 ? (
                                 <div
@@ -386,7 +386,7 @@ export function SourceControl({
                                         fontSize: 12.5,
                                     }}
                                 >
-                                    Nothing staged \u2014 the working tree is
+                                    Nothing staged — the working tree is
                                     clean.
                                 </div>
                             ) : (

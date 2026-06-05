@@ -37,9 +37,9 @@ const DEFAULT_CHECKLIST = [
 ];
 
 const DEFAULT_MEAL_SCHEDULE: MealScheduleItem[] = [
-  { meal: 'Breakfast', hours: '6:30 AM \u2013 8:00 AM', monitor: 'Lead Cook', open: 6, close: 8 },
-  { meal: 'Lunch', hours: '11:00 AM \u2013 1:00 PM', monitor: 'Manager', open: 11, close: 13 },
-  { meal: 'Dinner', hours: '4:30 PM \u2013 6:00 PM', monitor: 'Suprv Cook', open: 16, close: 18 },
+  { meal: 'Breakfast', hours: '6:30 AM – 8:00 AM', monitor: 'Lead Cook', open: 6, close: 8 },
+  { meal: 'Lunch', hours: '11:00 AM – 1:00 PM', monitor: 'Manager', open: 11, close: 13 },
+  { meal: 'Dinner', hours: '4:30 PM – 6:00 PM', monitor: 'Suprv Cook', open: 16, close: 18 },
 ];
 
 const INCIDENT_TYPES = [
@@ -52,7 +52,7 @@ const INCIDENT_TYPES = [
   'Other',
 ];
 
-function Loading({ label = 'Loading\u2026' }) {
+function Loading({ label = 'Loading…' }) {
   return <div className="load-wrap"><div className="spinner"></div><div>{label}</div></div>;
 }
 
@@ -170,7 +170,7 @@ export function DailyOps({ user }: { user: User }) {
   const h = new Date().getHours();
   const isToday = date === new Date().toISOString().slice(0, 10);
   function mealStatus(s: MealScheduleItem): MealStatus {
-    if (!isToday) return { cls: 'off', txt: '\u2014' };
+    if (!isToday) return { cls: 'off', txt: '—' };
     if (h >= s.open && h < s.close) return { cls: 'ok', txt: 'Open now' };
     if (h >= s.close) return { cls: 'off', txt: 'Closed' };
     return { cls: 'warn', txt: 'Upcoming' };
@@ -209,7 +209,7 @@ export function DailyOps({ user }: { user: User }) {
             </div>
             {checklistLoading ? (
               <div className="card-body" style={{ padding: '20px 17px' }}>
-                <Loading label="Loading checklist\u2026" />
+                <Loading label="Loading checklist…" />
               </div>
             ) : (
               <>
@@ -254,7 +254,7 @@ export function DailyOps({ user }: { user: User }) {
 
           <div className="card">
             <div className="card-head">
-              <h3>Menu notes \u2014 28-day cycle</h3>
+              <h3>Menu notes — 28-day cycle</h3>
             </div>
             <div
               className="card-body"
@@ -268,7 +268,7 @@ export function DailyOps({ user }: { user: User }) {
                 }}
               >
                 <label className="ft-field">
-                  <span>Cycle day (1\u201328)</span>
+                  <span>Cycle day (1–28)</span>
                   <input
                     className="ipt sel"
                     type="number"
@@ -292,7 +292,7 @@ export function DailyOps({ user }: { user: User }) {
                   style={{ resize: 'vertical' }}
                   value={notes}
                   disabled={!canEdit}
-                  placeholder="e.g. Hispanic Heritage Month \u2014 rice and beans, plantains\u2026"
+                  placeholder="e.g. Hispanic Heritage Month — rice and beans, plantains…"
                   onChange={(e) => {
                     setNotes(e.target.value);
                     setSaved(false);
@@ -310,7 +310,7 @@ export function DailyOps({ user }: { user: User }) {
             </div>
             {mealLoading ? (
               <div className="card-body" style={{ padding: '20px 17px' }}>
-                <Loading label="Loading schedule\u2026" />
+                <Loading label="Loading schedule…" />
               </div>
             ) : (
               <div className="card-body flush tbl-wrap">
@@ -384,7 +384,7 @@ export function DailyOps({ user }: { user: User }) {
                       rows={2}
                       style={{ resize: 'vertical' }}
                       value={iDetail}
-                      placeholder="Describe the incident\u2026"
+                      placeholder="Describe the incident…"
                       onChange={(e) => setIDetail(e.target.value)}
                     ></textarea>
                   </label>
