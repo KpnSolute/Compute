@@ -138,11 +138,11 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
         oh = max(0, int(_to_float(row.get("on_hand"))))
         items.append(
             InventoryItem(
-                sku=inv_item.get("sku", ""),
-                desc=inv_item.get("description", ""),
+                sku=inv_item.get("sku") or "",
+                desc=inv_item.get("description") or "",
                 onHand=oh,
                 par=max(0, int(_to_float(inv_item.get("par_level")))),
-                category=cat.get("name", ""),
+                category=cat.get("name") or "",
                 price=_to_float(row.get("unit_price")),
                 w1r=int(_to_float(row.get("w1_received"))),
                 w2r=int(_to_float(row.get("w2_received"))),

@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import datetime, timezone
+
 from supabase import create_client
 
 _svc = None
@@ -30,17 +31,28 @@ def dispatch_inventory_save(payload: dict) -> dict:
     cat_r = sup.table("inventory_categories").select("id,name").execute()
     cat_map = {r["name"]: r["id"] for r in (cat_r.data or [])}
 
+    # Get a default category ID (Dry Goods or first available)
+    default_cat_id = cat_map.get("Dry Goods") or (
+        cat_r.data[0]["id"] if cat_r.data else None
+    )
+
     count = 0
     for item in items:
-        cat_id = cat_map.get(item.get("category", ""))
+        sku = item.get("sku")
+        if not sku:
+            # Generate a temp SKU if missing to avoid upsert conflict/null issues
+            sku = f"TEMP-{datetime.now().strftime('%H%M%S')}-{count}"
+
+        cat_id = cat_map.get(item.get("category", "")) or default_cat_id
         if not cat_id:
             continue
+
         inv = (
             sup.table("inventory_items")
             .upsert(
                 {
-                    "sku": item["sku"],
-                    "description": item.get("desc", ""),
+                    "sku": sku,
+                    "description": item.get("desc") or "No description",
                     "category_id": cat_id,
                     "unit_price": item.get("price", 0.0),
                     "par_level": item.get("par", 0),
@@ -52,6 +64,7 @@ def dispatch_inventory_save(payload: dict) -> dict:
         item_row = inv.data[0] if inv.data else None
         if not item_row:
             continue
+
         sup.table("monthly_inventory").upsert(
             {
                 "item_id": item_row["id"],
