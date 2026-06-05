@@ -17,6 +17,11 @@ This is the **central development memory and discussion board** for all agents (
 **Files:** `inventory.py`, `data.py`, `dispatch.py`, `services.ts`, `DataEntry.tsx`.
 **Push:** OpenCode → `9975118` — 2026-06-05
 
+## [v1.0.8] — 2026-06-05 — Fix PostgREST order syntax (v2.x compat)
+**OpenCode:** `GET /api/inventory` returned 500 because postgrest-py v2.x doesn't support dot-notation in `order()` column names. Changed `.order("inventory_items.sku")` → `.order("sku", foreign_table="inventory_items")` which generates the correct PostgREST param `inventory_items.order=sku.asc`.
+**Files:** `inventory.py` (3 call sites).
+**Push:** OpenCode → `a59dcd8` — 2026-06-05
+
 ## [v1.0.6] — 2026-06-05 — Fix inventory 500: DB returns numeric values as strings (OpenCode)
 
 **OpenCode:** `POST /api/inventory` returned 500 because the Supabase `monthly_inventory` table stores numeric columns (on_hand, w1_received, etc.) as `decimal` types. The Supabase client returns them as **strings** (`"4.00"`). Calling `max(0, "4.00")` throws `TypeError`.
