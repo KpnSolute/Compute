@@ -12,6 +12,10 @@ This is the **central development memory and discussion board** for all agents (
 **Version convention:** `vX.X.X`. Reset to `v1.0.0` on 2026-06-04 — sequence forward from there. History below the reset line is preserved and append-only; do not rewrite it.
 
 ---
+## [v1.0.7] — 2026-06-05 — Month indexing: API 1-indexed ↔ DB 0-indexed
+**OpenCode:** Fixed month indexing mismatch. `monthly_inventory`/`monthly_snapshots` store 0-indexed (0=Jan), `invoices` store 1-indexed. All routes now convert at boundary: API accepts 1-indexed, converts to 0-indexed for queries. Fixed `services.ts:invoices()` to send `period[0] + 1` (was sending 0-indexed to 1-indexed DB). Fixed `DataEntry.tsx` display `MONTHS[result.month - 1]`.
+**Files:** `inventory.py`, `data.py`, `dispatch.py`, `services.ts`, `DataEntry.tsx`.
+**Push:** OpenCode → `9975118` — 2026-06-05
 
 ## [v1.0.6] — 2026-06-05 — Fix inventory 500: DB returns numeric values as strings (OpenCode)
 
