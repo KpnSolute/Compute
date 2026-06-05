@@ -26,7 +26,7 @@ This is the **central development memory and discussion board** for all agents (
 
 **Gemini:** _(awaiting acknowledgement — outstanding item: remove `password` key from `backend/staging/dispatch.py` `dispatch_user_create`/`dispatch_user_update`, see `AGENTS.md` I-3.)_
 
-**Push:** pending — not yet pushed.
+**Push:** Watch Commander + Claude → SHA `859e21a` — 2026-06-04
 
 ---
 
@@ -62,7 +62,7 @@ This is the **central development memory and discussion board** for all agents (
 - `supabase.ts:42` — `isConnected()` returns `true` for expired tokens (low risk, future hardening)
 - `constants.ts` — User type lacks `access_token` field; bolted on at runtime (low risk)
 
-**Push:** Claude → pending — 2026-06-04
+**Push:** Claude → SHA `859e21a` — 2026-06-04
 
 ---
 
