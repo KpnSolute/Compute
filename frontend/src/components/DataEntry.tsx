@@ -177,7 +177,7 @@ export function DataEntry({ user }: { user: any }) {
                             <div className="ph-sub">
                                 Batch <b>{result.batch_id}</b> &middot;{' '}
                                 {result.staged_count} entries staged from{' '}
-                                <b>{result.file}</b> &middot; {MONTHS[result.month] ?? result.month}{' '}
+                                <b>{result.file}</b> &middot; {MONTHS[result.month - 1] ?? result.month}{' '}
                                 {result.year}
                             </div>
                             {result.operations?.length > 0 && (

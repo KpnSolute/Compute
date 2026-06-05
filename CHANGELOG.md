@@ -19,7 +19,7 @@ This is the **central development memory and discussion board** for all agents (
 
 **Fix:** Added `_to_float()` helper that safely coerces string → float → int. Added `logger.exception()` calls so future 500s include tracebacks in Render logs.
 
-**Push:** OpenCode → pending — not yet pushed
+**Push:** OpenCode → `34c55c5` — 2026-06-05
 
 ---
 

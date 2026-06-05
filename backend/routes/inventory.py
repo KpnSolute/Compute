@@ -204,6 +204,7 @@ async def get_inventory(
         if month is not None and year is not None:
             if month < 1 or month > 12:
                 raise HTTPException(status_code=400, detail="Month must be 1-12")
+            db_month = month - 1  # API uses 1-indexed, DB uses 0-indexed
         else:
             latest = (
                 supabase_service.table("monthly_inventory")
@@ -215,13 +216,14 @@ async def get_inventory(
             )
             if not latest.data:
                 raise HTTPException(status_code=404, detail="No inventory found")
-            month = latest.data[0]["month"]
+            db_month = latest.data[0]["month"]  # 0-indexed from DB
+            month = db_month + 1  # Convert to 1-indexed for response
             year = latest.data[0]["year"]
 
         result = (
             supabase_service.table("monthly_inventory")
             .select(_JOIN_SELECT)
-            .eq("month", month)
+            .eq("month", db_month)
             .eq("year", year)
             .order("inventory_items.sku")
             .execute()
@@ -281,15 +283,17 @@ async def save_inventory(
             )
 
     meta = payload.metadata or {}
-    month = meta.get("month")
+    month = meta.get("month")  # 1-indexed from frontend
     year = meta.get("year")
     if month is None or year is None:
         now = datetime.utcnow()
-        month = month or now.month
+        month = month or now.month  # 1-indexed
         year = year or now.year
 
     if month < 1 or month > 12:
         raise HTTPException(status_code=400, detail="Month must be 1-12")
+
+    db_month = month - 1  # Convert 1-indexed → 0-indexed for DB
 
     try:
         # Pre-fetch category name -> id mapping
@@ -325,11 +329,11 @@ async def save_inventory(
             )
             inv_item_id = inv_result.data[0]["id"]
 
-            # Upsert monthly_inventory by item_id + month + year
+            # Upsert monthly_inventory by item_id + month + year (DB stores 0-indexed month)
             supabase_service.table("monthly_inventory").upsert(
                 {
                     "item_id": inv_item_id,
-                    "month": month,
+                    "month": db_month,
                     "year": year,
                     "on_hand": item.onHand,
                     "unit_price": item.price,
@@ -349,7 +353,7 @@ async def save_inventory(
         result = (
             supabase_service.table("monthly_inventory")
             .select(_JOIN_SELECT)
-            .eq("month", month)
+            .eq("month", db_month)
             .eq("year", year)
             .order("inventory_items.sku")
             .execute()
@@ -418,11 +422,11 @@ async def get_inventory_history(
 
         snapshots = []
         for p in distinct:
-            y, m = p["year"], p["month"]
+            y, db_m = p["year"], p["month"]  # db_m is 0-indexed
             result = (
                 supabase_service.table("monthly_inventory")
                 .select(_JOIN_SELECT)
-                .eq("month", m)
+                .eq("month", db_m)
                 .eq("year", y)
                 .order("inventory_items.sku")
                 .execute()
@@ -431,6 +435,7 @@ async def get_inventory_history(
                 continue
 
             items = _flatten_rows(result.data)
+            m = db_m + 1  # 1-indexed for display
             period_id = f"{y}-{m:02d}"
             created_at = _serialize_dt(result.data[0].get("created_at"))
 

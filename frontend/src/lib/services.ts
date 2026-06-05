@@ -83,7 +83,7 @@ export const DS = {
     return populate('commits', () => api.getCommits());
   },
   async invoices(period: [number, number]) {
-    return populate('invoices', () => api.getInvoices(period[0], period[1]));
+    return populate('invoices', () => api.getInvoices(period[0] + 1, period[1]));
   },
 
   /* ── sync cache accessors (call after async methods have been awaited) ── */

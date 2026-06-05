@@ -18,13 +18,14 @@ def _client():
 
 
 def dispatch_inventory_save(payload: dict) -> dict:
-    month = payload.get("month") or datetime.now().month
+    month = payload.get("month") or datetime.now().month  # 1-indexed from staging
     year = payload.get("year") or datetime.now().year
     items = payload.get("items", [])
     notes = payload.get("notes", "")
     if not items:
         return {"applied": 0, "error": "No items in payload"}
 
+    db_month = max(0, month - 1)  # Convert 1→0 indexed for monthly_inventory
     sup = _client()
     cat_r = sup.table("inventory_categories").select("id,name").execute()
     cat_map = {r["name"]: r["id"] for r in (cat_r.data or [])}
@@ -54,7 +55,7 @@ def dispatch_inventory_save(payload: dict) -> dict:
         sup.table("monthly_inventory").upsert(
             {
                 "item_id": item_row["id"],
-                "month": month,
+                "month": db_month,
                 "year": year,
                 "on_hand": item.get("onHand", 0),
                 "unit_price": item.get("price", 0.0),

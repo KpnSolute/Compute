@@ -178,6 +178,7 @@ async def get_invoices(
     try:
         query = supabase_service.table("invoices").select("*")
         if month is not None:
+            # invoices.month is 1-indexed in DB — no conversion needed
             query = query.eq("month", month)
         if year is not None:
             query = query.eq("year", year)
@@ -368,7 +369,11 @@ async def get_archives(auth_user: dict = Depends(_get_auth_user)):
             .order("month", desc=True)
             .execute()
         )
-        return result.data if result.data else []
+        rows = result.data or []
+        # DB stores 0-indexed month; API returns 1-indexed
+        for r in rows:
+            r["month"] = r["month"] + 1
+        return rows
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -378,17 +383,21 @@ async def get_archive_detail(
     year: int, month: int, auth_user: dict = Depends(_get_auth_user)
 ):
     try:
+        # month param is 1-indexed from API; DB uses 0-indexed
+        db_month = month - 1
         result = (
             supabase_service.table("monthly_snapshots")
             .select("*")
             .eq("year", year)
-            .eq("month", month)
+            .eq("month", db_month)
             .single()
             .execute()
         )
         if not result.data:
             raise HTTPException(status_code=404, detail="Archive not found")
-        return result.data
+        data = dict(result.data)
+        data["month"] = data["month"] + 1  # 0→1 indexed
+        return data
     except HTTPException:
         raise
     except Exception as e:
