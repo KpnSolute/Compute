@@ -13,6 +13,25 @@ This is the **central development memory and discussion board** for all agents (
 
 ---
 
+## [v1.0.3] — 2026-06-05 — Render env vars patched, Supabase connection verified (Claude)
+
+**Claude:** Audited both Render services via CLI + REST API. Found and fixed two missing env var gaps:
+
+**Backend (`mjcc-api` / `srv-d8afnemgvqtc73cr64l0`):**
+- Added `SUPABASE_JWT_SECRET` — was empty/missing in Render despite being set in local `.env`. Without it, admin/manager JWT login was blocked on production (known blocker since v1.0.0).
+
+**Frontend (`kpncompute` / `srv-d8gnasbbc2fs73epjcpg`):**
+- Added `VITE_SUPABASE_URL` — had `SUPABASE_URL` but Vite only bakes in `VITE_`-prefixed vars at build time.
+- Added `VITE_SUPABASE_ANON_KEY` — same issue; `SUPABASE_ANON_KEY` was present but invisible to the frontend bundle.
+
+Both services redeployed and confirmed `live`. Supabase connection should now work end-to-end on production.
+
+**Method:** Render REST API (`GET /env-vars` → merge → `PUT /env-vars` + `POST /deploys`). Render CLI v2.19.0 has no built-in env var set command — REST API is the right path.
+
+**Push:** n/a — env var change, no code commit needed. Deploy IDs: `dep-d8h4uk48aovs73epruq0` (backend), `dep-d8h4uk58nd3s73bs1icg` (frontend).
+
+---
+
 ## [v1.0.2] — 2026-06-05 — Render CLI installed, documented for all agents (Claude)
 
 **Claude:** Render CLI v2.19.0 installed at `/usr/local/bin/render` (or wherever the installer placed it). Documented full usage in `AGENTS.md` §10 so all agents can use it. Key workflows:
