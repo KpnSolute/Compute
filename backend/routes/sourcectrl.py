@@ -1,13 +1,15 @@
 import os
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException
+from pathlib import Path
+from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 from supabase import create_client
 from dotenv import load_dotenv
 from typing import Optional
 from backend.staging.dispatch import replay
+from backend.routes import jwt_validator
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[2] / '.env')
 
 router = APIRouter(prefix="/api")
 
@@ -202,25 +204,47 @@ async def get_staging(entity_type: Optional[str] = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _resolve_submitter(authorization: str) -> str | None:
+    """Extract user ID from Bearer token (JWT or pin_<id>). Returns None if unresolvable."""
+    token = (authorization or "").replace("Bearer ", "").strip()
+    if not token:
+        return None
+    if token.startswith("pin_"):
+        user_id = token[4:]
+        r = _client().table("user_profiles").select("id").eq("id", user_id).eq("active", True).limit(1).execute()
+        return r.data[0]["id"] if r.data else None
+    claims = jwt_validator.verify_token(token)
+    if not claims:
+        return None
+    user_id = claims.get("sub")
+    if not user_id:
+        return None
+    r = _client().table("user_profiles").select("id").eq("id", user_id).eq("active", True).limit(1).execute()
+    return r.data[0]["id"] if r.data else None
+
+
 @router.post("/staging", status_code=201)
-async def submit_staging(body: SubmitStagingBody):
+async def submit_staging(body: SubmitStagingBody, authorization: str = Header("")):
     if body.entity_type not in ENTITY_TYPES:
         raise HTTPException(
             status_code=422, detail=f"entity_type must be one of {sorted(ENTITY_TYPES)}"
         )
     try:
-        # Use first admin as system submitter when no real session is available
-        author_id = _resolve_author("system")
-        profiles_r = (
-            _client()
-            .table("user_profiles")
-            .select("id")
-            .eq("role", "admin")
-            .limit(1)
-            .execute()
-        )
-        if profiles_r.data:
-            author_id = profiles_r.data[0]["id"]
+        author_id = _resolve_submitter(authorization)
+        if not author_id:
+            profiles_r = (
+                _client()
+                .table("user_profiles")
+                .select("id")
+                .eq("role", "admin")
+                .limit(1)
+                .execute()
+            )
+            author_id = profiles_r.data[0]["id"] if profiles_r.data else None
+        if not author_id:
+            raise HTTPException(
+                status_code=400, detail="No valid user found to assign as submitter."
+            )
 
         row = {
             "entity_type": body.entity_type,
@@ -315,8 +339,6 @@ async def approve_commit(body: ApproveCommitBody):
                     "new_value_text": entry.get("new_value_text"),
                     "change_type": entry.get("change_type", "update"),
                     "metadata": entry.get("metadata", {}),
-                    "field": entry.get("field_name", ""),
-                    "action": entry.get("change_type", "update"),
                 }
             )
         if changes:
@@ -356,8 +378,8 @@ async def approve_commit(body: ApproveCommitBody):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/staging/{entry_id}", status_code=200)
-async def reject_staging(entry_id: str, body: RejectBody = RejectBody()):
+@router.delete("/staging/{entry_id}", status_code=204)
+async def reject_staging(entry_id: str, review_note: Optional[str] = None):
     try:
         now = datetime.now(timezone.utc).isoformat()
         r = (
@@ -366,7 +388,7 @@ async def reject_staging(entry_id: str, body: RejectBody = RejectBody()):
             .update(
                 {
                     "status": "rejected",
-                    "review_note": body.review_note,
+                    "review_note": review_note,
                     "reviewed_at": now,
                 }
             )
@@ -375,7 +397,7 @@ async def reject_staging(entry_id: str, body: RejectBody = RejectBody()):
         )
         if not r.data:
             raise HTTPException(status_code=404, detail="Staging entry not found.")
-        return {"ok": True}
+        return None
     except HTTPException:
         raise
     except Exception as e:

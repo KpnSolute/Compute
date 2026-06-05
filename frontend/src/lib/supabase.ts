@@ -46,7 +46,10 @@ export function isConnected(): boolean {
 let _client: SupabaseClient | null = null;
 export function getSupaClient(): SupabaseClient | null {
   if (_client) return _client;
-  const { url, key } = getSupaConfig();
+  const { url: lsUrl, key: lsKey } = getSupaConfig();
+  const env = import.meta.env as Record<string, string>;
+  const url = lsUrl || env.VITE_SUPABASE_URL || '';
+  const key = lsKey || env.VITE_SUPABASE_ANON_KEY || '';
   if (!url || !key) return null;
   _client = createClient(url, key, {
     auth: { persistSession: true, autoRefreshToken: true, storageKey: 'kpn_supa_auth' },
@@ -302,56 +305,80 @@ export function saveLogLocal(key: string, data: any) {
     localStorage.setItem(_logKey(key), JSON.stringify(data));
   } catch (e) {}
 }
+/**
+ * saveLog now redirects to the backend API for persistence.
+ * Local-first fallback is maintained in localStorage.
+ */
 export async function saveLog(key: string, data: any, syncedBy?: string) {
   saveLogLocal(key, data);
-  const db = getSupaClient();
-  if (!db) return { ok: true, where: 'local' };
+  
+  // In the backend-mediated architecture, we use the FastAPI client
+  // rather than direct Supabase JS upserts for data.
   try {
-    const { error } = await db
-      .from('haccp_logs')
-      .upsert(
-        { id: key, data, updated_by: syncedBy || 'portal', updated_at: new Date().toISOString() },
-        { onConflict: 'id' }
-      );
-    if (error) return { ok: true, where: 'local', note: error.message };
-    return { ok: true, where: 'supabase' };
+    const { api } = await import('./api');
+    
+    // Determine which API to call based on the key/context
+    // This is a simplified shim to maintain the existing local-first UI pattern
+    if (key.includes('haccp')) {
+      await api.saveHaccpLog({
+        location: data.location || 'Unknown',
+        temperature: data.temperature || 0,
+        unit: data.unit || 'F',
+        timestamp: new Date().toISOString(),
+        checked_by: syncedBy || 'portal',
+        notes: data.notes || ''
+      });
+    } else {
+      await api.saveDailyLog({
+        entry_type: 'other',
+        title: `Log Update: ${key}`,
+        description: JSON.stringify(data),
+        data: JSON.stringify(data)
+      });
+    }
+    
+    return { ok: true, where: 'backend' };
   } catch (e: any) {
+    console.warn('[Storage] Backend sync failed, kept local:', e.message);
     return { ok: true, where: 'local', note: e.message };
   }
 }
+
+/**
+ * fetchLog reads from the backend API.
+ */
 export async function fetchLog(key: string) {
-  const db = getSupaClient();
-  if (db) {
-    try {
-      const { data, error } = await db.from('haccp_logs').select('data, updated_by, updated_at').eq('id', key).single();
-      if (!error && data) {
-        saveLogLocal(key, data.data);
-        return {
-          ok: true,
-          data: data.data,
-          updatedBy: data.updated_by,
-          updatedAt: data.updated_at,
-          where: 'supabase',
-        };
-      }
-    } catch (e) {}
-  }
+  try {
+    const { api } = await import('./api');
+    let data: any;
+    
+    if (key.includes('haccp')) {
+      const logs = await api.getHaccpLogs(1, key);
+      data = logs[0];
+    }
+    
+    if (data) {
+      saveLogLocal(key, data);
+      return { ok: true, data, where: 'backend' };
+    }
+  } catch (e) {}
+  
   return { ok: true, data: loadLog(key, null), where: 'local' };
 }
 
+/**
+ * fetchInventory and pushInventory now use the backend API.
+ * The 'inventory_sync' table is legacy/fiction.
+ */
 export async function fetchInventory() {
-  const db = getSupaClient();
-  if (!db) return { ok: false, error: 'Not connected.' };
   try {
-    const { data, error } = await db.from('inventory_sync').select('data, synced_by, synced_at').eq('id', 1).single();
-    if (error) return { ok: false, error: error.message };
-    const inv = data?.data?.liveInventory || null;
+    const { api } = await import('./api');
+    const data = await api.getInventory();
     return {
       ok: true,
-      inv,
-      syncedBy: data?.synced_by,
-      syncedAt: data?.synced_at,
-      liveMonth: data?.data?.liveMonth || null,
+      inv: data.items,
+      syncedAt: data.created_at,
+      metadata: data.metadata
     };
   } catch (e: any) {
     return { ok: false, error: e.message };
@@ -359,23 +386,13 @@ export async function fetchInventory() {
 }
 
 export async function pushInventory(inv: any, syncedBy?: string) {
-  const db = getSupaClient();
-  if (!db) return { ok: false, error: 'Not connected.' };
   try {
-    const row = {
-      id: 1,
-      data: {
-        version: 2,
-        exportedAt: new Date().toISOString(),
-        liveMonth: { month: 4, year: 2026 },
-        liveInventory: inv,
-        snapshots: {},
-      },
-      synced_by: syncedBy || 'portal',
-      synced_at: new Date().toISOString(),
+    const { api } = await import('./api');
+    const payload = {
+      items: inv,
+      metadata: { synced_by: syncedBy }
     };
-    const { error } = await db.from('inventory_sync').upsert(row, { onConflict: 'id' });
-    if (error) return { ok: false, error: error.message };
+    await api.saveInventory(payload);
     return { ok: true };
   } catch (e: any) {
     return { ok: false, error: e.message };

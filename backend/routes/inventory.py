@@ -14,7 +14,7 @@ Endpoints:
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query, Header, Depends
 from pydantic import BaseModel, Field
-from backend.routes import supabase, jwt_validator
+from backend.routes import supabase_service, jwt_validator
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 
@@ -22,11 +22,11 @@ router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 class InventoryItem(BaseModel):
     sku: str
     desc: str
-    onHand: int = Field(..., ge=0)
-    par: int = Field(..., ge=0)
+    onHand: int = Field(0, ge=0)
+    par: int = Field(0, ge=0)
     category: str
     price: float = 0.0
-    on_hand: int = 0
+    unit: str = "each"
     w1r: int = 0
     w2r: int = 0
     w3r: int = 0
@@ -78,7 +78,7 @@ async def _get_auth_user(authorization: str = Header("")) -> dict:
         user_id = token.replace("pin_", "")
         try:
             result = (
-                supabase.table("user_profiles")
+                supabase_service.table("user_profiles")
                 .select("*")
                 .eq("id", user_id)
                 .single()
@@ -103,7 +103,7 @@ async def _get_auth_user(authorization: str = Header("")) -> dict:
 
     try:
         result = (
-            supabase.table("user_profiles")
+            supabase_service.table("user_profiles")
             .select("*")
             .eq("id", user_id)
             .single()
@@ -197,7 +197,7 @@ async def get_inventory(
                 raise HTTPException(status_code=400, detail="Month must be 1-12")
         else:
             latest = (
-                supabase.table("monthly_inventory")
+                supabase_service.table("monthly_inventory")
                 .select("month, year")
                 .order("year", desc=True)
                 .order("month", desc=True)
@@ -210,7 +210,7 @@ async def get_inventory(
             year = latest.data[0]["year"]
 
         result = (
-            supabase.table("monthly_inventory")
+            supabase_service.table("monthly_inventory")
             .select(_JOIN_SELECT)
             .eq("month", month)
             .eq("year", year)
@@ -283,7 +283,7 @@ async def save_inventory(
 
     try:
         # Pre-fetch category name -> id mapping
-        cat_result = supabase.table("inventory_categories").select("id, name").execute()
+        cat_result = supabase_service.table("inventory_categories").select("id, name").execute()
         category_map = {}
         for c in cat_result.data or []:
             category_map[c["name"]] = c["id"]
@@ -297,9 +297,9 @@ async def save_inventory(
                     status_code=400, detail=f"Unknown category: {item.category}"
                 )
 
-            # Upsert inventory_items by SKU
+            # Upsert inventory_items by SKU (on_hand lives in monthly_inventory, not here)
             inv_result = (
-                supabase.table("inventory_items")
+                supabase_service.table("inventory_items")
                 .upsert(
                     {
                         "sku": item.sku,
@@ -307,7 +307,6 @@ async def save_inventory(
                         "category_id": cat_id,
                         "unit_price": item.price,
                         "par_level": item.par,
-                        "on_hand": item.onHand,
                     },
                     on_conflict="sku",
                 )
@@ -317,7 +316,7 @@ async def save_inventory(
             inv_item_id = inv_result.data[0]["id"]
 
             # Upsert monthly_inventory by item_id + month + year
-            supabase.table("monthly_inventory").upsert(
+            supabase_service.table("monthly_inventory").upsert(
                 {
                     "item_id": inv_item_id,
                     "month": month,
@@ -338,7 +337,7 @@ async def save_inventory(
 
         # Rebuild and return the full snapshot
         result = (
-            supabase.table("monthly_inventory")
+            supabase_service.table("monthly_inventory")
             .select(_JOIN_SELECT)
             .eq("month", month)
             .eq("year", year)
@@ -385,7 +384,7 @@ async def get_inventory_history(
     try:
         # Get distinct (month, year) pairs ordered desc
         periods = (
-            supabase.table("monthly_inventory")
+            supabase_service.table("monthly_inventory")
             .select("month, year")
             .order("year", desc=True)
             .order("month", desc=True)
@@ -410,7 +409,7 @@ async def get_inventory_history(
         for p in distinct:
             y, m = p["year"], p["month"]
             result = (
-                supabase.table("monthly_inventory")
+                supabase_service.table("monthly_inventory")
                 .select(_JOIN_SELECT)
                 .eq("month", m)
                 .eq("year", y)
@@ -447,7 +446,7 @@ async def get_reorders(auth_user: dict = Depends(_get_auth_user)):
 
     Requires: Valid authentication token
 
-    Returns items where on_hand < par_level, sorted by shortage.
+    Returns items where on_hand < par_level in the latest month, sorted by shortage.
 
     Returns:
         List of low-stock items
@@ -457,22 +456,43 @@ async def get_reorders(auth_user: dict = Depends(_get_auth_user)):
         500: Database error
     """
     try:
+        latest = (
+            supabase_service.table("monthly_inventory")
+            .select("month, year")
+            .order("year", desc=True)
+            .order("month", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if not latest.data:
+            return []
+        month = latest.data[0]["month"]
+        year = latest.data[0]["year"]
+
         result = (
-            supabase.table("live_inventory")
-            .select("sku, description, category, on_hand, par_level")
+            supabase_service.table("monthly_inventory")
+            .select(
+                "on_hand, "
+                "inventory_items!inner(sku, description, par_level, "
+                "  inventory_categories!inner(name))"
+            )
+            .eq("month", month)
+            .eq("year", year)
             .execute()
         )
 
         low_items = []
         for row in result.data or []:
+            inv_item = row.get("inventory_items") or {}
+            cat = inv_item.get("inventory_categories") or {}
             on_hand = max(0, row.get("on_hand", 0) or 0)
-            par = max(0, row.get("par_level", 0) or 0)
+            par = max(0, inv_item.get("par_level", 0) or 0)
             if par > 0 and on_hand < par:
                 low_items.append(
                     LowStockItem(
-                        sku=row.get("sku", ""),
-                        desc=row.get("description", ""),
-                        category=row.get("category", ""),
+                        sku=inv_item.get("sku", ""),
+                        desc=inv_item.get("description", ""),
+                        category=cat.get("name", ""),
                         onHand=on_hand,
                         par=par,
                         short=par - on_hand,
