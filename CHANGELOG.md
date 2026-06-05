@@ -29,7 +29,7 @@ Also reset the `admin` password to `admin2025!` so the user can actually log in.
 - `othniel` / `Manager@2026` — admin role
 - `admin` / `admin2025!` — admin role
 
-**Push:** OpenCode → `f32b712` — 2026-06-05
+**Push:** OpenCode → `f32b712` (initial) + `bdb46e0` (changelog) — 2026-06-05
 
 ---
 
