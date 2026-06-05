@@ -1,4 +1,5 @@
 """Schema context builder — pulls live lookup data for AI prompts."""
+
 import os
 from supabase import create_client
 
@@ -8,24 +9,24 @@ _svc = None
 def _client():
     global _svc
     if _svc is None:
-        url = os.getenv('SUPABASE_URL')
-        key = os.getenv('SUPABASE_SERVICE_KEY')
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_SERVICE_KEY")
         if not url or not key:
-            raise RuntimeError('SUPABASE_URL and SUPABASE_SERVICE_KEY must be set.')
+            raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set.")
         _svc = create_client(url, key)
     return _svc
 
 
 def get_categories() -> dict[str, int]:
     """Returns {name: id} for all inventory_categories."""
-    r = _client().table('inventory_categories').select('id,name').execute()
-    return {row['name']: row['id'] for row in (r.data or [])}
+    r = _client().table("inventory_categories").select("id,name").execute()
+    return {row["name"]: row["id"] for row in (r.data or [])}
 
 
 def get_vendors() -> dict[str, int]:
     """Returns {name: id} for all vendors."""
-    r = _client().table('vendors').select('id,name').execute()
-    return {row['name']: row['id'] for row in (r.data or [])}
+    r = _client().table("vendors").select("id,name").execute()
+    return {row["name"]: row["id"] for row in (r.data or [])}
 
 
 def get_ai_config() -> dict:
@@ -33,36 +34,37 @@ def get_ai_config() -> dict:
     try:
         r = (
             _client()
-            .table('app_settings')
-            .select('setting_value')
-            .eq('setting_key', 'ai_config')
+            .table("app_settings")
+            .select("setting_value")
+            .eq("setting_key", "ai_config")
             .limit(1)
             .execute()
         )
         if r.data:
-            val = r.data[0]['setting_value']
+            val = r.data[0]["setting_value"]
             if isinstance(val, dict):
                 return val
     except Exception:
         pass
     return {
-        'provider': os.getenv('AI_PROVIDER', 'groq'),
-        'model': os.getenv('GROQ_MODEL', 'mixtral-8x7b-32768'),
+        "provider": os.getenv("AI_PROVIDER", "groq"),
+        "model": os.getenv("GROQ_MODEL", "mixtral-8x7b-32768"),
     }
 
 
 def save_ai_config(config: dict) -> None:
     from datetime import datetime, timezone
+
     now = datetime.now(timezone.utc).isoformat()
-    _client().table('app_settings').upsert(
-        {'setting_key': 'ai_config', 'setting_value': config, 'updated_at': now},
-        on_conflict='setting_key',
+    _client().table("app_settings").upsert(
+        {"setting_key": "ai_config", "setting_value": config, "updated_at": now},
+        on_conflict="setting_key",
     ).execute()
 
 
 def build_inventory_context(categories: dict, vendors: dict) -> str:
-    cat_list = ', '.join(f'{n} (id={i})' for n, i in categories.items())
-    ven_list = ', '.join(f'{n} (id={i})' for n, i in vendors.items()) or 'none'
+    cat_list = ", ".join(f"{n} (id={i})" for n, i in categories.items())
+    ven_list = ", ".join(f"{n} (id={i})" for n, i in vendors.items()) or "none"
     return f"""INVENTORY SCHEMA CONTEXT:
 inventory_items columns: sku (text, unique key), description (text), category (text — must match list), unit_price (float), par_level (int), on_hand (int), unit (text, e.g. 'each','case','lb','oz','gal')
 
@@ -106,12 +108,12 @@ PAYLOAD FORMAT — event_create operation:
 
 
 OPERATION_HINTS = {
-    'inventory': 'inventory_save',
-    'menu': 'menu_save',
-    'event': 'event_create',
-    'events': 'event_create',
-    'haccp': 'haccp_save',
-    'compliance': 'haccp_save',
-    'log': 'daily_log_save',
-    'ops': 'daily_log_save',
+    "inventory": "inventory_save",
+    "menu": "menu_save",
+    "event": "event_create",
+    "events": "event_create",
+    "haccp": "haccp_save",
+    "compliance": "haccp_save",
+    "log": "daily_log_save",
+    "ops": "daily_log_save",
 }

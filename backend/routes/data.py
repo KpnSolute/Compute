@@ -8,7 +8,7 @@ invoices, inventory categories, dashboard stats, and archives.
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query, Header, Depends
 from pydantic import BaseModel
-from backend.routes import supabase, jwt_validator
+from backend.routes import supabase_service, jwt_validator
 
 router = APIRouter(prefix="/api", tags=["data"])
 
@@ -22,7 +22,7 @@ async def _get_auth_user(authorization: str = Header("")) -> dict:
         user_id = token.replace("pin_", "")
         try:
             result = (
-                supabase.table("user_profiles")
+                supabase_service.table("user_profiles")
                 .select("*")
                 .eq("id", user_id)
                 .single()
@@ -46,7 +46,7 @@ async def _get_auth_user(authorization: str = Header("")) -> dict:
 
     try:
         result = (
-            supabase.table("user_profiles")
+            supabase_service.table("user_profiles")
             .select("*")
             .eq("id", user_id)
             .single()
@@ -69,7 +69,7 @@ async def _get_auth_user(authorization: str = Header("")) -> dict:
 async def get_opening_checklist(auth_user: dict = Depends(_get_auth_user)):
     try:
         result = (
-            supabase.table("opening_checklist_items")
+            supabase_service.table("opening_checklist_items")
             .select("*")
             .eq("is_active", True)
             .order("sort_order")
@@ -87,7 +87,7 @@ async def get_opening_checklist(auth_user: dict = Depends(_get_auth_user)):
 async def get_servsafe(auth_user: dict = Depends(_get_auth_user)):
     try:
         result = (
-            supabase.table("servsafe_certifications")
+            supabase_service.table("servsafe_certifications")
             .select("*")
             .order("staff_name")
             .execute()
@@ -104,7 +104,7 @@ async def get_servsafe(auth_user: dict = Depends(_get_auth_user)):
 async def get_meal_periods(auth_user: dict = Depends(_get_auth_user)):
     try:
         result = (
-            supabase.table("meal_periods").select("*").order("sort_order").execute()
+            supabase_service.table("meal_periods").select("*").order("sort_order").execute()
         )
         return result.data if result.data else []
     except Exception as e:
@@ -128,7 +128,7 @@ async def get_incidents(
     auth_user: dict = Depends(_get_auth_user),
 ):
     try:
-        query = supabase.table("incident_logs").select("*")
+        query = supabase_service.table("incident_logs").select("*")
         if incident_type:
             query = query.eq("incident_type", incident_type)
         result = query.order("reported_at", desc=True).limit(limit).execute()
@@ -144,7 +144,7 @@ async def create_incident(
     try:
         now = datetime.utcnow().isoformat()
         result = (
-            supabase.table("incident_logs")
+            supabase_service.table("incident_logs")
             .insert(
                 {
                     "incident_type": payload.incident_type,
@@ -176,7 +176,7 @@ async def get_invoices(
     auth_user: dict = Depends(_get_auth_user),
 ):
     try:
-        query = supabase.table("invoices").select("*")
+        query = supabase_service.table("invoices").select("*")
         if month is not None:
             query = query.eq("month", month)
         if year is not None:
@@ -190,7 +190,7 @@ async def get_invoices(
         vendor_map = {}
         if vendor_ids:
             vendors_result = (
-                supabase.table("vendors")
+                supabase_service.table("vendors")
                 .select("id,name")
                 .in_("id", vendor_ids)
                 .execute()
@@ -209,7 +209,7 @@ async def get_invoices(
 async def get_invoice_items(id: str, auth_user: dict = Depends(_get_auth_user)):
     try:
         result = (
-            supabase.table("invoice_items").select("*").eq("invoice_id", id).execute()
+            supabase_service.table("invoice_items").select("*").eq("invoice_id", id).execute()
         )
         return result.data if result.data else []
     except Exception as e:
@@ -223,7 +223,7 @@ async def get_invoice_items(id: str, auth_user: dict = Depends(_get_auth_user)):
 async def get_inventory_categories(auth_user: dict = Depends(_get_auth_user)):
     try:
         result = (
-            supabase.table("inventory_categories")
+            supabase_service.table("inventory_categories")
             .select("*")
             .order("sort_order")
             .execute()
@@ -242,7 +242,7 @@ async def get_dashboard_stats(auth_user: dict = Depends(_get_auth_user)):
         # total_value from live_inventory SUM(sub_total)
         total_value = 0.0
         try:
-            tv = supabase.table("live_inventory").select("sub_total").execute()
+            tv = supabase_service.table("live_inventory").select("sub_total").execute()
             if tv.data:
                 total_value = sum(float(r.get("sub_total", 0) or 0) for r in tv.data)
         except Exception:
@@ -250,14 +250,14 @@ async def get_dashboard_stats(auth_user: dict = Depends(_get_auth_user)):
         if not total_value:
             try:
                 items = (
-                    supabase.table("inventory_items").select("id,unit_price").execute()
+                    supabase_service.table("inventory_items").select("id,unit_price").execute()
                 )
                 if items.data:
                     prices = {
                         i["id"]: float(i.get("unit_price", 0) or 0) for i in items.data
                     }
                     mi = (
-                        supabase.table("monthly_inventory")
+                        supabase_service.table("monthly_inventory")
                         .select("item_id,on_hand")
                         .execute()
                     )
@@ -273,7 +273,7 @@ async def get_dashboard_stats(auth_user: dict = Depends(_get_auth_user)):
         # total_items from barcodes COUNT where is_active=true
         total_items = 0
         try:
-            ti = supabase.table("barcodes").select("id").eq("is_active", True).execute()
+            ti = supabase_service.table("barcodes").select("id").eq("is_active", True).execute()
             total_items = len(ti.data) if ti.data else 0
         except Exception:
             pass
@@ -281,7 +281,7 @@ async def get_dashboard_stats(auth_user: dict = Depends(_get_auth_user)):
         # low_stock from live_inventory where on_hand < par_level
         low_stock = 0
         try:
-            ls = supabase.table("live_inventory").select("on_hand,par_level").execute()
+            ls = supabase_service.table("live_inventory").select("on_hand,par_level").execute()
             if ls.data:
                 low_stock = sum(
                     1
@@ -296,7 +296,7 @@ async def get_dashboard_stats(auth_user: dict = Depends(_get_auth_user)):
         pending_staging = 0
         try:
             ps = (
-                supabase.table("staging_entries")
+                supabase_service.table("staging_entries")
                 .select("entry_id")
                 .eq("status", "pending")
                 .execute()
@@ -309,7 +309,7 @@ async def get_dashboard_stats(auth_user: dict = Depends(_get_auth_user)):
         recent_activity = []
         try:
             cr = (
-                supabase.table("commits")
+                supabase_service.table("commits")
                 .select("commit_id,message,author_id,created_at")
                 .order("created_at", desc=True)
                 .limit(5)
@@ -322,7 +322,7 @@ async def get_dashboard_stats(auth_user: dict = Depends(_get_auth_user)):
                 pm = {}
                 if author_ids:
                     pr = (
-                        supabase.table("user_profiles")
+                        supabase_service.table("user_profiles")
                         .select("id,display_name,username,role")
                         .in_("id", author_ids)
                         .execute()
@@ -362,7 +362,7 @@ async def get_dashboard_stats(auth_user: dict = Depends(_get_auth_user)):
 async def get_archives(auth_user: dict = Depends(_get_auth_user)):
     try:
         result = (
-            supabase.table("monthly_snapshots")
+            supabase_service.table("monthly_snapshots")
             .select("month,year,grand_total,item_count")
             .order("year", desc=True)
             .order("month", desc=True)
@@ -379,7 +379,7 @@ async def get_archive_detail(
 ):
     try:
         result = (
-            supabase.table("monthly_snapshots")
+            supabase_service.table("monthly_snapshots")
             .select("*")
             .eq("year", year)
             .eq("month", month)

@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Header, Depends
 from pydantic import BaseModel
-from backend.routes import supabase, jwt_validator
+from backend.routes import supabase_service, jwt_validator
 
 router = APIRouter(prefix="/api/menu", tags=["menu"])
 
@@ -33,7 +33,7 @@ async def _get_auth_user(authorization: str = Header("")) -> dict:
         user_id = token.replace("pin_", "")
         try:
             result = (
-                supabase.table("user_profiles")
+                supabase_service.table("user_profiles")
                 .select("*")
                 .eq("id", user_id)
                 .single()
@@ -57,7 +57,7 @@ async def _get_auth_user(authorization: str = Header("")) -> dict:
 
     try:
         result = (
-            supabase.table("user_profiles")
+            supabase_service.table("user_profiles")
             .select("*")
             .eq("id", user_id)
             .single()
@@ -75,7 +75,7 @@ async def _get_auth_user(authorization: str = Header("")) -> dict:
 
 def _get_active_cycle() -> str | None:
     result = (
-        supabase.table("menu_cycles").select("id").eq("active", True).limit(1).execute()
+        supabase_service.table("menu_cycles").select("id").eq("active", True).limit(1).execute()
     )
     if result.data:
         return result.data[0]["id"]
@@ -107,7 +107,7 @@ async def get_menu(day: str, auth_user: dict = Depends(_get_auth_user)):
         return {"id": day, "data": {p: [] for p in MEAL_PERIODS[day]}}
 
     result = (
-        supabase.table("menu_entries")
+        supabase_service.table("menu_entries")
         .select("*")
         .eq("day_of_week", day)
         .eq("cycle_id", cycle_id)
@@ -138,7 +138,7 @@ async def update_menu(
 
     now = datetime.utcnow().isoformat()
 
-    supabase.table("menu_entries").delete().eq("day_of_week", day).eq(
+    supabase_service.table("menu_entries").delete().eq("day_of_week", day).eq(
         "cycle_id", cycle_id
     ).execute()
 
@@ -161,7 +161,7 @@ async def update_menu(
         )
 
     if inserts:
-        result = supabase.table("menu_entries").insert(inserts).execute()
+        result = supabase_service.table("menu_entries").insert(inserts).execute()
         return result.data
 
     return []

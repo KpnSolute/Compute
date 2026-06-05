@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Header
-from pydantic import BaseModel
-from backend.routes import supabase, jwt_validator
+from pydantic import BaseModel, ConfigDict
+from backend.routes import supabase_service, jwt_validator
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -23,10 +23,12 @@ class LoginResponse(BaseModel):
 class UserInfo(BaseModel):
     """Current user info."""
 
+    model_config = ConfigDict(extra="ignore")
+
     id: str
     username: str
     display_name: str
-    last_name: str
+    last_name: str = ""
     role: str
     active: bool
 
@@ -35,7 +37,7 @@ async def _get_user_profile(user_id: str) -> dict | None:
     """Fetch user profile from Supabase by id."""
     try:
         result = (
-            supabase.table("user_profiles")
+            supabase_service.table("user_profiles")
             .select("*")
             .eq("id", user_id)
             .single()
@@ -51,7 +53,7 @@ async def _get_user_by_username(username: str) -> dict | None:
     """Fetch user profile by username."""
     try:
         result = (
-            supabase.table("user_profiles")
+            supabase_service.table("user_profiles")
             .select("*")
             .eq("username", username)
             .eq("active", True)

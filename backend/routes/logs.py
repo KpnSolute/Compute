@@ -13,8 +13,8 @@ Endpoints:
 
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query, Header, Depends
-from pydantic import BaseModel, Field
-from backend.routes import supabase, jwt_validator
+from pydantic import BaseModel, ConfigDict, Field
+from backend.routes import supabase_service, jwt_validator
 
 router = APIRouter(prefix="/api/logs", tags=["logs"])
 
@@ -33,13 +33,15 @@ class HACCPLogEntry(BaseModel):
 class HACCPLogResponse(BaseModel):
     """HACCP log response."""
 
+    model_config = ConfigDict(extra="ignore")
+
     id: str
     location: str
     temperature: float
-    unit: str
+    unit: str = ""
     timestamp: str
     checked_by: str
-    notes: str
+    notes: str = ""
     created_at: str
 
 
@@ -56,12 +58,14 @@ class DailyLogEntry(BaseModel):
 class DailyLogResponse(BaseModel):
     """Daily log response."""
 
+    model_config = ConfigDict(extra="ignore")
+
     id: str
     entry_type: str
     title: str
-    description: str
-    severity: str
-    created_by: str
+    description: str = ""
+    severity: str = "info"
+    created_by: str = ""
     created_at: str
     data: str = ""
 
@@ -77,7 +81,7 @@ async def _get_auth_user(authorization: str = Header("")) -> dict:
         user_id = token.replace("pin_", "")
         try:
             result = (
-                supabase.table("user_profiles")
+                supabase_service.table("user_profiles")
                 .select("*")
                 .eq("id", user_id)
                 .single()
@@ -102,7 +106,7 @@ async def _get_auth_user(authorization: str = Header("")) -> dict:
 
     try:
         result = (
-            supabase.table("user_profiles")
+            supabase_service.table("user_profiles")
             .select("*")
             .eq("id", user_id)
             .single()
@@ -141,7 +145,7 @@ async def get_haccp_logs(
         500: Database error
     """
     try:
-        query = supabase.table("haccp_logs").select("*")
+        query = supabase_service.table("haccp_logs").select("*")
 
         if location:
             query = query.eq("location", location)
@@ -191,7 +195,7 @@ async def record_haccp_log(
     try:
         now = datetime.utcnow().isoformat()
         result = (
-            supabase.table("haccp_logs")
+            supabase_service.table("haccp_logs")
             .insert(
                 {
                     "location": entry.location,
@@ -243,7 +247,7 @@ async def get_daily_logs(
         500: Database error
     """
     try:
-        query = supabase.table("daily_operations_logs").select("*")
+        query = supabase_service.table("daily_operations_logs").select("*")
 
         if entry_type:
             query = query.eq("entry_type", entry_type)
@@ -286,7 +290,7 @@ async def record_daily_log(
     try:
         now = datetime.utcnow().isoformat()
         result = (
-            supabase.table("daily_operations_logs")
+            supabase_service.table("daily_operations_logs")
             .insert(
                 {
                     "entry_type": entry.entry_type,
@@ -330,7 +334,7 @@ async def get_compliance_status(auth_user: dict = Depends(_get_auth_user)):
     try:
         # Get recent HACCP logs
         haccp_result = (
-            supabase.table("haccp_logs")
+            supabase_service.table("haccp_logs")
             .select("*")
             .order("timestamp", desc=True)
             .limit(10)
@@ -339,7 +343,7 @@ async def get_compliance_status(auth_user: dict = Depends(_get_auth_user)):
 
         # Get error-level daily logs
         daily_result = (
-            supabase.table("daily_operations_logs")
+            supabase_service.table("daily_operations_logs")
             .select("*")
             .eq("severity", "error")
             .order("created_at", desc=True)

@@ -43,7 +43,6 @@ def dispatch_inventory_save(payload: dict) -> dict:
                     "category_id": cat_id,
                     "unit_price": item.get("price", 0.0),
                     "par_level": item.get("par", 0),
-                    "on_hand": item.get("onHand", 0),
                 },
                 on_conflict="sku",
             )

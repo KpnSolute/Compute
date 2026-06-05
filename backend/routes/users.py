@@ -14,8 +14,8 @@ Endpoints:
 
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Header, Depends
-from pydantic import BaseModel, EmailStr, Field
-from backend.routes import supabase, jwt_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from backend.routes import supabase_service, jwt_validator
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -44,15 +44,17 @@ class UserUpdateRequest(BaseModel):
 class UserResponse(BaseModel):
     """Response model for user data."""
 
+    model_config = ConfigDict(extra="ignore")
+
     id: str
     username: str
-    email: str
+    email: str = ""
     display_name: str
-    last_name: str
+    last_name: str = ""
     role: str
     active: bool
-    created_at: str
-    updated_at: str
+    created_at: str = ""
+    updated_at: str = ""
 
 
 class UsersListResponse(BaseModel):
@@ -98,7 +100,7 @@ async def _require_admin(authorization: str = Header("")) -> dict:
     # Fetch user profile
     try:
         result = (
-            supabase.table("user_profiles")
+            supabase_service.table("user_profiles")
             .select("*")
             .eq("id", user_id)
             .single()
@@ -124,7 +126,7 @@ async def _get_user_by_id(user_id: str) -> dict | None:
     """Fetch user profile by ID."""
     try:
         result = (
-            supabase.table("user_profiles")
+            supabase_service.table("user_profiles")
             .select("*")
             .eq("id", user_id)
             .single()
@@ -138,11 +140,11 @@ async def _get_user_by_id(user_id: str) -> dict | None:
 async def _user_exists(username: str, exclude_id: str | None = None) -> bool:
     """Check if username already exists."""
     try:
-        query = supabase.table("user_profiles").select("id").eq("username", username)
+        query = supabase_service.table("user_profiles").select("id").eq("username", username)
         if exclude_id:
             query = query.neq("id", exclude_id)
-        result = query.single().execute()
-        return result.data is not None
+        result = query.limit(1).execute()
+        return bool(result.data)
     except Exception:
         return False
 
@@ -168,7 +170,7 @@ async def list_users(
         500: Database error
     """
     try:
-        query = supabase.table("user_profiles").select("*")
+        query = supabase_service.table("user_profiles").select("*")
         if active_only:
             query = query.eq("active", True)
         result = query.order("created_at", desc=True).execute()
@@ -241,17 +243,18 @@ async def create_user(
     # Validate email is unique
     try:
         email_check = (
-            supabase.table("user_profiles")
+            supabase_service.table("user_profiles")
             .select("id")
             .eq("email", req.email)
-            .single()
+            .limit(1)
             .execute()
         )
         if email_check.data:
             raise HTTPException(status_code=400, detail="Email already registered")
+    except HTTPException:
+        raise
     except Exception as e:
-        if "single()" not in str(e):  # Expected error when no results
-            raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
     # Validate PIN if provided (should be numeric)
     if req.pin and not req.pin.isdigit():
@@ -263,7 +266,7 @@ async def create_user(
         # Note: In production, user_id should come from Supabase Auth
         # For now, we'll let Supabase generate it via auto-increment or UUID
         result = (
-            supabase.table("user_profiles")
+            supabase_service.table("user_profiles")
             .insert(
                 {
                     "username": req.username,
@@ -349,7 +352,7 @@ async def update_user(
 
     try:
         result = (
-            supabase.table("user_profiles")
+            supabase_service.table("user_profiles")
             .update(update_data)
             .eq("id", user_id)
             .execute()
@@ -396,7 +399,7 @@ async def disable_user(user_id: str, admin_user: dict = Depends(_require_admin))
         raise HTTPException(status_code=400, detail="Cannot disable your own account")
 
     try:
-        supabase.table("user_profiles").update(
+        supabase_service.table("user_profiles").update(
             {
                 "active": False,
                 "updated_at": datetime.utcnow().isoformat(),
