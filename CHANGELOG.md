@@ -15,6 +15,18 @@ This is the **central development memory and discussion board** for all agents (
 
 ---
 
+## [v1.2.3] — 2026-06-05 — One-team agent config + shared god-mode tooling
+
+**Claude:** Rewrote central agent configs for one-team parity. `AGENTS.md` §9 now defines **one team** (tools unrestricted by lane), **Gemini as research lead** (all agents depend on Gemini for issue investigation), and OpenCode inline config (no `OPENCODE.md`). Added §11 **SHARED TOOLING** — project structure map, full tool palette (GitHub, Supabase MCP+CLI, Render, MJCC-debugger, ruff, ESLint), skills paths, MCP table, standard verification commands. Updated `CLAUDE.md` (builder + research dependency), `GEMINI.md` (dual mandate: research lead + backend writer, §5 tools table), `mjcc-tooling` skill v1.1.0 (synced to `.cursor/`, `.claude/`, `.gemini/`, `.agents/`), and `.claude/agents/` configs (`Debugy.md`, `mjcc-agent.md`, `Github.md`). ESLint documented as frontend formatter policy (no Prettier ships).
+
+**Push:** pending — not yet pushed
+
+## [v1.2.2] — 2026-06-05 — Cross-agent CLI + IDE tooling parity
+
+**Claude:** Unified tooling scaffold so Claude (Cursor), Gemini CLI, OpenCode, Claude Code, and Copilot share the same project-scoped skills and MCP config. `render skills install --scope project --confirm` installed 21 Render agent skills into `.cursor/skills/`, `.claude/skills/`, `.gemini/skills/`, `.agents/skills/`, and `.copilot/skills/` (deploy, debug, logs, blueprints, env-vars, etc.). Added custom `mjcc-tooling` skill to all four primary agent dirs — documents shared CLIs (render, supabase, git, ruff, npm), production targets, CHANGELOG forum protocol, and lane ownership. Created `.cursor/mcp.json` for Cursor-native Supabase MCP (mirrors `.vscode/mcp.json`; uses `${env:SUPABASE_MCP_TOKEN}`). Verified: `render whoami` authenticated; `render services` lists `MJCC-Managements-` (web) + `KpnCompute` (static). `gh` not installed — flagged for operator if PR automation is needed.
+
+**Push:** pending — not yet pushed
+
 ## [v1.2.1] — 2026-06-05 — Config hardening (Gemini's eslint + tsconfig)
 **OpenCode:** Committed Gemini's uncommitted changes — defensive `.get()` fixes in inventory.py/dispatch.py, documentation updates in GEMINI.md, and config hardening (tsconfig strict mode, eslint no-explicit-any). Set no-explicit-any to `warn` (257 violations — needs gradual cleanup, blocks build as error).
 **Push:** OpenCode → `565fe0f` — 2026-06-05

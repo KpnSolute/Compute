@@ -5,7 +5,7 @@ This file is the single source of truth. It OVERRIDES any conflicting statement 
 
 This file replaces the former `AGENT_ALIGNMENT.md` (deleted 2026-06-04 — its content is folded in here).
 
-Last aligned: 2026-06-04 (Watch Commander — production cutover + doc consolidation).
+Last aligned: 2026-06-05 (one-team tooling parity — shared tools, Gemini research lead).
 
 ---
 
@@ -192,16 +192,33 @@ This is the **authoritative schema**. 38 tables, RLS enabled on all. Key tables 
 
 ---
 
-## 9. AGENT ROSTER (authoritative)
+## 9. AGENT ROSTER — ONE TEAM (authoritative)
 
-| Agent | Owns | Must NOT touch |
-|-------|------|----------------|
-| **Claude** | Frontend (React/TS/Tailwind), `frontend/src/lib/api.ts`, `backend/main.py` wiring, API contract shape | Supabase schema, `/data`, `/templates`, core data logic |
-| **Gemini** | Data & backend logic, Supabase schema/migrations (via MCP), `backend/routes/*`, `backend/staging/*`, `backend/ai/*`, `seed_data.py`, `/data` | Frontend components, `/templates` |
-| **OpenCode** | Mechanical/repetitive tasks under explicit instruction: lint fixes, file moves, boilerplate, test scaffolding | Architecture decisions, schema, auth, `/templates`, anything in §7 |
-| **GitHub Copilot** | NOT INTEGRATED. Inline completions only when added. | Everything until formally onboarded |
+**We are one team.** Claude, Gemini, and OpenCode share the same codebase, the same tools (§11), and the same memory (`CHANGELOG.md`). Lane ownership (§5) governs **who writes what** — it does **not** restrict which tools any agent may use. Every agent has full read/run access to GitHub, Supabase, Render, the debugger, ruff, and ESLint. Use them freely.
+
+### Research lead — Gemini
+
+When an issue needs investigation — schema doubts, production 500s, auth failures, performance, unfamiliar patterns — **all agents depend on Gemini for research**. Before guessing:
+
+1. **Check `CHANGELOG.md`** — another agent may have already solved it.
+2. **Invoke Gemini** (CLI or agent) for live schema verification, Supabase advisors, API/log correlation, and external pattern research.
+3. **Invoke `MJCC-debugger`** (`.claude/agents/Debugy.md`) for cross-stack diagnosis when the failure chain is unclear — it coordinates with Gemini and Supabase MCP, produces a fix plan, logs to `CHANGELOG.md`, and does not write production code.
+
+Claude and OpenCode **execute** from research output. They do not skip Gemini on hard problems.
+
+| Agent | Primary lane (writes) | Team role | Must NOT write |
+|-------|----------------------|-----------|----------------|
+| **Claude** | Frontend (React/TS/Tailwind), `frontend/src/lib/api.ts`, `backend/main.py` wiring, API contract shape | Builder — implements from Gemini's research + debugger plans | Supabase schema, `/data`, `/templates`, core data logic |
+| **Gemini** | Data & backend logic, Supabase schema/migrations (via MCP), `backend/routes/*`, `backend/staging/*`, `backend/ai/*`, `seed_data.py`, `/data` | **Research lead** — schema truth, production DB, issue investigation | Frontend components, `/templates` |
+| **OpenCode** | Mechanical/repetitive tasks under explicit instruction: lint fixes, file moves, boilerplate, test scaffolding | Executor — same tool access, follows plans | Architecture decisions, schema, auth, `/templates`, anything in §7 |
+| **MJCC-debugger** | Diagnosis + fix plans only (no production code) | Doctor — traces failures, defers schema research to Gemini | Writing fixes (hands off to Claude/Gemini/OpenCode) |
+| **GitHub Copilot** | NOT INTEGRATED. Inline completions only when added. | — | Everything until formally onboarded |
 
 "Catch21" / "Github" / "Orchestrator" are role labels, not real running agents (I-9).
+
+### OpenCode — mechanical executor (no separate doc file)
+
+OpenCode has **no `OPENCODE.md`** — this section is its config. OpenCode is a full team member with god-mode tool access (§11). It executes lint fixes, boilerplate, file moves, and test scaffolding **under explicit instruction**. It does not make architecture decisions, write schema, or touch auth. On hard bugs: stop and flag Gemini / `MJCC-debugger` — do not guess. Read `AGENTS.md` → `CHANGELOG.md` every session; log every completed task to `CHANGELOG.md`. Skills live in `.agents/skills/`.
 
 ---
 
@@ -243,3 +260,80 @@ render ssh <service-id>       # shell into the running container
 - Run `render logs -r <service-id>` to check production errors **before** assuming a bug is in local code.
 - Env vars are set in the Render dashboard or `render.yaml` — the CLI does not manage them.
 - Service IDs change per workspace — always resolve via `render services`, never hardcode.
+
+---
+
+## 11. SHARED TOOLING — FULL ACCESS FOR EVERY AGENT
+
+Every agent (Claude, Gemini, OpenCode, debugger subagents) has **god-mode access** to all project tools below. There is no permission tier — use whatever you need. Lane rules (§5) only limit **who commits code in which directories**.
+
+### Project structure (know where things live)
+
+```
+MJCC/
+├── AGENTS.md          ← law (this file)
+├── CHANGELOG.md       ← team forum / memory (read first, log last)
+├── CLAUDE.md          ← Claude lane doc
+├── GEMINI.md          ← Gemini lane doc + research mandate
+├── API.md / UI.md     ← contracts
+├── frontend/          ← Vite + React + TypeScript (Claude writes)
+├── backend/           ← FastAPI + routes + staging (Gemini writes)
+│   ├── routes/        ← API data logic
+│   ├── staging/       ← staging gateway + dispatch
+│   └── main.py        ← app wiring (Claude)
+├── data/              ← persistence layer (Gemini)
+├── templates/         ← FROZEN UI reference — read only, never edit
+├── render.yaml        ← Render Blueprint
+├── .cursor/           ← Cursor MCP + skills (shared tooling)
+│   ├── mcp.json       ← Supabase MCP config
+│   └── skills/        ← mjcc-tooling + 21 Render skills
+├── .claude/skills/    ← same skills (Claude Code)
+├── .gemini/skills/    ← same skills (Gemini CLI)
+├── .agents/skills/    ← same skills (OpenCode)
+└── .claude/agents/    ← MJCC-debugger + orchestrator subagents
+```
+
+### Tool palette (all agents — use freely)
+
+| Tool | Purpose | How to use |
+|------|---------|------------|
+| **GitHub** | Source control, PRs, issues, CI | `git status` / `git diff` / `git log`. `gh` when installed: `gh pr list`, `gh issue view`, `gh run list`. **Origin** = `muttyman2000/MJCC-Managements-.git` only (§2). |
+| **Supabase** | Live schema, SQL, advisors, migrations | **MCP** (preferred): `.cursor/mcp.json` → `list_tables`, `execute_sql`, `apply_migration`, security/performance advisors. **CLI**: `supabase` at `/usr/local/bin/supabase`. Project: `MJCCv1` (`mgvyylvmkxhhataavqjz`). |
+| **Render** | Production deploys, logs, SSH, restart | `render services` → resolve IDs → `render logs -r <id>`, `render deploys create <id>`, `render ssh <id>`. Full reference: §10. |
+| **MJCC-debugger** | Cross-stack diagnosis, fix plans | Launch via Task/subagent: `.claude/agents/Debugy.md`. Diagnoses only — coordinates with Gemini for research, logs plan to `CHANGELOG.md`. |
+| **Ruff** | Python lint + format | `ruff check backend/ && ruff format backend/` — run before backend commits. |
+| **ESLint** | TypeScript/React lint | `cd frontend && npm run lint` — project uses ESLint (no Prettier config ships). Pair with `tsc --noEmit` and `npm run build`. |
+
+### Agent skills (installed project-wide)
+
+`render skills install --scope project` placed **22 skills** in every agent runtime (21 Render + `mjcc-tooling`). Paths:
+
+- `.cursor/skills/` — Cursor
+- `.claude/skills/` — Claude Code
+- `.gemini/skills/` — Gemini CLI
+- `.agents/skills/` — OpenCode
+
+Read `mjcc-tooling/SKILL.md` in your runtime's skills dir for the quick-reference card.
+
+### MCP servers
+
+| Server | Config | Auth |
+|--------|--------|------|
+| **Supabase** | `.cursor/mcp.json` + `.vscode/mcp.json` | `SUPABASE_MCP_TOKEN` env var |
+| **cursor-ide-browser** | Cursor built-in | For UI verification when asked |
+
+### Standard verification before closing any task
+
+```bash
+# Backend
+ruff check backend/ && ruff format backend/
+python3 -c "import backend.main"
+
+# Frontend
+cd frontend && npm run lint && tsc --noEmit && npm run build
+
+# Production sanity (when debugging live issues)
+render services && render logs -r <service-id> --level error
+```
+
+Log results in `CHANGELOG.md` — what ran, what passed, what failed.
