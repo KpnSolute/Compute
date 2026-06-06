@@ -147,6 +147,12 @@ async def get_commits(limit: int = 50, offset: int = 0):
                     "submitter_role": profile.get("role"),
                 }
             )
+        # Order by date *pushed* (github_synced_at) for Source Control history, fallback to merged/created.
+        # This ensures the commit list and "last commit" are structured chronologically by push to the data archive, not raw created_at.
+        result.sort(
+            key=lambda c: (c.get("github_synced_at") or c.get("merged_at") or c.get("created_at") or ""),
+            reverse=True,
+        )
         return result
     except HTTPException:
         raise

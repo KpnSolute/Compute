@@ -123,7 +123,14 @@ export function SourceControl({
                 api.getCommits(),
             ]);
             setStaged(s);
-            setCommits(c);
+            // Defensive sort by date *pushed* (github_synced_at) so Source Control history is never out of order.
+            // Numeric date compare (not lexical string) for robustness; fallback chain: synced (the push), merged, created.
+            const sorted = [...(c || [])].sort((a, b) => {
+                const da = new Date((a as any).github_synced_at || (a as any).merged_at || (a as any).created_at || 0).getTime();
+                const db = new Date((b as any).github_synced_at || (b as any).merged_at || (b as any).created_at || 0).getTime();
+                return db - da; // newest first
+            });
+            setCommits(sorted);
         } catch {
             setStaged([]);
             setCommits([]);
@@ -145,7 +152,7 @@ export function SourceControl({
             s.submitter_name?.startsWith(user.display_name),
     );
     const visibleStaged = isStaff ? myStaged : staged;
-    const lastCommit = commits[0];
+    const lastCommit = commits[0]; // [0] is newest by pushed date after sort in loadData + backend
 
     function toggleSelect(id: string) {
         setSelected((p) => {
@@ -312,7 +319,7 @@ export function SourceControl({
                                     {shortSha(lastCommit.github_sha) ||
                                         lastCommit.commit_id.slice(0, 7)}
                                 </span>{" "}
-                                {relTime(lastCommit.created_at)}
+                                {relTime((lastCommit as any).github_synced_at || lastCommit.merged_at || lastCommit.created_at)}
                             </>
                         )}
                     </div>
@@ -587,7 +594,7 @@ export function SourceControl({
                                                     ] || c.submitter_role}
                                                 </span>
                                             )}
-                                            <span>{relTime(c.created_at)}</span>
+                                            <span>{relTime((c as any).github_synced_at || c.merged_at || c.created_at)}</span>
                                             {c.github_sha && (
                                                 <span className="synced-tag">
                                                     {I.check({

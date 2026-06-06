@@ -235,7 +235,7 @@ export function MonthlyInventory({
   const [m, y] = period;
 
   const [rows, setRows] = useState<any[]>([]);
-  const [invoices] = useState<any[]>([]);
+  const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(true);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
@@ -247,20 +247,39 @@ export function MonthlyInventory({
       try {
         const inv = await api.getInventory(m + 1, y);
         const flat = inv.items || [];
-        const rollup = flat.map((it: any) => ({
-          id: it.sku || String(Math.random()),
-          cat: it.category || it.cat,
-          item: it.desc,
-          price: it.price || 0,
-          opening: it.onHand || 0,
-          received: 0,
-          issued: 0,
-        }));
+        const rollup = flat.map((it: any) => {
+          // Load chronological weekly data (w1r..w4r / w*i) from backend monthly_inventory for accuracy.
+          // Sum for the aggregate received/issued inputs in this grid (seeded from stored period activity).
+          const rec = (it.w1r || 0) + (it.w2r || 0) + (it.w3r || 0) + (it.w4r || 0);
+          const iss = (it.w1i || 0) + (it.w2i || 0) + (it.w3i || 0) + (it.w4i || 0);
+          return {
+            id: it.sku || String(Math.random()),
+            cat: it.category || it.cat,
+            item: it.desc,
+            price: it.price || 0,
+            opening: it.onHand || 0,
+            received: rec,
+            issued: iss,
+            // carry raw weeks for payload so dispatch can store exact chrono received/issued
+            w1r: it.w1r || 0, w2r: it.w2r || 0, w3r: it.w3r || 0, w4r: it.w4r || 0,
+            w1i: it.w1i || 0, w2i: it.w2i || 0, w3i: it.w3i || 0, w4i: it.w4i || 0,
+          };
+        });
         if (alive) {
           setRows(rollup);
         }
+        // Dynamically load invoices for this period (was static [] — now reads real from Supabase via FastAPI).
+        try {
+          const ivs = await api.getInvoices(m + 1, y);
+          if (alive) setInvoices(ivs || []);
+        } catch {
+          if (alive) setInvoices([]);
+        }
       } catch {
-        if (alive) setRows([]);
+        if (alive) {
+          setRows([]);
+          setInvoices([]);
+        }
       }
       if (alive) setLoading(false);
     }
@@ -312,6 +331,16 @@ export function MonthlyInventory({
         onHand: closing(r),
         par: 0,
         category: r.cat,
+        // Pass week fields (chrono received/issued) so dispatch writes accurate w1r..w4* to monthly_inventory.
+        // Use edited aggregate as w1* (this grid's 'received'/'issued' represents period activity); other weeks 0 or carried.
+        w1r: r.received || 0,
+        w2r: (r.w2r || 0),
+        w3r: (r.w3r || 0),
+        w4r: (r.w4r || 0),
+        w1i: r.issued || 0,
+        w2i: (r.w2i || 0),
+        w3i: (r.w3i || 0),
+        w4i: (r.w4i || 0),
       }));
       const payload = { items, month: m + 1, year: y, notes: `${MONTHS[m]} ${y}` };
       await api.stageChange('inventory_save', 'inventory', 'batch', payload, `Monthly inventory — ${MONTHS[m]} ${y}`);

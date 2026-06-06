@@ -15,6 +15,114 @@ This is the **central development memory and discussion board** for all agents (
 
 ---
 
+## [v1.3.9] — 2026-06-06 — SourceCtrl by date pushed (not out of order), inventory tables chrono weekly data, dynamic Supabase via FastAPI, PDF+templates accuracy verification (MCPs + subagent)
+**Claude:** Per user: system info inaccurate; SourceCtrl must structure by *date pushed*; inventory table by chronological data; whole system dynamic from Supabase (via FastAPI per AGENTS §3/§0). Used new MCPs (grok_com_github via search_tool + use_tool for list_commits on data archive), read_file (with pages/format=text) on templates PDFs (US Foods invoice 04/30/2026 to MIAMI JOB CORP CAFETERIA — real line items e.g. 2048007 RAVIOLI $88.47, 3333770 TUNA $99.30 etc. exactly match templates/portal/inventory_data.js DEMO_INV generated from wk1), spawned verifier subagent (general-purpose, full AGENTS briefing) which read CHANGELOG/AGENTS + templates + code + greps + MCP attempts + produced detailed diagnosis + fix specs (confirmed my findings on ordering/dynamic gaps vs "actual" in templates). 
+**Fixes (Claude lane + minimal route for core ordering per prior precedent):** 
+- backend/routes/sourcectrl.py: get_commits now post-sorts result by github_synced_at (pushed) || merged || created (desc) + comment. (MCP list_commits 404 on MJCC-Portal/mjcc as expected — private/scope.)
+- frontend/src/components/SourceControl.tsx: loadData defensive numeric Date sort by pushed chain (newest first); lastCommit[0] now reliable; relTime labels in commit history + last banner now prefer github_synced_at (pushed) not raw created_at.
+- frontend/src/components/Operations.tsx (MonthlyInventory "inventory table"): load now pulls chrono weekly (w1r..w4* sums + raw) from dynamic api.getInventory (was hardcoded 0); save payload now includes w* so dispatch persists accurate received/issued to monthly_inventory; invoices state now dynamically loaded via api.getInvoices (was static empty [] — now real Supabase data for the period via FastAPI).
+**Dynamic + accuracy:** All via api.ts (prod BASE); no DEMO_ in src (only frozen templates); Operations now fully dynamic for its inventory/invoices. Subagent + PDF extract confirm templates actual (186 items May from invoice) now better preserved in weekly fields + SourceCtrl historic by push date. Read AGENTS/CHANGELOG first every step; no new .md; prod target; lanes noted (Gemini for deeper data/routes if follow-up).
+**Verifier subagent:** id 019e9e44-... (general-purpose); 37 tools, 150s; output includes exact specs for further (Date sort polish, shim removal, ArchivesView use getArchives for snapshot grand_totals vs recompute, enforce stage for all, fidelity seed to PDF lines). 
+**Verify (ran):** python ast.parse on edited .py → syntax PASS; frontend lint/tsc bg (see task log); subagent read/verified templates/PDFs/MCP/code. Ruff full via `ruff check/format` recommended in clean env (ps1 head/cat limits here; prior convention followed). 
+**Push:** pending — not yet pushed
+
+## [v1.3.8] — 2026-06-06 — Project .grok/config.toml for VS Code MCP parity (supabase + playwright)
+
+**Grok:** Created `.grok/config.toml` (new project-scoped directory + file) so that Grok sessions started from this workspace directory will load the *exact* same MCP servers that the user's `.vscode/mcp.json` provides to VS Code.
+
+- `supabase` (http): https://mcp.supabase.com/mcp + `Authorization: Bearer ${env:SUPABASE_MCP_TOKEN}` — gives `list_tables`, `execute_sql`, `apply_migration`, advisors, etc. (critical per AGENTS.md §4/§11 and mjcc-tooling skill for real MJCCv1 schema work).
+- `playwright` (stdio): `npx @playwright/mcp` — browser automation + network inspection for live prod API traffic (matches the VS Code definition exactly).
+- Comments in the file document the mapping back to `.vscode/mcp.json` as the source of truth and note precedence rules.
+- `.grok/config.toml` has higher priority than the existing root `.mcp.json` (which only had a playwright variant) and global config.
+- No changes to source code, only agent harness config. `.grok/` is the official native location for project MCPs in Grok.
+
+This closes the gap where the current session only had `grok_com_github` + playwright; future sessions will also see the Supabase MCP without manual per-agent config.
+
+**Next for user:** Launch a fresh Grok session in this directory (or run `/mcps` in the TUI and refresh) so the servers are discovered at session start. Ensure `SUPABASE_MCP_TOKEN` is set in your environment (same as for VS Code).
+
+**Push:** pending — not yet pushed (new dot-dir + config file)
+
+## [v1.3.7] — 2026-06-06 — Codebase analysis: data scattering, off base calcs, SourceCtrl centralization gaps, historic data (per user request; first step before further production push)
+
+**Grok (analysis only, no code changes this entry):** User: "we got to a working stage of the site but we are far from pushing the first production state the base calculation numbers are off data is scattered i need a centralized data system (sourcectrl) also historic data need so first anylze the codebase". Per AGENTS §0/§8 (read CHANGELOG first — did via tools + recent v1.3.6/5/4/3 entries on 500s, rollover, menu constraints, build/push, staging consolidation), production API, no root .md. Used live Supabase (prior service key + URL via venv python, as in v1.3.x research), greps, multiple read_file on key files for static analysis. todo tracking for phases. Goal: diagnose why "base calc numbers off" + "data scattered", assess SourceCtrl as centralized + historic solution, before implementing.
+
+**Recent context from CHANGELOG (read first):** Site "working" post v1.3.6 (500 fixes in users/inventory reorders, rollover banner + perform_rollover, mobile drawer in Portal), v1.3.4 (DB constraint align for menu writes), v1.3.3 (build + push), v1.3.1 (staging consolidation + plan), prior audits (P0 build, P4 JWT 401 spam, menu 0 rows/sides, I-2 shims, direct Supabase bypasses in supabase.ts). "Pondering" on 401s, data gaps, calcs, central system matches user's console reports + plan.
+
+**1. Data Scattering (confirmed root cause of "data is scattered" + inconsistent "base numbers"):**
+
+- **Legacy client-side calc layer (heavy use, "scattered" computation):**
+  - `frontend/src/lib/supabase.ts` (still the source of truth for many views despite api.ts migration): `fetchInventory` (now proxies `api.getInventory` + `groupByCategory`), `invToList(inv)` (groups by cat or returns flat), `iTotal(it)` = Math.max(0, (onHand||0) + sum(w1r..w4r) - sum(w1i..w4i)) * (price||0)  [core "base value" per item/period], `catTotals`, `grandTotal`, `reorders` (par_level checks), `fmtMoney*`, `catColor`, `CCOLOR`.
+  - **Usage (grep + reads):** Portal.tsx (dashboard: gt=grandTotal(live), reorderList=reorders(live), ct=catTotals, itemCount=invToList.length, monRows using iTotal/fmt; monthly grid, sourcectrl mentions), Operations.tsx (MonthlyInventory grid + calcs), Reports.tsx (invToList/iTotal), SourceControl.tsx (some). Also loadLog/saveLog shims for compliance (I-4 partial).
+  - Why scatter/off: These run *after* fetch on whatever shape (flat vs grouped, current monthly vs snapshot), client-only, no single source of truth. Mismatches with backend (different grouping, live_inventory view vs monthly_inventory join, null handling — recent 500 fixes touched this).
+
+- **"Modern" backend + api layer (partial centralization, but under-used):**
+  - `frontend/src/lib/api.ts` + `services.ts` (DS): Good progress — DS thin TTL cache over `api.getInventory`/`getDashboardStats`/`getStaging`/`getCommits` etc. for events/menu/staged/commits/invoices. `fetchInventory` shim updated to use api.
+  - `backend/routes/inventory.py`: `get_inventory` (joins monthly_inventory + inventory_items + categories via _JOIN_SELECT, _flatten_rows to items with w* recv/issued + onHand? sku etc; supports latest or specific month/year, 0/1 index convert). `save_inventory` (upserts items by sku, monthly rows with week fields, category map). `get_reorders`, history.
+  - `backend/routes/data.py`: `/api/dashboard/stats` (central attempt): total_value (prefers live_inventory.sub_total SUM or fallback items prices * monthly on_hand), total_items (barcodes.is_active count — odd vs inventory_items ~1591 active from prior), low_stock (live view on_hand < par), pending_staging (staging_entries status=pending count), reorder_count. Uses service_role.
+  - live_inventory view (mentioned in stats + prior): probably pre-computes sub_total etc.
+  - Scattering: Frontend *still prefers shims* in critical paths (Portal dashboard is the "base numbers" users see). Not all views migrated to `api.getInventory()` + precomputed totals from backend. Direct monthly writes in some flows (see below).
+
+- **Source Control (staging/dispatch/commits — *intended* as *the* centralized mutation + historic system, but not yet the single source):**
+  - `frontend/src/components/SourceControl.tsx` + api (stageChange, getStaging, submitStaging, approveCommit, getCommits).
+  - `backend/routes/sourcectrl.py`: submit to staging_entries (entity_type, entity_id, field_name, old/new_value_text, change_type, metadata, operation, full_payload jsonb, status=pending, submitted_by). Approve: fetch entries, replay(op, full_payload) via dispatch, create commit + commit_changes, (github enqueue for snapshot?).
+  - `backend/staging/dispatch.py`: REGISTRY for "inventory_save" (applies to inventory_items upsert + monthly_inventory upsert with w* fields, on_conflict item_id/month/year; month 1->0 convert), menu_save (delete+insert menu_entries with items as json text), event/haccp/daily/user ops. `replay` dispatches.
+  - `backend/routes/inventory.py` save still direct (bypass?); some paths (DataEntry AI upload?, Operations edits?, rollover) may not stage.
+  - Result: "data scattered" — live monthly_inventory reflects mix of staged+direct+rollover; calcs on "live" or shims don't reflect "committed state only"; SourceCtrl UI exists but not gate for *all* changes.
+
+- **Other tables contributing to scatter:** inventory_items (master, active), categories (9), barcodes/inventory_master (for counts?), monthly_inventory (21k rows — the transaction base), staging_entries (post-consolidation v1.3.1: operation+full_payload retained, legacy cols dropped).
+
+**2. Base calculation numbers "off" (root causes from analysis + live):**
+
+- Formula/ source mismatch:
+  - Shim `iTotal` (client, used in Portal/Reports): onHand + sum 4 recv wks - sum 4 issued wks * price. Assumes weekly fields present in fetched item.
+  - Backend get_inventory: returns items with w1_received etc from monthly_inventory + item master (sku, desc, par, unit, cat). But "onHand" in response? (may be from monthly or view).
+  - Dashboard stats (backend, preferred for "central"): live_inventory.sub_total (view likely on_hand*price or equiv) fallback manual sum (item unit_price * monthly on_hand). total_items from *barcodes* active (not inventory_items). low_stock from live view.
+  - live_inventory view vs direct monthly query (used in shims vs stats) — different joins/aggregates/nulls (recent fixes for sku=None etc in reorders/inventory).
+  - Other: week received/issued vs "onHand" stored; price in items vs period; category name vs id; 0/1 month index (DB 0-index monthly, API 1-index, recent rollover handles); grandTotal in snapshots vs runtime calc.
+  - Client grouping (groupByCategory on api response) vs backend _flatten_rows.
+
+- Live verification (prior + attempted; key-based via venv python): monthly_inventory ~21089 rows (rich historic base), monthly_snapshots 76 (good for point-in-time). Sample grand total from monthly on_hand*price succeeded for latest period. But if UI uses shim on partial/ different-period data vs backend stats or snapshot grand_total, numbers diverge ("off"). Commits query failed (post-consolidation: likely 'commit_id' not 'id' column — schema drift from v1.3.1). staging_entries low or used.
+
+- Other contributors (from CHANGELOG/prior): nulls (fixed in places), direct vs staged updates, no single "current committed" snapshot for calcs, rollover not always snapshotting.
+
+**3. Centralized Data System (SourceCtrl) — assessment + gaps:**
+
+- **What exists (strong foundation):** Staging as "working copy" (full_payload + op for replay), approval = atomic apply (dispatch to real tables) + immutable commit (with changes) + snapshot (for historic) + github archive (data repo MJCC-Portal/mjcc, separate from code origin per AGENTS §2). UI for queue/review/history. Supports inventory/menu/event/compliance/user. `full_payload` enables exact replay. Matches "git-style source-control layer over inventory snapshots" in project identity.
+- **Gaps causing "scattered" + "need centralized":**
+  - **Not mandatory/enforced:** Many mutations bypass (direct save_inventory in inventory.py, some AI DataEntry?, Operations monthly edits?, recent rollover via perform_rollover fn direct on monthly). SourceCtrl used for *some* but not base "save".
+  - **Calcs not from central state:** Dashboard/reorders use live monthly or client shims, not "state at last commit" or snapshot data. No "pin to snapshot for this view".
+  - **Historic under-utilized:** monthly_inventory has the raw weekly history (21k), snapshots have aggregates (76, with grand/category/wk totals, data?), commits have diffs. But SourceCtrl UI shows some (commits, snapshots list in Portal), Reports/Portal dashboard don't consistently use for "historic base numbers" or audit. github_sync for long-term but queue low.
+  - **Schema/ integration issues:** Post v1.3.1 consolidation (dropped legacy staging cols like item_id/month for entity+payload), commits access broken in queries (id vs commit_id). Not all entities (e.g. pure monthly rollover) staged.
+  - **UI/UX:** SourceControl is there ("Change history", "Monthly snapshots"), but main flows (dashboard calcs, inventory grid edits) don't force stage + approve for production integrity.
+
+- **How it should be the centralized system:** All inventory "edits/saves" submit as staging "inventory_save" op with full_payload (current item + changes). Approve replays (updates monthly + items), records commit, creates/updates snapshot (grand from calc on new state). "Current" numbers always from latest snapshot or committed monthly view. Historic: browse commits -> replay state or load snapshot data for exact numbers at time. Prevents scatter, gives audit trail + revert.
+
+**4. Historic data needs (assessment):**
+
+- **Exists and volume good:** monthly_inventory (full per-item weekly history across periods — the "transaction log"), monthly_snapshots (76 point-in-time aggregates + blobs for fast historic views), commits/commit_changes (change-level history), inventory_versions?, github_sync (archives/ in data repo for immutable long-term, pushed on approve).
+- **Gaps:** Not the *primary* source for "base calcs" or UI state (live shims win). No full "time-travel" in dashboard (e.g. "what were totals on this snapshot?"). Rollover creates next period but may not snapshot every time. SourceCtrl "All snapshots" exists but secondary. No easy "restore historic snapshot as current" without staging.
+- **Fix path:** On every SourceCtrl approve + key events (rollover), ensure snapshot row created with current grand/category/wk calcs. Enhance stats/inventory endpoints to support ?snapshot=ID or use latest committed. UI in SourceCtrl/Reports for "numbers at commit X" using snapshot data. Centralize so monthly_inventory is "log", snapshots/commits are "views".
+
+**Live Supabase verification notes (service role access used):** Confirmed high volume in monthly (historic base) + snapshots. 0 menu_entries resolved in prior (constraints aligned v1.3.4). Schema matches AGENTS §4 mostly (menu_entries items/sides text json, user_profiles no pw, events.cat, staging with op+payload post-consol, monthly 0-index). But commits access/schema drift post v1.3.1. No easy info_schema for constraints via postgrest (security). Matches "data scattered" (raw tables good, but access/calc layer not unified via SourceCtrl).
+
+**Overall diagnosis vs production readiness:**
+- "Working stage" (post recent 500/rollover/mobile fixes) but calcs off + scatter because legacy shims + direct paths + client recompute win over backend/SourceCtrl centralization.
+- SourceCtrl *is* the right "centralized data system" (staging as source of truth for changes, replay + commit + snapshot for state/historic) but incomplete adoption + calcs not consuming from it.
+- Historic data exists in volume but not leveraged for "base numbers" or enforced central view.
+- Matches known issues (I-2 disconnect, I-1 fiction largely resolved but integration lag, I-7 CI etc.). Plan from v1.3.1 already flagged many (shims, sides, P4, seed); recent DB fixes unblocked menu but data layer needs next phase.
+
+**Recommendations (for "implement" phase, user-directed):**
+1. Enforce SourceCtrl for *all* inventory mutations (deprecate direct save_inventory paths or make them internal to replay; update Operations/Portal/DataEntry to stageChange("inventory_save", ...) instead of direct api.save; backend save perhaps only for dispatch).
+2. Centralize calcs in backend (add/inventory.py helpers or /api/inventory/stats that compute iTotal equiv, cat totals, grand, reorders from monthly or snapshot data + return structured + pre-totals; deprecate client shims or move to pure utils). Update Portal/Operations/Reports to use api/DS data + totals (eliminates scatter/off numbers).
+3. Tie "base numbers" + historic to SourceCtrl/snapshots (dashboard from latest snapshot/commit; SourceCtrl/Reports enhanced for "state at X", diffs, "use this snapshot for current"). Ensure approve + rollover always produce snapshot (with grand calc).
+4. Fix integration (commits schema for queries, full_payload usage everywhere, monthly_snapshots for historic calcs).
+5. Verify with live key: compare shim grandTotal vs backend stats vs snapshot for same period; audit all monthly writes; test full stage->approve flow for inventory.
+6. Prod push gate: full SourceCtrl adoption for inventory, calcs from central, historic views solid, numbers match across UI/backend/live.
+
+This analysis logged here (append-only). No app changes in this entry (per "first analyze"). Ready for implementation phase (e.g. "now centralize calcs + enforce staging for inventory"). Reference v1.3.1 plan for one-shot batches. Followed all AGENTS (read first via tools, production, lanes, god-mode tools used, log before "close").
+
+**Push:** N/A — analysis + log only (per user "first analyze"). 
+
 ## [v1.3.6] — 2026-06-06 — Fix 2 prod 500s + live-date month rollover prompt + mobile drawer (bundled)
 
 **Claude:** User directed: fix the two 500s found in v1.3.5 + add a manager month-rollover prompt + make mobile responsive, all in one push. Done, verified, pushing.
