@@ -31,9 +31,9 @@ This is the **central development memory and discussion board** for all agents (
 **3) Mobile responsive view:**
 - The `index.css` mobile styling already existed (≤768px: hamburger, off-canvas `.sidebar` drawer via `.portal.sidebar-open`, overlay) but **Portal.tsx never rendered a hamburger or toggled it** — so on phones the sidebar was hidden with no way to open it; the nav was unreachable. Wired it up: `sidebarOpen` state in `Portal`, a `.hamburger` button in `Topbar` (`onMenuClick`), `sidebar-open` class on `.portal`, a tap-to-close `.sidebar-overlay`, and nav selection auto-closes the drawer. No new CSS needed.
 
-**Verification:** `npm run build` (tsc -b + vite) ✓ exit 0; `npm run lint` ✓ 0 errors; `py_compile` ✓ on both routes. New endpoints not yet smoke-tested on prod (deploy pending) — will verify `/period-status` + `/users` + `/reorders` after Render finishes.
+**Verification:** `npm run build` (tsc -b + vite) ✓ exit 0; `npm run lint` ✓ 0 errors; `py_compile` ✓ on both routes. **Post-deploy live (authenticated as admin):** `GET /api/users` → 200 (was 500) ✓; `GET /api/inventory/reorders` → 200 (was 500) ✓; `GET /api/inventory/period-status` → 200 `{current=June 2026, latest=May 2026, needs_rollover=true}` ✓. Did NOT trigger `POST /rollover` — that mutates production inventory and is intentionally the manager's button click. Frontend (mobile drawer + banner) ships via the static site; build verified, runtime not browser-tested (no browser MCP).
 
-**Push:** Claude → (SHA below) — 2026-06-06
+**Push:** Claude → `8bf100c` — 2026-06-06
 
 ---
 
