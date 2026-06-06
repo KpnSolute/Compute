@@ -48,13 +48,16 @@ class UserResponse(BaseModel):
 
     id: str
     username: str
-    email: str = ""
+    # DB columns are nullable — Pydantic rejects an explicit None against `str`,
+    # and a default only applies when the key is ABSENT, not when it is present-and-None.
+    # Use Optional so rows with null email/last_name don't 500 the whole /api/users list.
+    email: str | None = None
     display_name: str
-    last_name: str = ""
+    last_name: str | None = None
     role: str
     active: bool
-    created_at: str = ""
-    updated_at: str = ""
+    created_at: str | None = None
+    updated_at: str | None = None
 
 
 class UsersListResponse(BaseModel):

@@ -167,6 +167,21 @@ export const api = {
     return req('/api/inventory/reorders');
   },
 
+  // Period / month rollover
+  async getPeriodStatus(): Promise<{
+    current_month: number; current_year: number;
+    latest_month: number | null; latest_year: number | null;
+    next_month: number | null; next_year: number | null;
+    needs_rollover: boolean;
+    current_label: string; latest_label: string; next_label: string;
+  }> {
+    return req('/api/inventory/period-status');
+  },
+
+  async performRollover(message?: string): Promise<{ ok: boolean; result: any }> {
+    return req('/api/inventory/rollover', { method: 'POST', body: JSON.stringify({ message: message ?? null }) });
+  },
+
   // Menu
   async getMenu(day: string): Promise<any> {
     return req(`/api/menu/${encodeURIComponent(day)}`);

@@ -96,10 +96,12 @@ function Topbar({
     user,
     period,
     setPeriod,
+    onMenuClick,
 }: {
     user: User;
     period: [number, number];
     setPeriod: (p: [number, number]) => void;
+    onMenuClick: () => void;
 }) {
     const [menu, setMenu] = useState(false);
     useEffect(() => {
@@ -113,6 +115,23 @@ function Topbar({
 
     return (
         <header className="topbar">
+            <button
+                className="hamburger"
+                onClick={onMenuClick}
+                aria-label="Open navigation"
+            >
+                <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                >
+                    <line x1="3" y1="6" x2="21" y2="6" />
+                    <line x1="3" y1="12" x2="21" y2="12" />
+                    <line x1="3" y1="18" x2="21" y2="18" />
+                </svg>
+            </button>
             <div className="tb-left">
                 <span style={{ display: "flex" }}>
                     <KpnMark size={26} />
@@ -1714,6 +1733,81 @@ export interface PortalProps {
     density?: string;
 }
 
+/**
+ * Live-date guard: when the real-world month is newer than the latest inventory
+ * period in the DB, prompt a manager to roll over so the team stops working in
+ * the stale month. Managers get an actionable button; others get a passive note.
+ */
+function RolloverBanner({ user, onDone }: { user: User; onDone: () => void }) {
+    const [status, setStatus] = useState<any>(null);
+    const [busy, setBusy] = useState(false);
+    const [dismissed, setDismissed] = useState(false);
+
+    useEffect(() => {
+        let alive = true;
+        api.getPeriodStatus()
+            .then((s) => {
+                if (alive) setStatus(s);
+            })
+            .catch(() => {});
+        return () => {
+            alive = false;
+        };
+    }, []);
+
+    if (!status || !status.needs_rollover || dismissed) return null;
+
+    const canRoll = ROLE_LEVEL[user.role] >= 30; // manager+
+    const doRollover = async () => {
+        setBusy(true);
+        try {
+            await api.performRollover(
+                `Rollover ${status.latest_label} → ${status.next_label}`,
+            );
+            toast(`Rolled over to ${status.next_label}.`);
+            setStatus({ ...status, needs_rollover: false });
+            onDone();
+        } catch (e: any) {
+            toast(e?.message || "Rollover failed.");
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div
+            className="banner warn"
+            style={{ marginBottom: 12, alignItems: "center" }}
+        >
+            {I.database()}
+            <span style={{ flex: 1 }}>
+                You're viewing <b>{status.latest_label}</b>, but it's now{" "}
+                <b>{status.current_label}</b>.{" "}
+                {canRoll
+                    ? `Roll over to ${status.next_label} to start the new month's inventory.`
+                    : `Ask a manager to roll over to ${status.next_label}.`}
+            </span>
+            {canRoll && (
+                <button
+                    className="btn primary"
+                    disabled={busy}
+                    onClick={doRollover}
+                >
+                    {busy ? "Rolling over…" : `Roll over to ${status.next_label}`}
+                </button>
+            )}
+            <button
+                className="btn"
+                disabled={busy}
+                onClick={() => setDismissed(true)}
+                aria-label="Dismiss"
+            >
+                {I.x()}
+            </button>
+        </div>
+    );
+}
+
 export function Portal({
     user,
     onLogout,
@@ -1722,6 +1816,7 @@ export function Portal({
     const lvl = ROLE_LEVEL[user.role];
     const [active, setActive] = useState("dashboard");
     const [period, setPeriod] = useState<[number, number]>([4, 2026]);
+    const [sidebarOpen, setSidebarOpen] = useState(false);
     const [invState, reloadInv] = useInventory();
     const [stagedCount, setStagedCount] = useState(0);
     useEffect(() => {
@@ -1790,16 +1885,34 @@ export function Portal({
     };
 
     return (
-        <div className="portal" data-density={density}>
-            <Topbar user={user} period={period} setPeriod={setPeriod} />
+        <div
+            className={"portal" + (sidebarOpen ? " sidebar-open" : "")}
+            data-density={density}
+        >
+            <Topbar
+                user={user}
+                period={period}
+                setPeriod={setPeriod}
+                onMenuClick={() => setSidebarOpen((v) => !v)}
+            />
             <Sidebar
                 user={user}
                 active={active}
-                setActive={goTo}
+                setActive={(k) => {
+                    goTo(k);
+                    setSidebarOpen(false);
+                }}
                 reorderCount={reorderCount}
                 stagedCount={stagedCount}
             />
+            {sidebarOpen && (
+                <div
+                    className="sidebar-overlay"
+                    onClick={() => setSidebarOpen(false)}
+                />
+            )}
             <main className="main">
+                <RolloverBanner user={user} onDone={doSync} />
                 {[
                     "haccp",
                     "dailyops",

@@ -15,6 +15,48 @@ This is the **central development memory and discussion board** for all agents (
 
 ---
 
+## [v1.3.6] — 2026-06-06 — Fix 2 prod 500s + live-date month rollover prompt + mobile drawer (bundled)
+
+**Claude:** User directed: fix the two 500s found in v1.3.5 + add a manager month-rollover prompt + make mobile responsive, all in one push. Done, verified, pushing.
+
+**1) Production 500s fixed (Gemini-lane backend, done in Claude's review capacity):**
+- `backend/routes/users.py` — `UserResponse` had `email/last_name/created_at/updated_at` typed `str` with `=""` defaults. A default only applies when a key is ABSENT; a DB row with explicit `email=None` still fails Pydantic. Changed all four to `str | None = None`. Fixes `GET /api/users` 500 (Users admin view was fully broken).
+- `backend/routes/inventory.py` — `get_reorders` built `LowStockItem(sku=inv_item.get("sku", ""))`; `.get(k, "")` returns None when the column is present-but-null. Changed to `... or ""` for sku/desc/category. Fixes `GET /api/inventory/reorders` 500 (dashboard Reorders widget).
+
+**2) Live-date month rollover (the May→June problem):**
+- Confirmed root cause (v1.3.5): latest `monthly_inventory` period is May (month=4) 2026; no June period exists, so the app shows May. The app never prompted to advance the month.
+- **Backend (`inventory.py`):** `GET /api/inventory/period-status` compares the real-world month (0-indexed, `datetime.now().month-1`) to the latest DB period and returns `needs_rollover` + labels. `POST /api/inventory/rollover` (manager+ only, 403 otherwise) wraps the existing `perform_rollover()` SECURITY DEFINER fn via the service-role client — it opens the next month, copies each item's ending on_hand → next month's opening, and publishes the old month. from-period is read from the DB (latest), not client-supplied.
+- **Frontend (`api.ts` + `Portal.tsx`):** added `api.getPeriodStatus()` / `api.performRollover()`. New `RolloverBanner` at the top of the portal main area: when `needs_rollover`, managers (lvl ≥ 30) see "You're viewing May 2026, but it's now June 2026 — Roll over to June 2026" with a one-click button (calls the endpoint, toasts, refreshes inventory); non-managers see a passive "ask a manager" note. Dismissible.
+
+**3) Mobile responsive view:**
+- The `index.css` mobile styling already existed (≤768px: hamburger, off-canvas `.sidebar` drawer via `.portal.sidebar-open`, overlay) but **Portal.tsx never rendered a hamburger or toggled it** — so on phones the sidebar was hidden with no way to open it; the nav was unreachable. Wired it up: `sidebarOpen` state in `Portal`, a `.hamburger` button in `Topbar` (`onMenuClick`), `sidebar-open` class on `.portal`, a tap-to-close `.sidebar-overlay`, and nav selection auto-closes the drawer. No new CSS needed.
+
+**Verification:** `npm run build` (tsc -b + vite) ✓ exit 0; `npm run lint` ✓ 0 errors; `py_compile` ✓ on both routes. New endpoints not yet smoke-tested on prod (deploy pending) — will verify `/period-status` + `/users` + `/reorders` after Render finishes.
+
+**Push:** Claude → (SHA below) — 2026-06-06
+
+---
+
+## [v1.3.5] — 2026-06-06 — Live-site error sweep (authenticated): 2 production 500s found + date/rollover gap confirmed
+
+**Claude:** User asked to "use Chrome DevTools to check the live site for errors" before building the mobile + date-rollover changes. **Honesty note:** no Playwright/Chrome-DevTools MCP is connected to my Claude Code runtime (ToolSearch finds no browser tools), so I could NOT read the browser JS console. Substitute used: authenticated end-to-end probe of the production stack (Supabase Auth password grant → `POST /api/auth/login` → Bearer sweep of every endpoint the app calls) + `get_logs(api/postgres)`. This catches server-side 4xx/5xx the live site hits, but not pure client-side console errors — equipping the browser MCP is still owed for that.
+
+**Method:** logged in as admin `jeremiah` (real Supabase Auth), got backend token, swept 12 endpoints.
+
+**RESULT — 2 endpoints return 500 in production (both break a visible feature):**
+- **`GET /api/inventory/reorders` → 500** — `LowStockItem.sku` Pydantic validation fails: a row has `sku=None`, model requires `str`. **Breaks the dashboard Reorders widget.** Fix (Gemini lane, `backend/routes/inventory.py`): `sku: Optional[str] = None` (or coalesce None→"" when building `LowStockItem`). Note: v1.1.0 fixed nulls for `/api/inventory` but not this model.
+- **`GET /api/users` → 500** — `UserResponse.email` Pydantic validation fails: a `user_profiles` row has `email=None`, model requires `str`. **Breaks the entire Users admin view.** Fix (`backend/routes/users.py`): make `email: Optional[str] = None`. Gotcha: `email: str = ""` does NOT help — a default only applies when the key is *absent*; an explicit `None` from the DB still fails. Use `Optional`.
+
+**Everything else 200:** `/api/auth/me`, `/api/dashboard/stats`, `/api/inventory` (49.8 KB real data), `/api/menu/Mon` + `/api/menu/Sat` (200, empty until seeded), `/api/events` (9.3 KB), `/api/logs/haccp` + `/logs/daily` (`[]`), `/api/commits`, `/api/invoices` (5.4 KB). Supabase `get_logs(api)`: all app traffic 200 except the pre-fix `menu_entries` POST 400s (now resolved by v1.3.4) and one agent-only `information_schema` 404 (not the app).
+
+**DATE/ROLLOVER gap CONFIRMED (the user's report):** the live "latest period" query `monthly_inventory?select=month,year&order=year.desc,month.desc&limit=1` returns **month=4 (0-indexed = May), year=2026** — and inventory loads `month=eq.4&year=eq.2026`. There is **no June (month=5) period**, so the app correctly shows the newest existing month (May). This is a logic gap, not an error: the system never prompts for a month rollover, so users stay stuck in May. Next task (per user): detect current real month vs latest DB period and prompt the manager to roll over to June.
+
+**Next:** (1) responsive/mobile view, (2) live-date rollover prompt. The two 500s above are quick backend fixes — flagging for Gemini / can take them in Claude's review capacity if asked.
+
+**Push:** N/A — diagnosis only; CHANGELOG only. No code changed this entry.
+
+---
+
 ## [v1.3.4] — 2026-06-06 — ROOT CAUSE of empty menu found in Supabase logs + fixed (constraint mismatch)
 
 **Claude:** User asked me to check Supabase errors. `get_logs(postgres)` showed repeated recent ERRORs that explain the long-standing "menu never populates" gap (NOT just missing seed data — writes were actively failing):

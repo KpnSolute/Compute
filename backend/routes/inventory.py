@@ -507,9 +507,11 @@ async def get_reorders(auth_user: dict = Depends(_get_auth_user)):
             if par > 0 and on_hand < par:
                 low_items.append(
                     LowStockItem(
-                        sku=inv_item.get("sku", ""),
-                        desc=inv_item.get("description", ""),
-                        category=cat.get("name", ""),
+                        # `.get(k, "")` still returns None when the column exists but is null,
+                        # which fails LowStockItem's str fields → 500. Coalesce with `or ""`.
+                        sku=inv_item.get("sku") or "",
+                        desc=inv_item.get("description") or "",
+                        category=cat.get("name") or "",
                         onHand=on_hand,
                         par=par,
                         short=par - on_hand,
@@ -522,3 +524,129 @@ async def get_reorders(auth_user: dict = Depends(_get_auth_user)):
     except Exception as e:
         logger.exception("Error in get_reorders")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+_MONTHS = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+]
+
+
+class PeriodStatus(BaseModel):
+    current_month: int          # 0-indexed real-world month (0=Jan)
+    current_year: int
+    latest_month: int | None    # newest period present in monthly_inventory
+    latest_year: int | None
+    next_month: int | None      # the period a rollover would create
+    next_year: int | None
+    needs_rollover: bool
+    current_label: str          # e.g. "June 2026" (real-world)
+    latest_label: str           # e.g. "May 2026" (what the app is showing)
+    next_label: str             # e.g. "June 2026"
+
+
+class RolloverRequest(BaseModel):
+    message: str | None = None
+
+
+def _label(month: int | None, year: int | None) -> str:
+    if month is None or year is None or not (0 <= month <= 11):
+        return ""
+    return f"{_MONTHS[month]} {year}"
+
+
+@router.get("/period-status", response_model=PeriodStatus)
+async def get_period_status(auth_user: dict = Depends(_get_auth_user)):
+    """Compare the current real-world month to the latest inventory period.
+
+    Months are 0-indexed (0=Jan) to match monthly_inventory and the frontend.
+    `needs_rollover` is True when the real month is newer than the latest period
+    stored in the DB — i.e. the cafeteria has moved into a new month but no
+    rollover happened, so users are still looking at the previous month.
+    """
+    now = datetime.now()
+    current_month = now.month - 1  # 0-indexed to match the DB/JS convention
+    current_year = now.year
+
+    latest = (
+        supabase_service.table("monthly_inventory")
+        .select("month, year")
+        .order("year", desc=True)
+        .order("month", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not latest.data:
+        return PeriodStatus(
+            current_month=current_month, current_year=current_year,
+            latest_month=None, latest_year=None,
+            next_month=None, next_year=None,
+            needs_rollover=False,
+            current_label=_label(current_month, current_year),
+            latest_label="", next_label="",
+        )
+
+    lm = int(latest.data[0]["month"])
+    ly = int(latest.data[0]["year"])
+    if lm >= 11:
+        nm, ny = 0, ly + 1
+    else:
+        nm, ny = lm + 1, ly
+
+    needs = (current_year, current_month) > (ly, lm)
+    return PeriodStatus(
+        current_month=current_month, current_year=current_year,
+        latest_month=lm, latest_year=ly,
+        next_month=nm, next_year=ny,
+        needs_rollover=needs,
+        current_label=_label(current_month, current_year),
+        latest_label=_label(lm, ly),
+        next_label=_label(nm, ny),
+    )
+
+
+@router.post("/rollover")
+async def rollover_period(
+    body: RolloverRequest, auth_user: dict = Depends(_get_auth_user)
+):
+    """Roll the latest inventory month forward to the next month (manager+ only).
+
+    Wraps the `perform_rollover()` SECURITY DEFINER function via the service-role
+    client: opens the next month, copies each item's ending on_hand into the new
+    month's opening balance, and publishes the old month.
+    """
+    role = (auth_user.get("role") or "").lower()
+    if role not in ("admin", "manager"):
+        raise HTTPException(
+            status_code=403, detail="Manager access required to roll over the month."
+        )
+
+    latest = (
+        supabase_service.table("monthly_inventory")
+        .select("month, year")
+        .order("year", desc=True)
+        .order("month", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not latest.data:
+        raise HTTPException(
+            status_code=400, detail="No inventory period exists to roll over from."
+        )
+    from_month = int(latest.data[0]["month"])
+    from_year = int(latest.data[0]["year"])
+
+    try:
+        result = supabase_service.rpc(
+            "perform_rollover",
+            {
+                "p_from_month": from_month,
+                "p_from_year": from_year,
+                "p_rolled_by": auth_user["id"],
+                "p_message": body.message,
+            },
+        ).execute()
+        return {"ok": True, "result": result.data}
+    except Exception as e:
+        logger.exception("Error in rollover_period")
+        raise HTTPException(status_code=500, detail=f"Rollover failed: {str(e)}")
