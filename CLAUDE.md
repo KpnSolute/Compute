@@ -26,11 +26,31 @@ You have god-mode access to all project tooling. Use whatever the task needs (`A
 
 **Skills:** `.cursor/skills/mjcc-tooling/` + 21 Render skills. Read `mjcc-tooling/SKILL.md` for the quick card.
 
+**Browser / Chrome DevTools MCPs (critical for you as primary frontend dev):** Add a Playwright or Chrome-DevTools MCP to your Claude Code / Cursor runtime (and the other agents' roots for parity). This lets you autonomously inspect the live site's Network traffic to the production backend (`/api/*` calls, payloads, responses, auth headers) exactly like using F12 DevTools. 
+
+Full recommended MCPs, exact JSON config snippets for .cursor/mcp.json + WSL agent configs (Claude/Gemini/OpenCode roots), setup commands (`npx playwright install chromium`), headed vs headless notes, and the precise workflow (navigate prod site or local dev → reproduce action → query recent network for mjcc-managements.onrender.com/api requests + responses) live in the shared `mjcc-tooling/SKILL.md` (bottom section "Browser / Chrome DevTools for live backend inspection"). 
+
+The three skill copies (.claude/, .cursor/, .agents/) were just updated with the details. Also see AGENTS.md §11 for the MCP table. Use this **before** guessing at shape bugs or wiring issues — it directly shows what the backend actually returned.
+
+Current Windows-side MCPs (this tree): only the Supabase remote (in .cursor/mcp.json and .vscode/mcp.json, token via SUPABASE_MCP_TOKEN env). Your primary agent configs live in the WSL env roots — run these in your WSL shell to locate them:
+
+```bash
+# In WSL terminal (adjust for your actual agent launch user/home)
+find /home /root $HOME -maxdepth 6 \( -name '*claude*' -o -name '*mcp*.json' -o -name 'settings.json' \) -type f 2>/dev/null | head -20
+# Look especially under ~/.config/claude , ~/.claude , or the claude-code / Cursor app data dirs
+# Also: claude mcp list   (if the claude CLI in your agent env supports it)
+```
+
+Add the playwright (or equivalent devtools) server entry alongside the existing supabase one. If you need the exact token-bearing config from your WSL agent roots, cat the files (redact tokens when sharing) and paste the structure here — I can generate the precise addition.
+
 ## Build & Run Commands
 - **Frontend:** `cd frontend && npm install && npm run dev` (Vite, port 5173). Build: `npm run build`.
-- **Backend:** `cd backend && pip install -r requirements.txt && python3 main.py` (FastAPI, port 8000).
+- **Backend (Windows native after .venv):** From project root with venv active in terminal: `python -m uvicorn backend.main:app --reload` (or `cd backend && python main.py`).  
+  The new `.vscode/launch.json` and `.vscode/tasks.json` provide one-click "Run: Backend" and debug configs that use the Windows `.venv\Scripts\python.exe`.
 - **Verify before push:** `cd frontend && npm run lint && tsc --noEmit && npm run build` + `ruff check backend/`.
 - **Production logs/deploys:** `render services` → `render logs -r <id>` / `render deploys create <id>`. Full usage in `AGENTS.md` §10.
+
+**Windows notes (post WSL migration):** Use the provided VSCode tasks ("Python: Create .venv & Install Deps", "Run: Backend", "Ruff...", "Verify...") via `Ctrl+Shift+P → Tasks: Run Task`. PowerShell is the default integrated terminal. You may need `Set-ExecutionPolicy -Scope Process Bypass -Force` once for npm / activate scripts. The Python extension should now auto-activate the `.venv` and find dependencies.
 
 ## Tech Stack
 - **Frontend:** Vite, React, TypeScript, Tailwind — plus a large hand-written `index.css` design system ported from `/templates` (see `AGENTS.md` Issue I-5; "Tailwind only" is aspirational, not current truth).
@@ -39,6 +59,16 @@ You have god-mode access to all project tooling. Use whatever the task needs (`A
 
 ## CRITICAL CONTEXT — READ BEFORE WRITING CODE
 The original data code targeted a schema that did not exist; it is now largely reconciled (see `AGENTS.md` §1, §4). Do not assume table names from existing files are real — verify against live Supabase via MCP. Do not build features on a broken foundation without flagging it.
+
+**Frontend analysis (2026-06-06, before this doc update):** 
+- Stack: Vite + React 19 + TS + large bespoke `index.css` design system (ported from /templates; Tailwind aspirational per I-5). No react-router — `App.tsx` is a simple Login ↔ Portal switch with localStorage `kpn_session`. `Portal.tsx` is the orchestrator (sidebar NAV with role levels, topbar, conditional views for Dashboard / Inventory / Compliance / DailyOps / Events / Menu / Forms / DataEntry / SourceControl / Reports / Templates).
+- Data layer (I-2 status): **Strong progress on backend-mediated (Option A).** `lib/api.ts` is the complete client (auth, inventory+period, menu, events, logs/haccp+daily, users, staging/commits, data-entry, dashboard, etc.). All calls go through `VITE_API_BASE` (prod) + Bearer from `getBackendToken()`. `lib/services.ts` (the `DS` object used by many views) is now a thin TTL cache **over the api calls only**.
+- Remaining bridge: `lib/supabase.ts` retains legacy shims (`fetchInventory` now does dynamic `import('./api')` + `groupByCategory` to feed the old shape; `invToList`/`catTotals`/`reorders`/`iTotal`/`catColor`/`fmtMoney*` + some log localStorage fallbacks). These are still imported/used in `Portal.tsx` (dashboard numbers, monthly rows, reorders), `Reports.tsx`, `Operations.tsx` (formatters), `Forms.tsx`. Auth glue (realLogin for admins, backend*Login, token save/clear) is correct and stays here.
+- Components you own: All in `frontend/src/components/**` + the lib files listed above. SourceControl is fully on the new api + staging. Events, menu, inventory writes, data-entry are api-wired. The dashboard + some read paths are the main shim consumers.
+- When editing components or the shims: prefer extending the api client or moving pure formatters to a utils file; coordinate with Gemini only if you touch data shapes that hit routes. Always verify with `npm run lint && tsc --noEmit && npm run build`.
+- Production rule is non-negotiable: even local `npm run dev` should have `frontend/.env` with `VITE_API_BASE=https://mjcc-managements.onrender.com` (the tree snapshot here had no .env files — flagged in recent audits).
+
+Use the new Browser DevTools MCP (above) + `render logs` to observe the actual request/response the backend sees when you (or the AI) drive the UI. This is the fastest way to close the last I-2 gaps.
 
 ## What You Own (file-level)
 - `frontend/src/components/**`, `App.tsx`, `main.tsx`, `index.css`

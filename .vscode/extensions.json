@@ -1,3 +1,10 @@
 {
-  "recommendations": ["charliermarsh.ruff", "esbenp.prettier-vscode"]
+  "recommendations": [
+    "charliermarsh.ruff",
+    "dbaeumer.vscode-eslint",
+    "ms-python.python",
+    "ms-python.vscode-pylance"
+    // Prettier (esbenp.prettier-vscode) is intentionally NOT used for JS/TS formatting.
+    // Per AGENTS.md: ESLint is the formatter policy. No Prettier config ships.
+  ]
 }

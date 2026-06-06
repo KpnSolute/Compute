@@ -115,14 +115,17 @@ async def get_menu(day: str, auth_user: dict = Depends(_get_auth_user)):
     )
 
     data = {p: [] for p in MEAL_PERIODS[day]}
+    sides_data = {p: [] for p in MEAL_PERIODS[day]}
     if result.data:
         for row in result.data:
             meal_type = row.get("meal_type")
             if meal_type not in data:
                 continue
             data[meal_type] = _parse_items(row.get("items"))
+            sides_data[meal_type] = _parse_items(row.get("sides") or "[]")
 
-    return {"id": day, "data": data}
+    # Include sides for full fidelity per real schema (§4); frontend can ignore extra for now or use in CycleMenu
+    return {"id": day, "data": data, "sides": sides_data}
 
 
 @router.post("/{day}")
@@ -154,6 +157,7 @@ async def update_menu(
                 "day_of_week": day,
                 "meal_type": meal_type,
                 "items": json.dumps(items if isinstance(items, list) else []),
+                "sides": json.dumps([]),  # sides as TEXT JSON per real schema §4 (plan); extend payload for real sides
                 "sort_order": sort_order,
                 "created_at": now,
                 "updated_at": now,

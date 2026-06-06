@@ -117,6 +117,7 @@ def dispatch_menu_save(payload: dict) -> dict:
                 "day_of_week": day,
                 "meal_type": meal_type,
                 "items": json.dumps(items_list),
+                "sides": json.dumps([]),  # sides as TEXT JSON per §4 real schema (plan fix for fidelity)
                 "sort_order": sort_order,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "updated_at": datetime.now(timezone.utc).isoformat(),

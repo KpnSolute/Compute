@@ -6,6 +6,11 @@
             "headers": {
                 "Authorization": "Bearer ${env:SUPABASE_MCP_TOKEN}"
             }
+        },
+        "playwright": {
+            "type": "stdio",
+            "command": "npx",
+            "args": ["@playwright/mcp"]
         }
     }
 }

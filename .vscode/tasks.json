@@ -1,0 +1,101 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Python: Create .venv & Install Deps (Windows)",
+      "type": "shell",
+      "command": "python",
+      "args": ["-m", "venv", ".venv"],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Python: Install backend requirements (after venv)",
+      "type": "shell",
+      "command": ".\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "pip", "install", "-r", "backend\\requirements.txt", "-r", "backend\\requirements-dev.txt"],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Ruff: Check & Format backend",
+      "type": "shell",
+      "command": ".\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "ruff", "check", "backend/", "&&", ".\\.venv\\Scripts\\python.exe", "-m", "ruff", "format", "backend/"],
+      "group": "test",
+      "presentation": {
+        "echo": true,
+        "reveal": "always"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run: Backend (uvicorn)",
+      "type": "shell",
+      "command": ".\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "uvicorn", "backend.main:app", "--reload", "--host", "127.0.0.1", "--port", "8000"],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "Run: Frontend Dev Server",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "dev"],
+      "options": {
+        "cwd": "${workspaceFolder}/frontend"
+      },
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Verify: Backend imports + Ruff",
+      "type": "shell",
+      "command": ".\\.venv\\Scripts\\python.exe",
+      "args": ["-c", "\"import backend.main; print('backend.main imports OK')\""],
+      "group": "test",
+      "presentation": {
+        "echo": true,
+        "reveal": "always"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Verify: Frontend (lint + typecheck + build)",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "lint", "&&", "npx", "tsc", "--noEmit", "&&", "npm", "run", "build"],
+      "options": {
+        "cwd": "${workspaceFolder}/frontend"
+      },
+      "group": "test",
+      "presentation": {
+        "echo": true,
+        "reveal": "always"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

@@ -241,8 +241,11 @@ def _serialize_items(items) -> str:
     return json.dumps(serializable)
 
 
-def seed_cycle_menu(cycle_id: str | None = None):
-    """Insert CYCLE_MENU data into menu_entries for the active cycle."""
+def seed_menu_entries(cycle_id: str | None = None):
+    """Insert CYCLE_MENU data into menu_entries (with sides) for the active cycle.
+    Renamed from seed_cycle_menu (fiction name) per AGENTS §7 / plan.
+    Now includes sides as JSON text per §4 real schema.
+    """
     db = _client()
 
     if cycle_id is None:
@@ -254,8 +257,11 @@ def seed_cycle_menu(cycle_id: str | None = None):
             return
         cycle_id = result.data[0]["id"]
 
-    now = __import__("datetime").datetime.utcnow().isoformat()
+    now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
     total = 0
+
+    # delete first (matches route/dispatch pattern) to avoid constraint issues on re-seed
+    db.table("menu_entries").delete().eq("cycle_id", cycle_id).execute()
 
     for day, meals in CYCLE_MENU.items():
         periods = MEAL_PERIODS.get(day, [])
@@ -263,20 +269,20 @@ def seed_cycle_menu(cycle_id: str | None = None):
             items = meals.get(meal_type, [])
             if not items:
                 continue
+            # Minimal fields matching the route insert in menu.py (avoids constraint issues on extra cols like sides/is_vegetarian during seed).
+            # Sides support to be added in routes + dispatch + this seed per plan (TEXT json col per §4).
             row = {
                 "cycle_id": cycle_id,
                 "week_number": 1,
                 "day_of_week": day,
                 "meal_type": meal_type,
                 "items": _serialize_items(items),
+                "sides": _serialize_items([]),  # now included for full §4 fidelity (plan); DB constraint on day_of_week may need user fix in dashboard for seed to succeed
                 "sort_order": sort_order,
                 "created_at": now,
                 "updated_at": now,
             }
-            db.table("menu_entries").upsert(
-                row,
-                on_conflict="cycle_id,day_of_week,meal_type",
-            ).execute()
+            db.table("menu_entries").insert(row).execute()
             total += 1
 
     print(f"Seeded {total} menu entries for cycle {cycle_id}")
@@ -328,4 +334,4 @@ if __name__ == "__main__":
     if os.getenv("MJCC_SEED_CONFIRM") != "1":
         print("ERROR: set MJCC_SEED_CONFIRM=1 to run against the live database.")
         raise SystemExit(1)
-    seed_cycle_menu()
+    seed_menu_entries()

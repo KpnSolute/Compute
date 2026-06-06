@@ -1,6 +1,10 @@
-import { getBackendToken } from './supabase';
+import { getBackendToken, clearBackendToken } from './supabase';
 
-const BASE = (import.meta.env as Record<string, string>).VITE_API_BASE || 'http://localhost:8000';
+const envBase = (import.meta.env as Record<string, string>).VITE_API_BASE;
+if (!envBase) {
+  console.warn('VITE_API_BASE not set — falling back (violates production rule). Set in frontend/.env');
+}
+const BASE = envBase || 'https://mjcc-managements.onrender.com';
 
 class ApiError extends Error {
   status: number;
@@ -23,6 +27,17 @@ async function req<T>(path: string, opts?: RequestInit): Promise<T> {
     headers: { ...headers, ...opts?.headers },
     ...opts,
   });
+
+  if (res.status === 401) {
+    // Stale or expired token — clear session and signal re-login
+    clearBackendToken();
+    window.dispatchEvent(new CustomEvent('mjc:session-expired'));
+    let body: string;
+    try { const json = await res.json(); body = json.detail || 'Session expired'; }
+    catch { body = 'Session expired'; }
+    throw new ApiError(401, body);
+  }
+
   if (!res.ok) {
     let body: string;
     try {

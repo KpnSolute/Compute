@@ -319,15 +319,18 @@ Read `mjcc-tooling/SKILL.md` in your runtime's skills dir for the quick-referenc
 
 | Server | Config | Auth |
 |--------|--------|------|
-| **Supabase** | `.cursor/mcp.json` + `.vscode/mcp.json` | `SUPABASE_MCP_TOKEN` env var |
+| **Supabase** | `.cursor/mcp.json` + `.vscode/mcp.json` (and equivalent in agent roots) | `SUPABASE_MCP_TOKEN` env var |
 | **cursor-ide-browser** | Cursor built-in | For UI verification when asked |
+| **Playwright / Chrome-DevTools (browser)** | Add to `.cursor/mcp.json`, `.vscode/mcp.json`, and the WSL agent roots for Claude/Gemini/OpenCode (see mjcc-tooling/SKILL.md "Browser / Chrome DevTools..." section for exact snippets + workflow). Use to let any agent autonomously inspect Network tab traffic to the prod backend (`/api/*`) while driving the UI — the primary way to see real request/response shapes, auth, errors during frontend dev. | Local process (npx @playwright/mcp or CDP equivalent). Headed mode recommended for watching real DevTools alongside. |
+
+**Setup note for all agents (especially Claude, your primary frontend dev):** The visible project MCPs only cover Supabase today. Browser devtools MCPs must be added to the runtime configs in the WSL envs where you launch claude/gemini/opencode (and mirrored to the dot-dirs here for Cursor/VSCode parity). Full install + config + verification commands and the "how to use it to debug a backend call" workflow are documented in the mjcc-tooling skill (all three copies were synced) and in `CLAUDE.md`. Run the find commands in your WSL shell (documented in Claude.md) to locate the exact agent MCP JSONs.
 
 ### Standard verification before closing any task
 
 ```bash
-# Backend
+# Backend (Windows: use the venv python after creation; WSL/Linux: python3)
 ruff check backend/ && ruff format backend/
-python3 -c "import backend.main"
+python -c "import backend.main"   # or python3 on Linux/WSL
 
 # Frontend
 cd frontend && npm run lint && tsc --noEmit && npm run build
@@ -335,5 +338,7 @@ cd frontend && npm run lint && tsc --noEmit && npm run build
 # Production sanity (when debugging live issues)
 render services && render logs -r <service-id> --level error
 ```
+
+**Windows users (post-WSL migration):** Prefer the new `.vscode/tasks.json` entries ("Ruff: Check & Format backend", "Verify: Backend imports + Ruff", etc.) and the launch configs in `.vscode/launch.json`. These hard-code the Windows `.venv\Scripts\python.exe` path so VSCode/Python extension recognizes dependencies reliably. Use the Tasks panel (`Ctrl+Shift+P → Tasks: Run Task`).
 
 Log results in `CHANGELOG.md` — what ran, what passed, what failed.

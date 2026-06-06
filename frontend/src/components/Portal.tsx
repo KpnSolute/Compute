@@ -294,11 +294,11 @@ function Dashboard({
             ];
             const res = await api.getMenu(day);
             if (alive) {
-                const raw = res?.meals || {};
+                const raw = res?.data || {};
                 const normalized: any = {};
                 Object.keys(raw).forEach(k => {
                     const key = k.charAt(0).toUpperCase() + k.slice(1);
-                    normalized[key] = raw[k]?.items || [];
+                    normalized[key] = Array.isArray(raw[k]) ? raw[k] : [];
                 });
                 setMenuData(normalized);
                 setMenuLoading(false);

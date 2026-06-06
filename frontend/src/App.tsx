@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { User } from './lib/constants';
 import { clearBackendToken } from './lib/supabase';
 import { Login } from './components/Login';
@@ -16,6 +16,22 @@ function loadSession(): User | null {
 
 function App() {
   const [user, setUser] = useState<User | null>(loadSession);
+
+  useEffect(() => {
+    const onExpired = () => {
+      try { localStorage.removeItem(SKEY); } catch {}
+      setUser(null);
+      // Show toast if available
+      const t = document.getElementById('toast');
+      if (t) {
+        t.innerHTML = '<span>Session expired — please sign in again.</span>';
+        t.classList.add('show');
+        setTimeout(() => t.classList.remove('show'), 4000);
+      }
+    };
+    window.addEventListener('mjc:session-expired', onExpired);
+    return () => window.removeEventListener('mjc:session-expired', onExpired);
+  }, []);
 
   function handleLogin(u: User, remember: boolean) {
     setUser(u);

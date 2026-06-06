@@ -97,6 +97,7 @@ export async function realLogin({
     }
 
     // Now authenticated — fetch profile (RLS allows authenticated SELECT)
+    // Note: per AGENTS §3 and plan, data queries should prefer FastAPI; this is retained only for auth bootstrap in realLogin (minimal glue).
     const { data: profile, error: profErr } = await db
       .from('user_profiles')
       .select('id, username, display_name, last_name, role, active')
@@ -114,6 +115,14 @@ export async function realLogin({
       await db.auth.signOut();
       return { ok: false, error: 'Staff accounts must use the Staff login.' };
     }
+
+    // P4 fix (per Claude v1.3.0 + Grok plan): subscribe to Supabase TOKEN_REFRESHED so we immediately re-call backendLogin with the new access_token.
+    // This keeps mjc_backend_token fresh and prevents the ~1h expiry 401 spam + uncaught ApiError the user saw on /api/inventory, /events, /menu (multiple components fire calls without central refresh).
+    db.auth.onAuthStateChange((event, session) => {
+      if (event === 'TOKEN_REFRESHED' && session?.access_token) {
+        backendLogin(session.access_token).catch(() => {});
+      }
+    });
 
     return { ok: true, user: { ..._publicUser(profile), access_token: authData.session.access_token } };
   } catch (e) {
