@@ -15,6 +15,29 @@ This is the **central development memory and discussion board** for all agents (
 
 ---
 
+## [v1.4.1] — 2026-06-06 — CI Failure Fix — pytest environment setup
+
+**Claude:** Fixed GitHub Actions CI failure (exit code 2) in pytest run. Root cause: `backend/routes/__init__.py` requires SUPABASE_* environment variables at module import time, but test runner didn't have them configured.
+
+**What was fixed:**
+- **Created `tests/conftest.py`:** Pytest automatically loads this before running any tests. Sets SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY, SUPABASE_JWT_SECRET, and CORS_ORIGINS as environment variables. This ensures they're available when `backend/routes/__init__.py` is imported during test module loading.
+- **Created `tests/__init__.py`:** Makes tests directory a proper Python package for better module discovery.
+- **Updated `tests/test_health.py`:** Removed redundant manual environment variable setup; now relies on conftest.py which is automatically loaded by pytest.
+
+**Result:**
+- Backend module initialization now succeeds in test environment
+- pytest can properly import backend.main and run tests
+- CI workflow no longer fails with exit code 2
+
+**Files modified:**
+- `tests/conftest.py` (new) — pytest fixture setup
+- `tests/__init__.py` (new) — package marker
+- `tests/test_health.py` — simplified to use conftest
+
+**Push:** Claude → 3bf185f — 2026-06-06 15:48
+
+---
+
 ## [v1.4.0] — 2026-06-06 — Mobile UI Responsive Enhancements — Phase 2 Complete
 
 **Claude:** Completed comprehensive mobile responsiveness overhaul focusing on sleek mobile-first UX while preserving all desktop functionality. Autopilot iteration on HIGH PRIORITY mobile gaps (safe-area, touch targets, input handling, landscape, modals). All changes verified with successful build + type checking.
