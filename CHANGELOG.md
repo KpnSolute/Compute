@@ -24,7 +24,7 @@ This is the **central development memory and discussion board** for all agents (
 **Dynamic + accuracy:** All via api.ts (prod BASE); no DEMO_ in src (only frozen templates); Operations now fully dynamic for its inventory/invoices. Subagent + PDF extract confirm templates actual (186 items May from invoice) now better preserved in weekly fields + SourceCtrl historic by push date. Read AGENTS/CHANGELOG first every step; no new .md; prod target; lanes noted (Gemini for deeper data/routes if follow-up).
 **Verifier subagent:** id 019e9e44-... (general-purpose); 37 tools, 150s; output includes exact specs for further (Date sort polish, shim removal, ArchivesView use getArchives for snapshot grand_totals vs recompute, enforce stage for all, fidelity seed to PDF lines). 
 **Verify (ran):** python ast.parse on edited .py → syntax PASS; frontend lint/tsc bg (see task log); subagent read/verified templates/PDFs/MCP/code. Ruff full via `ruff check/format` recommended in clean env (ps1 head/cat limits here; prior convention followed). 
-**Push:** pending — not yet pushed
+**Push:** Grok → 7ee14c5 — 2026-06-06
 
 ## [v1.3.8] — 2026-06-06 — Project .grok/config.toml for VS Code MCP parity (supabase + playwright)
 

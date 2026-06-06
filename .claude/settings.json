@@ -1,1 +1,4 @@
-{ "worktree": { "bgIsolation": "none" } }
+{
+  "worktree": { "bgIsolation": "none" },
+  "enabledMcpjsonServers": ["playwright"]
+}

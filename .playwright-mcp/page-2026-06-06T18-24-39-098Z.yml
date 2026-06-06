@@ -1,0 +1,51 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - img [ref=e6]
+      - generic [ref=e15]:
+        - heading "KpnCompute" [level=1] [ref=e16]
+        - paragraph [ref=e17]: Data Management Platform
+    - generic [ref=e18]:
+      - generic [ref=e19]: Operations Console
+      - heading "Inventory, menus & sourcing — one secure console." [level=2] [ref=e20]
+      - paragraph [ref=e21]: Track on-hand counts and par levels, reconcile vendor invoices, plan the 28-day cycle menu, and manage staff access by role — all synced live across every device.
+      - generic [ref=e22]:
+        - generic [ref=e23]:
+          - generic [ref=e24]: "214"
+          - generic [ref=e25]: Line items
+        - generic [ref=e26]:
+          - generic [ref=e27]: "9"
+          - generic [ref=e28]: Categories
+        - generic [ref=e29]:
+          - generic [ref=e30]: "4"
+          - generic [ref=e31]: Access roles
+    - generic [ref=e32]: Operations Console · v3.0
+  - main [ref=e34]:
+    - generic [ref=e35]:
+      - generic [ref=e36]:
+        - img "KpnCompute"
+      - heading "Sign in to the console" [level=3] [ref=e38]
+      - tablist [ref=e39]:
+        - tab "Admin / Manager" [selected] [ref=e40] [cursor=pointer]:
+          - img [ref=e41]
+          - text: Admin / Manager
+        - tab "Staff PIN" [ref=e44] [cursor=pointer]:
+          - img [ref=e45]
+          - text: Staff PIN
+      - generic [ref=e47]:
+        - generic [ref=e48]:
+          - generic [ref=e49]: Username
+          - img [ref=e50]
+          - textbox "e.g. amartin" [active] [ref=e53]
+        - generic [ref=e54]:
+          - generic [ref=e55]: Password
+          - img [ref=e56]
+          - textbox "••••••••" [ref=e59]
+          - button "Toggle password" [ref=e60] [cursor=pointer]:
+            - img [ref=e61]
+        - generic [ref=e65] [cursor=pointer]:
+          - checkbox "Keep me signed in" [checked] [ref=e66]
+          - text: Keep me signed in
+        - button "Sign in" [ref=e67] [cursor=pointer]:
+          - text: Sign in
+          - img [ref=e68]

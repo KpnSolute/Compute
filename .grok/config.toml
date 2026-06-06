@@ -1,0 +1,29 @@
+# Project-scoped MCP servers for Grok (MJCC workspace)
+# This file makes Grok use the same MCP servers that are configured for VS Code.
+#
+# Source of truth for the definitions: .vscode/mcp.json
+# Grok priority for MCPs: .grok/config.toml (this file) > root .mcp.json > global ~/.grok/config.toml
+#
+# After making changes:
+#   - Start a new Grok session in this directory, or
+#   - Use the /mcps slash command (or Ctrl+L → MCP tab) to view/reload servers.
+#
+# The SUPABASE_MCP_TOKEN environment variable must be available
+# (same requirement as for the VS Code Supabase MCP server).
+
+[mcp_servers.supabase]
+# Mirrors ".vscode/mcp.json" → "com.supabase/mcp"
+# Provides: list_tables, execute_sql, apply_migration, security/performance advisors, etc.
+# Essential for this project (see AGENTS.md §11 and .agents/skills/mjcc-tooling).
+url = "https://mcp.supabase.com/mcp"
+enabled = true
+
+[mcp_servers.supabase.headers]
+Authorization = "Bearer ${env:SUPABASE_MCP_TOKEN}"
+
+[mcp_servers.playwright]
+# Mirrors ".vscode/mcp.json" → "playwright"
+# Provides browser automation, navigation, network inspection, screenshots, etc.
+# Used for live frontend/backend traffic observation against the production API.
+command = "npx"
+args = ["@playwright/mcp"]

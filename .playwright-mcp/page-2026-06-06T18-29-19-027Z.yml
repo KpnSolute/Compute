@@ -1,0 +1,292 @@
+- generic [ref=e71]:
+  - banner [ref=e72]:
+    - button "Open navigation" [active] [ref=e446] [cursor=pointer]:
+      - img [ref=e447]
+    - generic [ref=e73]:
+      - img [ref=e75]
+      - generic [ref=e85]: KpnCompute · MJCC Portal
+    - generic [ref=e87]:
+      - generic [ref=e88] [cursor=pointer]: LIVE · API Connected
+      - combobox [ref=e90] [cursor=pointer]:
+        - option "January"
+        - option "February"
+        - option "March"
+        - option "April"
+        - option "May" [selected]
+        - option "June"
+        - option "July"
+        - option "August"
+        - option "September"
+        - option "October"
+        - option "November"
+        - option "December"
+      - combobox [ref=e91] [cursor=pointer]:
+        - option "2024"
+        - option "2025"
+        - option "2026" [selected]
+      - generic [ref=e92] [cursor=pointer]:
+        - generic [ref=e93]: JM
+        - generic [ref=e95]: Jeremiah McDowell
+  - navigation [ref=e97]:
+    - generic [ref=e98]:
+      - generic [ref=e99]: Overview
+      - button "Dashboard" [ref=e100] [cursor=pointer]:
+        - img [ref=e101]
+        - generic [ref=e103]: Dashboard
+    - generic [ref=e104]:
+      - generic [ref=e105]: Data Entry
+      - button "Inventory 167" [ref=e358] [cursor=pointer]:
+        - img [ref=e107]
+        - generic [ref=e110]: Inventory
+        - generic [ref=e359]: "167"
+      - button "Monthly Inventory" [ref=e111] [cursor=pointer]:
+        - img [ref=e112]
+        - generic [ref=e115]: Monthly Inventory
+      - button "Meal Log" [ref=e116] [cursor=pointer]:
+        - img [ref=e117]
+        - generic [ref=e121]: Meal Log
+      - button "Food Request" [ref=e122] [cursor=pointer]:
+        - img [ref=e123]
+        - generic [ref=e126]: Food Request
+      - button "Data Entry" [ref=e127] [cursor=pointer]:
+        - img [ref=e128]
+        - generic [ref=e131]: Data Entry
+      - button "Barcodes & Scan" [ref=e132] [cursor=pointer]:
+        - img [ref=e133]
+        - generic [ref=e135]: Barcodes & Scan
+    - generic [ref=e136]:
+      - generic [ref=e137]: Logs
+      - button "HACCP & Logs" [ref=e138] [cursor=pointer]:
+        - img [ref=e139]
+        - generic [ref=e141]: HACCP & Logs
+      - button "Daily Operations" [ref=e142] [cursor=pointer]:
+        - img [ref=e143]
+        - generic [ref=e146]: Daily Operations
+      - button "Inspection Sheet" [ref=e147] [cursor=pointer]:
+        - img [ref=e148]
+        - generic [ref=e151]: Inspection Sheet
+      - button "Snack Bar" [ref=e152] [cursor=pointer]:
+        - img [ref=e153]
+        - generic [ref=e156]: Snack Bar
+    - generic [ref=e157]:
+      - generic [ref=e158]: Calendar
+      - button "Events & Programs" [ref=e159] [cursor=pointer]:
+        - img [ref=e160]
+        - generic [ref=e163]: Events & Programs
+      - button "28-Day Menu" [ref=e164] [cursor=pointer]:
+        - img [ref=e165]
+        - generic [ref=e168]: 28-Day Menu
+    - generic [ref=e169]:
+      - generic [ref=e170]: Records
+      - button "Source Control" [ref=e171] [cursor=pointer]:
+        - img [ref=e172]
+        - generic [ref=e176]: Source Control
+      - button "Reports" [ref=e177] [cursor=pointer]:
+        - img [ref=e178]
+        - generic [ref=e180]: Reports
+      - button "Archives" [ref=e181] [cursor=pointer]:
+        - img [ref=e182]
+        - generic [ref=e185]: Archives
+    - generic [ref=e186]:
+      - generic [ref=e187]: Administration
+      - button "Users & Access" [ref=e188] [cursor=pointer]:
+        - img [ref=e189]
+        - generic [ref=e193]: Users & Access
+      - button "Settings" [ref=e194] [cursor=pointer]:
+        - img [ref=e195]
+        - generic [ref=e198]: Settings
+    - generic [ref=e199]:
+      - text: Signed in as Administrator
+      - text: KpnCompute · v3.0
+  - main [ref=e200]:
+    - generic [ref=e360]:
+      - img [ref=e361]
+      - generic [ref=e364]: You're viewing May 2026, but it's now June 2026. Roll over to June 2026 to start the new month's inventory.
+      - button "Roll over to June 2026" [ref=e365] [cursor=pointer]
+      - button "Dismiss" [ref=e366] [cursor=pointer]:
+        - img [ref=e367]
+    - generic [ref=e201]:
+      - generic [ref=e202]:
+        - generic [ref=e203]:
+          - heading "Welcome back, Jeremiah" [level=2] [ref=e204]
+          - generic [ref=e205]: Operations overview · Saturday, June 6 · synced 6/1/2026, 1:23:34 PM
+        - generic [ref=e206]:
+          - button "Refresh" [ref=e207] [cursor=pointer]:
+            - img [ref=e208]
+            - text: Refresh
+          - button "New entry" [ref=e210] [cursor=pointer]:
+            - img [ref=e211]
+            - text: New entry
+      - generic [ref=e216]:
+        - generic [ref=e217] [cursor=pointer]:
+          - img [ref=e220]
+          - generic [ref=e222]: Inventory Value
+          - generic [ref=e223]: $8.4K
+          - generic [ref=e224]: 260 line items
+        - generic [ref=e225] [cursor=pointer]:
+          - img [ref=e228]
+          - generic [ref=e231]: Below Par
+          - generic [ref=e232]: "167"
+          - generic [ref=e233]: flagged for reorder
+        - generic [ref=e234] [cursor=pointer]:
+          - img [ref=e237]
+          - generic [ref=e241]: Meals Logged
+          - generic [ref=e242]: "0"
+          - generic [ref=e243]: today
+        - generic [ref=e244] [cursor=pointer]:
+          - img [ref=e247]
+          - generic [ref=e250]: Closing Value
+          - generic [ref=e251]: $30.5K
+          - generic [ref=e252]: monthly inventory
+        - generic [ref=e253] [cursor=pointer]:
+          - img [ref=e256]
+          - generic [ref=e259]: Next Event
+          - generic [ref=e260]: Jun 18
+          - generic [ref=e261]: Summer Hydration & Health
+      - generic [ref=e262]:
+        - generic [ref=e263]:
+          - generic [ref=e264]:
+            - generic [ref=e265]:
+              - heading "Today’s menu · Saturday" [level=3] [ref=e266]
+              - generic [ref=e267] [cursor=pointer]: Full menu →
+            - generic [ref=e269]: No menu for today.
+          - generic [ref=e270]:
+            - generic [ref=e271]:
+              - heading "Inventory value by category" [level=3] [ref=e272]
+              - generic [ref=e273] [cursor=pointer]: Live
+            - generic [ref=e369]:
+              - generic [ref=e370]:
+                - generic [ref=e372]: Frozen Foods
+                - generic [ref=e374]: $3.8K
+              - generic [ref=e375]:
+                - generic [ref=e377]: Dry Goods
+                - generic [ref=e379]: $2.4K
+              - generic [ref=e380]:
+                - generic [ref=e382]: Protein & Meat
+                - generic [ref=e384]: $815.19
+              - generic [ref=e385]:
+                - generic [ref=e387]: Beverages
+                - generic [ref=e389]: $799.30
+              - generic [ref=e390]:
+                - generic [ref=e392]: Supplies
+                - generic [ref=e394]: $275.85
+              - generic [ref=e395]:
+                - generic [ref=e397]: Cereal
+                - generic [ref=e399]: $149.75
+              - generic [ref=e400]:
+                - generic [ref=e402]: Snacks
+                - generic [ref=e404]: $122.45
+          - generic [ref=e274]:
+            - generic [ref=e275]:
+              - heading "Inventory alerts" [level=3] [ref=e276]
+              - generic [ref=e277]:
+                - img [ref=e278]
+                - text: 167 below par
+            - generic [ref=e282]:
+              - generic [ref=e405]:
+                - text: PORK, LOIN CC BNLS .25IN TRIMD PATUXENT
+                - generic [ref=e406]: 0/2
+              - generic [ref=e407]:
+                - text: CHICKEN, WING 1&2JT RNDM JUMBO PATUXENT
+                - generic [ref=e408]: 0/6
+              - generic [ref=e409]:
+                - text: PEPPERONI SLICE
+                - generic [ref=e410]: 1/2
+              - generic [ref=e411]:
+                - text: BACON, PORK CKD 150 LO APLW 3D PATUXENT
+                - generic [ref=e412]: 5/10
+              - generic [ref=e413]:
+                - text: CHICKEN, 8 PC 16 HD 2.5-2.75 PATUXENT
+                - generic [ref=e414]: 3/8
+              - generic [ref=e415]:
+                - text: BEEF, GRND CHUK CAB FINE CHUB IBP
+                - generic [ref=e416]: 0/1
+              - generic [ref=e417]:
+                - text: BEEF, FLANK STK CAB RAW REF PACKER
+                - generic [ref=e418]: 0/2
+              - generic [ref=e419]:
+                - text: MIX, GRVY BRN INST LOW SDM TRIO
+                - generic [ref=e420]: 0/1
+              - generic [ref=e421]:
+                - text: PEA, BLKEYE CND IN BRINE MONARCH
+                - generic [ref=e422]: 0/1
+              - generic [ref=e423]:
+                - text: BEAN, KDNY LIGHT RED DRIED RAW MONARCH
+                - generic [ref=e424]: 1/2
+              - generic [ref=e425]:
+                - text: LENTIL, DRIED RAW BEAN MONARCH
+                - generic [ref=e426]: 0/1
+              - generic [ref=e427]:
+                - text: DRESSING, ITLN GLDN LIGHT MONARCH
+                - generic [ref=e428]: 0/1
+              - generic [ref=e429] [cursor=pointer]: +155 more →
+        - generic [ref=e283]:
+          - generic [ref=e284]:
+            - generic [ref=e285]:
+              - heading "Meal log · today" [level=3] [ref=e286]
+              - generic [ref=e287] [cursor=pointer]: Full log →
+            - generic [ref=e289]:
+              - generic [ref=e290]:
+                - generic [ref=e291]: "0"
+                - generic [ref=e292]: Breakfast
+              - generic [ref=e293]:
+                - generic [ref=e294]: "0"
+                - generic [ref=e295]: Lunch
+              - generic [ref=e296]:
+                - generic [ref=e297]: "0"
+                - generic [ref=e298]: Dinner
+              - generic [ref=e299]:
+                - generic [ref=e300]: "0"
+                - generic [ref=e301]: Tickets
+          - generic [ref=e302]:
+            - generic [ref=e303]:
+              - heading "Monthly inventory · May" [level=3] [ref=e304]
+              - generic [ref=e305] [cursor=pointer]: Manage →
+            - generic [ref=e307]:
+              - generic [ref=e308]:
+                - generic [ref=e309]: Opening
+                - generic [ref=e310]: $7.2K
+              - generic [ref=e311]:
+                - generic [ref=e312]: Received
+                - generic [ref=e313]: $23.3K
+              - generic [ref=e314]:
+                - generic [ref=e315]: Closing
+                - generic [ref=e316]: $30.5K
+          - generic [ref=e317]:
+            - generic [ref=e318]:
+              - heading "Upcoming events" [level=3] [ref=e319]
+              - generic [ref=e320] [cursor=pointer]: Calendar →
+            - generic [ref=e321]:
+              - generic [ref=e430] [cursor=pointer]:
+                - generic [ref=e432]: Summer Hydration & Health
+                - generic [ref=e433]: Jun 18
+              - generic [ref=e434] [cursor=pointer]:
+                - generic [ref=e436]: Cultural / Diversity Meal
+                - generic [ref=e437]: Jun 25
+              - generic [ref=e438] [cursor=pointer]:
+                - generic [ref=e440]: Summer Kickoff
+                - generic [ref=e441]: Jun 30
+              - generic [ref=e442] [cursor=pointer]:
+                - generic [ref=e444]: Cultural / Diversity Meal
+                - generic [ref=e445]: Jul 30
+          - generic [ref=e323]:
+            - heading "Quick actions" [level=3] [ref=e325]
+            - generic [ref=e327]:
+              - button "Log HACCP reading" [ref=e328] [cursor=pointer]:
+                - img [ref=e329]
+                - generic [ref=e331]: Log HACCP reading
+              - button "Log staff meal" [ref=e332] [cursor=pointer]:
+                - img [ref=e333]
+                - generic [ref=e337]: Log staff meal
+              - button "Food request form" [ref=e338] [cursor=pointer]:
+                - img [ref=e339]
+                - generic [ref=e342]: Food request form
+              - button "Run inspection" [ref=e343] [cursor=pointer]:
+                - img [ref=e344]
+                - generic [ref=e347]: Run inspection
+              - button "Daily operations" [ref=e348] [cursor=pointer]:
+                - img [ref=e349]
+                - generic [ref=e352]: Daily operations
+              - button "Monthly inventory" [ref=e353] [cursor=pointer]:
+                - img [ref=e354]
+                - generic [ref=e357]: Monthly inventory
