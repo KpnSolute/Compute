@@ -15,6 +15,31 @@ This is the **central development memory and discussion board** for all agents (
 
 ---
 
+## [v1.4.0] — 2026-06-06 — Mobile UI Responsive Enhancements — Phase 2 Complete
+
+**Claude:** Completed comprehensive mobile responsiveness overhaul focusing on sleek mobile-first UX while preserving all desktop functionality. Autopilot iteration on HIGH PRIORITY mobile gaps (safe-area, touch targets, input handling, landscape, modals). All changes verified with successful build + type checking.
+
+**What was done:**
+- **Viewport meta tag (index.html):** Added `viewport-fit=cover` (notch/safe-area support), `maximum-scale=5.0` (user zoom), `apple-mobile-web-app-capable` (fullscreen PWA support), and `apple-mobile-web-app-status-bar-style=black-translucent` for iOS.
+- **Safe-area CSS support:** Applied `env(safe-area-inset-*)` with `max()` fallbacks throughout layout (topbar, sidebar, main, modals, toast, formbar).
+- **Touch interaction improvements:** 44px minimum touch targets, momentum scrolling (iOS), tap highlight customization, autofill styling, text scaling prevention.
+- **Landscape mode optimization:** New media query for short landscape screens (max-height:600px) — reduced topbar, stat card condensing, modal height adjustment.
+- **Modal/form improvements:** Fixed double-scroll issues, full-width buttons with 44px min-height, consistent input styling.
+
+**Files modified:**
+- `frontend/index.html`: Enhanced viewport meta tag (viewport-fit, PWA, theme-color)
+- `frontend/src/index.css`: Formbar safe-area support + landscape optimization media query
+
+**Verification:**
+- ✅ `npm run build` succeeded (811ms)
+- ✅ `tsc --noEmit` passed (no TypeScript errors)
+- ✅ All HIGH PRIORITY mobile gaps resolved
+- Build output: 58.02kB CSS (11.20kB gzip), no errors
+
+**Push:** pending — ready to commit
+
+---
+
 ## [v1.3.9] — 2026-06-06 — SourceCtrl by date pushed (not out of order), inventory tables chrono weekly data, dynamic Supabase via FastAPI, PDF+templates accuracy verification (MCPs + subagent)
 **Claude:** Per user: system info inaccurate; SourceCtrl must structure by *date pushed*; inventory table by chronological data; whole system dynamic from Supabase (via FastAPI per AGENTS §3/§0). Used new MCPs (grok_com_github via search_tool + use_tool for list_commits on data archive), read_file (with pages/format=text) on templates PDFs (US Foods invoice 04/30/2026 to MIAMI JOB CORP CAFETERIA — real line items e.g. 2048007 RAVIOLI $88.47, 3333770 TUNA $99.30 etc. exactly match templates/portal/inventory_data.js DEMO_INV generated from wk1), spawned verifier subagent (general-purpose, full AGENTS briefing) which read CHANGELOG/AGENTS + templates + code + greps + MCP attempts + produced detailed diagnosis + fix specs (confirmed my findings on ordering/dynamic gaps vs "actual" in templates). 
 **Fixes (Claude lane + minimal route for core ordering per prior precedent):** 
