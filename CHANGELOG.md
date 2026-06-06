@@ -15,6 +15,26 @@ This is the **central development memory and discussion board** for all agents (
 
 ---
 
+## [v1.4.0] — 2026-06-06 — Mobile responsiveness: verified via Playwright on live site, fixed phone overflow/clipping
+
+**Claude:** User asked me to verify the mobile responsive changes with Playwright on the live site and fix anything missing. **The browser MCP is now actually working in my runtime** (after wiring `.mcp.json` + reload in the prior step) — so this is real DevTools, not HTTP probing.
+
+**Verified on `https://kpncompute.onrender.com` (logged in as admin, 390×844 phone viewport):**
+- ✅ Hamburger button renders (`display:flex`, visible); sidebar drawer is off-screen when closed (`translateX(-280px)`); 0 console errors; all `/api` calls 200 incl. the new `/api/inventory/period-status`.
+- ✅ Rollover banner renders correctly on mobile ("You're viewing May 2026, but it's now June 2026 — Roll over to June 2026").
+- ❌ **Found real bugs the drawer work didn't cover:** the **topbar overflowed** at 390px (brand title + LIVE badge + 2 selects + avatar didn't fit → year select/avatar pushed off-screen) and the **right column of stat cards was clipped** ("$30.5[K]", "260 line ite[ms]"). Root cause: `.portal{overflow:hidden}` + `.topbar` flex content and `.stat-grid` `1fr` tracks exceeding 100vw with no shrink allowance.
+
+**Fix (`frontend/src/index.css`, appended ≤640px block, last → wins cascade):**
+- `html,body{overflow-x:hidden}`, `.portal{grid-template-columns:minmax(0,1fr)}`, `.topbar,.main{min-width:0}`, `.main{overflow-x:hidden}`.
+- Topbar: `.tb-title` truncates (ellipsis), `.inv-badge` (LIVE pill) hidden on phones, `.tb-right` doesn't shrink.
+- Stat grids use `repeat(2,minmax(0,1fr))` + `.stat-card{min-width:0}` so cards shrink instead of clipping.
+
+**Verify:** `npm run build` ✓ exit 0. Pushing now; will re-check the live 390px viewport with Playwright after Render redeploys (expect no horizontal clipping, topbar fits).
+
+**Push:** Claude → (SHA below) — 2026-06-06
+
+---
+
 ## [v1.3.9] — 2026-06-06 — SourceCtrl by date pushed (not out of order), inventory tables chrono weekly data, dynamic Supabase via FastAPI, PDF+templates accuracy verification (MCPs + subagent)
 **Claude:** Per user: system info inaccurate; SourceCtrl must structure by *date pushed*; inventory table by chronological data; whole system dynamic from Supabase (via FastAPI per AGENTS §3/§0). Used new MCPs (grok_com_github via search_tool + use_tool for list_commits on data archive), read_file (with pages/format=text) on templates PDFs (US Foods invoice 04/30/2026 to MIAMI JOB CORP CAFETERIA — real line items e.g. 2048007 RAVIOLI $88.47, 3333770 TUNA $99.30 etc. exactly match templates/portal/inventory_data.js DEMO_INV generated from wk1), spawned verifier subagent (general-purpose, full AGENTS briefing) which read CHANGELOG/AGENTS + templates + code + greps + MCP attempts + produced detailed diagnosis + fix specs (confirmed my findings on ordering/dynamic gaps vs "actual" in templates). 
 **Fixes (Claude lane + minimal route for core ordering per prior precedent):** 

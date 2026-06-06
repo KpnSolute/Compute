@@ -1004,3 +1004,28 @@ table.data.logtbl td{padding:6px 10px}
 /* ── Confirmation modal overlay ── */
 .modal-overlay{position:fixed;inset:0;z-index:100;background:rgba(9,22,51,.45);display:flex;align-items:center;justify-content:center}
 .modal{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 32px rgba(9,22,51,.18);max-width:400px;width:90vw}
+
+/* ════════════════════════════════════════════════════════════
+   Phone overflow hardening (≤640px) — keep everything inside the
+   viewport. `.portal` uses overflow:hidden, so any element wider than
+   100vw is clipped on the right (observed: topbar controls + the right
+   column of stat cards got cut off at 390px). These rules let the
+   single grid column and the cards shrink below their content width,
+   and trim the topbar so nothing is clipped. Last block → wins cascade.
+   ════════════════════════════════════════════════════════════ */
+@media(max-width:640px){
+  html,body{max-width:100%;overflow-x:hidden}
+  .portal{grid-template-columns:minmax(0,1fr)}
+  .topbar,.main{min-width:0}
+  .main{overflow-x:hidden}
+
+  /* Topbar: truncate the brand, drop the LIVE pill, keep controls reachable */
+  .tb-left{min-width:0;flex:1 1 auto;gap:8px}
+  .tb-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tb-right{flex:0 0 auto;gap:6px}
+  .inv-badge{display:none}
+
+  /* Stat cards: tracks/cards must be allowed to shrink below content width */
+  .stat-grid,.stat-grid.kpi5,.stat-grid.kpi6{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .stat-card{min-width:0}
+}
