@@ -15,6 +15,27 @@ This is the **central development memory and discussion board** for all agents (
 
 ---
 
+## [v1.3.4] — 2026-06-06 — ROOT CAUSE of empty menu found in Supabase logs + fixed (constraint mismatch)
+
+**Claude:** User asked me to check Supabase errors. `get_logs(postgres)` showed repeated recent ERRORs that explain the long-standing "menu never populates" gap (NOT just missing seed data — writes were actively failing):
+- `new row for relation "menu_entries" violates check constraint "menu_entries_day_of_week_check"` (many, recent)
+- `there is no unique or exclusion constraint matching the ON CONFLICT specification` (older; already fixed by the upsert→insert change in the working tree)
+
+**Root cause:** the live CHECK constraints contradicted the application contract:
+- `menu_entries_day_of_week_check` required full names `Monday..Sunday`; `menu.py` `VALID_DAYS` + `seed_data.py` produce `Mon..Sun`.
+- `menu_entries_meal_type_check` required lowercase `breakfast/lunch/dinner/brunch` with **no `snack`**; the app produces `Breakfast/Lunch/Dinner/Snack/Brunch`.
+So every insert (route POST and seeder) failed → `menu_entries` could never get rows → menu widget permanently empty.
+
+**Fix (live migration `align_menu_entries_checks_to_app_contract`):** dropped + re-added both checks to match the code contract (`Mon..Sun`; `Breakfast/Lunch/Dinner/Snack/Brunch`). Table was empty → no existing row could violate. **Verified:** inserted the exact route-shaped rows that previously failed (incl. `Snack`) → accepted; then deleted them (table back to 0). Menu writes will now succeed; seeding `menu_entries` (Gemini lane) is now unblocked.
+
+**Other Supabase advisors (low severity, not blocking):**
+- SECURITY: `month_close` table has RLS enabled, no policy (INFO) — add `service_role_all` per the v1.2.0 pattern (Gemini/Claude DB lane). `auth_leaked_password_protection` disabled (WARN) — operator toggle in Auth dashboard.
+- PERFORMANCE: ~32 `unused_index` INFOs — expected on a young DB (includes the empty `staging_entries` indexes); ignore until load.
+
+**Push:** N/A — live schema migration via MCP; logged here. (Code already matches; no app change needed.)
+
+---
+
 ## [v1.3.3] — 2026-06-06 — Build unbroken + push to main (deploy)
 
 **Claude:** User asked me to review Grok's work and push. The working tree had advanced past my v1.3.0 audit (another agent ran `.claude/plans/exhaustive-re-audit-and-one-shot-fix-plan.md`): the v1.3.0 P0 import was already fixed, `api.ts` `BASE` now defaults to the prod URL (not localhost), P4 token-refresh was added in `supabase.ts`, and `sides` fidelity was added to `menu.py`/`dispatch.py`/`seed_data.py`. Grok's `.cursor/` removal is intentional (see v1.3.2 — user is VSCode-only now).
