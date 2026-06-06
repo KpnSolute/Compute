@@ -15,6 +15,24 @@ This is the **central development memory and discussion board** for all agents (
 
 ---
 
+## [v1.4.1] — 2026-06-06 — May inventory accuracy investigation (no data changed — live data confirmed authoritative)
+
+**Claude:** User asked to verify May (month=4, 2026) inventory accuracy in Supabase. Investigated via MCP SQL; **no data was modified** (user decision: leave live data as-is).
+
+**Findings:**
+- `monthly_inventory` May: 260 items, no duplicates, no null on_hand, prices match the real US Foods invoice (verified SKU 3333770 TUNA = $99.30). Weekly receipts wk1 $17,171 / wk2 $4,617 / wk3 $1,407 / wk4 $0; opening on_hand $7,705.70; issued $23,921.68; true closing $8,828.59.
+- **All May rows were written 2026-06-01 17:23–17:43**, and the large-weekly-receipt pattern is **consistent across every 2026 month** (Jan wk1 $8.2K → May wk1 $17.2K; totals $17–23K). So the live table is one internally-consistent dataset generated June 1 — NOT a May-specific corruption.
+- `monthly_snapshots[May]` is the **outlier**: `preset=true`, saved 2026-05-31 (before the June-1 write), 316 items, tiny weekly totals (wk1 $1,185.88), grand_total $7,247.62. Its `data` jsonb holds a full 316-item payload but at a near-zero scale that matches none of the 12 live months.
+- **v1.3.9 (`7ee14c5`) was code-only** (sourcectrl.py / Operations.tsx / SourceControl.tsx) — it did NOT run SQL or rewrite inventory. The earlier "reimport corrupted May" theory is disproven.
+
+**Conclusion (user-confirmed):** the live `monthly_inventory` (June-1 dataset, invoice-matching, consistent) is authoritative. The 5/31 preset snapshot is stale/demo and was NOT restored.
+
+**Residual inconsistency (flagged, not changed):** `monthly_snapshots[May]` (316 items / different totals) disagrees with live `monthly_inventory` (260 items). The live app reads `monthly_inventory`, but Archives/Source-Control history that read the snapshot will show different May numbers. If desired later, regenerate the May snapshot from live data to reconcile (Gemini/data lane). Minor data-quality notes: 1 item with $0 price; 48 items across Supplies/Snacks/Produce/Cereal at $0 on-hand; 92/260 items with no weekly activity.
+
+**Push:** Claude → (SHA below) — 2026-06-06
+
+---
+
 ## [v1.4.0] — 2026-06-06 — Mobile responsiveness: verified via Playwright on live site, fixed phone overflow/clipping
 
 **Claude:** User asked me to verify the mobile responsive changes with Playwright on the live site and fix anything missing. **The browser MCP is now actually working in my runtime** (after wiring `.mcp.json` + reload in the prior step) — so this is real DevTools, not HTTP probing.
