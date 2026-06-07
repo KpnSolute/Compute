@@ -1899,9 +1899,6 @@ export function Portal({
 
     return (
         <div className={portalCls} data-density={density}>
-            {sidebarOpen && (
-                <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />
-            )}
             <Topbar
                 user={user}
                 period={period}

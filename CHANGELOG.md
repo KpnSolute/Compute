@@ -15,6 +15,19 @@ This is the **central development memory and discussion board** for all agents (
 
 ---
 
+## [v1.4.8] — 2026-06-06 — Mobile responsiveness bugfixes: overlay, input sizing, viewport height
+
+**OpenCode:** Fixed remaining mobile issues on top of Claude's responsive overhaul:
+- Removed duplicate sidebar overlay in `Portal.tsx:1902` that caused double backdrop on mobile
+- Added `mobile-num-inp` class to Operations.tsx `cell()` helper so monthly inventory number inputs scale properly on phone
+- Replaced over-aggressive CSS selector `input.sheet-inp[style]` (would clobber date/time inputs to 40px) with targeted overrides for `input[style*="width: 70"]`, `.mobile-num-inp`, `input[type="date"].sheet-inp`, and `input[type="time"].sheet-inp`
+- Added `-webkit-fill-available` for mobile viewport height (iOS Safari 100vh fix)
+- Added `touch-action: manipulation` to buttons for faster tap response
+- Added `font-size: 16px!important` on inputs/selects/textareas on mobile to prevent iOS auto-zoom on focus
+- Verified: `tsc --noEmit` clean, `npm run build` passes, `npm run lint` pre-existing warnings only
+
+**Push:** pending — not yet pushed
+
 ## [v1.4.7] — 2026-06-07 — Merge conflict resolution: OpenCode local changes vs Claude's upstream mobile responsiveness
 
 **OpenCode:** Initial session aimed at mobile responsiveness (hamburger wiring, touch targets, small phone breakpoint). Claude's upstream PR #2 already had the complete responsive overhaul (v1.3.6 hamburger/drawer + v1.4.0–v1.4.6 comprehensive phone scaling), superseding all local edits. Resolved merge conflicts in `CHANGELOG.md`, `Portal.tsx`, and `index.css` — accepted upstream versions as authoritative. Portal.tsx (1947 lines) and index.css (1135 lines) are now clean; CHANGELOG restored from origin/main.

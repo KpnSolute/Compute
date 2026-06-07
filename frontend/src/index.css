@@ -39,8 +39,9 @@
 }
 
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%}
+html{height:100%;height:-webkit-fill-available}
 body{
+  min-height:100vh;min-height:-webkit-fill-available;
   font-family:var(--font);
   font-size:13px;
   color:var(--ink);
@@ -49,7 +50,7 @@ body{
   text-rendering:optimizeLegibility;
 }
 #root{height:100%}
-button{font-family:inherit}
+button{font-family:inherit;touch-action:manipulation}
 input{font-family:inherit}
 ::selection{background:rgba(5,150,105,.18)}
 
@@ -707,6 +708,7 @@ table.data.logtbl td{padding:6px 10px}
    ════════════════════════════════════════════════════════════ */
 @media(max-width:640px){
   body{font-size:12px}
+  input,textarea,select{font-size:16px!important}
   .auth{grid-template-columns:1fr}
   .auth-brand{display:none}
   .auth[data-layout="centered"]{padding:20px}
@@ -1146,7 +1148,10 @@ table.data.logtbl td{padding:6px 10px}
   /* Finish remaining hard-coded sizes from inline styles that caused smush (tables, sheets, cards, inputs in inventory/moninv/reports/source) */
   .card.mobile-compact { padding: 14px !important; }
   .item-col { min-width: 110px !important; }
-  input[style*="width: 70"], .mobile-num-inp, input.sheet-inp[style] { width: 40px !important; padding: 3px 4px !important; font-size: 11px !important; }
+  input[style*="width: 70"] { width: 40px !important; padding: 3px 4px !important; font-size: 11px !important; }
+  .mobile-num-inp { width: 40px !important; padding: 3px 4px !important; font-size: 11px !important; }
+  input[type="date"].sheet-inp { width: 110px !important; min-width: 110px !important; font-size: 11px !important; }
+  input[type="time"].sheet-inp { width: 76px !important; min-width: 76px !important; font-size: 11px !important; }
   .card[style*="padding: '40px'"], .card[style*="padding: 40px"] { padding: 14px !important; }
   .card[style*="padding: '26px 17px'"], .card[style*="padding: 26px 17px"] { padding: 10px 12px !important; }
   table.data.logtbl th, table.data.logtbl td { padding: 4px 5px !important; font-size: 9.5px !important; }
