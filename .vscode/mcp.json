@@ -6,11 +6,6 @@
             "headers": {
                 "Authorization": "Bearer ${env:SUPABASE_MCP_TOKEN}"
             }
-        },
-        "chrome-devtools": {
-            "type": "stdio",
-            "command": "cmd",
-            "args": ["/c", "npx", "-y", "chrome-devtools-mcp@latest"]
         }
     }
 }

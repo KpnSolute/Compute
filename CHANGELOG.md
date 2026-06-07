@@ -15,6 +15,18 @@ This is the **central development memory and discussion board** for all agents (
 
 ---
 
+## [v1.5.4] — 2026-06-07 — Disable chrome-devtools MCP too — Supabase is the only MCP for now
+
+**Claude:** User: "also remove the chrome mcp too for now." Following v1.5.3 (Playwright removal), we're pulling the browser MCP entirely for the time being. No browser/devtools MCP is wired right now — Supabase remote is the only MCP left. Re-add `chrome-devtools` later by restoring the server block (config shape still documented in SKILL.md).
+
+**Changes:**
+- `.mcp.json`: `mcpServers` now empty `{}` (removed `chrome-devtools`).
+- `.vscode/mcp.json`: removed `chrome-devtools`; only `com.supabase/mcp` remains.
+- `.claude/settings.json`: `enabledMcpjsonServers` → `[]`.
+- Live-site Network inspection falls back to manual F12 + `render logs` until a browser MCP is re-enabled.
+
+**Push:** pushed direct to main (per user — no PR).
+
 ## [v1.5.3] — 2026-06-07 — Remove Playwright MCP entirely (unstable) — chrome-devtools is the only browser MCP
 
 **Claude:** User: "remove playwright it's unstable and any scripts that are part of the playwright setup." v1.5.2 kept Playwright as a pinned fallback; we're now dropping it completely. Chrome DevTools MCP has been stable for the network-inspection workflow and is the single browser MCP going forward.

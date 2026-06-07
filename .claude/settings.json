@@ -1,6 +1,6 @@
 {
   "worktree": { "bgIsolation": "none" },
-  "enabledMcpjsonServers": ["chrome-devtools"],
+  "enabledMcpjsonServers": [],
   "permissions": {
     "allow": [
       "Bash(curl -s https://kpncompute.onrender.com/*)",
