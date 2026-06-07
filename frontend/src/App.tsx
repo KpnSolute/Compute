@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { User } from './lib/constants';
-import { clearBackendToken } from './lib/supabase';
+import { clearBackendToken, getBackendToken } from './lib/supabase';
 import { Login } from './components/Login';
 import { Portal } from './components/Portal';
 
@@ -9,7 +9,16 @@ const SKEY = 'kpn_session';
 function loadSession(): User | null {
   try {
     const u = JSON.parse(localStorage.getItem(SKEY) || 'null');
-    if (!u) clearBackendToken(); // no remembered session → purge stale JWT
+    const hasToken = !!getBackendToken();
+    if (!u || !hasToken) {
+      // Stale/partial session (kpn_session present but no valid mjc_backend_token, or neither).
+      // Force clean login instead of mounting Portal and firing unauthenticated API calls (causes 401 spam + "Invalid or expired token").
+      clearBackendToken();
+      if (u) {
+        try { localStorage.removeItem(SKEY); } catch {}
+      }
+      return null;
+    }
     return u;
   } catch { return null; }
 }
