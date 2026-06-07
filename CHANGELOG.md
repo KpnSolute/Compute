@@ -29,7 +29,7 @@ Additional finishing touches:
 
 The entire frontend is now responsive end-to-end for our site.
 
-**Push:** pending — not yet pushed
+**Push:** Claude → 61b18fa — 2026-06-07 (branch feat/full-mobile-responsiveness)
 
 ## [v1.4.4] — 2026-06-06 — Full frontend mobile responsiveness overhaul (match exwebsite1-3 quality across the app)
 
