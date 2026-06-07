@@ -777,15 +777,16 @@ table.data.logtbl td{padding:6px 10px}
   .btn svg{width:17px;height:17px}
   .btn.primary,.btn.accent{justify-content:center}
 
-  .field .ipt{padding:12px;min-height:44px;font-size:14px;border-radius:8px}
-  .field label{font-size:11px}
-  .seg button{padding:11px 7px;min-height:44px}
-  .row-between{flex-direction:column;gap:8px;align-items:flex-start}
-  .check{min-height:44px;padding:3px 0}
-  .check input{width:18px;height:18px}
-  .link{padding:7px 0;display:inline-block}
-  .keypad{gap:7px;max-width:240px}
-  .key{min-height:46px}
+  .field .ipt{padding:13px;min-height:48px;font-size:15px}
+  .field label{font-size:12px}
+  .seg button{padding:12px 8px;min-height:44px}
+  .row-between{flex-direction:column;gap:10px;align-items:flex-start}
+  .check{min-height:44px;padding:4px 0}
+  .check input{width:20px;height:20px}
+  .link{padding:8px 0;display:inline-block}
+  .keypad{gap:8px;max-width:240px}
+  .key{min-height:48px}
+  .btn,.seg button,.tab,.day-pill,.cat-chip,.subtab,.qa-btn,.um-item{min-height:44px}
 
   .menu-grid{grid-template-columns:1fr;gap:10px}
   .cal-grid{font-size:10px;gap:1px}
@@ -1027,6 +1028,55 @@ table.data.logtbl td{padding:6px 10px}
 }
 .portal.sidebar-collapsed .topbar{
   grid-column:1/-1;
+}
+
+/* ── Utility: hide below 640px ── */
+.hide-sm{display:inline}
+@media(max-width:640px){.hide-sm{display:none!important}}
+
+/* ════════════════════════════════════════════════════════════
+   Extra-small phones (max-width: 374px)
+   ════════════════════════════════════════════════════════════ */
+@media(max-width:374px){
+  .topbar{padding:0 4px;height:46px}
+  .tb-left{gap:4px}
+  .tb-title{font-size:11px}
+  .tb-select{font-size:10px;padding:3px 5px;max-width:70px}
+  .tb-user .nm{font-size:10px}
+  .avatar{width:26px;height:26px;font-size:10px}
+  .inv-badge{font-size:8px;padding:2px 5px;white-space:nowrap}
+  .hamburger{width:30px;height:30px}
+  .hamburger svg{width:16px;height:16px}
+  .main{padding:10px 8px}
+  .page-head h2{font-size:16px}
+  .stat-grid{grid-template-columns:1fr;gap:8px}
+  .stat-card{padding:10px 11px}
+  .stat-card .sc-val{font-size:20px}
+  .card-head{padding:10px 12px}
+  .card-head h3{font-size:12px}
+  .card-body{padding:10px 12px}
+  .btn{padding:8px 10px;font-size:12px;min-height:40px}
+  .btn svg{width:16px;height:16px}
+  .field .ipt{padding:11px;min-height:44px;font-size:14px}
+  .pin-display{gap:6px}
+  .pin-dot{width:12px;height:12px}
+  .key{min-height:42px;font-size:16px}
+  .keypad{max-width:200px;gap:6px}
+  .auth-card .ac-head h3{font-size:18px}
+  .modal{margin:4px;border-radius:10px}
+  .modal-head{padding:14px 14px 10px}
+  .modal-head h3{font-size:15px}
+  .modal-body{padding:2px 14px 6px}
+  .modal-foot{padding:12px 14px 16px}
+  .dash-meal-counts{grid-template-columns:repeat(2,1fr)}
+  .menu-grid{grid-template-columns:1fr}
+  .tpl-grid{grid-template-columns:1fr}
+  .sidebar{width:260px}
+  .nav-item{font-size:13px;padding:10px 12px;min-height:40px}
+  .nav-item svg{width:18px;height:18px}
+  .cat-nm{min-width:60px;font-size:11px}
+  .cat-val{min-width:50px;font-size:10px}
+  #toast{font-size:11px;padding:10px 14px}
 }
 
 /* ── Keep existing small breakpoints ── */

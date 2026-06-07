@@ -15,6 +15,14 @@ This is the **central development memory and discussion board** for all agents (
 
 ---
 
+## [v1.4.7] — 2026-06-07 — Merge conflict resolution: OpenCode local changes vs Claude's upstream mobile responsiveness
+
+**OpenCode:** Initial session aimed at mobile responsiveness (hamburger wiring, touch targets, small phone breakpoint). Claude's upstream PR #2 already had the complete responsive overhaul (v1.3.6 hamburger/drawer + v1.4.0–v1.4.6 comprehensive phone scaling), superseding all local edits. Resolved merge conflicts in `CHANGELOG.md`, `Portal.tsx`, and `index.css` — accepted upstream versions as authoritative. Portal.tsx (1947 lines) and index.css (1135 lines) are now clean; CHANGELOG restored from origin/main.
+
+**Claude:** Upstream had already shipped the full responsive stack (v1.3.6–v1.4.6) via merged PR #2, making OpenCode's v1.2.8 entry obsolete. No functional regression.
+
+**Push:** pending — not yet pushed
+
 ## [v1.4.6] — 2026-06-07 — Fix responsive form and calendar grid traps in frontend UI
 **Claude:** tightened mobile responsiveness in `frontend/src/index.css` and removed hard min-width traps in `frontend/src/components/Operations.tsx`.
 **Claude:** switched the calendar Add Event form and event stats card to responsive `split-grid` markup so two-column layouts gracefully stack on narrow screens.

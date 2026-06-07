@@ -96,12 +96,14 @@ function Topbar({
     user,
     period,
     setPeriod,
-    onMenuClick,
+    sidebarOpen,
+    toggleSidebar,
 }: {
     user: User;
     period: [number, number];
     setPeriod: (p: [number, number]) => void;
-    onMenuClick: () => void;
+    sidebarOpen?: boolean;
+    toggleSidebar?: () => void;
 }) {
     const [menu, setMenu] = useState(false);
     useEffect(() => {
@@ -115,24 +117,21 @@ function Topbar({
 
     return (
         <header className="topbar">
-            <button
-                className="hamburger"
-                onClick={onMenuClick}
-                aria-label="Open navigation"
-            >
-                <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                >
-                    <line x1="3" y1="6" x2="21" y2="6" />
-                    <line x1="3" y1="12" x2="21" y2="12" />
-                    <line x1="3" y1="18" x2="21" y2="18" />
-                </svg>
-            </button>
             <div className="tb-left">
+                {toggleSidebar && (
+                    <button
+                        className="hamburger"
+                        onClick={toggleSidebar}
+                        aria-label="Toggle navigation"
+                        aria-expanded={sidebarOpen}
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                            <line x1="4" y1="6" x2="20" y2="6" />
+                            <line x1="4" y1="12" x2="20" y2="12" />
+                            <line x1="4" y1="18" x2="20" y2="18" />
+                        </svg>
+                    </button>
+                )}
                 <span style={{ display: "flex" }}>
                     <KpnMark size={26} />
                 </span>
@@ -1845,6 +1844,7 @@ export function Portal({
 
     const canAccess = (routeKey: string) => lvl >= (ROUTE_MIN[routeKey] ?? 10);
     const goTo = (routeKey: string) => {
+        setSidebarOpen(false);
         if (!canAccess(routeKey)) {
             const need = ROUTE_MIN[routeKey] ?? 10;
             const role =
@@ -1894,16 +1894,20 @@ export function Portal({
         return <PlaceholderPage pageKey={active} />;
     };
 
+    const portalCls = 'portal' + (sidebarOpen ? ' sidebar-open' : '');
+    const toggleSidebar = () => setSidebarOpen((v) => !v);
+
     return (
-        <div
-            className={"portal" + (sidebarOpen ? " sidebar-open" : "")}
-            data-density={density}
-        >
+        <div className={portalCls} data-density={density}>
+            {sidebarOpen && (
+                <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />
+            )}
             <Topbar
                 user={user}
                 period={period}
                 setPeriod={setPeriod}
-                onMenuClick={() => setSidebarOpen((v) => !v)}
+                sidebarOpen={sidebarOpen}
+                toggleSidebar={toggleSidebar}
             />
             <Sidebar
                 user={user}
