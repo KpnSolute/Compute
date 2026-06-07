@@ -15,6 +15,84 @@ This is the **central development memory and discussion board** for all agents (
 
 ---
 
+## [v1.5.3] — 2026-06-07 — Remove Playwright MCP entirely (unstable) — chrome-devtools is the only browser MCP
+
+**Claude:** User: "remove playwright it's unstable and any scripts that are part of the playwright setup." v1.5.2 kept Playwright as a pinned fallback; we're now dropping it completely. Chrome DevTools MCP has been stable for the network-inspection workflow and is the single browser MCP going forward.
+
+**Changes (config + scripts):**
+- `.mcp.json`: removed `playwright` server block (only `chrome-devtools` remains).
+- `.vscode/mcp.json`: removed `playwright` server block (supabase + `chrome-devtools` remain).
+- `.grok/config.toml`: removed `[mcp_servers.playwright]` block.
+- `.claude/settings.json`: `enabledMcpjsonServers` → `["chrome-devtools"]`.
+- `.chrome-env.sh`: **deleted** — this was the Playwright/ms-chromium `CHROME_PATH` + `LD_LIBRARY_PATH` shim from the WSL era; obsolete on native Windows + chrome-devtools (drives installed Chrome over CDP, no separate Chromium).
+
+**Docs scrubbed (forward-looking guidance only; history left intact):**
+- `.claude/skills/mjcc-tooling/SKILL.md`: removed Playwright fallback item + its config block; `enabledMcpjsonServers` line and JSON snippet now chrome-devtools-only.
+- `AGENTS.md` §11 MCP table: browser row renamed to `chrome-devtools`, notes Playwright removal.
+- `CLAUDE.md`: browser-MCP paragraphs now reference chrome-devtools only (dropped `npx playwright install chromium`).
+- `.gemini` SKILL.md copy has no Playwright references — left as-is. Old CHANGELOG entries (incl. v1.5.2) preserved per append-only rule.
+
+**Push:** pending — not yet pushed.
+
+## [v1.5.2] — 2026-06-07 — Browser MCP: switch from Playwright → Chrome DevTools MCP (native Windows)
+
+**Claude:** User asked what's wrong with Playwright and whether there's a more stable *official* browser tool. Ran two research agents (local config audit + web research).
+
+**Diagnosis — why Playwright MCP was unstable here:**
+- Browser/agent split: MCP was configured Windows-side only (`.mcp.json`, `.vscode/mcp.json`, `.grok/config.toml`) while it was being driven in a WSL context → classic WSL2 failures (Chromium GPU via dxg bridge crashing, no X server for headed, hidden Node/browser paths).
+- Chromium never pre-installed — `npx @playwright/mcp@latest` tried on-demand downloads every run.
+- No pinned version (`@latest` drift).
+- We'd already fallen back to manual headless Chromium scripts in `c:\tmp` (see v1.4.9).
+
+**Decision (with user):** runtime is **native Windows** → switch primary browser tool to **Chrome DevTools MCP** (`chrome-devtools-mcp`, maintained by Google's Chrome DevTools team). It connects to installed Chrome over CDP instead of spawning its own browser, so it avoids the GPU/display/subprocess fragility, and network inspection (`/api/*` URLs, payloads, response bodies, Bearer headers) is a first-class feature — exactly the F12→Network surface we need for backend shape debugging.
+
+**Changes:**
+- `.mcp.json`: added `chrome-devtools` server (`cmd /c npx -y chrome-devtools-mcp@latest`); kept `playwright` as pinned fallback (also moved to `cmd /c` + `@latest`).
+- `.claude/settings.json`: `enabledMcpjsonServers` → `["chrome-devtools", "playwright"]`.
+- `.vscode/mcp.json`: added `chrome-devtools`, hardened `playwright` to `cmd /c` form (parity with Cursor/VS Code).
+- `.claude/skills/mjcc-tooling/SKILL.md`: rewrote the "Browser / Chrome DevTools for live backend inspection" section for the new native-Windows + Chrome DevTools setup (config snippet, native setup commands, fallback notes). `.gemini` copy has no browser section — left as-is.
+
+**Verified env (2026-06-07):** Node v24.16.0, npm 11.13.0, Chrome at `C:\Program Files\Google\Chrome\Application\chrome.exe`, `chrome-devtools-mcp` latest = 1.1.1 (resolves on npm). NOTE: Claude Code must be **restarted** for the new `.mcp.json` server to load — not yet exercised in-session.
+
+**Push:** pending — not yet pushed.
+
+## [v1.5.1] — 2026-06-07 — Inventory: Compact view + weekly W1–W4 received/issued columns (UI-only, matches offline template)
+
+**Claude:** User: "i want to have another inventory view (compacted) keep the regular UI but another view compact which looks similar to the offline site table ui" + "the manager needs to track his inventory by week" with explicit columns: W1↓ W2↓ W3↓ W4↓ (pulled/issued), W1↑ W2↑ W3↑ W4↑ (received per week), Total $ per item, + Add item. "dont worry about the logic behind the calculations of this data yet we are working on finalizing ui". Reference: the dense per-category table in `templates/inventory.html` (full headers + green received rows/inputs + category accordions + per-cat +Add + grand total).
+
+**Implemented (third view in InventoryView, Portal.tsx):**
+- Extended `viewMode` to `"regular" | "grouped" | "compact"` (default regular). Added segmented **Regular / Grouped / Compact** toggle (reuses existing .view-toggle/.vt-btn).
+- Weekly state: `wkDraft` (separate from the shared onHand/par `draft` for now) + `setWeeklyField(sku, field, val)`. Constants `ISSUED = ['w1i','w2i','w3i','w4i']`, `RECEIVED = ['w1r'..]` (green ↑ columns).
+- Data rows now surface all w1i..w4r from `invToList` (already present in the model and iTotal).
+- **Compact rendering** (inserted after the grouped block, inside the same cat-sec accordion pattern for consistency):
+  - Per-category collapsible `.cat-sec` (color dot, name, count, "received" pill if any wk received, "N below par", cat total $ using the live rowTotal calc, ▾/▸).
+  - Dense `<table class="data compact">` with exact column order from template: Description (bold), SKU (muted), On hand (editable via shared draft), Price ($), Par (editable), W1↓..W4↓ (issued inputs), W1↑..W4↑ (received, green .wk-rcv / .wk-rcv-inp tint), Total $ (computed on the fly: max(0, onHand + sumReceived - sumIssued) * price, bold).
+  - Received rows get `.rcvd` class (light green bg). Hover + focus states. Footer per-cat: + Add item (lvl>=30, currently toasts "coming soon") + cat total.
+  - Reuses search + category filter + period from the parent InventoryView.
+- **rowTotal helper** in Compact: simulates "current" for the month using the weekly deltas + current onHand (UI preview only).
+- **CSS** (appended after the existing cat-sec rules in index.css): `table.data.compact` (11px, tight padding, min-width 880/760 on mobile for h-scroll), `.cinp` (narrow mono 46px/40px inputs), `.wk-rcv` green tint on header/cells, `.rcvd` row bg, `.btn-add-row` dashed style, mobile font/input bump.
+- All three views continue to respect role gating (canStage etc.) and the existing onHand/par staging path.
+
+**Clipshots / verification (headless Chromium via c:\tmp harness + local preview):**
+- `C:\tmp\shots\template-inventory.png` — canonical offline reference (per-cat sections, exact W1↓–W4↑ layout, green received, +Add per cat, grand total).
+- `C:\tmp\shots\compact-desktop.png` + `compact-mobile.png` — live Compact on the portal (matches headers, accordions, received highlighting, weekly inputs, totals; Compact toggle visible; desktop has full columns + scroll; mobile uses the existing responsive rules + wider table scroll).
+- Also captured live-inventory (Regular/Grouped for baseline) and post-login states.
+- Ran local prod build preview + .env.local (VITE_SUPABASE_* public anon + API base, gitignored) so admin login works for verification. Confirmed: toggles switch cleanly, data (including real weekly values from backend) flows into the compact rows, no console errors, no page-level overflow on mobile, Compact table horizontally scrolls inside .tbl-wrap as designed.
+- `npm run build` ✓ (tsc clean + vite). `npm run lint` 0 errors (pre-existing any-warnings only, ~287 baseline).
+
+**Notes:**
+- Pure UI for now per request — weekly edits live only in `wkDraft` (onHand/par still use the shared draft). No staging, no persistence, no recalc wiring into Source Control or backend yet (next after UI is locked).
+- + Add item is a styled stub (toast) in all views for mid-month adds; the template has real addRow.
+- Reuses the existing Regular/Grouped cat-accordion + filter machinery so behavior is consistent.
+- .claude/settings.json has local-only curl allow rules for Render testing (not committed as project change).
+- Worktree / main has the edits (Portal.tsx + index.css modified). Screenshots and harness scripts (tpl-shot.js, live-inv.js, compact-verify.js etc.) left in c:\tmp for future agents.
+
+**Claude (continued after session limit):** UI finalized + clipshots captured + this forum entry so the next session remembers exactly where the weekly Compact work stands. Ready for data updates + calc/stage logic.
+
+**Push:** pending (working tree) — 2026-06-07
+
+---
+
 ## [v1.5.0] — 2026-06-07 — Inventory: Regular/Grouped view toggle (expandable category accordion)
 
 **Claude:** User wants inventory items organized into expandable category groups instead of one flat row list — with a toggle between the flat ("Regular") and grouped ("Grouped") views. Reference: `templates/inventory.html` (`toggleCat`/`.section`/`.sec-head` pattern, read-only).

@@ -26,9 +26,9 @@ You have god-mode access to all project tooling. Use whatever the task needs (`A
 
 **Skills:** `.cursor/skills/mjcc-tooling/` + 21 Render skills. Read `mjcc-tooling/SKILL.md` for the quick card.
 
-**Browser / Chrome DevTools MCPs (critical for you as primary frontend dev):** Add a Playwright or Chrome-DevTools MCP to your Claude Code / Cursor runtime (and the other agents' roots for parity). This lets you autonomously inspect the live site's Network traffic to the production backend (`/api/*` calls, payloads, responses, auth headers) exactly like using F12 DevTools. 
+**Chrome DevTools MCP (critical for you as primary frontend dev):** The `chrome-devtools` MCP is wired into your Claude Code / Cursor runtime. This lets you autonomously inspect the live site's Network traffic to the production backend (`/api/*` calls, payloads, responses, auth headers) exactly like using F12 DevTools. (Playwright MCP was removed as unstable — see CHANGELOG v1.5.3.)
 
-Full recommended MCPs, exact JSON config snippets for .cursor/mcp.json + WSL agent configs (Claude/Gemini/OpenCode roots), setup commands (`npx playwright install chromium`), headed vs headless notes, and the precise workflow (navigate prod site or local dev → reproduce action → query recent network for mjcc-managements.onrender.com/api requests + responses) live in the shared `mjcc-tooling/SKILL.md` (bottom section "Browser / Chrome DevTools for live backend inspection"). 
+Exact JSON config snippets (`.mcp.json` + `.vscode/mcp.json`), setup notes, and the precise workflow (navigate prod site or local dev → reproduce action → query recent network for mjcc-managements.onrender.com/api requests + responses) live in the shared `mjcc-tooling/SKILL.md` (section "Recommended MCP — Chrome DevTools MCP"). 
 
 The three skill copies (.claude/, .cursor/, .agents/) were just updated with the details. Also see AGENTS.md §11 for the MCP table. Use this **before** guessing at shape bugs or wiring issues — it directly shows what the backend actually returned.
 
@@ -41,7 +41,7 @@ find /home /root $HOME -maxdepth 6 \( -name '*claude*' -o -name '*mcp*.json' -o 
 # Also: claude mcp list   (if the claude CLI in your agent env supports it)
 ```
 
-Add the playwright (or equivalent devtools) server entry alongside the existing supabase one. If you need the exact token-bearing config from your WSL agent roots, cat the files (redact tokens when sharing) and paste the structure here — I can generate the precise addition.
+Add the chrome-devtools server entry alongside the existing supabase one. If you need the exact token-bearing config from your WSL agent roots, cat the files (redact tokens when sharing) and paste the structure here — I can generate the precise addition.
 
 ## Build & Run Commands
 - **Frontend:** `cd frontend && npm install && npm run dev` (Vite, port 5173). Build: `npm run build`.

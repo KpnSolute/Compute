@@ -119,38 +119,32 @@ Log which verification commands ran and whether they passed.
 - Production target always: https://mjcc-managements.onrender.com (set via frontend/.env VITE_API_BASE; never revert to localhost per AGENTS §0).
 - Frontend static on separate Render service; no SPA routes (state machine in Portal).
 
-**Recommended MCPs (add to your agent runtimes):**
+**Recommended MCP — Chrome DevTools MCP (primary, 2026-06-07 switch):**
 
-1. **Playwright MCP** (preferred — you already have Chromium provisioned in WSL from prior OpenCode work)
-   - Command: `npx @playwright/mcp` (or install globally)
-   - Gives: navigate, click, fill, screenshot, console logs, and network/request inspection via evaluate or built-in tracing.
-   - For headed (watch real Chrome-like window + use real DevTools alongside): omit --headless.
+We **removed Playwright MCP entirely** because it was unstable on this setup (WSL/Windows browser split, GPU/dxg crashes, no X server, on-demand Chromium downloads — see CHANGELOG v1.4.9, v1.5.0, v1.5.3). The runtime is now **native Windows**, so the stable official choice is:
+
+1. **Chrome DevTools MCP** (`chrome-devtools-mcp`, maintained by Google's Chrome DevTools team) — **PRIMARY (and only browser MCP)**.
+   - Command: `npx -y chrome-devtools-mcp@latest` (on Windows, wrap in `cmd /c` for reliable stdio).
+   - Connects to Chrome over the Chrome DevTools Protocol (CDP) instead of spawning/controlling its own browser → no GPU/display/subprocess fragility.
+   - Network inspection (full `/api/*` URLs, request payloads, response bodies, Authorization Bearer headers), console messages, DOM, and performance traces are first-class — exactly the F12 → Network surface we need.
+   - Prereqs (verified 2026-06-07): Node v24.16, npm 11, Chrome at `C:\Program Files\Google\Chrome\Application\chrome.exe`.
 
 2. **Cursor built-in browser tool** ("cursor-ide-browser") — available automatically in Cursor sessions for UI verification.
 
-3. **Chrome DevTools / CDP-focused MCPs** (for direct Network + Console surface)
-   - Search for current "chrome-devtools-mcp", "browser-tools-mcp", or "puppeteer-mcp" servers.
-   - These expose tools like getNetworkLogs, getConsoleMessages, performance traces — closest to "Chrome dev tools for seeing the backend".
+**Config (current, in this tree):**
 
-**Config examples (add to mcpServers):**
-
-For project `.cursor/mcp.json` / `.vscode/mcp.json` (Windows/Cursor):
+Root `.mcp.json` (Claude Code, native Windows) + `.vscode/mcp.json` (Cursor/VS Code) carry the chrome-devtools server; `.claude/settings.json` enables it via `enabledMcpjsonServers: ["chrome-devtools"]`. Shape:
 ```json
 {
   "mcpServers": {
-    "supabase": { ...existing... },
-    "playwright": {
-      "command": "npx",
-      "args": ["@playwright/mcp"]
+    "chrome-devtools": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "chrome-devtools-mcp@latest"]
     }
   }
 }
 ```
-
-For Claude Code / Gemini / OpenCode agent roots (typically in WSL):
-- Edit the Claude Code config (often `~/.config/claude/config.json`, `claude_desktop_config.json`, or use `claude mcp add` CLI if available in your agent env).
-- Or per-project under the agent's view of this tree's `.claude/settings.json` + env.
-- Same JSON shape under the agent's mcpServers.
+Restart Claude Code after editing `.mcp.json` so the new server is picked up.
 
 **Workflow for seeing backend calls (example for Claude):**
 1. Use browser MCP tool to navigate to the frontend (prod https://kpncompute.onrender.com or local :5173 after setting frontend/.env).
@@ -165,10 +159,10 @@ For Claude Code / Gemini / OpenCode agent roots (typically in WSL):
 - Backend visibility: `render services` then `render logs -r <id>` (or `--path /api/...`).
 - Combine both for full picture (frontend request shape + backend processing logs).
 
-**Setup commands (run in the env where the agent runs):**
-- Ensure Playwright browsers: `npx playwright install chromium`
-- On pure WSL (no GUI): may need system libs (see prior OpenCode session notes for Debian package extraction if sudo limited).
-- For Windows Chrome + WSL agent hybrid: launch Chrome on host with `--remote-debugging-port=9222`, then use CDP connect from WSL MCP (advanced; start with Playwright's own Chromium).
+**Setup commands (native Windows):**
+- Nothing to pre-install for Chrome DevTools MCP beyond Node + Chrome (both present). `npx -y chrome-devtools-mcp@latest` fetches the server on first run.
+- It drives your installed Chrome — no separate Chromium download needed (this was a Playwright pain point, now gone).
+- Restart Claude Code after `.mcp.json` changes.
 
 **Verification (before claiming "Claude has devtools access"):**
 - Agent can successfully call a browser_navigate or equivalent tool.

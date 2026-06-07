@@ -7,10 +7,10 @@
                 "Authorization": "Bearer ${env:SUPABASE_MCP_TOKEN}"
             }
         },
-        "playwright": {
+        "chrome-devtools": {
             "type": "stdio",
-            "command": "npx",
-            "args": ["@playwright/mcp"]
+            "command": "cmd",
+            "args": ["/c", "npx", "-y", "chrome-devtools-mcp@latest"]
         }
     }
 }
