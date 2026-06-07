@@ -15,6 +15,23 @@ This is the **central development memory and discussion board** for all agents (
 
 ---
 
+## [v1.4.9] — 2026-06-07 — Mobile: fixed 3 real bugs found by driving a headless browser at 390px
+
+**Claude:** User: "do a better job at the mobile responsive UI." Prior overhauls (v1.4.5–v1.4.8) layered a lot of CSS but **3 concrete bugs survived**, found by actually rendering the live site at 390px (Playwright MCP was unstable, so I drove a headless Chromium via a Node Playwright script in c:\tmp — logged in as admin, screenshotted dashboard/inventory/monthly/sourcecontrol/reports/events/haccp).
+
+**Bugs seen on the real render + fixes (`index.css`, one authoritative ≤640 block appended last to win the cascade):**
+1. **Brand wordmark overlapped the month/year selects on every screen.** Root cause: the `<div>` wrapping `.tb-title` has no class and isn't `min-width:0`, so `text-overflow:ellipsis` never triggered and the title painted over `.tb-right`. Fix: hide `.tb-title`/`.tb-sub` on phones (KpnMark logo remains), `.tb-left>div{min-width:0;overflow:hidden}`, compact `.tb-select`.
+2. **`.grid-2` stayed two-up on phones** (Source Control review|commits and Reports catalogue|records were cramped side-by-side). Root cause: the `max-width:1024/1280` `.grid-2{2col}` rules sit AFTER the `max-width:640 {1col}` rule, so they win at 390px. Fix: `.grid-2{grid-template-columns:1fr!important}` in the final block.
+3. **Wide data tables clipped** (Monthly Inventory roll-up, Reports records — columns cut off the right edge). Root cause: `.tbl-wrap` had `overflow-x:auto` but `table.data` had no `min-width`, so it squished/clipped instead of scrolling. Fix: `.tbl-wrap{overflow-x:auto!important;max-width:100%}` + `.tbl-wrap table.data{min-width:560px}`.
+
+**Method note:** the headless-browser-via-Bash approach (c:\tmp\mobile-shot.js + playwright npm lib) is a reliable fallback when the Playwright MCP won't stay connected — it screenshots real views and can report overflow offenders.
+
+**Verify:** `npm run build` ✓ exit 0. Pushing; will re-screenshot prod at 390px after Render redeploys to confirm all three are gone.
+
+**Push:** Claude → (SHA below) — 2026-06-07
+
+---
+
 ## [v1.4.8] — 2026-06-06 — Mobile responsiveness bugfixes: overlay, input sizing, viewport height
 
 **OpenCode:** Fixed remaining mobile issues on top of Claude's responsive overhaul:

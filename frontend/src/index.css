@@ -1193,3 +1193,27 @@ table.data.logtbl td{padding:6px 10px}
   .card-head h3{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .card-head .ch-link{flex-shrink:0}
 }
+
+/* ════════════════════════════════════════════════════════════
+   Authoritative mobile fixes — placed LAST to win the cascade over the
+   duplicate 640/1024/1280 blocks above. Targets bugs seen on a real 390px
+   iPhone render: (1) brand wordmark overlapping the month/year selects,
+   (2) .grid-2 staying two-up because the 1024/1280 rules sit AFTER the 640
+   rule, (3) wide data tables clipping instead of scrolling.
+   ════════════════════════════════════════════════════════════ */
+@media(max-width:640px){
+  /* (1) The title's wrapper <div> has no class and isn't shrinkable, so the
+     ellipsis never fired and the wordmark painted over the selects. Drop the
+     wordmark text on phones — the KpnMark logo still identifies the app. */
+  .tb-title,.tb-sub{display:none!important}
+  .tb-left>div{min-width:0;overflow:hidden}
+  .tb-right{flex:0 0 auto;gap:6px}
+  .tb-select{max-width:92px;font-size:11px}
+
+  /* (2) Force every two-up content area to a single column on phones. */
+  .grid-2{grid-template-columns:1fr!important;gap:10px}
+
+  /* (3) Wide tables scroll horizontally inside their card instead of clipping. */
+  .tbl-wrap,.table-wrap{overflow-x:auto!important;-webkit-overflow-scrolling:touch;max-width:100%}
+  .tbl-wrap table.data{min-width:560px}
+}
