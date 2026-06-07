@@ -938,6 +938,10 @@ function InventoryView({
         Record<string, { onHand: number; par: number }>
     >({});
     const [stagingBusy, setStagingBusy] = useState<Record<string, boolean>>({});
+    const [viewMode, setViewMode] = useState<"regular" | "grouped">("regular");
+    const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+    const toggleCat = (c: string) =>
+        setCollapsed((p) => ({ ...p, [c]: !p[c] }));
 
     const setDraftField = (
         sku: string,
@@ -1041,6 +1045,24 @@ function InventoryView({
                     </div>
                 </div>
                 <div className="ph-actions">
+                    <div className="view-toggle" role="tablist" aria-label="Inventory view">
+                        <button
+                            className={"vt-btn" + (viewMode === "regular" ? " active" : "")}
+                            onClick={() => setViewMode("regular")}
+                            role="tab"
+                            aria-selected={viewMode === "regular"}
+                        >
+                            Regular
+                        </button>
+                        <button
+                            className={"vt-btn" + (viewMode === "grouped" ? " active" : "")}
+                            onClick={() => setViewMode("grouped")}
+                            role="tab"
+                            aria-selected={viewMode === "grouped"}
+                        >
+                            Grouped
+                        </button>
+                    </div>
                     <button className="btn">{I.scan()} Scan</button>
                     <button className="btn" onClick={onSync}>
                         {I.refresh()} Refresh
@@ -1121,6 +1143,7 @@ function InventoryView({
                             ))}
                         </select>
                     </div>
+                    {viewMode === "regular" && (
                     <div className="card-body flush tbl-wrap">
                         <table className="data">
                             <thead>
@@ -1303,6 +1326,318 @@ function InventoryView({
                             </tbody>
                         </table>
                     </div>
+                    )}
+                    {viewMode === "grouped" && (
+                        <div className="card-body flush cat-secs">
+                            {cats
+                                .filter((c) => filtered.some((r: any) => r.cat === c))
+                                .map((c) => {
+                                    const items = filtered.filter(
+                                        (r: any) => r.cat === c,
+                                    );
+                                    const catVal = items.reduce(
+                                        (s: number, r: any) => {
+                                            const sku = String(r.sku || "");
+                                            const oh =
+                                                draft[sku]?.onHand ?? r.onHand;
+                                            return s + oh * (r.price || 0);
+                                        },
+                                        0,
+                                    );
+                                    const lowCount = items.filter((r: any) => {
+                                        const sku = String(r.sku || "");
+                                        const oh = draft[sku]?.onHand ?? r.onHand;
+                                        const pr = draft[sku]?.par ?? r.par;
+                                        return oh < pr && pr > 0;
+                                    }).length;
+                                    const open = !collapsed[c];
+                                    return (
+                                        <div className="cat-sec" key={c}>
+                                            <button
+                                                className="cat-sec-head"
+                                                onClick={() => toggleCat(c)}
+                                                aria-expanded={open}
+                                            >
+                                                <span className="csh-l">
+                                                    <span
+                                                        className="csh-dot"
+                                                        style={{
+                                                            background:
+                                                                catColor(c),
+                                                        }}
+                                                    />
+                                                    <span className="csh-name">
+                                                        {c}
+                                                    </span>
+                                                    <span className="csh-cnt">
+                                                        {items.length} item
+                                                        {items.length !== 1
+                                                            ? "s"
+                                                            : ""}
+                                                    </span>
+                                                    {lowCount > 0 && (
+                                                        <span className="pill warn csh-low">
+                                                            {lowCount} below par
+                                                        </span>
+                                                    )}
+                                                </span>
+                                                <span className="csh-r">
+                                                    <span className="csh-tot">
+                                                        {fmtMoneyFull(catVal)}
+                                                    </span>
+                                                    <span className="csh-arr">
+                                                        {open ? "▾" : "▸"}
+                                                    </span>
+                                                </span>
+                                            </button>
+                                            {open && (
+                                                <div className="tbl-wrap">
+                                                    <table className="data">
+                                                        <thead>
+                                                            <tr>
+                                                                <th>SKU</th>
+                                                                <th>
+                                                                    Description
+                                                                </th>
+                                                                <th className="r">
+                                                                    Unit Price
+                                                                </th>
+                                                                <th className="r">
+                                                                    On Hand
+                                                                </th>
+                                                                <th className="r">
+                                                                    Par
+                                                                </th>
+                                                                <th>Status</th>
+                                                                <th className="r">
+                                                                    Value
+                                                                </th>
+                                                                {canStage && (
+                                                                    <th className="r">
+                                                                        SourceCtrl
+                                                                    </th>
+                                                                )}
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {items.map(
+                                                                (
+                                                                    r: any,
+                                                                    i: number,
+                                                                ) => {
+                                                                    const sku =
+                                                                        String(
+                                                                            r.sku ||
+                                                                                "",
+                                                                        );
+                                                                    const staged =
+                                                                        draft[
+                                                                            sku
+                                                                        ];
+                                                                    const onHand =
+                                                                        staged?.onHand ??
+                                                                        r.onHand;
+                                                                    const par =
+                                                                        staged?.par ??
+                                                                        r.par;
+                                                                    const isLow =
+                                                                        onHand <
+                                                                            par &&
+                                                                        par > 0;
+                                                                    const rowValue =
+                                                                        onHand *
+                                                                        (r.price ||
+                                                                            0);
+                                                                    const hasDraft =
+                                                                        Boolean(
+                                                                            staged,
+                                                                        );
+                                                                    return (
+                                                                        <tr
+                                                                            key={
+                                                                                (r.sku ||
+                                                                                    "") +
+                                                                                i
+                                                                            }
+                                                                        >
+                                                                            <td
+                                                                                className="num"
+                                                                                style={{
+                                                                                    color: "var(--muted)",
+                                                                                }}
+                                                                            >
+                                                                                {r.sku ||
+                                                                                    "—"}
+                                                                            </td>
+                                                                            <td
+                                                                                style={{
+                                                                                    fontWeight: 600,
+                                                                                }}
+                                                                            >
+                                                                                {
+                                                                                    r.desc
+                                                                                }
+                                                                            </td>
+                                                                            <td className="r num">
+                                                                                $
+                                                                                {(
+                                                                                    r.price ||
+                                                                                    0
+                                                                                ).toFixed(
+                                                                                    2,
+                                                                                )}
+                                                                            </td>
+                                                                            <td className="r num">
+                                                                                {canStage ? (
+                                                                                    <input
+                                                                                        className="sheet-inp mobile-num-inp"
+                                                                                        type="number"
+                                                                                        min={
+                                                                                            0
+                                                                                        }
+                                                                                        step="1"
+                                                                                        value={
+                                                                                            onHand
+                                                                                        }
+                                                                                        onChange={(
+                                                                                            e,
+                                                                                        ) =>
+                                                                                            setDraftField(
+                                                                                                sku,
+                                                                                                "onHand",
+                                                                                                e
+                                                                                                    .target
+                                                                                                    .value,
+                                                                                                r.onHand,
+                                                                                            )
+                                                                                        }
+                                                                                        style={{
+                                                                                            width: 70,
+                                                                                            textAlign:
+                                                                                                "right",
+                                                                                        }}
+                                                                                    />
+                                                                                ) : (
+                                                                                    onHand
+                                                                                )}
+                                                                            </td>
+                                                                            <td
+                                                                                className="r num"
+                                                                                style={{
+                                                                                    color: "var(--faint)",
+                                                                                }}
+                                                                            >
+                                                                                {canStage ? (
+                                                                                    <input
+                                                                                        className="sheet-inp mobile-num-inp"
+                                                                                        type="number"
+                                                                                        min={
+                                                                                            0
+                                                                                        }
+                                                                                        step="1"
+                                                                                        value={
+                                                                                            par
+                                                                                        }
+                                                                                        onChange={(
+                                                                                            e,
+                                                                                        ) =>
+                                                                                            setDraftField(
+                                                                                                sku,
+                                                                                                "par",
+                                                                                                e
+                                                                                                    .target
+                                                                                                    .value,
+                                                                                                r.par,
+                                                                                            )
+                                                                                        }
+                                                                                        style={{
+                                                                                            width: 70,
+                                                                                            textAlign:
+                                                                                                "right",
+                                                                                        }}
+                                                                                    />
+                                                                                ) : (
+                                                                                    par
+                                                                                )}
+                                                                            </td>
+                                                                            <td>
+                                                                                {isLow ? (
+                                                                                    <span className="pill warn">
+                                                                                        Below
+                                                                                        par
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="pill ok">
+                                                                                        In
+                                                                                        stock
+                                                                                    </span>
+                                                                                )}
+                                                                            </td>
+                                                                            <td className="r num">
+                                                                                {fmtMoneyFull(
+                                                                                    rowValue,
+                                                                                )}
+                                                                            </td>
+                                                                            {canStage && (
+                                                                                <td className="r">
+                                                                                    <button
+                                                                                        className="btn"
+                                                                                        disabled={
+                                                                                            !hasDraft ||
+                                                                                            !sku ||
+                                                                                            Boolean(
+                                                                                                stagingBusy[
+                                                                                                    sku
+                                                                                                ],
+                                                                                            )
+                                                                                        }
+                                                                                        style={{
+                                                                                            padding:
+                                                                                                "5px 10px",
+                                                                                        }}
+                                                                                        onClick={() =>
+                                                                                            stageInventoryRow(
+                                                                                                {
+                                                                                                    ...r,
+                                                                                                    onHand,
+                                                                                                    par,
+                                                                                                },
+                                                                                            )
+                                                                                        }
+                                                                                        title="Stage this row in Source Control"
+                                                                                    >
+                                                                                        {stagingBusy[
+                                                                                            sku
+                                                                                        ]
+                                                                                            ? "Staging…"
+                                                                                            : "Stage"}
+                                                                                    </button>
+                                                                                </td>
+                                                                            )}
+                                                                        </tr>
+                                                                    );
+                                                                },
+                                                            )}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            {!filtered.length && (
+                                <div
+                                    style={{
+                                        textAlign: "center",
+                                        padding: 30,
+                                        color: "var(--faint)",
+                                    }}
+                                >
+                                    No items match your filters.
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
         </div>

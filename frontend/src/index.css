@@ -1217,3 +1217,34 @@ table.data.logtbl td{padding:6px 10px}
   .tbl-wrap,.table-wrap{overflow-x:auto!important;-webkit-overflow-scrolling:touch;max-width:100%}
   .tbl-wrap table.data{min-width:560px}
 }
+
+/* ════════════════════════════════════════════════════════════
+   Inventory: Regular/Grouped view toggle + category accordion
+   ════════════════════════════════════════════════════════════ */
+.view-toggle{display:inline-flex;background:var(--surface-2,#eef2f7);border:1px solid var(--line);border-radius:8px;padding:2px;gap:2px}
+.vt-btn{padding:7px 13px;font-size:12px;font-weight:700;border:none;background:transparent;color:var(--muted);border-radius:6px;cursor:pointer;transition:all .12s;min-height:36px}
+.vt-btn.active{background:#fff;color:var(--navy);box-shadow:0 1px 2px rgba(9,22,51,.12)}
+
+.cat-secs{display:flex;flex-direction:column;gap:10px;padding:12px}
+.cat-sec{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+.cat-sec-head{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 14px;background:var(--surface,#fff);border:none;cursor:pointer;font:inherit;text-align:left;transition:background .12s}
+.cat-sec-head:hover{background:var(--surface-2,#f5f8fc)}
+.csh-l{display:flex;align-items:center;gap:9px;min-width:0;flex:1}
+.csh-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+.csh-name{font-weight:800;font-size:13px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.csh-cnt{font-size:11px;color:var(--muted);flex-shrink:0}
+.csh-low{flex-shrink:0}
+.csh-r{display:flex;align-items:center;gap:12px;flex-shrink:0}
+.csh-tot{font-weight:800;font-size:13px;color:var(--navy);font-variant-numeric:tabular-nums}
+.csh-arr{font-size:12px;color:var(--muted);width:14px;text-align:center}
+.cat-sec .tbl-wrap{border-top:1px solid var(--line)}
+
+@media(max-width:640px){
+  .cat-secs{padding:8px;gap:8px}
+  .cat-sec-head{padding:10px 11px;gap:8px}
+  .csh-name{font-size:12px}
+  .csh-cnt{font-size:10px}
+  .csh-low{display:none}
+  .view-toggle{flex:1}
+  .vt-btn{flex:1;min-height:40px}
+}

@@ -15,6 +15,22 @@ This is the **central development memory and discussion board** for all agents (
 
 ---
 
+## [v1.5.0] — 2026-06-07 — Inventory: Regular/Grouped view toggle (expandable category accordion)
+
+**Claude:** User wants inventory items organized into expandable category groups instead of one flat row list — with a toggle between the flat ("Regular") and grouped ("Grouped") views. Reference: `templates/inventory.html` (`toggleCat`/`.section`/`.sec-head` pattern, read-only).
+
+**Implemented in `InventoryView` (`Portal.tsx`):**
+- `viewMode` ('regular'|'grouped') state + a segmented **Regular / Grouped** toggle in the page header. `collapsed` map + `toggleCat()` for per-category expand/collapse.
+- **Regular** = the existing flat table, unchanged (wrapped in `viewMode==='regular'`).
+- **Grouped** = one collapsible `.cat-sec` per category (respecting the search + category filters): header shows the category color dot, name, item count, a "N below par" pill, the category's total value, and a ▾/▸ chevron. Expanded, it shows the same columns as the flat view (SKU, Description, Unit Price, On Hand, Par, Status, Value, Stage) with the same editable on-hand/par inputs and Source-Control "Stage" action — so editing works identically in either view.
+- CSS (`index.css`): `.view-toggle`/`.vt-btn` segmented control + `.cat-sec`/`.cat-sec-head`/`.csh-*` accordion, with a ≤640px block (full-width toggle, condensed headers) so it works on mobile too.
+
+**Verify:** `npm run build` ✓ exit 0; `npm run lint` ✓ 0 errors. Pushing; will verify on prod with the headless-browser harness (toggle to Grouped, expand a category) once Render redeploys.
+
+**Push:** Claude → (SHA below) — 2026-06-07
+
+---
+
 ## [v1.4.9] — 2026-06-07 — Mobile: fixed 3 real bugs found by driving a headless browser at 390px
 
 **Claude:** User: "do a better job at the mobile responsive UI." Prior overhauls (v1.4.5–v1.4.8) layered a lot of CSS but **3 concrete bugs survived**, found by actually rendering the live site at 390px (Playwright MCP was unstable, so I drove a headless Chromium via a Node Playwright script in c:\tmp — logged in as admin, screenshotted dashboard/inventory/monthly/sourcecontrol/reports/events/haccp).
