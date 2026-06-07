@@ -307,20 +307,26 @@ function Dashboard({
     useEffect(() => {
         let alive = true;
         (async () => {
-            setMenuLoading(true);
-            const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][
-                new Date().getDay()
-            ];
-            const res = await api.getMenu(day);
-            if (alive) {
-                const raw = res?.data || {};
-                const normalized: any = {};
-                Object.keys(raw).forEach(k => {
-                    const key = k.charAt(0).toUpperCase() + k.slice(1);
-                    normalized[key] = Array.isArray(raw[k]) ? raw[k] : [];
-                });
-                setMenuData(normalized);
-                setMenuLoading(false);
+            try {
+                setMenuLoading(true);
+                const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][
+                    new Date().getDay()
+                ];
+                const res = await api.getMenu(day);
+                if (alive) {
+                    const raw = res?.data || {};
+                    const normalized: any = {};
+                    Object.keys(raw).forEach(k => {
+                        const key = k.charAt(0).toUpperCase() + k.slice(1);
+                        normalized[key] = Array.isArray(raw[k]) ? raw[k] : [];
+                    });
+                    setMenuData(normalized);
+                    setMenuLoading(false);
+                }
+            } catch (e: any) {
+                // 401s etc. are handled centrally in api.ts (clears token + dispatches mjc:session-expired).
+                // Swallow here to avoid uncaught promise spam in console; UI will tear down to login or show empty state.
+                if (alive) setMenuLoading(false);
             }
         })();
         return () => {
@@ -331,11 +337,15 @@ function Dashboard({
     useEffect(() => {
         let alive = true;
         (async () => {
-            setEventsLoading(true);
-            const data = await api.getEvents();
-            if (alive) {
-                setEvents(Array.isArray(data) ? data : (data as any)?.events ?? []);
-                setEventsLoading(false);
+            try {
+                setEventsLoading(true);
+                const data = await api.getEvents();
+                if (alive) {
+                    setEvents(Array.isArray(data) ? data : (data as any)?.events ?? []);
+                    setEventsLoading(false);
+                }
+            } catch (e: any) {
+                if (alive) setEventsLoading(false);
             }
         })();
         return () => {
@@ -1177,7 +1187,7 @@ function InventoryView({
                                             <td className="r num">
                                                 {canStage ? (
                                                     <input
-                                                        className="sheet-inp"
+                                                        className="sheet-inp mobile-num-inp"
                                                         type="number"
                                                         min={0}
                                                         step="1"
@@ -1207,7 +1217,7 @@ function InventoryView({
                                             >
                                                 {canStage ? (
                                                     <input
-                                                        className="sheet-inp"
+                                                        className="sheet-inp mobile-num-inp"
                                                         type="number"
                                                         min={0}
                                                         step="1"

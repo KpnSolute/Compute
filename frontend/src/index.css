@@ -711,15 +711,14 @@ table.data.logtbl td{padding:6px 10px}
   .btn-auth{padding:14px;min-height:48px;font-size:15px}
 
   .portal{grid-template-columns:1fr}
-  .topbar{padding:0 8px;height:50px}
-  .tb-left{gap:8px}
+  .topbar{padding:0 8px;height:48px}
+  .tb-left{gap:6px}
   .tb-sub{display:none}
-  .tb-right{gap:6px}
-  .tb-select{font-size:11px;padding:4px 7px}
+  .tb-right{gap:4px}
+  .tb-select{font-size:11px;padding:3px 6px}
   .tb-user .rl{display:none}
   .tb-user .nm{font-size:11px}
-  .inv-badge{font-size:9px;padding:3px 8px}
-  .inv-badge .rt{display:none}
+  .inv-badge{display:none}
 
   .hamburger{display:flex}
   .sidebar{
@@ -733,145 +732,152 @@ table.data.logtbl td{padding:6px 10px}
   .sidebar.open{transform:translateX(0);visibility:visible}
   .sidebar-overlay{display:block}
   .portal.sidebar-open .sidebar-overlay{display:block}
-  .nav-item{padding:12px 12px;min-height:44px;font-size:14px}
+  .nav-item{padding:13px 12px;min-height:48px;font-size:15px}
   .nav-item svg{width:20px;height:20px}
   .nav-group-lbl{padding:16px 12px 8px;font-size:10px}
 
-  .main{padding:14px 12px}
-  .page-head h2{font-size:18px}
-  .page-head .ph-sub{font-size:11px}
-  .ph-actions{gap:6px}
+  .main{padding:12px 10px}
+  .page-head{margin-bottom:12px}
+  .page-head h2{font-size:17px}
+  .page-head .ph-sub{font-size:10.5px}
+  .ph-actions{gap:5px}
 
-  .stat-grid{grid-template-columns:repeat(2,1fr);gap:10px}
-  .stat-card{padding:12px 13px}
-  .stat-card .sc-val{font-size:22px}
-  .stat-card .sc-lbl{font-size:10px}
-  .stat-card .sc-ic{width:30px;height:30px}
-  .stat-grid.kpi6{grid-template-columns:repeat(2,1fr)}
-  .stat-grid.kpi6 .sc-val{font-size:18px}
+  /* Premium mobile cards & grids — match the clean stacked, airy quality of the example sites */
+  .stat-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .stat-card{padding:10px 11px;border-radius:10px}
+  .stat-card .sc-val{font-size:19px}
+  .stat-card .sc-lbl{font-size:9.5px}
+  .stat-card .sc-ic{width:28px;height:28px}
+  .stat-card .sc-top{margin-bottom:8px}
+  .stat-card .sc-delta{font-size:9.5px;margin-top:2px}
+  .stat-grid.kpi5,.stat-grid.kpi6{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .stat-grid.kpi6 .sc-val{font-size:17px}
 
-  .grid-2{grid-template-columns:1fr;gap:12px}
+  .grid-2{grid-template-columns:1fr;gap:10px;margin-bottom:12px}
 
-  .card-head{padding:12px 14px}
-  .card-head h3{font-size:13px}
-  .card-body{padding:12px 14px}
+  .card{border-radius:10px}
+  .card-head{padding:10px 12px}
+  .card-head h3{font-size:12.5px}
+  .card-body{padding:10px 12px}
 
   .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
-  table.data{font-size:11px}
-  table.data th{padding:7px 9px;font-size:9.5px}
-  table.data td{padding:8px 9px}
+  table.data{font-size:10.5px}
+  table.data th{padding:6px 8px;font-size:9px}
+  table.data td{padding:7px 8px}
 
-  .btn{padding:10px 14px;min-height:44px;font-size:13px}
-  .btn svg{width:18px;height:18px}
+  .btn{padding:10px 13px;min-height:44px;font-size:13px;border-radius:8px}
+  .btn svg{width:17px;height:17px}
   .btn.primary,.btn.accent{justify-content:center}
 
-  .field .ipt{padding:13px;min-height:44px;font-size:14px}
-  .field label{font-size:12px}
-  .seg button{padding:12px 8px;min-height:44px}
-  .row-between{flex-direction:column;gap:10px;align-items:flex-start}
-  .check{min-height:44px;padding:4px 0}
-  .check input{width:20px;height:20px}
-  .link{padding:8px 0;display:inline-block}
-  .keypad{gap:8px;max-width:240px}
-  .key{min-height:48px}
+  .field .ipt{padding:12px;min-height:44px;font-size:14px;border-radius:8px}
+  .field label{font-size:11px}
+  .seg button{padding:11px 7px;min-height:44px}
+  .row-between{flex-direction:column;gap:8px;align-items:flex-start}
+  .check{min-height:44px;padding:3px 0}
+  .check input{width:18px;height:18px}
+  .link{padding:7px 0;display:inline-block}
+  .keypad{gap:7px;max-width:240px}
+  .key{min-height:46px}
 
-  .menu-grid{grid-template-columns:1fr}
-  .cal-grid{font-size:10px}
-  .cal-cell{min-height:60px;padding:4px 5px}
-  .cal-dow{padding:6px 0;font-size:9px}
-  .cal-num{font-size:10px}
+  .menu-grid{grid-template-columns:1fr;gap:10px}
+  .cal-grid{font-size:10px;gap:1px}
+  .cal-cell{min-height:56px;padding:3px 4px}
+  .cal-dow{padding:4px 0;font-size:8px}
+  .cal-num{font-size:9px}
 
   .subtabs{overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch}
-  .subtab{padding:10px 12px;white-space:nowrap;font-size:12px}
+  .subtab{padding:9px 11px;white-space:nowrap;font-size:11.5px}
 
-  .form-toolbar{flex-direction:column;align-items:stretch}
+  .form-toolbar{flex-direction:column;align-items:stretch;gap:8px}
   .ft-l{flex-direction:column;align-items:stretch}
   .ft-field.grow{min-width:auto}
-  .ft-field span{font-size:11px}
+  .ft-field span{font-size:10px}
 
-  .sheet-summary{gap:12px;padding:10px 14px}
-  .ss-val{font-size:16px}
-  .sheet-inp{width:40px;padding:6px 4px;min-height:38px}
+  .sheet-summary{gap:10px;padding:8px 11px}
+  .ss-val{font-size:15px}
+  .sheet-inp{width:38px;padding:5px 3px;min-height:36px;font-size:11px}
 
-  .req-grid{gap:10px}
-  .formbar{flex-direction:column;align-items:stretch;gap:10px}
+  .req-grid{gap:8px}
+  .formbar{flex-direction:column;align-items:stretch;gap:8px}
   .formbar-l{flex-direction:column;align-items:stretch}
-  .formbar .btn{width:100%;justify-content:center}
+  .formbar .btn{width:100%;justify-content:center;min-height:44px}
 
-  .meal-summary{gap:8px}
-  .ms-pill{min-width:70px;padding:10px 14px}
-  .ms-n{font-size:18px}
+  .meal-summary{gap:6px}
+  .ms-pill{min-width:64px;padding:8px 10px}
+  .ms-n{font-size:16px}
   .monitor-counts{flex-direction:column;align-items:stretch}
   .monitor-counts .ipt.sel{width:100%}
-  .day-pill{min-height:44px;padding:8px 18px}
-  .dash-meal-counts{grid-template-columns:repeat(2,1fr)}
-  .mi-mini{grid-template-columns:1fr}
-  .qa-grid{grid-template-columns:1fr}
+  .day-pill{min-height:44px;padding:7px 14px;font-size:12px}
+  .dash-meal-counts{grid-template-columns:repeat(2,1fr);gap:6px}
+  .mi-mini{grid-template-columns:1fr;gap:4px}
+  .qa-grid{grid-template-columns:1fr;gap:5px}
   .tpl-grid{grid-template-columns:1fr}
 
-  .ev-date{width:40px;height:40px}
-  .evd-d{font-size:16px}
-  .ev-title{font-size:12px}
-  .modal{max-width:100%;border-radius:12px;margin:8px}
-  .modal-head{padding:16px 16px 12px}
-  .modal-body{padding:4px 16px 8px}
-  .modal-foot{padding:14px 16px 18px}
+  .ev-date{width:36px;height:36px}
+  .evd-d{font-size:14px}
+  .ev-title{font-size:11.5px}
+  .modal{max-width:100%;border-radius:10px;margin:6px}
+  .modal-head{padding:12px 12px 8px}
+  .modal-body{padding:2px 12px 6px}
+  .modal-foot{padding:10px 12px 14px;gap:8px}
 
-  .overlay{padding:12px}
+  .overlay{padding:8px}
   .page-head .ph-actions{width:100%}
-  .page-head .ph-actions .btn{flex:1;justify-content:center}
+  .page-head .ph-actions .btn{flex:1;justify-content:center;min-height:44px}
 
-  #toast{bottom:12px;right:12px;left:12px;width:auto;font-size:12px;padding:12px 16px}
-  .conn-status{font-size:11px;padding:8px 11px}
+  #toast{bottom:10px;right:10px;left:10px;width:auto;font-size:11.5px;padding:10px 12px}
 
-  .insp-row{flex-direction:column;gap:8px;padding:12px 14px}
+  .insp-row{flex-direction:column;gap:6px;padding:10px 11px}
   .rate-group{width:100%}
-  .rate-btn{flex:1;padding:8px;text-align:center}
+  .rate-btn{flex:1;padding:7px;text-align:center;min-height:40px}
 
-  .incident-item{flex-direction:column;gap:6px}
-  .variance-box{padding:12px 14px}
-  .vb-val{font-size:22px}
+  .incident-item{flex-direction:column;gap:5px}
+  .variance-box{padding:10px 11px}
+  .vb-val{font-size:20px}
 
-  .sheet-sec-head{padding:10px 14px}
-  .ssh-name{font-size:13px}
-  .ssh-tot{font-size:12px}
+  .sheet-sec-head{padding:8px 11px}
+  .ssh-name{font-size:12px}
+  .ssh-tot{font-size:11px}
 
-  .banner{flex-wrap:wrap;padding:10px 12px;font-size:12px}
-  .load-wrap{padding:40px 16px}
-  .tastecode{gap:8px;padding:8px 10px}
-  .stage-item{flex-direction:column;gap:8px;padding:12px 14px}
+  .banner{flex-wrap:wrap;padding:8px 10px;font-size:11px;margin-bottom:8px}
+  .load-wrap{padding:32px 12px}
+  .tastecode{gap:6px;padding:6px 8px}
+  .stage-item{flex-direction:column;gap:6px;padding:10px 11px}
   .stage-actions{width:100%}
-  .stage-actions .btn{flex:1;justify-content:center}
-  .report-row{flex-wrap:wrap;padding:10px 14px}
+  .stage-actions .btn{flex:1;justify-content:center;min-height:40px}
+  .report-row{flex-wrap:wrap;padding:8px 11px}
   .rr-actions{width:100%}
-  .rr-actions .btn{flex:1;justify-content:center}
-  .commit-item{flex-direction:column;gap:6px}
-  .commit-graph{flex-direction:row;gap:6px;padding-top:8px}
+  .rr-actions .btn{flex:1;justify-content:center;min-height:40px}
+  .commit-item{flex-direction:column;gap:5px}
+  .commit-graph{flex-direction:row;gap:5px;padding-top:6px}
   .cg-line{width:100%;height:2px}
-  .approvals{gap:24px}
-  .ev-item{flex-direction:column;gap:10px}
-  .ev-stat{flex-direction:row;gap:14px}
+  .approvals{gap:16px}
+  .ev-item{flex-direction:column;gap:8px;padding:10px 11px}
+  .ev-stat{flex-direction:row;gap:10px}
 
-  .placeholder{padding:28px 16px}
-  .placeholder h3{font-size:15px}
-  .placeholder p{font-size:12px}
+  .placeholder{padding:22px 12px}
+  .placeholder h3{font-size:14px}
+  .placeholder p{font-size:11px}
   .feature-list{grid-template-columns:1fr}
-  .cat-nm{min-width:80px}
-  .cat-bar{height:6px}
-  .cat-val{min-width:60px;font-size:11px}
-  .dmc-n{font-size:18px}
-  .dmc-l{font-size:8.5px}
-  .mim{padding:8px 10px}
-  .mim-v{font-size:14px}
-  .mim-l{font-size:9px}
-  .up-ev{padding:8px 14px}
-  .up-title{font-size:11px}
-  .up-date{font-size:10px}
-  .feed-item{padding:10px 14px}
-  .feed-body .ft{font-size:12px}
-  .feed-body .fm{font-size:10px}
-  .ql-editor{font-size:13px}
-  .tox-tinymce{max-width:100%}
+  .cat-nm{min-width:64px;font-size:10.5px}
+  .cat-bar{height:5px}
+  .cat-val{min-width:48px;font-size:10px}
+  .dmc-n{font-size:16px}
+  .dmc-l{font-size:8px}
+  .mim{padding:6px 8px}
+  .mim-v{font-size:12px}
+  .mim-l{font-size:8px}
+  .up-ev{padding:6px 10px}
+  .up-title{font-size:10.5px}
+  .up-date{font-size:9px}
+  .feed-item{padding:8px 11px}
+  .feed-body .ft{font-size:11px}
+  .feed-body .fm{font-size:9px}
+
+  /* Extra premium mobile polish — clean stacked sections like the reference examples */
+  .card-body.flush > * + * { margin-top: 4px; }
+  .dash-meal, .cat-row, .up-ev, .report-row, .stage-item, .feed-item { padding-top: 6px; padding-bottom: 6px; }
+  .qa-btn { min-height: 42px; }
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -899,40 +905,63 @@ table.data.logtbl td{padding:6px 10px}
   .sidebar-overlay{display:block}
   .portal.sidebar-open .sidebar-overlay{display:block}
 
-  .topbar{padding:0 10px}
+  .topbar{padding:0 10px;height:50px}
   .tb-sub{display:none}
 
-  .main{padding:16px 14px}
+  /* Extend phone overflow hardening + premium polish to 768px (phone landscape / small tablet).
+     Matches the clean, stacked, readable card quality in the reference example sites. */
+  .tb-left{min-width:0;flex:1 1 auto;gap:6px}
+  .tb-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tb-right{flex:0 0 auto;gap:5px}
+  .inv-badge{display:none}
+  .stat-grid,.stat-grid.kpi5,.stat-grid.kpi6{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .stat-card{min-width:0;padding:11px 12px}
+  .stat-card .sc-val{font-size:18px}
+  .stat-card .sc-lbl{font-size:9.5px}
+
+  .banner{padding:9px 11px;font-size:11px;margin-bottom:8px}
+  .page-head{margin-bottom:12px}
+  .page-head h2{font-size:18px}
+  .grid-2{gap:10px}
+  .card-body{padding:10px 12px}
+  .dash-meal .dm-items{font-size:10.5px}
+  .cat-row{padding:6px 10px}
+  .mi-mini .mim-v{font-size:12px}
+  .dmc-n{font-size:16px}
+  .qa-btn{font-size:11px;min-height:42px}
+
+  .main{padding:14px 12px}
   .stat-grid.kpi6{grid-template-columns:repeat(3,1fr)}
-  .stat-grid.kpi6 .sc-val{font-size:19px}
+  .stat-grid.kpi6 .sc-val{font-size:17px}
 
   .menu-grid{grid-template-columns:1fr}
-  .page-head h2{font-size:19px}
-  .card-head{padding:12px 15px}
-  .card-body{padding:14px 15px}
+  .card-head{padding:10px 12px}
+  .card-head h3{font-size:12px}
   .table-wrap{overflow-x:auto}
-  .dash-meal-counts{grid-template-columns:repeat(2,1fr)}
-  .cal-cell{min-height:72px}
+  .dash-meal-counts{grid-template-columns:repeat(2,1fr);gap:5px}
+  .cal-cell{min-height:60px}
 
   .modal{max-width:94vw}
-  .overlay{padding:16px}
+  .overlay{padding:12px}
 
-  .form-toolbar{flex-direction:column;align-items:stretch}
+  .form-toolbar{flex-direction:column;align-items:stretch;gap:6px}
   .ft-l{flex-direction:row;flex-wrap:wrap}
-  .ft-field.grow{min-width:150px}
+  .ft-field.grow{min-width:140px}
 
-  .sheet-summary{gap:16px}
+  .sheet-summary{gap:12px;padding:8px 10px}
+  .ss-val{font-size:15px}
 
-  .req-grid{gap:10px}
-  .formbar{flex-wrap:wrap;gap:10px}
+  .req-grid{gap:8px}
+  .formbar{flex-wrap:wrap;gap:8px}
   .monitor-counts{flex-direction:column;align-items:stretch}
   .tpl-grid{grid-template-columns:repeat(2,1fr)}
-  .tpl-card{padding:12px 14px}
+  .tpl-card{padding:10px 11px}
   .qa-grid{grid-template-columns:1fr}
 
-  #toast{bottom:16px;right:16px}
-  .ev-item{gap:10px;padding:12px 14px}
-  .stat-grid.kpi6{grid-template-columns:repeat(3,1fr)}
+  #toast{bottom:12px;right:12px}
+  .ev-item{gap:8px;padding:10px 11px}
+
+  .banner .btn[aria-label="Dismiss"]{padding:5px 7px;min-height:30px;line-height:1}
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -1006,12 +1035,11 @@ table.data.logtbl td{padding:6px 10px}
 .modal{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 32px rgba(9,22,51,.18);max-width:400px;width:90vw}
 
 /* ════════════════════════════════════════════════════════════
-   Phone overflow hardening (≤640px) — keep everything inside the
-   viewport. `.portal` uses overflow:hidden, so any element wider than
-   100vw is clipped on the right (observed: topbar controls + the right
-   column of stat cards got cut off at 390px). These rules let the
-   single grid column and the cards shrink below their content width,
-   and trim the topbar so nothing is clipped. Last block → wins cascade.
+   Phone overflow hardening + premium mobile polish (≤640px + ultra small)
+   Last block wins. Goal: whole frontend (all views, tables, forms, lists, calendars,
+   source control, reports, etc.) feels as clean, readable, and premium on phones as
+   the reference examples (exwebsite1-3). Good spacing, 44px+ targets, natural stacking,
+   no cramping or clipping, like the modern stacked sections and cards in the screenshots.
    ════════════════════════════════════════════════════════════ */
 @media(max-width:640px){
   html,body{max-width:100%;overflow-x:hidden}
@@ -1019,13 +1047,77 @@ table.data.logtbl td{padding:6px 10px}
   .topbar,.main{min-width:0}
   .main{overflow-x:hidden}
 
-  /* Topbar: truncate the brand, drop the LIVE pill, keep controls reachable */
-  .tb-left{min-width:0;flex:1 1 auto;gap:8px}
+  .tb-left{min-width:0;flex:1 1 auto;gap:6px}
   .tb-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .tb-right{flex:0 0 auto;gap:6px}
+  .tb-right{flex:0 0 auto;gap:4px}
   .inv-badge{display:none}
 
-  /* Stat cards: tracks/cards must be allowed to shrink below content width */
+  .stat-grid,.stat-grid.kpi5,.stat-grid.kpi6{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .stat-card{min-width:0}
+
+  /* Ultra-premium mobile: match the airy-yet-dense, high-quality stacked card experience */
+  .banner{padding:7px 9px;font-size:10.5px;margin-bottom:8px}
+  .page-head{margin-bottom:10px}
+  .page-head h2{font-size:16px}
+  .stat-card{padding:8px 9px}
+  .stat-card .sc-val{font-size:16px}
+  .stat-card .sc-lbl{font-size:8.5px}
+  .stat-card .sc-ic{width:24px;height:24px}
+  .grid-2{gap:8px}
+  .card-head{padding:8px 10px}
+  .card-head h3{font-size:11.5px}
+  .card-body{padding:8px 10px}
+  .dash-meal .dm-items{font-size:10px}
+  .cat-row{padding:5px 8px;gap:5px}
+  .cat-nm{min-width:56px;font-size:10px}
+  .cat-val{font-size:9.5px;min-width:46px}
+  .mi-mini{gap:4px}
+  .mim{padding:5px 6px}
+  .mim-v{font-size:11px}
+  .dmc{padding:5px 2px}
+  .dmc-n{font-size:14px}
+  .qa-btn{padding:5px 7px;font-size:10px;min-height:40px}
+  .up-ev{padding:4px 8px}
+  .up-title{font-size:10px}
+
+  /* Finish remaining hard-coded sizes from inline styles that caused smush (tables, sheets, cards, inputs in inventory/moninv/reports/source) */
+  .card.mobile-compact { padding: 14px !important; }
+  .item-col { min-width: 110px !important; }
+  input[style*="width: 70"], .mobile-num-inp, input.sheet-inp[style] { width: 40px !important; padding: 3px 4px !important; font-size: 11px !important; }
+  .card[style*="padding: '40px'"], .card[style*="padding: 40px"] { padding: 14px !important; }
+  .card[style*="padding: '26px 17px'"], .card[style*="padding: 26px 17px"] { padding: 10px 12px !important; }
+  table.data.logtbl th, table.data.logtbl td { padding: 4px 5px !important; font-size: 9.5px !important; }
+  .tbl-wrap table.data th, .tbl-wrap table.data td { white-space: nowrap; }
+}
+
+/* Ultra-small phones (common for the "smushed" reports) — extra aggressive but still usable */
+@media(max-width:380px){
+  body{font-size:11.5px}
+  .main{padding:10px 8px}
+  .topbar{height:44px;padding:0 6px}
+  .stat-card{padding:7px 8px}
+  .stat-card .sc-val{font-size:15px}
+  .stat-card .sc-ic{width:22px;height:22px}
+  .card-head{padding:7px 8px}
+  .card-body{padding:7px 8px}
+  .btn{min-height:42px;font-size:12px;padding:8px 11px}
+  .field .ipt{min-height:42px;padding:10px;font-size:13px}
+  .nav-item{min-height:44px;font-size:14px}
+  .tbl-wrap table.data th, .tbl-wrap table.data td { padding:5px 6px; font-size:9.5px; }
+  .dash-meal-counts, .mi-mini, .qa-grid { gap:4px; }
+  .mim-v { font-size:10.5px; }
+}
+
+/* Final safety net for the hardening rules (last wins) */
+@media(max-width:640px){
+  html,body{max-width:100%;overflow-x:hidden}
+  .portal{grid-template-columns:minmax(0,1fr)}
+  .topbar,.main{min-width:0}
+  .main{overflow-x:hidden}
+  .tb-left{min-width:0;flex:1 1 auto;gap:6px}
+  .tb-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tb-right{flex:0 0 auto;gap:4px}
+  .inv-badge{display:none}
   .stat-grid,.stat-grid.kpi5,.stat-grid.kpi6{grid-template-columns:repeat(2,minmax(0,1fr))}
   .stat-card{min-width:0}
 }

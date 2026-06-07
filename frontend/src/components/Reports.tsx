@@ -361,7 +361,7 @@ export function Reports({
             <div className="ph-sub">Download or print any report or blank template across the system</div>
           </div>
         </div>
-        <div className="card" style={{ padding: '40px' }}>
+        <div className="card mobile-compact">
           <Loading label="Loading report data…" />
         </div>
       </div>

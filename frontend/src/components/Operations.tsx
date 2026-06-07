@@ -375,7 +375,7 @@ export function MonthlyInventory({
       </div>
 
       {loading ? (
-        <div className="card" style={{ padding: '40px' }}>
+        <div className="card mobile-compact">
           <Loading label="Loading inventory…" />
         </div>
       ) : (
@@ -442,7 +442,7 @@ export function MonthlyInventory({
                 <tbody>
                   {filtered.map((r: any) => (
                     <tr key={r.id}>
-                      <td style={{ fontWeight: 600, minWidth: 200 }}>{r.item}</td>
+                      <td style={{ fontWeight: 600 }} className="item-col">{r.item}</td>
                       <td>
                         <span
                           style={{
