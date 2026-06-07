@@ -400,7 +400,7 @@ export function MonthlyInventory({
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-head" style={{ gap: 10, flexWrap: 'wrap' }}>
               <h3>Inventory roll-up</h3>
-              <div style={{ position: 'relative', minWidth: 220 }}>
+              <div style={{ position: 'relative', minWidth: 0 }}>
                 <span
                   style={{
                     position: 'absolute',

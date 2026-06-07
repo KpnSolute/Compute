@@ -241,7 +241,7 @@ export function EventsCalendar({ user }: { user: User }) {
 
               <div className="card" style={{ marginBottom: 16 }}>
                 <div className="card-head"><h3>This month</h3></div>
-                <div className="card-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div className="card-body split-grid">
                   {counts.map(({ c, n }) => (
                     <div key={c} className="ev-stat" style={{ background: CAT_META[c].bg }}>
                       <span className="evs-n" style={{ color: CAT_META[c].color }}>{n}</span>
@@ -320,7 +320,7 @@ function AddEventModal({ CAT_META, defaultMonth, onClose, onAdd }: AddEventModal
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
           <div className="ft-field"><span style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--faint)' }}>Title *</span>
             <input className="ipt sel" value={f.title} onChange={e => set('title', e.target.value)} placeholder="e.g. Haitian Flag Day Dinner" /></div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div className="split-grid" style={{ gap: 12 }}>
             <div className="ft-field"><span style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--faint)' }}>Category</span>
               <select className="ipt sel" value={f.cat} onChange={e => set('cat', e.target.value)}>
                 {Object.keys(CAT_META).map(k => <option key={k} value={k}>{CAT_META[k].label}</option>)}

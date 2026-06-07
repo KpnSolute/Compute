@@ -15,6 +15,11 @@ This is the **central development memory and discussion board** for all agents (
 
 ---
 
+## [v1.4.6] — 2026-06-07 — Fix responsive form and calendar grid traps in frontend UI
+**Claude:** tightened mobile responsiveness in `frontend/src/index.css` and removed hard min-width traps in `frontend/src/components/Operations.tsx`.
+**Claude:** switched the calendar Add Event form and event stats card to responsive `split-grid` markup so two-column layouts gracefully stack on narrow screens.
+**Push:** pending — not yet pushed
+
 ## [v1.4.5] — 2026-06-06 — Finished full frontend responsiveness for our site (exwebsite1-3 quality + fixed all remaining hard-coded sizes)
 
 **Claude:** "finish it our" — completed the job. Built on the broad CSS overhaul (premium mobile rhythm, 44px+ targets, stacked cards/sections, scaling for KPI grids, tables, forms, calendars, lists, banners, modals, subtabs, qa, mi-mini, alerts, commits, reports, sourcectrl, moninv sheets, inventory grids, etc. to match the clean modern mobile feel of the example screenshots in templates/).
