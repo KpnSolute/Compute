@@ -43,6 +43,20 @@ This is the **central development memory and discussion board** for development 
 
 **Verify:** `python -m py_compile` on both files → exit 0. `ruff` not installed in this `backend/.venv` (consistent with prior CHANGELOG env notes) — style matches the files (double-quoted keys). Recommend a `ruff check/format backend/` pass in a clean env before relying on CI.
 
+**Push:** Claude → 704e747 — 2026-06-08 (main).
+
+## [v1.8.3] — 2026-06-08 — Logical-error pass: Archives month label + Meal-Log/Inspection date off-by-one
+
+**Claude (frontend lane):** Fixed two user-visible logical errors surfaced in the v1.7.0/v1.5.5 audits.
+
+**1. Archives all read "June 2026" (v1.7.0 anomaly #3) — now labeled by real period.** `ArchivesView` (`Portal.tsx`) derived each snapshot's label from `created_at` (the save timestamp), which clustered on the 2026-06-01 bulk-write date — so every archive printed "June 2026". `/api/inventory/history` already returns the true period in `metadata.month` (1-indexed) + `metadata.year` (and `id` = `YYYY-MM`); the label now uses `MONTHS[meta.month-1] {meta.year}`, falling back to `created_at` only if metadata is absent. DB was correct all along (Track B confirmed 0-indexed month/year) — this was purely a display bug.
+
+**2. Meal Log + Inspection footers showed yesterday (v1.5.5 obs #3) — timezone off-by-one.** `Forms.tsx` formatted `new Date("YYYY-MM-DD").toLocaleDateString()`, which parses as UTC midnight and renders the prior calendar day in Miami (UTC-4). Both footers now parse `new Date(date + "T12:00:00")` (local noon), matching the guard already used in `Portal.tsx`. The underlying `date`/`today` state are bare `YYYY-MM-DD` (verified Forms.tsx:736/1044), so the suffix is safe.
+
+**Verify:** `npx tsc --noEmit` exit 0 · `npm run build` exit 0 · `npm run lint` 0 errors / 290 warnings (unchanged baseline). Files: `frontend/src/components/Portal.tsx`, `frontend/src/components/Forms.tsx`.
+
+**Still flagged (not changed this pass):** backend `unit_price`/`description` share the same partial-payload clobber pattern as par (v1.8.2) but the UI always sends them — left documented, not patched, to avoid the dual-write/new-item-default nuance without more care. After v1.8.1's Closing-Value fix, the Dashboard "Inventory Value" and "Closing Value" tiles now compute the same net figure (both subtract issued) — not wrong, but redundant; differentiating them (e.g. current on-hand value vs net closing) is a design call for the user.
+
 **Push:** pending — not yet pushed.
 
 ## [v1.8.0] — 2026-06-08 — Data-Implementation gap check: app vs `templates/inventory.html` (manager workflow). 3 parallel tracks

@@ -2482,15 +2482,22 @@ function ArchivesView(_props: { period: [number, number] }) {
                     (sum: number, i: any) => sum + i.onHand * (i.price || 0),
                     0,
                 );
+                const meta = s.metadata || {};
                 const dt = s.created_at ? new Date(s.created_at) : new Date();
+                // Label by the snapshot's ACTUAL period (month/year), not its
+                // save date — created_at clusters on the bulk-write date, which
+                // made every archive read "June 2026". meta.month is 1-indexed.
+                const label =
+                    meta.label ||
+                    (meta.month && meta.year
+                        ? `${MONTHS[meta.month - 1]} ${meta.year}`
+                        : dt.toLocaleDateString("en-US", {
+                              month: "long",
+                              year: "numeric",
+                          }));
                 return {
                     period: s.id || dt.toISOString().slice(0, 7),
-                    label:
-                        s.metadata?.label ||
-                        dt.toLocaleDateString("en-US", {
-                            month: "long",
-                            year: "numeric",
-                        }),
+                    label,
                     value,
                     items: items.length,
                     low: low.length,

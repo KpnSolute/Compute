@@ -1027,7 +1027,8 @@ export function MealLog({ user }: FormProps) {
                 canEdit={canEdit}
                 note={
                     <span className="formbar-meta">
-                        Meal log · {new Date(date).toLocaleDateString()}
+                        Meal log ·{" "}
+                        {new Date(date + "T12:00:00").toLocaleDateString()}
                     </span>
                 }
             />
@@ -1196,7 +1197,9 @@ export function InspectionSheet({ user }: FormProps) {
                 note={
                     <span className="formbar-meta">
                         Inspection ·{" "}
-                        {new Date(data.date || today).toLocaleDateString()}
+                        {new Date(
+                            (data.date || today) + "T12:00:00",
+                        ).toLocaleDateString()}
                     </span>
                 }
             />
