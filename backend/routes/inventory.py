@@ -13,6 +13,7 @@ Endpoints:
 
 import logging
 from datetime import datetime
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Header, Depends
 from pydantic import BaseModel, Field
 from backend.routes import supabase_service, jwt_validator
@@ -26,7 +27,9 @@ class InventoryItem(BaseModel):
     sku: str
     desc: str
     onHand: int = Field(0, ge=0)
-    par: int = Field(0, ge=0)
+    # Optional so a save that does not include par does NOT zero the shared
+    # inventory_items.par_level (which would corrupt par across every period).
+    par: Optional[int] = Field(None, ge=0)
     category: str
     price: float = 0.0
     unit: str = "each"
@@ -311,19 +314,20 @@ async def save_inventory(
                     status_code=400, detail=f"Unknown category: {item.category}"
                 )
 
-            # Upsert inventory_items by SKU (on_hand lives in monthly_inventory, not here)
+            # Upsert inventory_items by SKU (on_hand lives in monthly_inventory, not here).
+            # Only write par_level when the payload actually carries par — omitting it
+            # leaves the stored value untouched on conflict (no accidental zeroing).
+            item_fields = {
+                "sku": item.sku,
+                "description": item.desc,
+                "category_id": cat_id,
+                "unit_price": item.price,
+            }
+            if item.par is not None:
+                item_fields["par_level"] = item.par
             inv_result = (
                 supabase_service.table("inventory_items")
-                .upsert(
-                    {
-                        "sku": item.sku,
-                        "description": item.desc,
-                        "category_id": cat_id,
-                        "unit_price": item.price,
-                        "par_level": item.par,
-                    },
-                    on_conflict="sku",
-                )
+                .upsert(item_fields, on_conflict="sku")
                 .select("id")
                 .execute()
             )

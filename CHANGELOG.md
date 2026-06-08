@@ -28,7 +28,22 @@ This is the **central development memory and discussion board** for development 
 
 **Still open from v1.8.0:** #2 par-overwrite (backend COALESCE — data lane); Invoice→receiving feature (cross-lane); master row-set reconciliation 260→322 (data lane); Add item / Export-Import / Barcodes / Scan / Mobile Sync stubs.
 
-**Push:** pending — not yet pushed (on branch `fix/inventory-ui-closing-value-compact-persist`).
+**Push:** Claude → d02e014 — 2026-06-08 (main; also flushed pending v1.5.x–v1.6.0 UI work). MCP-config deletions (.mcp.json/.vscode/mcp.json) left staged, not in this commit.
+
+## [v1.8.2] — 2026-06-08 — Backend: stop `par_level` data-loss on inventory save (bug v1.8.0 #2)
+
+**Claude (data-lane fix under single-agent model):** Fixed the par-overwrite Track 3 confirmed. Both save paths upserted `inventory_items.par_level` straight from the payload — and the dispatcher's `item.get("par", 0)` turned a *missing* par into a destructive `0`. Because `par_level` lives on the shared `inventory_items` row (not per-period), one bad save zeroed par for that SKU across **every** period.
+
+**Change (par now written only when the payload provides it):**
+- `backend/routes/inventory.py`: `InventoryItem.par` is now `Optional[int] = Field(None, ge=0)` (added `typing.Optional`); the `inventory_items` upsert builds `item_fields` and includes `par_level` only when `item.par is not None`. Omitting it leaves the stored value untouched on conflict.
+- `backend/staging/dispatch.py` `dispatch_inventory_save`: same — `par_level` included only when `item.get("par") is not None` (no more `, 0)` default).
+- A deliberate par edit (including a real `0`) still persists because the frontend sends par explicitly; only *absent* par is now preserved instead of zeroed. Pairs with the frontend defensive fix in v1.8.1 (compact/row stages already send real par).
+
+**Note (same-pattern latent risk, not changed):** `unit_price` and `description` on `inventory_items` are still written unconditionally — in practice the UI always sends them, but a partial payload could clobber them too. Flagged for follow-up; left alone to keep this fix surgical.
+
+**Verify:** `python -m py_compile` on both files → exit 0. `ruff` not installed in this `backend/.venv` (consistent with prior CHANGELOG env notes) — style matches the files (double-quoted keys). Recommend a `ruff check/format backend/` pass in a clean env before relying on CI.
+
+**Push:** pending — not yet pushed.
 
 ## [v1.8.0] — 2026-06-08 — Data-Implementation gap check: app vs `templates/inventory.html` (manager workflow). 3 parallel tracks
 

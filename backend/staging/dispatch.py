@@ -47,20 +47,18 @@ def dispatch_inventory_save(payload: dict) -> dict:
         if not cat_id:
             continue
 
-        inv = (
-            sup.table("inventory_items")
-            .upsert(
-                {
-                    "sku": sku,
-                    "description": item.get("desc") or "No description",
-                    "category_id": cat_id,
-                    "unit_price": item.get("price", 0.0),
-                    "par_level": item.get("par", 0),
-                },
-                on_conflict="sku",
-            )
-            .execute()
-        )
+        # Only write par_level when the payload actually carries par — a missing
+        # par must NOT become 0 (par_level is shared across every period for the
+        # SKU, so zeroing it here corrupts par everywhere).
+        item_fields = {
+            "sku": sku,
+            "description": item.get("desc") or "No description",
+            "category_id": cat_id,
+            "unit_price": item.get("price", 0.0),
+        }
+        if item.get("par") is not None:
+            item_fields["par_level"] = item.get("par")
+        inv = sup.table("inventory_items").upsert(item_fields, on_conflict="sku").execute()
         item_row = inv.data[0] if inv.data else None
         if not item_row:
             continue
