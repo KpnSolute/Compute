@@ -57,6 +57,23 @@ This is the **central development memory and discussion board** for development 
 
 **Still flagged (not changed this pass):** backend `unit_price`/`description` share the same partial-payload clobber pattern as par (v1.8.2) but the UI always sends them — left documented, not patched, to avoid the dual-write/new-item-default nuance without more care. After v1.8.1's Closing-Value fix, the Dashboard "Inventory Value" and "Closing Value" tiles now compute the same net figure (both subtract issued) — not wrong, but redundant; differentiating them (e.g. current on-hand value vs net closing) is a design call for the user.
 
+**Push:** Claude → 5411a1e — 2026-06-08 (main).
+
+## [v1.8.4] — 2026-06-08 — Feature: Add inventory item (replaces the stub) — manager can create items
+
+**Claude (frontend lane):** Implemented the "Add item" capability — previously a `toast("coming soon")` stub (v1.8.0 gap matrix). Managers (lvl≥30 / `canStage`) can now create a new inventory item from the Inventory page.
+
+**How it works:** Both "Add item" triggers (the page-header button and the Compact-view per-category footer button) now open a modal built on the existing design-system pattern (`.overlay`/`.modal`/`.field`/`.ipt.sel`/`.modal-foot`). Fields: Description* , Category* (dropdown of the live categories; the Compact button pre-selects that section's category), SKU (optional), Unit price, On hand, Par. On submit it stages an `inventory_save` op via `api.stageChange("inventory_save","inventory",sku,…)` — the SAME path inventory edits use — so the new item flows through Source Control review like every other change. On approval, the dispatcher upserts a new `inventory_items` row (new SKU) plus its `monthly_inventory` row for the period.
+
+**Details / safeguards:**
+- **No vendor SKU?** When SKU is left blank, a unique `MJC-<base36 time>` SKU is generated client-side so new rows don't collide on the empty-string SKU upsert key (the backend keys `on_conflict="sku"`; a shared `""` would clobber).
+- Required-field validation (description + category) with toasts; numeric fields floored at ≥0; busy/disabled states during staging; overlay-click and Cancel close (disabled while staging); resets the form on success.
+- Consistent with the governance model: adds are **staged**, not written live — they appear as a pending change in Source Control for approval (matches all other inventory mutations).
+
+**Verify:** `npx tsc --noEmit` 0 · `npm run build` 0 · `npm run lint` 0 errors / 291 warnings (+1 vs baseline = one `catch (e: any)`, matches existing style). File: `frontend/src/components/Portal.tsx`.
+
+**Follow-up (not blocking):** the template also supports inline blank-row add + row delete; this modal covers create. Item DELETE is still not implemented. Export/Import, Barcodes/Scan, Mobile Sync remain stubs.
+
 **Push:** pending — not yet pushed.
 
 ## [v1.8.0] — 2026-06-08 — Data-Implementation gap check: app vs `templates/inventory.html` (manager workflow). 3 parallel tracks

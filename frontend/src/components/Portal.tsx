@@ -945,6 +945,20 @@ function InventoryView({
     const toggleCat = (c: string) =>
         setCollapsed((p) => ({ ...p, [c]: !p[c] }));
 
+    // Add-item modal (creates a new inventory_items row via the inventory_save
+    // staging path — a new SKU upserts as a new item on approval).
+    const [showAddItem, setShowAddItem] = useState(false);
+    const [addBusy, setAddBusy] = useState(false);
+    const blankItem = {
+        desc: "",
+        sku: "",
+        category: "",
+        price: "",
+        par: "",
+        onHand: "",
+    };
+    const [newItem, setNewItem] = useState(blankItem);
+
     // Weekly pulled (issued, ↓) / received (↑) columns — mirrors the offline
     // template's compact sheet. Edits live in local `wkDraft` and are persisted
     // via the "Stage weekly changes" batch action (stageCompactChanges), which
@@ -1096,6 +1110,55 @@ function InventoryView({
         }
     };
 
+    const submitNewItem = async () => {
+        const desc = newItem.desc.trim();
+        if (!desc) {
+            toast("Item description is required");
+            return;
+        }
+        if (!newItem.category) {
+            toast("Pick a category");
+            return;
+        }
+        // Generate a SKU when the manager has no vendor SKU, so new rows don't
+        // collide on the empty-string SKU upsert key (the backend keys on sku).
+        const sku =
+            newItem.sku.trim() || `MJC-${Date.now().toString(36).toUpperCase()}`;
+        const numOr0 = (v: string) => Math.max(0, parseFloat(v) || 0);
+        const payload = {
+            month: period[0] + 1,
+            year: period[1],
+            notes: `New item · ${MONTHS[period[0]]} ${period[1]}`,
+            items: [
+                {
+                    sku,
+                    desc,
+                    category: newItem.category,
+                    onHand: numOr0(newItem.onHand),
+                    par: numOr0(newItem.par),
+                    price: numOr0(newItem.price),
+                },
+            ],
+        };
+        setAddBusy(true);
+        try {
+            await api.stageChange(
+                "inventory_save",
+                "inventory",
+                sku,
+                payload,
+                `New item · ${desc}`,
+            );
+            toast(`Staged new item: ${desc}`);
+            setShowAddItem(false);
+            setNewItem(blankItem);
+        } catch (e: any) {
+            toast(`Failed to add item: ${e?.message || "Unknown error"}`);
+        } finally {
+            setAddBusy(false);
+        }
+    };
+
     const live = invState.inv;
     let rows: any[], cats: string[];
     if (live) {
@@ -1181,7 +1244,13 @@ function InventoryView({
                         </span>
                     )}
                     {lvl >= 30 && (
-                        <button className="btn primary">
+                        <button
+                            className="btn primary"
+                            onClick={() => {
+                                setNewItem(blankItem);
+                                setShowAddItem(true);
+                            }}
+                        >
                             {I.plus()} Add item
                         </button>
                     )}
@@ -2158,11 +2227,18 @@ function InventoryView({
                                                                     {lvl >= 30 && (
                                                                         <button
                                                                             className="btn-add-row"
-                                                                            onClick={() =>
-                                                                                toast(
-                                                                                    "Add item — coming soon",
-                                                                                )
-                                                                            }
+                                                                            onClick={() => {
+                                                                                setNewItem(
+                                                                                    {
+                                                                                        ...blankItem,
+                                                                                        category:
+                                                                                            c,
+                                                                                    },
+                                                                                );
+                                                                                setShowAddItem(
+                                                                                    true,
+                                                                                );
+                                                                            }}
                                                                         >
                                                                             {I.plus()}{" "}
                                                                             Add
@@ -2202,6 +2278,152 @@ function InventoryView({
                             )}
                         </div>
                     )}
+                </div>
+            )}
+            {canStage && showAddItem && (
+                <div
+                    className="overlay"
+                    onClick={() => !addBusy && setShowAddItem(false)}
+                >
+                    <div className="modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-head">
+                            <div>
+                                <h3>{I.plus()} Add inventory item</h3>
+                                <div className="sub">
+                                    Stages a new item to Source Control for{" "}
+                                    {MONTHS[period[0]]} {period[1]}.
+                                </div>
+                            </div>
+                            <button
+                                className="modal-x"
+                                onClick={() => setShowAddItem(false)}
+                                disabled={addBusy}
+                                aria-label="Close"
+                            >
+                                {I.x()}
+                            </button>
+                        </div>
+                        <div className="modal-body">
+                            <div className="field">
+                                <label>Description *</label>
+                                <input
+                                    className="ipt"
+                                    autoFocus
+                                    value={newItem.desc}
+                                    placeholder="e.g. RICE, LONG GRAIN 50LB"
+                                    onChange={(e) =>
+                                        setNewItem((p) => ({
+                                            ...p,
+                                            desc: e.target.value,
+                                        }))
+                                    }
+                                />
+                            </div>
+                            <div className="field">
+                                <label>Category *</label>
+                                <select
+                                    className="ipt sel"
+                                    value={newItem.category}
+                                    onChange={(e) =>
+                                        setNewItem((p) => ({
+                                            ...p,
+                                            category: e.target.value,
+                                        }))
+                                    }
+                                >
+                                    <option value="">Select a category…</option>
+                                    {(cats || []).map((c) => (
+                                        <option key={c} value={c}>
+                                            {c}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="grid-2" style={{ gap: 12 }}>
+                                <div className="field">
+                                    <label>SKU (optional)</label>
+                                    <input
+                                        className="ipt mono"
+                                        value={newItem.sku}
+                                        placeholder="auto if blank"
+                                        onChange={(e) =>
+                                            setNewItem((p) => ({
+                                                ...p,
+                                                sku: e.target.value,
+                                            }))
+                                        }
+                                    />
+                                </div>
+                                <div className="field">
+                                    <label>Unit price ($)</label>
+                                    <input
+                                        className="ipt mono"
+                                        type="number"
+                                        min={0}
+                                        step="0.01"
+                                        value={newItem.price}
+                                        placeholder="0.00"
+                                        onChange={(e) =>
+                                            setNewItem((p) => ({
+                                                ...p,
+                                                price: e.target.value,
+                                            }))
+                                        }
+                                    />
+                                </div>
+                            </div>
+                            <div className="grid-2" style={{ gap: 12 }}>
+                                <div className="field">
+                                    <label>On hand</label>
+                                    <input
+                                        className="ipt mono"
+                                        type="number"
+                                        min={0}
+                                        value={newItem.onHand}
+                                        placeholder="0"
+                                        onChange={(e) =>
+                                            setNewItem((p) => ({
+                                                ...p,
+                                                onHand: e.target.value,
+                                            }))
+                                        }
+                                    />
+                                </div>
+                                <div className="field">
+                                    <label>Par level</label>
+                                    <input
+                                        className="ipt mono"
+                                        type="number"
+                                        min={0}
+                                        value={newItem.par}
+                                        placeholder="0"
+                                        onChange={(e) =>
+                                            setNewItem((p) => ({
+                                                ...p,
+                                                par: e.target.value,
+                                            }))
+                                        }
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                        <div className="modal-foot">
+                            <button
+                                className="btn"
+                                onClick={() => setShowAddItem(false)}
+                                disabled={addBusy}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                className="btn primary"
+                                onClick={submitNewItem}
+                                disabled={addBusy}
+                            >
+                                {addBusy ? "Staging…" : "Add item"}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
