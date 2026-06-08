@@ -1,19 +1,151 @@
 # CHANGELOG — MJCC Development Forum
 
-This is the **central development memory and discussion board** for all agents (Claude, Gemini, OpenCode, Copilot). Treat it like a Discord server. **READ THIS BEFORE MAKING ANY CHANGE.** All AI thoughts, decisions, and changes go HERE — no new `.md` files are permitted (see `AGENTS.md` §0).
+This is the **central development memory and discussion board** for development on MJCC. **READ THIS BEFORE MAKING ANY CHANGE.** All thoughts, decisions, and changes go HERE — no new `.md` files are permitted (see `AGENTS.md` §0).
+
+> **Architecture note (2026-06-07):** The project now runs under a **unified single-agent parallel-track architecture**. The former multi-agent roster (Gemini, OpenCode, Grok, Copilot) is **DEPRECATED** — those were role labels, largely authored by the one operating agent (see `AGENTS.md` I-9 "phantom agents"). Work is now executed by a single orchestrating agent that spawns internal parallel execution tracks (e.g. a Runtime track on chrome-devtools + a Database track on Supabase) within one context. Historical entries below keep their original agent attributions and are **append-only** — they are NOT rewritten (`AGENTS.md` §8.4, I-6).
 
 **Format (newest on top):**
 
 ```
 ## [vX.X.X] — YYYY-MM-DD — short title
-**AgentName:** what was done and why.
-**OtherAgent:** their changes or acknowledgements.
-**Push:** [agent who pushed] → [git SHA stub] — [timestamp]   (or: pending — not yet pushed)
+**Track/Agent:** what was done and why (single orchestrator, or a named parallel track e.g. Track A — Runtime / Track B — Database).
+**Push:** [git SHA stub] — [timestamp]   (or: pending — not yet pushed)
 ```
 
 **Version convention:** `vX.X.X`. Reset to `v1.0.0` on 2026-06-04 — sequence forward from there. History below the reset line is preserved and append-only; do not rewrite it.
 
 ---
+
+## [v1.8.1] — 2026-06-08 — UI fixes from the gap check: Dashboard Closing-Value calc + Compact weekly persistence
+
+**Claude (frontend lane):** Started the fixes from v1.8.0, UI first. Branch `fix/inventory-ui-closing-value-compact-persist` off `main`. Two frontend fixes; backend par-coalesce (#2) left for the data lane.
+
+**Fix #1 — Dashboard "Closing Value" now subtracts issued (bug v1.8.0 #1).** `Portal.tsx` `monRows` had `issued: 0` hardcoded, so the Closing tile summed `opening + received` and over-stated value (live: $30,901.82 vs correct $8,828.59). Changed it to `issued: Σ(w1i..w4i)`, mirroring `iTotal` and the Monthly Inventory view. Now `miSum.close = Σ max(0, opening + received − issued) × price` and the two dashboard tiles ("Inventory Value" / "Closing Value") reconcile. One-line data fix; item shape from `/api/inventory` already carries `w1i..w4i` (verified by the v1.7.0 runtime capture).
+
+**Fix #3 — Compact weekly view now persists (bug v1.8.0 #3).** The Compact view's weekly received/issued inputs wrote only to in-memory `wkDraft` and were lost on reload. Added `stageCompactChanges()` — a BATCHED stage of all dirty rows (rows present in `wkDraft` or `draft`) into one `inventory_save` staging entry (entity_id `batch-compact`), mirroring the Monthly Inventory view's batch payload, and a "Stage weekly changes" toolbar button at the top of the Compact view (shows the unsaved-edit count, disabled when clean/busy). On success it clears `wkDraft` + the staged `draft` skus. **Defensive note on bug #2:** each staged item carries its REAL current `onHand`/`par` (draft merged over the row value), so this path never sends `par:0` — but the backend still needs the COALESCE fix (dispatch.py:58 / inventory.py:323, data lane) because other callers/payloads can still zero it. Updated the stale "UI-only … NOT persisted" comment.
+
+**Verify:** `npx tsc --noEmit` exit 0 · `npm run build` exit 0 (vite built clean; only pre-existing dynamic-import + chunk-size warnings) · `npm run lint` 0 errors / 290 warnings (pre-existing `any` baseline ~287; new code matches surrounding style). Files: `frontend/src/components/Portal.tsx` only. Prod visual verification will follow after Render redeploys from main.
+
+**Still open from v1.8.0:** #2 par-overwrite (backend COALESCE — data lane); Invoice→receiving feature (cross-lane); master row-set reconciliation 260→322 (data lane); Add item / Export-Import / Barcodes / Scan / Mobile Sync stubs.
+
+**Push:** pending — not yet pushed (on branch `fix/inventory-ui-closing-value-compact-persist`).
+
+## [v1.8.0] — 2026-06-08 — Data-Implementation gap check: app vs `templates/inventory.html` (manager workflow). 3 parallel tracks
+
+**Orchestrator (sequential-thinking):** Pivoted from "is the API healthy" (v1.7.0) to "is the foodservice **manager's full data-flow actually implemented**." Diffed the live app against the frozen reference `templates/inventory.html` (the AGENTS §5 source of truth for UI + seed). Ran 3 non-overlapping parallel tracks: **T1 — Reference/Calc** (template only), **T2 — Frontend map** (`frontend/src`), **T3 — Backend + live DB** (`backend` + Supabase read-only). All read-only; no code/data changed. Layers on v1.7.0.
+
+**The manager's intended monthly cycle (from the template):** seed master list (9 categories) → enter weekly **issued** (W1↓–W4↓, used-out) + weekly **received** (W1↑–W4↑, delivered-in) → **Invoice Entry tab** parses an invoice (AI) and posts quantities into the target week's received → value = `max(0, onHand + Σreceived − Σissued) × price` → Dashboard/Monthly Report/History → **Save Month** (snapshot) → **Close Month** (rollover: onHand = ending, weekly reset to 0). Plus Barcodes/Scan/Camera, Mobile Sync, Export/Import.
+
+### GAP MATRIX (Template = expected · ✅ wired-to-persist · ⚠️ partial · ❌ stub/missing)
+| Manager feature | Template | App status | Evidence |
+|---|---|---|---|
+| Master item list (read) | 9 cats | ✅ | `Portal.tsx:1032` `invToList`; `GET /api/inventory` |
+| **Item row set count** | **322 seed (326 w/ applyW2)** | ⚠️ **live = 260** (master=316) | ~62 template rows absent from live May; big cats most affected (Bev 61, Dry 75, Frozen 86) |
+| Add new item | inline `addRow` | ❌ stub | `Portal.tsx:2050` `toast("coming soon")` — no create call |
+| Edit on-hand | inline→persist | ⚠️ staging-only | `stageChange` `Portal.tsx:1332`; needs SourceControl commit; `api.saveInventory` wired to nothing |
+| Edit par | inline→persist | ⚠️ staging-only **+ DATA-LOSS BUG** | payload sends `par` only w/ on-hand; backend overwrites (below) |
+| Weekly issued/received — **Compact view** | inline→persist | ❌ **UI-only, never persists** | `setWeeklyField`→`wkDraft`; `Portal.tsx:948-965`; no save/stage. On-screen total vanishes on reload |
+| Weekly issued/received — **Monthly Inventory view** | inline→persist | ✅ (via staging) | `Operations.tsx:336-346` payload carries `w1r..w4r/w1i..w4i` |
+| **Invoice Entry → receiving** | ✅ AI parse → week's received | ❌ **MISSING both ends** | FE lists invoices read-only (`Operations.tsx:508`); no BE path maps `invoice_items`→`w*_received`; `getInvoiceItems` never called |
+| Per-item value (`iTotal`) | `max(0,oh+Σr−Σi)×price` | ✅ correct (client shim) | `supabase.ts:428-432` subtracts issued |
+| Category / grand totals | Σ iTotal | ✅ correct (client) | `supabase.ts:443/446` |
+| **Dashboard "Closing Value" tile** | net (subtracts issued) | ❌ **CALC BUG — inflated** | `Portal.tsx:377` hardcodes `issued:0` → $30.9K vs correct $8,828.59 |
+| Reorder/below-par | `oh<par && par>0` | ✅ (client) | `supabase.ts:456`; `api.getReorders` unused |
+| Monthly Report | rich per-cat + YoY | ⚠️ partial | `Reports.tsx`/Operations; no YoY/trend |
+| History / compare | trend chart + Δ + YoY | ⚠️ read-only | `ArchivesView` `Portal.tsx:2363`; display only |
+| Save Month snapshot | per-cat totals | ✅ (server, at rollover) | but Jan–Apr 2026 snapshots have zero weekly totals (bulk-saved) |
+| Close Month rollover | onHand=ending, weekly→0 | ✅ | `api.performRollover` `Portal.tsx:2559` |
+| Export / Import | JSON round-trip | ❌ stub | `Portal.tsx:2407` button, no handler; no import UI |
+| Barcodes / Scan / Camera | functional | ❌ placeholder | `Portal.tsx:2278` placeholder card; Scan btn no onClick |
+| Mobile Sync | QR/Web-Share | ❌ missing | `doSync` just reloads `/api/inventory` |
+
+### CONFIRMED BUGS (cross-validated by ≥2 tracks)
+1. **Dashboard Closing Value inflated (HIGH, Claude lane).** `Portal.tsx:377` throws issued away (`issued:0` hardcoded) while the sibling "Inventory Value" tile uses `iTotal` (which subtracts issued) — same data, two totals on one screen. Fix: feed real `w*i` into `monRows`/`miSum.close`. Live proof: $30,901.82 (no issues) vs **$8,828.59** correct. The backend has NO net-value calc either; `/api/dashboard/stats` uses `live_inventory.sub_total` = on-hand×price only ($8,289.56) and is never even called by the UI.
+2. **`par` overwrite = real data loss (HIGH, Gemini/back-end lane).** `inventory.py:323` and `dispatch.py:58` upsert `par_level` straight from payload (`InventoryItem.par` defaults 0, no COALESCE). Because `par_level` lives on the shared `inventory_items` row (not per-period), one save carrying `par:0` **wipes par for that SKU across every period**. Track A's staged test row carried `par:0` for a SKU whose real par is 2 — if approved, it corrupts par everywhere.
+3. **Two inventory editors with inconsistent persistence (HIGH UX, Claude lane).** The Compact weekly view (`wkDraft`) never saves; the Monthly Inventory view does. A manager entering W1–W4 numbers in Compact loses them on reload. Either wire Compact's `wkDraft` through `stageChange` or remove its editability.
+
+### MISSING WORKFLOWS (manager can't complete the cycle in-app)
+- **Invoice→receiving automation is the biggest gap.** The template's core monthly task (parse invoice → auto-post to the week's received) has no equivalent. The data to build it EXISTS: `invoices` already carry `month/year/week_number`, and 57/64 `invoice_items` match an `inventory_items.sku`. (Caveat for whoever builds it: `invoices.month` is 1-indexed vs `monthly_inventory.month` 0-indexed; and the template's own `applyParsed` has a double-count quirk — it adds qty to BOTH `onHand` and the weekly field — do NOT copy that.) Partial analog exists: `POST /api/data-entry/upload` (AI) stages ops, but it is not the manager-facing invoice→week receiving flow.
+- **Add item, Export/Import, Barcodes/Scan/Camera, Mobile Sync** are all functional in the template, stubs/placeholders in the app.
+
+### ROW-SET / "MISSING ROWS" (the user's question)
+Template seed = **322 items** (326 after `applyW2` pushes 4 Supplies); live `monthly_inventory` May 2026 = **260 rows** (master catalog = 316). So the live period is missing ~62 of the template's rows. Per-category template counts for reconciliation: Dairy 22 · Cereal 13 · Beverages 61 · Snacks 18 · Dry Goods 75 · Produce 18 · Protein 18 · Frozen 86 · Supplies 11(+4). Re-seeding/reconciling the master list to the template is a data lane (Gemini) task — the template is authoritative for the row set.
+
+### CALC LOGIC — VERDICT
+The **core formula is correct** where it's used through the shim (`iTotal` subtracts issued, floors at 0 before ×price; reorder = `oh<par && par>0`). The failures are **(a)** the Dashboard Closing tile bypassing it with a hardcoded `issued:0`, and **(b)** no server-side net-value calc at all (every backend value path is on-hand-only or received-without-issued). Weekly issued/received data is **real and active** (May 2026: 62% rows received, 53% issued), so these are calculation/wiring bugs, not empty-data artifacts.
+
+### Verdict & lanes
+Persistence backbone is largely sound (weekly fields DO round-trip via the Monthly view + staging; rollover works). The manager **cannot** yet: auto-receive from invoices, reliably edit weekly numbers in the Compact view, trust the Dashboard Closing tile, add items, or use barcodes/scan/export. Priority fixes: #1 Closing-value (Claude), #2 par-coalesce (Gemini), #3 Compact persistence (Claude), then the Invoice→receiving feature (cross-lane) and master row-set reconciliation (Gemini). No code changed this round — analysis only, pending user go-ahead on fixes.
+
+**Push:** pending — not yet pushed (analysis/doc only).
+
+## [v1.7.0] — 2026-06-08 — Full API + Data-Implementation Validation audit (parallel Runtime + Database tracks)
+
+**Orchestrator (sequential-thinking):** Ran the audit under the new unified single-agent parallel-track architecture. Planned via a 6-step sequential-thinking chain, then spawned two internal execution tracks that hit **different MCP resources** (no contention): **Track A — Runtime** (chrome-devtools, drove the live prod frontend `kpncompute.onrender.com` as `admin`), **Track B — Database** (Supabase MCP, read-only against `MJCCv1` / `mgvyylvmkxhhataavqjz`). I then cross-referenced A's captured write against B's tables and cleaned up the test artifact. Builds on the v1.5.5 UI smoke test.
+
+**Scope verified end-to-end:** Frontend → FastAPI (`mjcc-managements.onrender.com`) → Supabase. Auth round-trip: Supabase password grant → `user_profiles` lookup → `POST /api/auth/login` (ES256 JWT, ~60 min exp) → `Bearer` sent on all `/api/*`.
+
+**Endpoints exercised (all 200/201, non-truncated bodies):** `/api/auth/login`, `/api/inventory` (+`?month&year`), `/api/inventory/period-status`, `/api/inventory/history`, `/api/menu/{day}`, `/api/events`, `/api/invoices`, `/api/commits`, `/api/staging` (GET+POST), `/api/users`, `/api/data-entry/settings`, `/api/logs/daily`. **Not called by the live UI** (client-side computed or shimmed): `/api/auth/me`, `/api/dashboard/stats`, `/api/inventory/reorders`, `/api/logs/haccp` (HACCP view still localStorage — confirms I-4).
+
+**Tables checked (Track B, read-only):** 39 public tables + `live_inventory` view; **RLS enabled on all**. Row-count/recency captured for inventory_items (1591), monthly_inventory (21089), monthly_snapshots (76), events (29), commits (76), commit_changes (5460), invoices (7), user_profiles (13). Confirmed-empty: `menu_entries`, `haccp_logs`, `daily_operations_logs`, `staging_entries`.
+
+**WRITE ROUND-TRIP — VERIFIED (the core data-implementation proof):** Track A staged a non-destructive inventory edit (SKU `7416663`, on-hand 0→1, May 2026) via the Inventory Stage button → `POST /api/staging` **201** → `entry_id 11fc61a0-5fdb-40fd-a2d0-44aad880f9b8`, `created_at 2026-06-08T01:53:31.980683Z`. I confirmed the row landed in `staging_entries` with **`full_payload` intact and non-truncated**, timestamp matching to the microsecond. Real inventory was NOT mutated (staging only). Track B's earlier "staging_entries=0" was a **timing artifact** (it finished 325s before the write), not a failure. **Audit artifact deleted afterward — `staging_entries` returned to 0 (pristine).**
+
+**ANOMALIES (confirmed by BOTH tracks where applicable):**
+1. **Dashboard "Closing Value" = $30.9K is WRONG — root cause pinned.** It computes `SUM((on_hand + w1..w4_received) × price)` = **$30,901.82**, omitting weekly **issues** (~$23.9K). The Monthly Inventory page correctly does `+received −issued` = **$8,828.59**. Fix: dashboard closing-value calc must subtract issues (reuse the monthly formula). The `live_inventory` view is NOT the source of the $30.9K (it aggregates to ~$8.3–11.1K). *(Frontend/calc — Claude lane; the dashboard tiles are computed client-side from `/api/inventory`, not `/api/dashboard/stats`.)*
+2. **Staging payload drops real `par`.** The single-item `full_payload` for the staged edit carried `par:0`, but the item's true par is **2**. Persisted that way in the DB row. If such an entry were approved as-is it could zero a real par. *(Stage-button payload builder — review how single-field deltas are assembled.)*
+3. **Archives "June 2026" label bug is FRONTEND-ONLY.** DB `monthly_snapshots` carry correct, distinct 0-indexed (month,year); latest is May (month=4) — **there is no June/month=5 snapshot at all**. The UI is +1 offsetting or hardcoding the month label.
+4. **May snapshot vs live mismatch (confirmed, not corruption):** snapshot May = 316 items/$7,247.62 (preset, built from the 316-row master) vs live `monthly_inventory` May = 260 items/$8,828.59. Real 56-item delta from master-vs-active, carried over from v1.4.1.
+5. **Console (post-login clean):** 4×401 are pre-login `/api/*` calls firing before the token saves, then auto-succeeding (cosmetic race). a11y issues only (form fields missing id/name/label — 447/21 counts). No 5xx, no unhandled rejections, no post-login token-expiry 401s.
+6. **Data-quality nits:** `events.cat` value `heals` looks like a typo for `meals`; 2 negative `on_hand` rows in monthly_inventory (month=8/2021); 2025 Apr–Nov periods thin (71 items) vs neighbors.
+
+**SECURITY ADVISORS:** Posture good (RLS everywhere). 2 findings: `public.month_close` has **RLS enabled but no policy** (effectively locked) — https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy ; **Leaked-password protection disabled** in Supabase Auth (enable HIBP) — https://supabase.com/docs/guides/auth/password-security . Performance: 29 unused indexes (low priority, mostly empty tables).
+
+**Verdict:** API layer is healthy — every audited endpoint returns 200/201 with complete payloads, auth is correctly enforced, and the stage→DB write path is proven end-to-end. The actionable bugs are calc/label/payload-shape issues (#1–#3), not transport or persistence failures. No production data was altered (test artifact cleaned up).
+
+**Push:** pending — not yet pushed (doc + audit only; no app code changed this entry).
+
+## [v1.6.0] — 2026-06-07 — MCP config moved to GLOBAL (user scope); project MCP files deleted
+
+**Claude:** User re-enabled the browser MCP and added a new one, then asked me to move everything to my global config and delete the project-level MCP files. Did a full tool smoke test first — all green.
+
+**Live MCPs now (all User/global scope — `claude mcp list` ✓ Connected):**
+- **`chrome-devtools`** — RE-ENABLED. stdio `npx chrome-devtools-mcp@latest`. This supersedes v1.5.4 which said it was off. Browser/Network inspection of prod is live again.
+- **`github`** — NEW. stdio `npx -y @modelcontextprotocol/server-github`. Authenticated, verified with a repo search. Use for PRs/issues/code search instead of shelling `gh` where convenient.
+- **`sequential-thinking`** — stdio `npx @modelcontextprotocol/server-sequential-thinking`. For multi-step reasoning.
+- **`claude.ai Supabase`** — hosted `https://mcp.supabase.com/mcp`, managed in claude.ai config (not a local file). `MJCCv1` (`mgvyylvmkxhhataavqjz`) ACTIVE_HEALTHY, PG 17.
+
+**Deleted (project scope → now redundant with global):**
+- `.mcp.json` (was empty `{}` since v1.5.4) — `git rm`.
+- `.vscode/mcp.json` (held the Supabase block) — `git rm`. ⚠️ **Heads-up for Cursor/VSCode-based agents (Gemini/OpenCode):** this was the file VSCode's own MCP client read. Supabase MCP is now only in Claude's global config — if your IDE runtime needs it, re-add a local `.vscode/mcp.json` or point at your own user-scope config.
+
+**Render MCP — NOT added.** User asked to add it if it wasn't global. It isn't — and there's **no `RENDER_API_KEY` env var and no `render` CLI** on this machine, so the hosted Render MCP (`https://mcp.render.com/mcp`, needs a Bearer API key) can't be wired. **Action needed from user:** provide a Render API key (or run `render login`) and I'll add it to user scope.
+
+**Tools tested this session:** Bash, PowerShell, Glob, Grep, Read, Edit, ToolSearch, WebSearch, Supabase MCP (`list_projects`), GitHub MCP (`search_repositories`). All functional.
+
+**Push:** pending — not yet pushed.
+
+## [v1.5.5] — 2026-06-07 — Live prod smoke test: logged in as admin, walked all 17 pages, console clean
+
+**Claude:** User: "login and check the dashboard overall, also check the console on every page, log the errors and probable causes in the AI forum." Drove the **production frontend** (`https://kpncompute.onrender.com`) end-to-end via chrome-devtools MCP, logged in as `admin` (creds from CHANGELOG v0.x reset to `admin2025!`), and visited every nav route capturing console + network on each.
+
+**Note on MCP:** v1.5.4 said the browser MCP was disabled, but `chrome-devtools` MCP **is live in my runtime right now** — that's what drove this test. Config/runtime are out of sync; flagging so nobody assumes it's off.
+
+**Result — the app is healthy.** Every page rendered correctly with no runtime errors.
+- **Console:** zero `error`/`warn` across all 17 pages. Only output anywhere: 2 a11y *issues* on the login page (`No label associated with a form field` ×2, `form field should have id or name` ×4) + two `[Auth]` debug logs. Cosmetic/accessibility only — not breaking.
+- **Network:** **27/27 `/api/*` + Supabase requests returned 200.** No 4xx/5xx. Auth flow (Supabase password grant → `user_profiles` lookup → backend `/api/auth/login`) all clean. Topbar shows "LIVE · API Connected".
+- **Pages verified:** Dashboard, Inventory, Monthly Inventory, Meal Log, Food Request, Data Entry, Barcodes & Scan, HACCP & Logs, Daily Operations, Inspection Sheet, Snack Bar, Events & Programs, 28-Day Menu, Source Control, Reports, Archives, Users & Access, Settings.
+
+**Cosmetic / data observations (NOT errors — no console/network failures, flagging for follow-up):**
+1. **Closing-value mismatch:** Dashboard "Closing Value" card = **$30.9K**, but Monthly Inventory "Closing value" = **$8.8K** for the same May 2026 period. Two different numbers for the same metric — likely different field/calc feeding the dashboard tile vs the monthly view. *Probable cause:* dashboard reads a different aggregate (or stale `iTotal`/roll-up shim) than the Monthly Inventory page. Worth reconciling (Gemini — data/calc side).
+2. **Archives all labeled "June 2026":** all 4 snapshots show period "June 2026" despite clearly different values ($7.7K/260, $5.5K/258, $7.1K/255, $7.3K/254 items). *Probable cause:* period label not derived per-snapshot (hardcoded or mis-mapped month/year on the archive rows). Cross-lane (snapshot data) — Gemini.
+3. **Save-footer date lag:** Meal Log (field `06/07/2026` → footer "Meal log · 6/6/2026") and Inspection Sheet (footer "6/6/2026") show yesterday in the footer label; Snack Bar footer correctly matched `6/7/2026`. Minor off-by-one in the footer date display on a couple modules (frontend — mine if confirmed).
+4. **Empty Sunday menu:** Dashboard "Today's menu · Sunday" and 28-Day Menu (Sunday) both show "No menu items" / "0 line items". `GET /api/menu/Sun` returns 200 — so this is a **data gap** (no Sunday rows seeded), not a bug.
+5. **Placeholders:** Barcodes & Scan and Settings are "Module preview" stubs (expected — not yet built). Data Entry "AI stack settings" Provider field renders blank (Model shows `mixtral`).
+
+**Verdict:** No errors to fix. Items above are data/label polish, not failures. No code changed this entry — observation only.
+
+**Push:** pending — not yet pushed (doc-only).
 
 ## [v1.5.4] — 2026-06-07 — Disable chrome-devtools MCP too — Supabase is the only MCP for now
 

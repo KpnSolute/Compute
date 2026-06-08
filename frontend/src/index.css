@@ -1239,6 +1239,21 @@ table.data.logtbl td{padding:6px 10px}
 .csh-arr{font-size:12px;color:var(--muted);width:14px;text-align:center}
 .cat-sec .tbl-wrap{border-top:1px solid var(--line)}
 
+/* ── Compact view: dense weekly sheet (mirrors the offline template) ── */
+table.data.compact{font-size:11px;min-width:880px}
+table.data.compact th{padding:6px 7px;font-size:9px;letter-spacing:.2px}
+table.data.compact td{padding:4px 7px}
+table.data.compact th.wk-rcv{color:var(--green-ink)}
+table.data.compact td.wk-rcv{background:rgba(5,150,105,.04)}
+table.data.compact tr.rcvd td{background:var(--green-bg,#f0fdf4)}
+table.data.compact tbody tr:hover td{background:var(--surface-2)}
+table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--surface-2);padding:7px}
+.cinp{width:46px;border:1px solid var(--line);border-radius:5px;padding:3px 4px;font-size:11px;text-align:right;font-family:var(--mono);background:var(--surface-2);color:var(--ink)}
+.cinp:focus{outline:none;border-color:var(--navy);background:#fff}
+.cinp.wk-rcv-inp{color:var(--green-ink)}
+.btn-add-row{display:inline-flex;align-items:center;gap:5px;border:1px dashed var(--line);background:none;border-radius:6px;padding:4px 11px;cursor:pointer;font-size:11px;font-weight:700;color:var(--muted);font-family:inherit}
+.btn-add-row:hover{color:var(--ink);border-color:var(--muted)}
+
 @media(max-width:640px){
   .cat-secs{padding:8px;gap:8px}
   .cat-sec-head{padding:10px 11px;gap:8px}
@@ -1247,4 +1262,6 @@ table.data.logtbl td{padding:6px 10px}
   .csh-low{display:none}
   .view-toggle{flex:1}
   .vt-btn{flex:1;min-height:40px}
+  table.data.compact{min-width:760px}
+  .cinp{width:40px;font-size:16px}
 }

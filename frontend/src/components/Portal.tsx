@@ -374,7 +374,7 @@ function Dashboard({
         price: it.price || 0,
         opening: it.onHand || 0,
         received: (it.w1r || 0) + (it.w2r || 0) + (it.w3r || 0) + (it.w4r || 0),
-        issued: 0,
+        issued: (it.w1i || 0) + (it.w2i || 0) + (it.w3i || 0) + (it.w4i || 0),
     }));
     const miSum = monRows.reduce(
         (a: any, r: any) => {
@@ -938,10 +938,32 @@ function InventoryView({
         Record<string, { onHand: number; par: number }>
     >({});
     const [stagingBusy, setStagingBusy] = useState<Record<string, boolean>>({});
-    const [viewMode, setViewMode] = useState<"regular" | "grouped">("regular");
+    const [viewMode, setViewMode] = useState<
+        "regular" | "grouped" | "compact"
+    >("regular");
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
     const toggleCat = (c: string) =>
         setCollapsed((p) => ({ ...p, [c]: !p[c] }));
+
+    // Weekly pulled (issued, ↓) / received (↑) columns — mirrors the offline
+    // template's compact sheet. Edits live in local `wkDraft` and are persisted
+    // via the "Stage weekly changes" batch action (stageCompactChanges), which
+    // routes through Source Control like the Monthly Inventory view.
+    const ISSUED = ["w1i", "w2i", "w3i", "w4i"] as const; // pulled ↓
+    const RECEIVED = ["w1r", "w2r", "w3r", "w4r"] as const; // delivered ↑
+    type WeeklyField = (typeof ISSUED)[number] | (typeof RECEIVED)[number];
+    const [wkDraft, setWkDraft] = useState<
+        Record<string, Partial<Record<WeeklyField, number>>>
+    >({});
+    const setWeeklyField = (sku: string, field: WeeklyField, value: string) => {
+        const num = Number.isFinite(parseFloat(value))
+            ? Math.max(0, parseFloat(value))
+            : 0;
+        setWkDraft((prev) => ({
+            ...prev,
+            [sku]: { ...prev[sku], [field]: num },
+        }));
+    };
 
     const setDraftField = (
         sku: string,
@@ -1005,6 +1027,75 @@ function InventoryView({
         }
     };
 
+    // Compact view: batch-stage all rows with unsaved weekly (received/issued)
+    // and/or on-hand/par edits into ONE staging entry (mirrors the Monthly
+    // Inventory view's batch payload). Each item carries its REAL current
+    // on-hand/par merged over any drafts, so we never stage par:0.
+    const compactDirtyRows = () =>
+        (rows || []).filter((r: any) => {
+            const sku = String(r.sku || "");
+            return sku && (wkDraft[sku] || draft[sku]);
+        });
+
+    const stageCompactChanges = async () => {
+        if (!canStage) return;
+        const dirty = compactDirtyRows();
+        if (!dirty.length) {
+            toast("No weekly changes to stage");
+            return;
+        }
+        const items = dirty.map((r: any) => {
+            const sku = String(r.sku);
+            const d = draft[sku];
+            const w = wkDraft[sku] || {};
+            return {
+                sku,
+                desc: r.desc,
+                category: r.cat,
+                onHand: d?.onHand ?? r.onHand,
+                par: d?.par ?? r.par,
+                w1i: w.w1i ?? r.w1i,
+                w2i: w.w2i ?? r.w2i,
+                w3i: w.w3i ?? r.w3i,
+                w4i: w.w4i ?? r.w4i,
+                w1r: w.w1r ?? r.w1r,
+                w2r: w.w2r ?? r.w2r,
+                w3r: w.w3r ?? r.w3r,
+                w4r: w.w4r ?? r.w4r,
+            };
+        });
+        const payload = {
+            month: period[0] + 1,
+            year: period[1],
+            notes: `Weekly inventory edit · ${MONTHS[period[0]]} ${period[1]}`,
+            items,
+        };
+        const n = items.length;
+        setStagingBusy((prev) => ({ ...prev, __compact__: true }));
+        try {
+            await api.stageChange(
+                "inventory_save",
+                "inventory",
+                "batch-compact",
+                payload,
+                `Weekly update · ${n} item${n === 1 ? "" : "s"}`,
+            );
+            toast(`Staged weekly changes for ${n} item${n === 1 ? "" : "s"}`);
+            setWkDraft({});
+            setDraft((prev) => {
+                const copy = { ...prev };
+                for (const it of items) delete copy[it.sku];
+                return copy;
+            });
+        } catch (e: any) {
+            toast(
+                `Failed to stage weekly changes: ${e?.message || "Unknown error"}`,
+            );
+        } finally {
+            setStagingBusy((prev) => ({ ...prev, __compact__: false }));
+        }
+    };
+
     const live = invState.inv;
     let rows: any[], cats: string[];
     if (live) {
@@ -1015,6 +1106,14 @@ function InventoryView({
             price: it.price || 0,
             onHand: it.onHand || 0,
             par: it.par || 0,
+            w1i: it.w1i || 0,
+            w2i: it.w2i || 0,
+            w3i: it.w3i || 0,
+            w4i: it.w4i || 0,
+            w1r: it.w1r || 0,
+            w2r: it.w2r || 0,
+            w3r: it.w3r || 0,
+            w4r: it.w4r || 0,
             status:
                 (it.onHand || 0) < (it.par || 0) && (it.par || 0) > 0
                     ? "low"
@@ -1061,6 +1160,14 @@ function InventoryView({
                             aria-selected={viewMode === "grouped"}
                         >
                             Grouped
+                        </button>
+                        <button
+                            className={"vt-btn" + (viewMode === "compact" ? " active" : "")}
+                            onClick={() => setViewMode("compact")}
+                            role="tab"
+                            aria-selected={viewMode === "compact"}
+                        >
+                            Compact
                         </button>
                     </div>
                     <button className="btn">{I.scan()} Scan</button>
@@ -1619,6 +1726,463 @@ function InventoryView({
                                                                 },
                                                             )}
                                                         </tbody>
+                                                    </table>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            {!filtered.length && (
+                                <div
+                                    style={{
+                                        textAlign: "center",
+                                        padding: 30,
+                                        color: "var(--faint)",
+                                    }}
+                                >
+                                    No items match your filters.
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    {viewMode === "compact" && (
+                        <div className="card-body flush cat-secs inv-compact">
+                            {canStage &&
+                                (() => {
+                                    const dirtyCount = compactDirtyRows().length;
+                                    const busy = Boolean(
+                                        stagingBusy["__compact__"],
+                                    );
+                                    return (
+                                        <div
+                                            className="compact-stagebar"
+                                            style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "space-between",
+                                                gap: 10,
+                                                flexWrap: "wrap",
+                                                padding: "8px 12px",
+                                                marginBottom: 8,
+                                            }}
+                                        >
+                                            <span
+                                                style={{
+                                                    fontSize: 12,
+                                                    color: "var(--faint)",
+                                                }}
+                                            >
+                                                {dirtyCount
+                                                    ? `${dirtyCount} item${dirtyCount === 1 ? "" : "s"} with unsaved weekly edits`
+                                                    : "Weekly edits stage to Source Control for review"}
+                                            </span>
+                                            <button
+                                                className="btn"
+                                                disabled={!dirtyCount || busy}
+                                                style={{ padding: "6px 12px" }}
+                                                onClick={stageCompactChanges}
+                                                title="Stage all weekly received/issued edits in Source Control"
+                                            >
+                                                {busy
+                                                    ? "Staging…"
+                                                    : "Stage weekly changes"}
+                                            </button>
+                                        </div>
+                                    );
+                                })()}
+                            {cats
+                                .filter((c) =>
+                                    filtered.some((r: any) => r.cat === c),
+                                )
+                                .map((c) => {
+                                    const items = filtered.filter(
+                                        (r: any) => r.cat === c,
+                                    );
+                                    const wk = (r: any, k: WeeklyField) =>
+                                        wkDraft[String(r.sku || "")]?.[k] ??
+                                        r[k] ??
+                                        0;
+                                    const rowTotal = (r: any) => {
+                                        const sku = String(r.sku || "");
+                                        const oh = draft[sku]?.onHand ?? r.onHand;
+                                        const rcv = RECEIVED.reduce(
+                                            (a, k) => a + wk(r, k),
+                                            0,
+                                        );
+                                        const iss = ISSUED.reduce(
+                                            (a, k) => a + wk(r, k),
+                                            0,
+                                        );
+                                        return (
+                                            Math.max(0, oh + rcv - iss) *
+                                            (r.price || 0)
+                                        );
+                                    };
+                                    const catVal = items.reduce(
+                                        (s: number, r: any) => s + rowTotal(r),
+                                        0,
+                                    );
+                                    const hasRcvd = items.some((r: any) =>
+                                        RECEIVED.some((k) => wk(r, k) > 0),
+                                    );
+                                    const lowCount = items.filter((r: any) => {
+                                        const sku = String(r.sku || "");
+                                        const oh =
+                                            draft[sku]?.onHand ?? r.onHand;
+                                        const pr = draft[sku]?.par ?? r.par;
+                                        return oh < pr && pr > 0;
+                                    }).length;
+                                    const open = !collapsed[c];
+                                    return (
+                                        <div className="cat-sec" key={c}>
+                                            <button
+                                                className="cat-sec-head"
+                                                onClick={() => toggleCat(c)}
+                                                aria-expanded={open}
+                                            >
+                                                <span className="csh-l">
+                                                    <span
+                                                        className="csh-dot"
+                                                        style={{
+                                                            background:
+                                                                catColor(c),
+                                                        }}
+                                                    />
+                                                    <span className="csh-name">
+                                                        {c}
+                                                    </span>
+                                                    <span className="csh-cnt">
+                                                        {items.length} item
+                                                        {items.length !== 1
+                                                            ? "s"
+                                                            : ""}
+                                                    </span>
+                                                    {hasRcvd && (
+                                                        <span className="pill ok csh-low">
+                                                            🚚 received
+                                                        </span>
+                                                    )}
+                                                    {lowCount > 0 && (
+                                                        <span className="pill warn csh-low">
+                                                            {lowCount} below par
+                                                        </span>
+                                                    )}
+                                                </span>
+                                                <span className="csh-r">
+                                                    <span className="csh-tot">
+                                                        {fmtMoneyFull(catVal)}
+                                                    </span>
+                                                    <span className="csh-arr">
+                                                        {open ? "▾" : "▸"}
+                                                    </span>
+                                                </span>
+                                            </button>
+                                            {open && (
+                                                <div className="tbl-wrap">
+                                                    <table className="data compact">
+                                                        <thead>
+                                                            <tr>
+                                                                <th>
+                                                                    Description
+                                                                </th>
+                                                                <th>SKU</th>
+                                                                <th className="r">
+                                                                    On hand
+                                                                </th>
+                                                                <th className="r">
+                                                                    Price ($)
+                                                                </th>
+                                                                <th className="r">
+                                                                    Par
+                                                                </th>
+                                                                <th className="r">
+                                                                    W1↓
+                                                                </th>
+                                                                <th className="r">
+                                                                    W2↓
+                                                                </th>
+                                                                <th className="r">
+                                                                    W3↓
+                                                                </th>
+                                                                <th className="r">
+                                                                    W4↓
+                                                                </th>
+                                                                <th className="r wk-rcv">
+                                                                    W1↑
+                                                                </th>
+                                                                <th className="r wk-rcv">
+                                                                    W2↑
+                                                                </th>
+                                                                <th className="r wk-rcv">
+                                                                    W3↑
+                                                                </th>
+                                                                <th className="r wk-rcv">
+                                                                    W4↑
+                                                                </th>
+                                                                <th className="r">
+                                                                    Total $
+                                                                </th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {items.map(
+                                                                (
+                                                                    r: any,
+                                                                    i: number,
+                                                                ) => {
+                                                                    const sku =
+                                                                        String(
+                                                                            r.sku ||
+                                                                                "",
+                                                                        );
+                                                                    const oh =
+                                                                        draft[
+                                                                            sku
+                                                                        ]
+                                                                            ?.onHand ??
+                                                                        r.onHand;
+                                                                    const par =
+                                                                        draft[
+                                                                            sku
+                                                                        ]?.par ??
+                                                                        r.par;
+                                                                    const rcv =
+                                                                        RECEIVED.some(
+                                                                            (k) =>
+                                                                                wk(
+                                                                                    r,
+                                                                                    k,
+                                                                                ) >
+                                                                                0,
+                                                                        );
+                                                                    return (
+                                                                        <tr
+                                                                            key={
+                                                                                (r.sku ||
+                                                                                    "") +
+                                                                                i
+                                                                            }
+                                                                            className={
+                                                                                rcv
+                                                                                    ? "rcvd"
+                                                                                    : ""
+                                                                            }
+                                                                        >
+                                                                            <td
+                                                                                style={{
+                                                                                    fontWeight: 600,
+                                                                                }}
+                                                                            >
+                                                                                {
+                                                                                    r.desc
+                                                                                }
+                                                                            </td>
+                                                                            <td
+                                                                                className="num"
+                                                                                style={{
+                                                                                    color: "var(--muted)",
+                                                                                }}
+                                                                            >
+                                                                                {r.sku ||
+                                                                                    "—"}
+                                                                            </td>
+                                                                            <td className="r num">
+                                                                                {canStage ? (
+                                                                                    <input
+                                                                                        className="cinp"
+                                                                                        type="number"
+                                                                                        min={
+                                                                                            0
+                                                                                        }
+                                                                                        value={
+                                                                                            oh
+                                                                                        }
+                                                                                        onChange={(
+                                                                                            e,
+                                                                                        ) =>
+                                                                                            setDraftField(
+                                                                                                sku,
+                                                                                                "onHand",
+                                                                                                e
+                                                                                                    .target
+                                                                                                    .value,
+                                                                                                r.onHand,
+                                                                                            )
+                                                                                        }
+                                                                                    />
+                                                                                ) : (
+                                                                                    oh
+                                                                                )}
+                                                                            </td>
+                                                                            <td className="r num">
+                                                                                $
+                                                                                {(
+                                                                                    r.price ||
+                                                                                    0
+                                                                                ).toFixed(
+                                                                                    2,
+                                                                                )}
+                                                                            </td>
+                                                                            <td className="r num">
+                                                                                {canStage ? (
+                                                                                    <input
+                                                                                        className="cinp"
+                                                                                        type="number"
+                                                                                        min={
+                                                                                            0
+                                                                                        }
+                                                                                        value={
+                                                                                            par
+                                                                                        }
+                                                                                        onChange={(
+                                                                                            e,
+                                                                                        ) =>
+                                                                                            setDraftField(
+                                                                                                sku,
+                                                                                                "par",
+                                                                                                e
+                                                                                                    .target
+                                                                                                    .value,
+                                                                                                r.par,
+                                                                                            )
+                                                                                        }
+                                                                                    />
+                                                                                ) : (
+                                                                                    par
+                                                                                )}
+                                                                            </td>
+                                                                            {ISSUED.map(
+                                                                                (
+                                                                                    k,
+                                                                                ) => (
+                                                                                    <td
+                                                                                        className="r num"
+                                                                                        key={
+                                                                                            k
+                                                                                        }
+                                                                                    >
+                                                                                        {canStage ? (
+                                                                                            <input
+                                                                                                className="cinp"
+                                                                                                type="number"
+                                                                                                min={
+                                                                                                    0
+                                                                                                }
+                                                                                                value={wk(
+                                                                                                    r,
+                                                                                                    k,
+                                                                                                )}
+                                                                                                onChange={(
+                                                                                                    e,
+                                                                                                ) =>
+                                                                                                    setWeeklyField(
+                                                                                                        sku,
+                                                                                                        k,
+                                                                                                        e
+                                                                                                            .target
+                                                                                                            .value,
+                                                                                                    )
+                                                                                                }
+                                                                                            />
+                                                                                        ) : (
+                                                                                            wk(
+                                                                                                r,
+                                                                                                k,
+                                                                                            )
+                                                                                        )}
+                                                                                    </td>
+                                                                                ),
+                                                                            )}
+                                                                            {RECEIVED.map(
+                                                                                (
+                                                                                    k,
+                                                                                ) => (
+                                                                                    <td
+                                                                                        className="r num wk-rcv"
+                                                                                        key={
+                                                                                            k
+                                                                                        }
+                                                                                    >
+                                                                                        {canStage ? (
+                                                                                            <input
+                                                                                                className="cinp wk-rcv-inp"
+                                                                                                type="number"
+                                                                                                min={
+                                                                                                    0
+                                                                                                }
+                                                                                                value={wk(
+                                                                                                    r,
+                                                                                                    k,
+                                                                                                )}
+                                                                                                onChange={(
+                                                                                                    e,
+                                                                                                ) =>
+                                                                                                    setWeeklyField(
+                                                                                                        sku,
+                                                                                                        k,
+                                                                                                        e
+                                                                                                            .target
+                                                                                                            .value,
+                                                                                                    )
+                                                                                                }
+                                                                                            />
+                                                                                        ) : (
+                                                                                            wk(
+                                                                                                r,
+                                                                                                k,
+                                                                                            )
+                                                                                        )}
+                                                                                    </td>
+                                                                                ),
+                                                                            )}
+                                                                            <td
+                                                                                className="r num"
+                                                                                style={{
+                                                                                    fontWeight: 700,
+                                                                                }}
+                                                                            >
+                                                                                {fmtMoneyFull(
+                                                                                    rowTotal(
+                                                                                        r,
+                                                                                    ),
+                                                                                )}
+                                                                            </td>
+                                                                        </tr>
+                                                                    );
+                                                                },
+                                                            )}
+                                                        </tbody>
+                                                        <tfoot>
+                                                            <tr>
+                                                                <td colSpan={5}>
+                                                                    {lvl >= 30 && (
+                                                                        <button
+                                                                            className="btn-add-row"
+                                                                            onClick={() =>
+                                                                                toast(
+                                                                                    "Add item — coming soon",
+                                                                                )
+                                                                            }
+                                                                        >
+                                                                            {I.plus()}{" "}
+                                                                            Add
+                                                                            item
+                                                                        </button>
+                                                                    )}
+                                                                </td>
+                                                                <td
+                                                                    className="r num"
+                                                                    colSpan={9}
+                                                                    style={{
+                                                                        fontWeight: 700,
+                                                                    }}
+                                                                >
+                                                                    {fmtMoneyFull(
+                                                                        catVal,
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        </tfoot>
                                                     </table>
                                                 </div>
                                             )}
