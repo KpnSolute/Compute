@@ -959,6 +959,26 @@ function InventoryView({
     };
     const [newItem, setNewItem] = useState(blankItem);
 
+    // Edit-item modal (edit / reassign category / soft-delete ANY item, keyed by
+    // SKU). Reassigning out of "New Items" is the manager's review action.
+    const [editTarget, setEditTarget] = useState<any | null>(null);
+    const [editForm, setEditForm] = useState({
+        desc: "",
+        category: "",
+        price: "",
+        par: "",
+    });
+    const [editBusy, setEditBusy] = useState(false);
+    const openEdit = (row: any) => {
+        setEditTarget(row);
+        setEditForm({
+            desc: row.desc || "",
+            category: row.cat || "",
+            price: String(row.price ?? ""),
+            par: String(row.par ?? ""),
+        });
+    };
+
     // Weekly pulled (issued, ↓) / received (↑) columns — mirrors the offline
     // template's compact sheet. Edits live in local `wkDraft` and are persisted
     // via the "Stage weekly changes" batch action (stageCompactChanges), which
@@ -1012,6 +1032,7 @@ function InventoryView({
                     desc: row.desc,
                     onHand: next.onHand,
                     par: next.par,
+                    price: row.price,
                     category: row.cat,
                 },
             ],
@@ -1066,6 +1087,7 @@ function InventoryView({
                 sku,
                 desc: r.desc,
                 category: r.cat,
+                price: r.price,
                 onHand: d?.onHand ?? r.onHand,
                 par: d?.par ?? r.par,
                 w1i: w.w1i ?? r.w1i,
@@ -1156,6 +1178,57 @@ function InventoryView({
             toast(`Failed to add item: ${e?.message || "Unknown error"}`);
         } finally {
             setAddBusy(false);
+        }
+    };
+
+    const submitEditItem = async () => {
+        if (!editTarget) return;
+        const sku = String(editTarget.sku);
+        const desc = editForm.desc.trim() || editTarget.desc;
+        const numOrNull = (v: string) =>
+            v === "" || v == null ? null : Math.max(0, parseFloat(v) || 0);
+        const payload: any = { sku, desc };
+        if (editForm.category) payload.category = editForm.category;
+        const price = numOrNull(editForm.price);
+        if (price !== null) payload.price = price;
+        const par = numOrNull(editForm.par);
+        if (par !== null) payload.par = par;
+        setEditBusy(true);
+        try {
+            await api.stageChange(
+                "item_update",
+                "inventory",
+                sku,
+                payload,
+                `Edit item · ${desc}`,
+            );
+            toast(`Staged edit for ${desc}`);
+            setEditTarget(null);
+        } catch (e: any) {
+            toast(`Failed to edit: ${e?.message || "Unknown error"}`);
+        } finally {
+            setEditBusy(false);
+        }
+    };
+
+    const deleteEditItem = async () => {
+        if (!editTarget) return;
+        const sku = String(editTarget.sku);
+        setEditBusy(true);
+        try {
+            await api.stageChange(
+                "item_delete",
+                "inventory",
+                sku,
+                { sku },
+                `Delete item · ${editTarget.desc}`,
+            );
+            toast(`Staged delete for ${editTarget.desc}`);
+            setEditTarget(null);
+        } catch (e: any) {
+            toast(`Failed to delete: ${e?.message || "Unknown error"}`);
+        } finally {
+            setEditBusy(false);
         }
     };
 
@@ -1453,6 +1526,20 @@ function InventoryView({
                                             </td>
                                             {canStage && (
                                                 <td className="r">
+                                                    <button
+                                                        className="btn"
+                                                        disabled={!sku}
+                                                        style={{
+                                                            padding: "5px 10px",
+                                                            marginRight: 6,
+                                                        }}
+                                                        onClick={() =>
+                                                            openEdit(r)
+                                                        }
+                                                        title="Edit / reassign / delete this item"
+                                                    >
+                                                        Edit
+                                                    </button>
                                                     <button
                                                         className="btn"
                                                         disabled={
@@ -2426,16 +2513,170 @@ function InventoryView({
                     </div>
                 </div>
             )}
+            {canStage && editTarget && (
+                <div
+                    className="overlay"
+                    onClick={() => !editBusy && setEditTarget(null)}
+                >
+                    <div className="modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-head">
+                            <div>
+                                <h3>{I.plus()} Edit item</h3>
+                                <div className="sub">
+                                    <span className="mono">
+                                        {editTarget.sku}
+                                    </span>{" "}
+                                    · stages an edit to Source Control. Reassign
+                                    the category to move it out of New Items.
+                                </div>
+                            </div>
+                            <button
+                                className="modal-x"
+                                onClick={() => setEditTarget(null)}
+                                disabled={editBusy}
+                                aria-label="Close"
+                            >
+                                {I.x()}
+                            </button>
+                        </div>
+                        <div className="modal-body">
+                            <div className="field">
+                                <label>Description</label>
+                                <input
+                                    className="ipt"
+                                    autoFocus
+                                    value={editForm.desc}
+                                    onChange={(e) =>
+                                        setEditForm((p) => ({
+                                            ...p,
+                                            desc: e.target.value,
+                                        }))
+                                    }
+                                />
+                            </div>
+                            <div className="field">
+                                <label>Category (reassign)</label>
+                                <select
+                                    className="ipt sel"
+                                    value={editForm.category}
+                                    onChange={(e) =>
+                                        setEditForm((p) => ({
+                                            ...p,
+                                            category: e.target.value,
+                                        }))
+                                    }
+                                >
+                                    {(cats || []).map((c) => (
+                                        <option key={c} value={c}>
+                                            {c}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="grid-2" style={{ gap: 12 }}>
+                                <div className="field">
+                                    <label>Unit price ($)</label>
+                                    <input
+                                        className="ipt mono"
+                                        type="number"
+                                        min={0}
+                                        step="0.01"
+                                        value={editForm.price}
+                                        onChange={(e) =>
+                                            setEditForm((p) => ({
+                                                ...p,
+                                                price: e.target.value,
+                                            }))
+                                        }
+                                    />
+                                </div>
+                                <div className="field">
+                                    <label>Par level</label>
+                                    <input
+                                        className="ipt mono"
+                                        type="number"
+                                        min={0}
+                                        value={editForm.par}
+                                        onChange={(e) =>
+                                            setEditForm((p) => ({
+                                                ...p,
+                                                par: e.target.value,
+                                            }))
+                                        }
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                        <div className="modal-foot">
+                            <button
+                                className="btn"
+                                onClick={deleteEditItem}
+                                disabled={editBusy}
+                                title="Soft-delete (deactivate) this item"
+                                style={{
+                                    marginRight: "auto",
+                                    color: "var(--red)",
+                                    borderColor: "var(--red)",
+                                }}
+                            >
+                                Delete
+                            </button>
+                            <button
+                                className="btn"
+                                onClick={() => setEditTarget(null)}
+                                disabled={editBusy}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                className="btn primary"
+                                onClick={submitEditItem}
+                                disabled={editBusy}
+                            >
+                                {editBusy ? "Staging…" : "Save changes"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
 
 function UsersView() {
+    const blankForm = {
+        username: "",
+        email: "",
+        display_name: "",
+        last_name: "",
+        role: "staff",
+        pin: "",
+        password: "",
+        active: true,
+    };
     const [state, setState] = useState({
         loading: true,
         users: null as any[] | null,
         error: null as string | null,
     });
+    const [form, setForm] = useState(blankForm);
+    const [editing, setEditing] = useState<any | null>(null);
+    const [showForm, setShowForm] = useState(false);
+    const [saving, setSaving] = useState(false);
+
+    const loadUsers = useCallback(async () => {
+        setState({ loading: true, users: null, error: null });
+        try {
+            const users = await api.getUsers();
+            setState({ loading: false, users, error: null });
+        } catch (e: any) {
+            setState({
+                loading: false,
+                users: null,
+                error: e?.message || "Failed to load users",
+            });
+        }
+    }, []);
     useEffect(() => {
         let alive = true;
         (async () => {
@@ -2458,6 +2699,97 @@ function UsersView() {
         };
     }, []);
 
+    const openCreate = () => {
+        setEditing(null);
+        setForm(blankForm);
+        setShowForm(true);
+    };
+
+    const openEdit = (u: any) => {
+        setEditing(u);
+        setForm({
+            username: u.username || "",
+            email: u.email || `${u.username || ""}@mjc-cafeteria.com`,
+            display_name: u.display_name || "",
+            last_name: u.last_name || "",
+            role: u.role || "staff",
+            pin: u.pin || "",
+            password: "",
+            active: u.active !== false,
+        });
+        setShowForm(true);
+    };
+
+    const updateForm = (key: string, value: string | boolean) => {
+        setForm((prev) => ({ ...prev, [key]: value }));
+    };
+
+    const submitUser = async () => {
+        const username = form.username.trim().toLowerCase();
+        const displayName = form.display_name.trim();
+        const email = (form.email || `${username}@mjc-cafeteria.com`).trim();
+        if (!displayName) {
+            toast("Display name is required");
+            return;
+        }
+        if (!editing && !username) {
+            toast("Username is required");
+            return;
+        }
+        if (!editing && form.role !== "staff" && form.password.length < 8) {
+            toast("Password must be at least 8 characters");
+            return;
+        }
+        if (form.role === "staff" && form.pin && !/^\d+$/.test(form.pin)) {
+            toast("PIN must be numeric");
+            return;
+        }
+
+        setSaving(true);
+        try {
+            if (editing) {
+                await api.updateUser(editing.id, {
+                    display_name: displayName,
+                    last_name: form.last_name.trim(),
+                    role: form.role,
+                    pin: form.role === "staff" ? form.pin : null,
+                    active: form.active,
+                });
+                toast(`Updated ${displayName}`);
+            } else {
+                await api.createUser({
+                    username,
+                    email,
+                    display_name: displayName,
+                    last_name: form.last_name.trim(),
+                    role: form.role,
+                    pin: form.role === "staff" ? form.pin : "",
+                    password: form.role === "staff" ? undefined : form.password,
+                });
+                toast(`Created ${displayName}`);
+            }
+            setShowForm(false);
+            setEditing(null);
+            setForm(blankForm);
+            await loadUsers();
+        } catch (e: any) {
+            toast(e?.message || "User save failed");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const disableUser = async (u: any) => {
+        if (!window.confirm(`Disable ${u.display_name || u.username}?`)) return;
+        try {
+            await api.deleteUser(u.id);
+            toast(`Disabled ${u.display_name || u.username}`);
+            await loadUsers();
+        } catch (e: any) {
+            toast(e?.message || "Could not disable user");
+        }
+    };
+
     const users = state.users || [];
     return (
         <div className="fade-in">
@@ -2469,7 +2801,7 @@ function UsersView() {
                     </div>
                 </div>
                 <div className="ph-actions">
-                    <button className="btn primary">
+                    <button className="btn primary" onClick={openCreate}>
                         {I.plus()} Invite user
                     </button>
                 </div>
@@ -2561,6 +2893,8 @@ function UsersView() {
                                             <button
                                                 className="btn"
                                                 style={{ padding: "5px 9px" }}
+                                                onClick={() => openEdit(u)}
+                                                title="Edit user"
                                             >
                                                 {I.edit({
                                                     style: {
@@ -2575,6 +2909,9 @@ function UsersView() {
                                                     padding: "5px 9px",
                                                     color: "var(--red)",
                                                 }}
+                                                onClick={() => disableUser(u)}
+                                                disabled={u.active === false}
+                                                title="Disable user"
                                             >
                                                 {I.del({
                                                     style: {
@@ -2588,6 +2925,104 @@ function UsersView() {
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            )}
+            {showForm && (
+                <div className="modal-back" onClick={() => setShowForm(false)}>
+                    <div className="modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-head">
+                            <h3>{editing ? "Edit user" : "Invite user"}</h3>
+                            <button className="btn" onClick={() => setShowForm(false)}>
+                                Close
+                            </button>
+                        </div>
+                        <div className="form-grid" style={{ padding: 16 }}>
+                            {!editing && (
+                                <>
+                                    <label>
+                                        <span>Username</span>
+                                        <input
+                                            value={form.username}
+                                            onChange={(e) => updateForm("username", e.target.value)}
+                                            placeholder="staff1"
+                                        />
+                                    </label>
+                                    <label>
+                                        <span>Email</span>
+                                        <input
+                                            value={form.email}
+                                            onChange={(e) => updateForm("email", e.target.value)}
+                                            placeholder="username@mjc-cafeteria.com"
+                                        />
+                                    </label>
+                                </>
+                            )}
+                            <label>
+                                <span>First name</span>
+                                <input
+                                    value={form.display_name}
+                                    onChange={(e) => updateForm("display_name", e.target.value)}
+                                />
+                            </label>
+                            <label>
+                                <span>Last name</span>
+                                <input
+                                    value={form.last_name}
+                                    onChange={(e) => updateForm("last_name", e.target.value)}
+                                />
+                            </label>
+                            <label>
+                                <span>Role</span>
+                                <select
+                                    value={form.role}
+                                    onChange={(e) => updateForm("role", e.target.value)}
+                                >
+                                    <option value="staff">Staff</option>
+                                    <option value="assistant">Assistant</option>
+                                    <option value="manager">Manager</option>
+                                    <option value="admin">Administrator</option>
+                                </select>
+                            </label>
+                            {form.role === "staff" ? (
+                                <label>
+                                    <span>PIN</span>
+                                    <input
+                                        value={form.pin}
+                                        onChange={(e) => updateForm("pin", e.target.value)}
+                                        placeholder="4-digit PIN"
+                                    />
+                                </label>
+                            ) : !editing ? (
+                                <label>
+                                    <span>Password</span>
+                                    <input
+                                        type="password"
+                                        value={form.password}
+                                        onChange={(e) => updateForm("password", e.target.value)}
+                                        placeholder="At least 8 characters"
+                                    />
+                                </label>
+                            ) : null}
+                            {editing && (
+                                <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={form.active}
+                                        onChange={(e) => updateForm("active", e.target.checked)}
+                                    />
+                                    <span>Active account</span>
+                                </label>
+                            )}
+                        </div>
+                        <div className="modal-foot">
+                            <button className="btn" onClick={() => setShowForm(false)} disabled={saving}>
+                                Cancel
+                            </button>
+                            <button className="btn primary" onClick={submitUser} disabled={saving}>
+                                {saving ? "Saving..." : editing ? "Save changes" : "Create user"}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

@@ -96,6 +96,59 @@ def _diff_inventory_save(payload: dict) -> dict:
     }
 
 
+def _diff_item_update(payload: dict) -> dict:
+    """Preview an edit/reassign of a single item identified by SKU."""
+    sku = (payload.get("sku") or "").strip()
+    r = (
+        _client()
+        .table("inventory_items")
+        .select("sku,description,category_id,unit_price,par_level,unit,active")
+        .eq("sku", sku)
+        .limit(1)
+        .execute()
+    )
+    live = r.data[0] if r.data else None
+    after = {
+        k: payload[k]
+        for k in ("desc", "category", "price", "par", "unit", "active", "new_sku")
+        if payload.get(k) is not None
+    }
+    status = "update" if live else "missing"
+    return {
+        "table": "inventory_items",
+        "operation": "item_update",
+        "summary": f"Edit {sku}" + ("" if live else " (SKU not found)"),
+        "rows": [
+            {
+                "sku": sku,
+                "status": status,
+                "before": live,
+                "after": after,
+                "changes": list(after.keys()),
+            }
+        ],
+    }
+
+
+def _diff_item_delete(payload: dict) -> dict:
+    sku = (payload.get("sku") or "").strip()
+    hard = payload.get("hard") is True
+    return {
+        "table": "inventory_items",
+        "operation": "item_delete",
+        "summary": f"{'Hard-delete' if hard else 'Deactivate'} {sku}",
+        "rows": [
+            {
+                "sku": sku,
+                "status": "delete",
+                "before": {"sku": sku},
+                "after": None if hard else {"active": False},
+                "changes": ["active"],
+            }
+        ],
+    }
+
+
 def _diff_event_create(payload: dict) -> dict:
     title = payload.get("title", "")
     date = payload.get("date", "")
@@ -225,6 +278,8 @@ def _diff_menu_save(payload: dict) -> dict:
 
 _DIFF_HANDLERS = {
     "inventory_save": _diff_inventory_save,
+    "item_update": _diff_item_update,
+    "item_delete": _diff_item_delete,
     "event_create": _diff_event_create,
     "haccp_save": _diff_haccp_save,
     "daily_log_save": _diff_daily_log_save,

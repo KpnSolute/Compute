@@ -7,6 +7,8 @@ const t = (msg: string) => (window as any).toast?.(msg);
 
 const OP_ICON: Record<string, string> = {
     inventory_save: "box",
+    item_update: "box",
+    item_delete: "del",
     menu_save: "book",
     event_create: "calCheck",
     haccp_save: "thermo",
@@ -17,6 +19,8 @@ const OP_ICON: Record<string, string> = {
 
 const OP_LABEL: Record<string, string> = {
     inventory_save: "Inventory update",
+    item_update: "Item edit",
+    item_delete: "Item delete",
     menu_save: "Menu change",
     event_create: "New event",
     haccp_save: "HACCP log",
@@ -223,6 +227,10 @@ export function SourceControl({
         const op = (entry as any).operation;
         if (op === "inventory_save" && fp?.items)
             return `${fp.items.length} item${fp.items.length !== 1 ? "s" : ""}`;
+        if (op === "item_update" && fp?.sku)
+            return `Edit ${fp.sku}${fp.category ? ` → ${fp.category}` : ""}`;
+        if (op === "item_delete" && fp?.sku)
+            return `Delete ${fp.sku}`;
         if (op === "menu_save" && fp?.day) return `Menu for ${fp.day}`;
         if (op === "event_create" && fp?.title) return fp.title;
         if (op === "haccp_save" && fp?.location)

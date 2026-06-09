@@ -17,6 +17,10 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Header, Depends
 from pydantic import BaseModel, Field
 from backend.routes import supabase_service, jwt_validator
+from backend.inventory_identity import (
+    get_new_items_category_id,
+    resolve_and_write_item,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +35,7 @@ class InventoryItem(BaseModel):
     # inventory_items.par_level (which would corrupt par across every period).
     par: Optional[int] = Field(None, ge=0)
     category: str
-    price: float = 0.0
+    price: Optional[float] = Field(None, ge=0)
     unit: str = "each"
     w1r: int = 0
     w2r: int = 0
@@ -280,7 +284,9 @@ async def save_inventory(
         raise HTTPException(status_code=400, detail="Items list cannot be empty")
 
     for item in payload.items:
-        if item.onHand < 0 or item.par < 0:
+        # Guard before comparing: item.par is Optional, so `item.par < 0` on a
+        # None par would raise TypeError → 500 (v1.8.5 latent bug).
+        if item.onHand < 0 or (item.par is not None and item.par < 0):
             raise HTTPException(
                 status_code=400, detail="onHand and par must be non-negative"
             )
@@ -299,57 +305,52 @@ async def save_inventory(
     db_month = month - 1  # Convert 1-indexed → 0-indexed for DB
 
     try:
-        # Pre-fetch category name -> id mapping
+        # Pre-fetch category name -> id mapping + the New Items review bucket.
         cat_result = supabase_service.table("inventory_categories").select("id, name").execute()
         category_map = {}
         for c in cat_result.data or []:
             category_map[c["name"]] = c["id"]
+        new_items_cat_id = get_new_items_category_id(supabase_service)
 
         created_at = datetime.utcnow().isoformat()
 
         for item in payload.items:
+            # Identity resolved by SKU only (sku is now NOT NULL + UNIQUE). An
+            # unknown/blank category resolves to None so a brand-new item lands
+            # in "New Items" for manager review instead of failing or guessing.
             cat_id = category_map.get(item.category)
-            if not cat_id:
-                raise HTTPException(
-                    status_code=400, detail=f"Unknown category: {item.category}"
-                )
 
-            # Upsert inventory_items by SKU (on_hand lives in monthly_inventory, not here).
-            # Only write par_level when the payload actually carries par — omitting it
-            # leaves the stored value untouched on conflict (no accidental zeroing).
-            item_fields = {
-                "sku": item.sku,
-                "description": item.desc,
-                "category_id": cat_id,
-                "unit_price": item.price,
-            }
-            if item.par is not None:
-                item_fields["par_level"] = item.par
-            inv_result = (
-                supabase_service.table("inventory_items")
-                .upsert(item_fields, on_conflict="sku")
-                .select("id")
-                .execute()
+            inv_item_id, _sku, _created = resolve_and_write_item(
+                supabase_service,
+                sku=item.sku,
+                desc=item.desc,
+                category_id=cat_id,
+                fallback_category_id=new_items_cat_id,
+                price=item.price,
+                par=item.par,
             )
-            inv_item_id = inv_result.data[0]["id"]
+            if not inv_item_id:
+                continue
 
             # Upsert monthly_inventory by item_id + month + year (DB stores 0-indexed month)
+            monthly_fields = {
+                "item_id": inv_item_id,
+                "month": db_month,
+                "year": year,
+                "on_hand": item.onHand,
+                "w1_received": item.w1r,
+                "w2_received": item.w2r,
+                "w3_received": item.w3r,
+                "w4_received": item.w4r,
+                "w1_issued": item.w1i,
+                "w2_issued": item.w2i,
+                "w3_issued": item.w3i,
+                "w4_issued": item.w4i,
+            }
+            if item.price is not None:
+                monthly_fields["unit_price"] = item.price
             supabase_service.table("monthly_inventory").upsert(
-                {
-                    "item_id": inv_item_id,
-                    "month": db_month,
-                    "year": year,
-                    "on_hand": item.onHand,
-                    "unit_price": item.price,
-                    "w1_received": item.w1r,
-                    "w2_received": item.w2r,
-                    "w3_received": item.w3r,
-                    "w4_received": item.w4r,
-                    "w1_issued": item.w1i,
-                    "w2_issued": item.w2i,
-                    "w3_issued": item.w3i,
-                    "w4_issued": item.w4i,
-                },
+                monthly_fields,
                 on_conflict="item_id,month,year",
             ).execute()
 

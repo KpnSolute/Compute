@@ -180,6 +180,9 @@ def _extract_ops(
                         "month": result["month"],
                         "year": result["year"],
                         "notes": result.get("notes", ""),
+                        # Ingested items whose SKU isn't already in the index land
+                        # in "New Items" so the manager reviews everything added.
+                        "review_new": True,
                         "items": [item],
                     },
                 }

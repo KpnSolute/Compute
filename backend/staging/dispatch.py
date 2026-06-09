@@ -4,6 +4,11 @@ from datetime import datetime, timezone
 
 from supabase import create_client
 
+from backend.inventory_identity import (
+    get_new_items_category_id,
+    resolve_and_write_item,
+)
+
 _svc = None
 
 
@@ -30,59 +35,119 @@ def dispatch_inventory_save(payload: dict) -> dict:
     sup = _client()
     cat_r = sup.table("inventory_categories").select("id,name").execute()
     cat_map = {r["name"]: r["id"] for r in (cat_r.data or [])}
-
-    # Get a default category ID (Dry Goods or first available)
-    default_cat_id = cat_map.get("Dry Goods") or (
-        cat_r.data[0]["id"] if cat_r.data else None
-    )
+    new_items_cat_id = get_new_items_category_id(sup)
+    # data-entry imports flag the whole batch so brand-new SKUs land in New Items.
+    review_new = bool(payload.get("review_new"))
 
     count = 0
     for item in items:
-        sku = item.get("sku")
-        if not sku:
-            # Generate a temp SKU if missing to avoid upsert conflict/null issues
-            sku = f"TEMP-{datetime.now().strftime('%H%M%S')}-{count}"
+        # Identity is resolved by SKU only; an unknown category resolves to None
+        # so a brand-new item lands in "New Items" for manager review.
+        cat_id = cat_map.get(item.get("category", ""))
 
-        cat_id = cat_map.get(item.get("category", "")) or default_cat_id
-        if not cat_id:
+        item_id, _sku, _created = resolve_and_write_item(
+            sup,
+            sku=item.get("sku"),
+            desc=item.get("desc"),
+            category_id=cat_id,
+            fallback_category_id=new_items_cat_id,
+            price=item.get("price"),
+            par=item.get("par"),
+            force_review_category=review_new,
+        )
+        if not item_id:
             continue
 
-        # Only write par_level when the payload actually carries par — a missing
-        # par must NOT become 0 (par_level is shared across every period for the
-        # SKU, so zeroing it here corrupts par everywhere).
-        item_fields = {
-            "sku": sku,
-            "description": item.get("desc") or "No description",
-            "category_id": cat_id,
-            "unit_price": item.get("price", 0.0),
+        monthly_fields = {
+            "item_id": item_id,
+            "month": db_month,
+            "year": year,
+            "on_hand": item.get("onHand", 0),
+            "w1_received": item.get("w1r", 0),
+            "w2_received": item.get("w2r", 0),
+            "w3_received": item.get("w3r", 0),
+            "w4_received": item.get("w4r", 0),
+            "w1_issued": item.get("w1i", 0),
+            "w2_issued": item.get("w2i", 0),
+            "w3_issued": item.get("w3i", 0),
+            "w4_issued": item.get("w4i", 0),
         }
-        if item.get("par") is not None:
-            item_fields["par_level"] = item.get("par")
-        inv = sup.table("inventory_items").upsert(item_fields, on_conflict="sku").execute()
-        item_row = inv.data[0] if inv.data else None
-        if not item_row:
-            continue
-
+        if item.get("price") is not None:
+            monthly_fields["unit_price"] = item.get("price")
         sup.table("monthly_inventory").upsert(
-            {
-                "item_id": item_row["id"],
-                "month": db_month,
-                "year": year,
-                "on_hand": item.get("onHand", 0),
-                "unit_price": item.get("price", 0.0),
-                "w1_received": item.get("w1r", 0),
-                "w2_received": item.get("w2r", 0),
-                "w3_received": item.get("w3r", 0),
-                "w4_received": item.get("w4r", 0),
-                "w1_issued": item.get("w1i", 0),
-                "w2_issued": item.get("w2i", 0),
-                "w3_issued": item.get("w3i", 0),
-                "w4_issued": item.get("w4i", 0),
-            },
+            monthly_fields,
             on_conflict="item_id,month,year",
         ).execute()
         count += 1
     return {"applied": count, "month": month, "year": year, "notes": notes}
+
+
+def dispatch_item_update(payload: dict) -> dict:
+    """Edit ANY inventory item, identified by SKU. Supports category reassign
+    (the manager moving an item OUT of "New Items"), description/price/par/unit
+    edits, and (de)activation. Only the fields present in the payload are written.
+    """
+    sup = _client()
+    sku = (payload.get("sku") or "").strip()
+    if not sku:
+        return {"applied": 0, "error": "Missing sku"}
+
+    target = (
+        sup.table("inventory_items").select("id").eq("sku", sku).limit(1).execute()
+    )
+    row = (target.data or [None])[0]
+    if not row:
+        return {"applied": 0, "error": f"Unknown sku: {sku}"}
+
+    fields: dict = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    if payload.get("desc") is not None:
+        fields["description"] = payload["desc"]
+    if payload.get("category"):
+        cat_r = (
+            sup.table("inventory_categories")
+            .select("id")
+            .eq("name", payload["category"])
+            .limit(1)
+            .execute()
+        )
+        cat_row = (cat_r.data or [None])[0]
+        if cat_row:
+            fields["category_id"] = cat_row["id"]
+    if payload.get("price") is not None:
+        fields["unit_price"] = payload["price"]
+    if payload.get("par") is not None:
+        fields["par_level"] = payload["par"]
+    if payload.get("unit"):
+        fields["unit"] = payload["unit"]
+    if payload.get("active") is not None:
+        fields["active"] = bool(payload["active"])
+    # Optional SKU rename (kept distinct from identity to avoid silent merges).
+    new_sku = (payload.get("new_sku") or "").strip()
+    if new_sku and new_sku != sku:
+        fields["sku"] = new_sku
+
+    sup.table("inventory_items").update(fields).eq("id", row["id"]).execute()
+    return {"applied": 1, "sku": new_sku or sku, "fields": list(fields.keys())}
+
+
+def dispatch_item_delete(payload: dict) -> dict:
+    """Delete an inventory item by SKU. Soft by default (active=false) to
+    preserve monthly_inventory / source-control history; hard delete only when
+    the payload explicitly sets `hard: true`.
+    """
+    sup = _client()
+    sku = (payload.get("sku") or "").strip()
+    if not sku:
+        return {"applied": 0, "error": "Missing sku"}
+
+    if payload.get("hard") is True:
+        sup.table("inventory_items").delete().eq("sku", sku).execute()
+        return {"applied": 1, "sku": sku, "mode": "hard"}
+
+    sup.table("inventory_items").update(
+        {"active": False, "updated_at": datetime.now(timezone.utc).isoformat()}
+    ).eq("sku", sku).execute()
+    return {"applied": 1, "sku": sku, "mode": "soft"}
 
 
 def dispatch_menu_save(payload: dict) -> dict:
@@ -196,6 +261,8 @@ def dispatch_user_update(payload: dict) -> dict:
 
 REGISTRY = {
     "inventory_save": dispatch_inventory_save,
+    "item_update": dispatch_item_update,
+    "item_delete": dispatch_item_delete,
     "menu_save": dispatch_menu_save,
     "event_create": dispatch_event_create,
     "haccp_save": dispatch_haccp_save,
