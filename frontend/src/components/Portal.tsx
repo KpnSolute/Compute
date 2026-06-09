@@ -3387,7 +3387,13 @@ export function Portal({
 }: PortalProps) {
     const lvl = ROLE_LEVEL[user.role];
     const [active, setActive] = useState("dashboard");
-    const [period, setPeriod] = useState<[number, number]>([4, 2026]);
+    // Default to the CURRENT real-world month (0-indexed, matching the DB/period
+    // convention) instead of a hardcoded month, so the app always opens on the
+    // live/open period rather than a stale one.
+    const [period, setPeriod] = useState<[number, number]>([
+        new Date().getMonth(),
+        new Date().getFullYear(),
+    ]);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [invState, reloadInv] = useInventory();
     const [stagedCount, setStagedCount] = useState(0);
