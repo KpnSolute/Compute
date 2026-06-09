@@ -362,10 +362,13 @@ async def approve_commit(body: ApproveCommitBody):
             }
         ).in_("entry_id", body.staging_ids).execute()
 
-        # 6 — enqueue github sync
+        # 6 — enqueue github sync. NOTE: github_sync_queue_operation_check permits
+        # ('push_inventory','push_archive_snapshot','push_invoice','push_menu',
+        # 'push_items_catalog'). 'push_snapshot' was invalid → 23514 → the final
+        # 500 in the commit flow (after status fix). Use 'push_archive_snapshot'.
         _client().table("github_sync_queue").insert(
             {
-                "operation": "push_snapshot",
+                "operation": "push_archive_snapshot",
                 "payload": {
                     "commit_id": commit_id,
                     "message": body.message,
