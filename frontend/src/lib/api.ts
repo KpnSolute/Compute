@@ -76,7 +76,7 @@ export interface StagingEntry {
   new_value_text?: string | null;
   change_type: string;
   metadata?: Record<string, unknown>;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'merged' | 'rejected';
   submitted_by: string;
   submitter_name?: string;
   submitter_role?: string;

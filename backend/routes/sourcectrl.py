@@ -350,10 +350,13 @@ async def approve_commit(body: ApproveCommitBody):
         if changes:
             _client().table("commit_changes").insert(changes).execute()
 
-        # 5 — mark staging entries approved
+        # 5 — mark staging entries merged. NOTE: staging_entries_status_check only
+        # permits ('pending','merged','rejected') — writing 'approved' here raised
+        # 23514 and 500'd EVERY commit after the data already applied (latent prod
+        # bug: 76 commits exist but all staging rows stuck 'pending'). Use 'merged'.
         _client().table("staging_entries").update(
             {
-                "status": "approved",
+                "status": "merged",
                 "reviewed_by": author_id,
                 "reviewed_at": now,
             }
