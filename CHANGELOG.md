@@ -16,6 +16,18 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v1.9.2] — 2026-06-09 — 🟢 T5 UI verified in prod (Edit/reassign/delete modal) + fix: app now opens on the CURRENT month
+
+**Claude (Senior Dev Manager):** Closed the SKU-refactor test plan with a live UI pass, and fixed a default-period bug the user flagged.
+
+**T5 — live UI E2E (prod `kpncompute.onrender.com`, logged in as jeremiah/admin via chrome-devtools MCP):** Confirmed the new **Edit item** modal renders + is wired in production — per-row "Edit / reassign / delete this item" buttons on every inventory row; modal shows Description, **Category (reassign)** dropdown (pre-set to the item's category, with the "Reassign the category to move it out of New Items" hint), Unit price, Par, and a red **Delete** + Save changes. It calls the same `item_update`/`item_delete` stage paths already proven green end-to-end in T3, so the feature is verified at both UI and contract levels. (Dashboard also shows the expected `230 line items` post-migration.)
+
+**🟢 Fix `584c79e` — app loaded on a stale month.** `Portal.tsx` hardcoded the period state to `[4, 2026]` (May), so the app always opened on May even though `month_status` shows **May `published` / June `open`** (rollover ran 2026-06-08; June has the 230-row working set). Changed the init to `[new Date().getMonth(), new Date().getFullYear()]` so it always opens on the current real-world month (0-indexed, matching the DB/period convention). Verify: `tsc --noEmit` 0 · `npm run build` 0. Deployed to the static site.
+
+**Note (minor, not blocking):** the Edit modal's category dropdown is sourced from item-derived categories, so an *empty* "New Items" bucket won't appear as a manual reassign target until ingestion puts something there — fine for the real flows (reassigning OUT of New Items works; data-entry populates it). Sourcing categories from `GET /api/inventory-categories` is the documented refinement.
+
+**Push:** Claude → `584c79e` — 2026-06-09 (main).
+
 ## [v1.9.1] — 2026-06-09 — 🟢 SKU refactor DEPLOYED to prod + 🔴→🟢 fixed two latent commit-flow constraint bugs (Source Control approve was 500ing on EVERY change)
 
 **Claude (Senior Dev Manager):** Merged the SKU-identity refactor to `main` (`b5dd3d9..f4ce125`) → Render auto-deployed. Then ran live T3 against the deployed prod API with an admin pin-token, which **green-lit the refactor AND exposed a 2-bug chain that had been silently breaking Source Control approvals project-wide.**
