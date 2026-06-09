@@ -979,6 +979,23 @@ function InventoryView({
         });
     };
 
+    // Authoritative category list from the API (includes empty categories like
+    // "New Items"), so the add/edit dropdowns can target a bucket even when no
+    // item is in it yet. Falls back to item-derived names if the fetch fails.
+    const [apiCatNames, setApiCatNames] = useState<string[]>([]);
+    useEffect(() => {
+        let alive = true;
+        api.getInventoryCategories()
+            .then((rows: any[]) => {
+                if (alive && Array.isArray(rows))
+                    setApiCatNames(rows.map((c) => c.name).filter(Boolean));
+            })
+            .catch(() => {});
+        return () => {
+            alive = false;
+        };
+    }, []);
+
     // Weekly pulled (issued, ↓) / received (↑) columns — mirrors the offline
     // template's compact sheet. Edits live in local `wkDraft` and are persisted
     // via the "Stage weekly changes" batch action (stageCompactChanges), which
@@ -1261,6 +1278,11 @@ function InventoryView({
         rows = [];
         cats = [];
     }
+    // Dropdown options: API categories first (authoritative + ordered, includes
+    // empty buckets like "New Items"), then any item-only categories not in it.
+    const catOptions = apiCatNames.length
+        ? Array.from(new Set([...apiCatNames, ...cats]))
+        : cats;
     const filtered = rows.filter(
         (r: any) =>
             (!cat || r.cat === cat) &&
@@ -2419,7 +2441,7 @@ function InventoryView({
                                     }
                                 >
                                     <option value="">Select a category…</option>
-                                    {(cats || []).map((c) => (
+                                    {(catOptions || []).map((c) => (
                                         <option key={c} value={c}>
                                             {c}
                                         </option>
@@ -2566,7 +2588,7 @@ function InventoryView({
                                         }))
                                     }
                                 >
-                                    {(cats || []).map((c) => (
+                                    {(catOptions || []).map((c) => (
                                         <option key={c} value={c}>
                                             {c}
                                         </option>
