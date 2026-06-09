@@ -16,6 +16,27 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v1.9.1] — 2026-06-09 — 🟢 SKU refactor DEPLOYED to prod + 🔴→🟢 fixed two latent commit-flow constraint bugs (Source Control approve was 500ing on EVERY change)
+
+**Claude (Senior Dev Manager):** Merged the SKU-identity refactor to `main` (`b5dd3d9..f4ce125`) → Render auto-deployed. Then ran live T3 against the deployed prod API with an admin pin-token, which **green-lit the refactor AND exposed a 2-bug chain that had been silently breaking Source Control approvals project-wide.**
+
+**T3 — live prod validation (all green, all test data cleaned up):**
+- `POST /api/inventory` with a **blank SKU** → backend generates `MJC-<hex>` server-side and inserts (NOT NULL can't 500). Confirmed via 30 real inserts, each a unique SKU; deleted.
+- `UNIQUE(sku)` enforced live — a duplicate-SKU insert raised `23505`; `ON CONFLICT (sku) DO UPDATE` upserts now succeed (v1.8.5 `42P10` gone).
+- **Full staging→commit→dispatch round-trip for the NEW ops:** `item_update` reassigned an item **New Items → Supplies** (+ desc/par edits) → **201**; `item_delete` soft-deleted it (`active=false`) → **201**. Verified end state; both staging rows `merged`; github sync enqueued. All QA rows/commits/staging purged (DB back to 1591 items, 0 blank sku, 1591 distinct).
+
+**🔴→🟢 Two pre-existing prod bugs in `approve_commit` (`routes/sourcectrl.py`), found because the new ops were the first thing exercised end-to-end:**
+1. **`dcc9c50`** — step 5 wrote `staging_entries.status='approved'`, but `staging_entries_status_check` only permits `('pending','merged','rejected')` → `23514`. Every approval 500'd **after** `replay` had already applied the data + created the commit row, leaving the staging row stuck `pending`. Evidence: **76 commits existed but 0 staging rows had ever left `pending`.** Fixed to `'merged'`.
+2. **`fb5bb8e`** — step 6 enqueued `github_sync_queue.operation='push_snapshot'`, but `github_sync_queue_operation_check` permits `('push_inventory','push_archive_snapshot','push_invoice','push_menu','push_items_catalog')` → `23514` (the next 500 once #1 was fixed). Changed to `'push_archive_snapshot'`. Also updated the cosmetic `StagingEntry.status` TS type (`api.ts`) `'approved'`→`'merged'`.
+
+**Net:** Source Control approvals now return 201 and actually mark entries merged + enqueue the archive push — for **all** operations (inventory_save, menu_save, …), not just the new item ops. Verify: `py_compile` OK; `tsc --noEmit` 0.
+
+**Deploys this session:** `f4ce125` (refactor), `dcc9c50` (status fix), `fb5bb8e` (github-sync fix) — all on `main`, all auto-deployed; prod `/health` 200.
+
+**Remaining:** T5 (chrome-devtools UI E2E of the Edit/New-Items UI) needs a logged-in manager/admin browser session — blocked on real credentials (only have user ids, not PINs/passwords). Frontend is build-clean (T4) and calls exactly the now-verified `item_update`/`item_delete` stage paths, so it is validated at the contract level. The AI **invoice-parsing** logic + the W1–W4 weekly-upload selector remain the planned next-day follow-up.
+
+**Push:** Claude → `fb5bb8e` — 2026-06-09 (main; 3 deploys this session).
+
 ## [v1.9.0] — 2026-06-09 — 🟢 SKU-as-identity refactor · Phase 1 DB migration applied (fixes the v1.8.5 missing-constraint blocker)
 
 **Claude (Senior Dev Manager — Track DB, single-agent parallel model):** Kicked off the user-directed inventory refactor ("SKU is the item's primary id" + "New Items" review category for unrecognized items + weekly `Received | Exported` structure). Full plan: `.claude/plans/skew-inventory-refactor-plan.md` (sequential-thinking, 8 phases, 6 test gates, decisions locked with the user). This entry = **Phase 1 (data migration) only**, applied live to `MJCCv1` via Supabase MCP.
