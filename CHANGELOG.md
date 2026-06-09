@@ -16,6 +16,12 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v1.9.3] — 2026-06-09 — Category dropdowns sourced from the API (New Items always a reassign target)
+
+**Claude:** Closed the minor refinement flagged in v1.9.2. The Inventory **Add item** + **Edit item** modals derived their category dropdown from item-present categories, so an *empty* "New Items" bucket never appeared as a manual reassign target. `Portal.tsx` InventoryView now fetches `GET /api/inventory-categories` (authoritative, `sort_order`-ed, includes empty buckets) on mount and the dropdowns use `catOptions` = API names ∪ item-derived names (fallback to derived if the fetch fails). Verify: `tsc --noEmit` 0 · `npm run build` 0. **Push:** `1d48c53` (main). Live UI confirm pending static redeploy.
+
+**Next (per user):** AI **invoice parsing** (the explicitly-deferred "tomorrow" work) + the W1–W4 weekly-upload selector — needs a sample invoice/format to design the parser against.
+
 ## [v1.9.2] — 2026-06-09 — 🟢 T5 UI verified in prod (Edit/reassign/delete modal) + fix: app now opens on the CURRENT month
 
 **Claude (Senior Dev Manager):** Closed the SKU-refactor test plan with a live UI pass, and fixed a default-period bug the user flagged.
