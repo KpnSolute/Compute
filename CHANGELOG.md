@@ -16,6 +16,29 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v1.9.9] — 2026-06-10 — P1.4 idempotent replay + final cleanup
+
+**Claude (Senior Dev Manager):** Closed the last open items from the handoff.
+
+**P1.4 — insert-type replay is now fully idempotent:**
+- DB migration `add_staging_entry_id_idempotency` applied to MJCCv1: `staging_entry_id uuid UNIQUE NULL` added to `events`, `haccp_logs`, `daily_operations_logs`.
+- `approve_commit` injects `_staging_entry_id: entry["entry_id"]` into every payload before calling `replay()`.
+- `dispatch_event_create`, `dispatch_haccp_save`, `dispatch_daily_log_save`: each checks `staging_entry_id` before inserting; returns `{applied:0, skipped:true}` on retry instead of duplicating the row. First-time inserts store the key in the new column.
+- Inventory/menu ops are upserts and were already idempotent — no change needed there.
+
+**Remaining cleanup:**
+- `sourcectrl.py`: removed dead `_resolve_author` function.
+- `inventory.py`: last `datetime.now()` (in `get_period_status`) replaced with `datetime.now(timezone.utc)` — zero naive datetime calls remain in the backend.
+- `github_sync.py`: `GET /api/github-sync/status` now requires admin/manager (previously open read).
+- `routes/data_entry.py`: `_first_admin()` dead code removed (done in v1.9.8 follow-up).
+
+**Auth fix (v1.9.8 follow-up):** `_get_auth_user` (sourcectrl) and `_require_admin_or_manager` (github_sync) now wrap all user_profiles DB queries in try/except — a `pin_<non-UUID>` token previously caused an unguarded Supabase exception that escaped before CORS headers were applied, surfacing as a network error instead of 401.
+
+**Build:** All modified files pass `py_compile`. No frontend changes.
+**Push:** db3cc03
+
+---
+
 ## [v1.9.8] — 2026-06-10 — Backend security hardening + correctness fixes (P0–P2)
 
 **Claude (Senior Dev Manager):** Implemented the full engineering handoff backlog: P0 security, P1 correctness, P2 hygiene. All modified files pass `py_compile`. No schema migrations needed (P2.9/P2.10 deferred — require coordinated DB migration, see below).
