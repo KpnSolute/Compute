@@ -297,7 +297,7 @@ async def approve_commit(
     if not body.staging_ids:
         raise HTTPException(status_code=422, detail="staging_ids must not be empty.")
     try:
-        author_id = _resolve_author(body.author_id)
+        author_id = auth_user["id"]
         now = datetime.now(timezone.utc).isoformat()
 
         # 1 — fetch staging entries

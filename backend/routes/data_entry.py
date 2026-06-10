@@ -47,20 +47,6 @@ def _expires() -> str:
     return (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
 
 
-def _first_admin() -> str:
-    r = (
-        _client()
-        .table("user_profiles")
-        .select("id")
-        .eq("role", "admin")
-        .limit(1)
-        .execute()
-    )
-    if r.data:
-        return r.data[0]["id"]
-    raise HTTPException(status_code=500, detail="No admin user found.")
-
-
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 
