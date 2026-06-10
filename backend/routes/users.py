@@ -12,10 +12,20 @@ Endpoints:
 - GET /api/users/{user_id} - Get user details
 """
 
+import json
+import secrets
 from datetime import datetime
+from urllib import request
+from urllib.error import HTTPError
+
 from fastapi import APIRouter, HTTPException, Header, Depends
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from backend.routes import supabase_service, jwt_validator
+from backend.routes import (
+    SUPABASE_SERVICE_KEY,
+    SUPABASE_URL,
+    jwt_validator,
+    supabase_service,
+)
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -27,8 +37,9 @@ class UserCreateRequest(BaseModel):
     email: EmailStr
     display_name: str = Field(..., min_length=1, max_length=100)
     last_name: str = Field(default="", max_length=100)
-    role: str = Field("staff", pattern="^(admin|manager|staff)$")
+    role: str = Field("staff", pattern="^(admin|manager|assistant|staff)$")
     pin: str = Field(default="", max_length=10)
+    password: str | None = Field(None, min_length=8, max_length=128)
 
 
 class UserUpdateRequest(BaseModel):
@@ -36,7 +47,7 @@ class UserUpdateRequest(BaseModel):
 
     display_name: str | None = Field(None, max_length=100)
     last_name: str | None = Field(None, max_length=100)
-    role: str | None = Field(None, pattern="^(admin|manager|staff)$")
+    role: str | None = Field(None, pattern="^(admin|manager|assistant|staff)$")
     pin: str | None = Field(None, max_length=10)
     active: bool | None = None
 
@@ -150,6 +161,46 @@ async def _user_exists(username: str, exclude_id: str | None = None) -> bool:
         return bool(result.data)
     except Exception:
         return False
+
+
+def _create_auth_user(email: str, password: str, metadata: dict) -> str:
+    """Create the backing Supabase Auth user using the service-role admin API."""
+    payload = json.dumps(
+        {
+            "email": email,
+            "password": password,
+            "email_confirm": True,
+            "user_metadata": metadata,
+        }
+    ).encode("utf-8")
+    req = request.Request(
+        f"{SUPABASE_URL}/auth/v1/admin/users",
+        data=payload,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        raise HTTPException(
+            status_code=400, detail=f"Auth user create failed: {body}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Auth user create failed: {str(e)}"
+        )
+
+    user_id = data.get("id")
+    if not user_id:
+        raise HTTPException(
+            status_code=500, detail="Auth user create failed: missing id"
+        )
+    return user_id
 
 
 @router.get("", response_model=UsersListResponse)
@@ -266,12 +317,22 @@ async def create_user(
     now = datetime.utcnow().isoformat()
 
     try:
-        # Note: In production, user_id should come from Supabase Auth
-        # For now, we'll let Supabase generate it via auto-increment or UUID
+        password = req.password or secrets.token_urlsafe(18)
+        auth_user_id = _create_auth_user(
+            str(req.email),
+            password,
+            {
+                "username": req.username,
+                "display_name": req.display_name,
+                "last_name": req.last_name,
+                "role": req.role,
+            },
+        )
         result = (
             supabase_service.table("user_profiles")
             .insert(
                 {
+                    "id": auth_user_id,
                     "username": req.username,
                     "email": req.email,
                     "display_name": req.display_name,

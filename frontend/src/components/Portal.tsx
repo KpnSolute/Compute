@@ -1006,6 +1006,12 @@ function InventoryView({
     const [wkDraft, setWkDraft] = useState<
         Record<string, Partial<Record<WeeklyField, number>>>
     >({});
+
+    // Invoice mode selectors: which week (1-4) and direction this staging batch
+    // represents. 0 = whole-month save (inventory_save). When week>0, the batch
+    // is routed as inventory_week_update for that specific column only.
+    const [compactWeek, setCompactWeek] = useState<0 | 1 | 2 | 3 | 4>(0);
+    const [compactDir, setCompactDir] = useState<"received" | "issued">("received");
     const setWeeklyField = (sku: string, field: WeeklyField, value: string) => {
         const num = Number.isFinite(parseFloat(value))
             ? Math.max(0, parseFloat(value))
@@ -1093,57 +1099,92 @@ function InventoryView({
         if (!canStage) return;
         const dirty = compactDirtyRows();
         if (!dirty.length) {
-            toast("No weekly changes to stage");
+            toast("No changes to stage");
             return;
         }
-        const items = dirty.map((r: any) => {
-            const sku = String(r.sku);
-            const d = draft[sku];
-            const w = wkDraft[sku] || {};
-            return {
-                sku,
-                desc: r.desc,
-                category: r.cat,
-                price: r.price,
-                onHand: d?.onHand ?? r.onHand,
-                par: d?.par ?? r.par,
-                w1i: w.w1i ?? r.w1i,
-                w2i: w.w2i ?? r.w2i,
-                w3i: w.w3i ?? r.w3i,
-                w4i: w.w4i ?? r.w4i,
-                w1r: w.w1r ?? r.w1r,
-                w2r: w.w2r ?? r.w2r,
-                w3r: w.w3r ?? r.w3r,
-                w4r: w.w4r ?? r.w4r,
-            };
-        });
-        const payload = {
-            month: period[0] + 1,
-            year: period[1],
-            notes: `Weekly inventory edit · ${MONTHS[period[0]]} ${period[1]}`,
-            items,
-        };
-        const n = items.length;
+        const month1 = period[0] + 1;
+        const yr = period[1];
+        const n = dirty.length;
         setStagingBusy((prev) => ({ ...prev, __compact__: true }));
         try {
-            await api.stageChange(
-                "inventory_save",
-                "inventory",
-                "batch-compact",
-                payload,
-                `Weekly update · ${n} item${n === 1 ? "" : "s"}`,
-            );
-            toast(`Staged weekly changes for ${n} item${n === 1 ? "" : "s"}`);
+            if (compactWeek > 0) {
+                // Invoice mode: stage as inventory_week_update for the chosen week+direction.
+                // Only the single selected column is written; other weeks are untouched.
+                const colKey = `w${compactWeek}${compactDir === "received" ? "r" : "i"}` as WeeklyField;
+                const wkItems = dirty
+                    .filter((r: any) => wkDraft[String(r.sku || "")] !== undefined)
+                    .map((r: any) => {
+                        const sku = String(r.sku);
+                        const qty = wkDraft[sku]?.[colKey] ?? (r[colKey] ?? 0);
+                        return { sku, desc: r.desc, category: r.cat, price: r.price, par: r.par, qty };
+                    });
+                // Rows with only on_hand/par edits (no wkDraft) still need an inventory_save.
+                const monthItems = dirty
+                    .filter((r: any) => {
+                        const sku = String(r.sku || "");
+                        return draft[sku] && !wkDraft[sku];
+                    })
+                    .map((r: any) => {
+                        const sku = String(r.sku);
+                        const d = draft[sku];
+                        return { sku, desc: r.desc, category: r.cat, price: r.price, onHand: d?.onHand ?? r.onHand, par: d?.par ?? r.par };
+                    });
+                const ops: Promise<any>[] = [];
+                if (wkItems.length) {
+                    ops.push(api.stageChange(
+                        "inventory_week_update",
+                        "inventory",
+                        `W${compactWeek}-${compactDir}`,
+                        { month: month1, year: yr, week: compactWeek, direction: compactDir, review_new: true, items: wkItems },
+                        `W${compactWeek} ${compactDir} · ${wkItems.length} item${wkItems.length !== 1 ? "s" : ""}`,
+                    ));
+                }
+                if (monthItems.length) {
+                    ops.push(api.stageChange(
+                        "inventory_save",
+                        "inventory",
+                        "batch-compact",
+                        { month: month1, year: yr, notes: `On-hand update · ${MONTHS[period[0]]} ${yr}`, items: monthItems },
+                        `On-hand update · ${monthItems.length} item${monthItems.length !== 1 ? "s" : ""}`,
+                    ));
+                }
+                await Promise.all(ops);
+                toast(`Staged W${compactWeek} ${compactDir} invoice · ${n} item${n !== 1 ? "s" : ""}`);
+            } else {
+                // Whole-month save: on_hand/par + any explicitly-edited weekly columns.
+                // Only w* keys present in wkDraft are included, so unedited weeks are preserved.
+                const items = dirty.map((r: any) => {
+                    const sku = String(r.sku);
+                    const d = draft[sku];
+                    const w = wkDraft[sku] || {};
+                    const base: any = {
+                        sku, desc: r.desc, category: r.cat, price: r.price,
+                        onHand: d?.onHand ?? r.onHand,
+                        par: d?.par ?? r.par,
+                    };
+                    // Spread only explicitly-edited weekly fields
+                    for (const k of ["w1r","w2r","w3r","w4r","w1i","w2i","w3i","w4i"] as WeeklyField[]) {
+                        if (k in w) base[k] = w[k];
+                    }
+                    return base;
+                });
+                await api.stageChange(
+                    "inventory_save",
+                    "inventory",
+                    "batch-compact",
+                    { month: month1, year: yr, notes: `Inventory update · ${MONTHS[period[0]]} ${yr}`, items },
+                    `Inventory update · ${n} item${n !== 1 ? "s" : ""}`,
+                );
+                toast(`Staged inventory changes for ${n} item${n !== 1 ? "s" : ""}`);
+            }
             setWkDraft({});
             setDraft((prev) => {
                 const copy = { ...prev };
-                for (const it of items) delete copy[it.sku];
+                for (const r of dirty) delete copy[String((r as any).sku || "")];
                 return copy;
             });
         } catch (e: any) {
-            toast(
-                `Failed to stage weekly changes: ${e?.message || "Unknown error"}`,
-            );
+            toast(`Failed to stage: ${e?.message || "Unknown error"}`);
         } finally {
             setStagingBusy((prev) => ({ ...prev, __compact__: false }));
         }
@@ -1944,27 +1985,52 @@ function InventoryView({
                                                 marginBottom: 8,
                                             }}
                                         >
-                                            <span
-                                                style={{
-                                                    fontSize: 12,
-                                                    color: "var(--faint)",
-                                                }}
-                                            >
+                                            <span style={{ fontSize: 12, color: "var(--faint)" }}>
                                                 {dirtyCount
-                                                    ? `${dirtyCount} item${dirtyCount === 1 ? "" : "s"} with unsaved weekly edits`
-                                                    : "Weekly edits stage to Source Control for review"}
+                                                    ? `${dirtyCount} item${dirtyCount === 1 ? "" : "s"} edited`
+                                                    : "Invoice mode — pick week & direction, enter quantities, stage"}
                                             </span>
-                                            <button
-                                                className="btn"
-                                                disabled={!dirtyCount || busy}
-                                                style={{ padding: "6px 12px" }}
-                                                onClick={stageCompactChanges}
-                                                title="Stage all weekly received/issued edits in Source Control"
-                                            >
-                                                {busy
-                                                    ? "Staging…"
-                                                    : "Stage weekly changes"}
-                                            </button>
+                                            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                                                <select
+                                                    className="tb-select"
+                                                    value={compactWeek}
+                                                    onChange={(e) => setCompactWeek(+e.target.value as 0|1|2|3|4)}
+                                                    style={{ fontSize: 12 }}
+                                                    title="Which week's invoice is this?"
+                                                >
+                                                    <option value={0}>Month save</option>
+                                                    <option value={1}>W1 Invoice</option>
+                                                    <option value={2}>W2 Invoice</option>
+                                                    <option value={3}>W3 Invoice</option>
+                                                    <option value={4}>W4 Invoice</option>
+                                                </select>
+                                                {compactWeek > 0 && (
+                                                    <select
+                                                        className="tb-select"
+                                                        value={compactDir}
+                                                        onChange={(e) => setCompactDir(e.target.value as "received" | "issued")}
+                                                        style={{ fontSize: 12 }}
+                                                    >
+                                                        <option value="received">Received ↑</option>
+                                                        <option value="issued">Issued ↓</option>
+                                                    </select>
+                                                )}
+                                                <button
+                                                    className="btn"
+                                                    disabled={!dirtyCount || busy}
+                                                    style={{ padding: "6px 12px" }}
+                                                    onClick={stageCompactChanges}
+                                                    title={compactWeek > 0
+                                                        ? `Stage W${compactWeek} ${compactDir} invoice in Source Control`
+                                                        : "Stage all edits in Source Control"}
+                                                >
+                                                    {busy
+                                                        ? "Staging…"
+                                                        : compactWeek > 0
+                                                            ? `Stage W${compactWeek} ${compactDir}`
+                                                            : "Stage changes"}
+                                                </button>
+                                            </div>
                                         </div>
                                     );
                                 })()}

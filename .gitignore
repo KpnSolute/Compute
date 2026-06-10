@@ -23,3 +23,6 @@ opencode.json
 .DS_Store
 Thumbs.db
 *:Zone.Identifier
+
+# TestSprite QA output (generated artifacts, not source)
+testsprite_tests/

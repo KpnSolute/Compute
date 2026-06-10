@@ -257,6 +257,7 @@ export function MonthlyInventory({
             cat: it.category || it.cat,
             item: it.desc,
             price: it.price || 0,
+            par: it.par || 0,
             opening: it.onHand || 0,
             received: rec,
             issued: iss,
@@ -325,22 +326,15 @@ export function MonthlyInventory({
 
   async function handleSave() {
     try {
+      // Save on_hand (closing balance) only — weekly W1-W4 columns are managed
+      // through the weekly invoice flow and must not be overwritten here.
       const items = rows.map((r: any) => ({
         sku: r.id,
         desc: r.item,
         onHand: closing(r),
-        par: 0,
+        par: r.par,
+        price: r.price,
         category: r.cat,
-        // Pass week fields (chrono received/issued) so dispatch writes accurate w1r..w4* to monthly_inventory.
-        // Use edited aggregate as w1* (this grid's 'received'/'issued' represents period activity); other weeks 0 or carried.
-        w1r: r.received || 0,
-        w2r: (r.w2r || 0),
-        w3r: (r.w3r || 0),
-        w4r: (r.w4r || 0),
-        w1i: r.issued || 0,
-        w2i: (r.w2i || 0),
-        w3i: (r.w3i || 0),
-        w4i: (r.w4i || 0),
       }));
       const payload = { items, month: m + 1, year: y, notes: `${MONTHS[m]} ${y}` };
       await api.stageChange('inventory_save', 'inventory', 'batch', payload, `Monthly inventory — ${MONTHS[m]} ${y}`);
@@ -469,14 +463,10 @@ export function MonthlyInventory({
                         {cell(r.opening, (v) => setR(r.id, 'opening', v), canEdit)}
                       </td>
                       <td className="r rcv-cell">
-                        {cell(
-                          r.received,
-                          (v) => setR(r.id, 'received', v),
-                          canEdit,
-                        )}
+                        <span className="num">{r.received || 0}</span>
                       </td>
                       <td className="r">
-                        {cell(r.issued, (v) => setR(r.id, 'issued', v), canEdit)}
+                        <span className="num">{r.issued || 0}</span>
                       </td>
                       <td className="r num" style={{ fontWeight: 800 }}>
                         {closing(r)}

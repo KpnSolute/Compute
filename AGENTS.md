@@ -1,7 +1,7 @@
 # AGENTS.md — MJCC Single Source of Truth & Governance
 
 **MANDATORY READING for ALL agents: Claude, Gemini, OpenCode, GitHub Copilot.**
-This file is the single source of truth. It OVERRIDES any conflicting statement in `CLAUDE.md`, `GEMINI.md`, or any other doc. If you find a contradiction between this file and another doc, **this file wins** and you must flag the other doc for correction.
+This file is the single source of truth for project **FACTS** (schema, repos, known issues, conventions). On a conflict about a *fact*, **this file wins** and you must flag the other doc for correction. On a conflict about *role/authority/coordination*, `CLAUDE.md` governs — Claude is the **Senior Development Manager & Environment Orchestrator** who coordinates the workspace and delegates to the other agents (§9).
 
 This file replaces the former `AGENT_ALIGNMENT.md` (deleted 2026-06-04 — its content is folded in here).
 
@@ -102,6 +102,8 @@ This is the **authoritative schema**. 38 tables, RLS enabled on all. Key tables 
 
 ## 5. FILE OWNERSHIP & FORBIDDEN ZONES
 
+**Manager note:** Claude (Senior Development Manager) holds cross-stack authority and may direct work in any lane. The table is the **default write/delegation map** — Claude delegates data/schema execution to Gemini by default for safety and review, not because tool access is restricted.
+
 | Path | Owner | Others may |
 |------|-------|-----------|
 | `frontend/src/components/**` | **Claude** | read only |
@@ -194,7 +196,7 @@ This is the **authoritative schema**. 38 tables, RLS enabled on all. Key tables 
 
 ## 9. AGENT ROSTER — ONE TEAM (authoritative)
 
-**We are one team.** Claude, Gemini, and OpenCode share the same codebase, the same tools (§11), and the same memory (`CHANGELOG.md`). Lane ownership (§5) governs **who writes what** — it does **not** restrict which tools any agent may use. Every agent has full read/run access to GitHub, Supabase, Render, the debugger, ruff, and ESLint. Use them freely.
+**We are one team, coordinated by Claude (Senior Development Manager & Environment Orchestrator).** Claude, Gemini, and OpenCode share the same codebase, the same tools (§11), and the same memory (`CHANGELOG.md`). Claude orchestrates the workspace and delegates: research/data/schema execution to Gemini, mechanical work to OpenCode, diagnosis to MJCC-debugger, logging to Catch21, git to Github. Lane ownership (§5) governs **who writes what by default** — it does **not** restrict which tools any agent may use. Every agent has full read/run access to GitHub, Supabase, Render, TestSprite, chrome-devtools, the debugger, ruff, and ESLint. Use them freely.
 
 ### Research lead — Gemini
 
@@ -206,9 +208,9 @@ When an issue needs investigation — schema doubts, production 500s, auth failu
 
 Claude and OpenCode **execute** from research output. They do not skip Gemini on hard problems.
 
-| Agent | Primary lane (writes) | Team role | Must NOT write |
+| Agent | Primary lane (writes) | Team role | Delegates by default |
 |-------|----------------------|-----------|----------------|
-| **Claude** | Frontend (React/TS/Tailwind), `frontend/src/lib/api.ts`, `backend/main.py` wiring, API contract shape | Builder — implements from Gemini's research + debugger plans | Supabase schema, `/data`, `/templates`, core data logic |
+| **Claude** | Frontend (React/TS/Tailwind), `frontend/src/lib/api.ts`, `backend/main.py` wiring, API contract shape; cross-stack coordination | **Senior Development Manager & Orchestrator** — owns structural integrity, directs the team, offloads heavy work to subagents + TestSprite | Supabase schema, `/data`, `/templates`, core data logic → Gemini (directs, does not hand-write) |
 | **Gemini** | Data & backend logic, Supabase schema/migrations (via MCP), `backend/routes/*`, `backend/staging/*`, `backend/ai/*`, `seed_data.py`, `/data` | **Research lead** — schema truth, production DB, issue investigation | Frontend components, `/templates` |
 | **OpenCode** | Mechanical/repetitive tasks under explicit instruction: lint fixes, file moves, boilerplate, test scaffolding | Executor — same tool access, follows plans | Architecture decisions, schema, auth, `/templates`, anything in §7 |
 | **MJCC-debugger** | Diagnosis + fix plans only (no production code) | Doctor — traces failures, defers schema research to Gemini | Writing fixes (hands off to Claude/Gemini/OpenCode) |
@@ -322,6 +324,9 @@ Read `mjcc-tooling/SKILL.md` in your runtime's skills dir for the quick-referenc
 | **Supabase** | `.cursor/mcp.json` + `.vscode/mcp.json` (and equivalent in agent roots) | `SUPABASE_MCP_TOKEN` env var |
 | **cursor-ide-browser** | Cursor built-in | For UI verification when asked |
 | **chrome-devtools (browser)** | In `.mcp.json` + `.vscode/mcp.json` (see mjcc-tooling/SKILL.md "Browser / Chrome DevTools..." section for exact snippets + workflow). Lets any agent autonomously inspect Network tab traffic to the prod backend (`/api/*`) while driving the UI — the primary way to see real request/response shapes, auth, errors during frontend dev. **Playwright MCP was removed (unstable) — see CHANGELOG v1.5.3.** | Local process (`cmd /c npx -y chrome-devtools-mcp@latest`); drives installed Chrome over CDP. |
+| **TestSprite** | Autonomous test-plan generation + isolated cloud sandbox runs; parses edge-case failures and surfaces self-repair recommendations. Claude offloads testing/sandboxing here when near context/rate limits. | TestSprite MCP server. |
+| **github** | Repo diffs, branch histories, commit activity, repo state. | github MCP server. |
+| **sequential-thinking** | Break apart multi-step schema transformations and large architectural changes. | sequential-thinking MCP server. |
 
 **Setup note for all agents (especially Claude, your primary frontend dev):** The visible project MCPs only cover Supabase today. Browser devtools MCPs must be added to the runtime configs in the WSL envs where you launch claude/gemini/opencode (and mirrored to the dot-dirs here for Cursor/VSCode parity). Full install + config + verification commands and the "how to use it to debug a backend call" workflow are documented in the mjcc-tooling skill (all three copies were synced) and in `CLAUDE.md`. Run the find commands in your WSL shell (documented in Claude.md) to locate the exact agent MCP JSONs.
 

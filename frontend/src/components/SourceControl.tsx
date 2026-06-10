@@ -7,6 +7,7 @@ const t = (msg: string) => (window as any).toast?.(msg);
 
 const OP_ICON: Record<string, string> = {
     inventory_save: "box",
+    inventory_week_update: "box",
     item_update: "box",
     item_delete: "del",
     menu_save: "book",
@@ -19,6 +20,7 @@ const OP_ICON: Record<string, string> = {
 
 const OP_LABEL: Record<string, string> = {
     inventory_save: "Inventory update",
+    inventory_week_update: "Weekly invoice",
     item_update: "Item edit",
     item_delete: "Item delete",
     menu_save: "Menu change",
@@ -227,6 +229,8 @@ export function SourceControl({
         const op = (entry as any).operation;
         if (op === "inventory_save" && fp?.items)
             return `${fp.items.length} item${fp.items.length !== 1 ? "s" : ""}`;
+        if (op === "inventory_week_update" && fp?.items)
+            return `${fp.items.length} item${fp.items.length !== 1 ? "s" : ""} → W${fp.week} ${fp.direction === "issued" ? "exported" : "received"}`;
         if (op === "item_update" && fp?.sku)
             return `Edit ${fp.sku}${fp.category ? ` → ${fp.category}` : ""}`;
         if (op === "item_delete" && fp?.sku)

@@ -182,7 +182,7 @@ export async function backendLogin(accessToken: string): Promise<BackendAuthResu
     return { ok: false, error: 'Access token is required' };
   }
 
-  const BASE = (import.meta.env as Record<string, string>).VITE_API_BASE || 'http://localhost:8000';
+  const BASE = (import.meta.env as Record<string, string>).VITE_API_BASE || 'https://mjcc-managements.onrender.com';
   console.debug('[Auth] Sending login to backend /api/auth/login...');
 
   try {
@@ -230,7 +230,7 @@ export async function backendPinLogin(username: string, pin: string): Promise<Ba
     return { ok: false, error: 'Username and PIN are required' };
   }
 
-  const BASE = (import.meta.env as Record<string, string>).VITE_API_BASE || 'http://localhost:8000';
+  const BASE = (import.meta.env as Record<string, string>).VITE_API_BASE || 'https://mjcc-managements.onrender.com';
   console.debug('[Auth] Sending PIN login to backend /api/auth/login...');
 
   try {

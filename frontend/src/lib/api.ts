@@ -323,7 +323,7 @@ export const api = {
   },
 
   // Data Entry
-  async uploadDataEntry(file: File, hint: string, month?: number, year?: number): Promise<{ batch_id: string; staged_count: number; operations: string[]; file: string; month: number; year: number }> {
+  async uploadDataEntry(file: File, hint: string, month?: number, year?: number, week?: number, direction?: string): Promise<{ batch_id: string; staged_count: number; operations: Record<string, number>; file: string; month: number; year: number }> {
     const token = getBackendToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -332,6 +332,8 @@ export const api = {
     form.append('hint', hint);
     if (month !== undefined) form.append('month', String(month));
     if (year !== undefined) form.append('year', String(year));
+    if (week !== undefined) form.append('week', String(week));
+    if (direction !== undefined) form.append('direction', direction);
     const res = await fetch(BASE + '/api/data-entry/upload', { method: 'POST', headers, body: form });
     if (!res.ok) {
       let body: string;

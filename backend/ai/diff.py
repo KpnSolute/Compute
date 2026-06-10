@@ -96,6 +96,45 @@ def _diff_inventory_save(payload: dict) -> dict:
     }
 
 
+def _diff_inventory_week(payload: dict) -> dict:
+    """Preview a weekly-invoice posting: each item's qty → w{week}_{direction}."""
+    week = payload.get("week")
+    direction = payload.get("direction", "received")
+    col = f"w{week}_{direction}"
+    items = payload.get("items", [])
+    rows = []
+    for it in items:
+        sku = (it.get("sku") or "").strip()
+        qty = it.get("qty")
+        if qty is None:
+            qty = it.get("onHand", 0)
+        live = (
+            _client()
+            .table("inventory_items")
+            .select("id")
+            .eq("sku", sku)
+            .limit(1)
+            .execute()
+        )
+        status = "update" if (live.data or []) else "new"
+        rows.append(
+            {
+                "sku": sku,
+                "description": it.get("desc", ""),
+                "status": status,
+                "before": None,
+                "after": {col: qty},
+                "changes": [col],
+            }
+        )
+    return {
+        "table": "monthly_inventory",
+        "operation": "inventory_week_update",
+        "summary": f"{len(items)} item(s) → Week {week} {direction}",
+        "rows": rows,
+    }
+
+
 def _diff_item_update(payload: dict) -> dict:
     """Preview an edit/reassign of a single item identified by SKU."""
     sku = (payload.get("sku") or "").strip()
@@ -278,6 +317,7 @@ def _diff_menu_save(payload: dict) -> dict:
 
 _DIFF_HANDLERS = {
     "inventory_save": _diff_inventory_save,
+    "inventory_week_update": _diff_inventory_week,
     "item_update": _diff_item_update,
     "item_delete": _diff_item_delete,
     "event_create": _diff_event_create,
