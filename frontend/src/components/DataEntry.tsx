@@ -8,7 +8,7 @@ type Hint = '' | 'inventory' | 'events' | 'haccp' | 'menu' | 'log';
 interface UploadResult {
     batch_id: string;
     staged_count: number;
-    operations: string[];
+    operations: Record<string, number>;
     file: string;
     month: number;
     year: number;
@@ -37,6 +37,10 @@ export function DataEntry({ user }: { user: any }) {
     const [hint, setHint] = useState<Hint>('');
     const [month, setMonth] = useState<number>(now.getMonth());
     const [year, setYear] = useState<number>(now.getFullYear());
+    // Weekly invoice target: 0 = whole-month save, 1-4 = post into that week's
+    // column; direction = 'received' (Imports) or 'issued' (Exports).
+    const [week, setWeek] = useState<number>(0);
+    const [direction, setDirection] = useState<'received' | 'issued'>('received');
 
     const [uploading, setUploading] = useState(false);
     const [uploadErr, setUploadErr] = useState<string | null>(null);
@@ -67,7 +71,7 @@ export function DataEntry({ user }: { user: any }) {
         setResult(null);
         setPreview(null);
         try {
-            const res = await api.uploadDataEntry(file, hint, month + 1, year);
+            const res = await api.uploadDataEntry(file, hint, month + 1, year, week, direction);
             setResult(res);
             await loadPreview(res.batch_id);
         } catch (e: any) {
@@ -75,7 +79,7 @@ export function DataEntry({ user }: { user: any }) {
         } finally {
             setUploading(false);
         }
-    }, [file, hint, month, year, loadPreview]);
+    }, [file, hint, month, year, week, direction, loadPreview]);
 
     return (
         <div className="fade-in">
@@ -103,10 +107,10 @@ export function DataEntry({ user }: { user: any }) {
                         }}
                     >
                         <div style={{ flex: '1 1 240px' }}>
-                            <label className="sc-lbl">File (CSV / Excel / PDF / TSV)</label>
+                            <label className="sc-lbl">File (CSV / Excel / PDF / Image)</label>
                             <input
                                 type="file"
-                                accept=".csv,.tsv,.xls,.xlsx,.pdf,.txt"
+                                accept=".csv,.tsv,.xls,.xlsx,.pdf,.txt,.jpg,.jpeg,.png,.webp,.bmp,.gif,.tif,.tiff"
                                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                             />
                         </div>
@@ -154,6 +158,39 @@ export function DataEntry({ user }: { user: any }) {
                             </select>
                         </div>
                         <div>
+                            <label className="sc-lbl">Week</label>
+                            <select
+                                className="tb-select"
+                                value={week}
+                                onChange={(e) => setWeek(+e.target.value)}
+                            >
+                                <option value={0}>Whole month</option>
+                                <option value={1}>Week 1</option>
+                                <option value={2}>Week 2</option>
+                                <option value={3}>Week 3</option>
+                                <option value={4}>Week 4</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="sc-lbl">Direction</label>
+                            <select
+                                className="tb-select"
+                                value={direction}
+                                onChange={(e) =>
+                                    setDirection(e.target.value as 'received' | 'issued')
+                                }
+                                disabled={week === 0}
+                                title={
+                                    week === 0
+                                        ? 'Pick a week to post Imports/Exports'
+                                        : undefined
+                                }
+                            >
+                                <option value="received">Imports (Received)</option>
+                                <option value="issued">Exports (Exported)</option>
+                            </select>
+                        </div>
+                        <div>
                             <button
                                 className="btn primary"
                                 onClick={doUpload}
@@ -180,11 +217,11 @@ export function DataEntry({ user }: { user: any }) {
                                 <b>{result.file}</b> &middot; {MONTHS[result.month - 1] ?? result.month}{' '}
                                 {result.year}
                             </div>
-                            {result.operations?.length > 0 && (
+                            {result.operations && Object.keys(result.operations).length > 0 && (
                                 <div style={{ marginTop: 6 }}>
-                                    {result.operations.map((op, i) => (
+                                    {Object.entries(result.operations).map(([op, count], i) => (
                                         <span key={i} className="pill ok" style={{ marginRight: 6 }}>
-                                            {op}
+                                            {op} × {count}
                                         </span>
                                     ))}
                                 </div>

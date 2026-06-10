@@ -1,8 +1,10 @@
-"""File parser — converts uploaded files to structured rows or plain text."""
+"""File parser — converts uploaded files to structured rows, plain text, or invoice items."""
 
 import csv
 import io
 from typing import Any
+
+from backend.ai import invoice_parser
 
 
 def parse_csv(content: bytes) -> list[dict[str, Any]]:
@@ -63,29 +65,47 @@ def rows_to_text(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def detect_and_parse(filename: str, content: bytes) -> tuple[str, list[dict] | str]:
+def detect_and_parse(filename: str, content: bytes) -> tuple[str, list[dict] | str | dict]:
     """
-    Returns (kind, data) where kind is 'rows' or 'text'.
-    'rows': list of dicts (CSV/Excel/TSV) — suitable for deterministic mapping.
-    'text': plain string (PDF/txt) — needs AI extraction.
+    Returns (kind, data):
+      'rows'         — list of dicts (CSV/Excel/TSV): deterministic column mapping.
+      'text'         — plain string (PDF/txt): AI extraction.
+      'invoice_items' — dict {'meta':..., 'items':[...]} from deterministic invoice parser.
     """
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
 
-    if ext == "csv":
-        return "rows", parse_csv(content)
-    if ext in ("xls", "xlsx"):
-        return "rows", parse_excel(content)
-    if ext == "tsv":
-        return "rows", parse_tsv(content)
-    if ext == "pdf":
-        return "text", parse_pdf(content)
+    # PDFs: try deterministic invoice parser first, fall back to plain text
+    if ext == 'pdf':
+        try:
+            parsed = invoice_parser.parse_invoice_bytes_pdf(content, filename)
+            if parsed['items']:
+                return 'invoice_items', parsed
+        except Exception:
+            pass
+        return 'text', parse_pdf(content)
+
+    # Image receipts: route through OCR invoice parser
+    if f'.{ext}' in invoice_parser.IMAGE_EXTENSIONS:
+        try:
+            parsed = invoice_parser.parse_invoice_bytes_image(content, filename)
+            return 'invoice_items', parsed
+        except Exception:
+            pass
+        return 'text', ''
+
+    if ext == 'csv':
+        return 'rows', parse_csv(content)
+    if ext in ('xls', 'xlsx'):
+        return 'rows', parse_excel(content)
+    if ext == 'tsv':
+        return 'rows', parse_tsv(content)
 
     # try CSV heuristic for unknown text files
     try:
         rows = parse_csv(content)
         if rows and len(rows[0]) > 1:
-            return "rows", rows
+            return 'rows', rows
     except Exception:
         pass
 
-    return "text", content.decode("utf-8", errors="replace")
+    return 'text', content.decode('utf-8', errors='replace')

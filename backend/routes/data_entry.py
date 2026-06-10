@@ -17,6 +17,7 @@ from supabase import create_client
 from typing import Optional
 
 from backend.ai import engine as ai_engine
+from backend.ai import invoice_parser
 from backend.ai import parser as file_parser
 from backend.ai import mapper, context as ctx, diff as diff_engine
 
@@ -80,6 +81,16 @@ def _stage_entries(
             entity_id = batch_id
             field_name = "bulk_import"
             new_value = f"{len(items)} items"
+        elif operation == "inventory_week_update":
+            items = payload.get("items", [])
+            summary = (
+                f"{len(items)} item(s) → W{payload.get('week')} "
+                f"{payload.get('direction', 'received')}"
+            )
+            entity_type = "inventory"
+            entity_id = batch_id
+            field_name = "weekly_invoice"
+            new_value = f"W{payload.get('week')} {payload.get('direction')}"
         elif operation == "event_create":
             summary = f"Event: {payload.get('title', '')} on {payload.get('date', '')}"
             entity_type = "event"
@@ -141,9 +152,26 @@ def _extract_ops(
     month: int,
     year: int,
     ai_config: dict,
+    week: int = 0,
+    direction: str = "received",
 ) -> list[dict]:
     """Parse file and extract list of {operation, payload} dicts."""
     kind, data = file_parser.detect_and_parse(filename, content)
+
+    # Deterministic invoice parser short-circuit: no AI needed for structured invoices.
+    # Both PDF invoices and image receipts arrive here as 'invoice_items'.
+    if kind == 'invoice_items':
+        parsed = data  # {'meta': {...}, 'items': [...]}
+        categories = ctx.get_categories()
+        return invoice_parser.invoice_items_to_ops(
+            parsed['items'],
+            parsed.get('meta', {}),
+            month,
+            year,
+            week,
+            direction,
+            categories,
+        )
 
     rows = data if kind == "rows" else None
     text = data if kind == "text" else None
@@ -171,22 +199,50 @@ def _extract_ops(
             )
 
         # one staging entry per item for row-level diff granularity
+        weekly = week in (1, 2, 3, 4)
         ops = []
         for item in result.get("items", []):
-            ops.append(
-                {
-                    "operation": "inventory_save",
-                    "payload": {
-                        "month": result["month"],
-                        "year": result["year"],
-                        "notes": result.get("notes", ""),
-                        # Ingested items whose SKU isn't already in the index land
-                        # in "New Items" so the manager reviews everything added.
-                        "review_new": True,
-                        "items": [item],
-                    },
-                }
-            )
+            if weekly:
+                # Weekly invoice posting: route the parsed quantity into a single
+                # w{week}_{received|issued} column for the chosen period, without
+                # disturbing on_hand or other weeks.
+                ops.append(
+                    {
+                        "operation": "inventory_week_update",
+                        "payload": {
+                            "month": result["month"],
+                            "year": result["year"],
+                            "week": week,
+                            "direction": direction,
+                            "review_new": True,
+                            "items": [
+                                {
+                                    "sku": item.get("sku"),
+                                    "desc": item.get("desc"),
+                                    "category": item.get("category"),
+                                    "qty": item.get("onHand", 0),
+                                    "price": item.get("price"),
+                                    "par": item.get("par"),
+                                }
+                            ],
+                        },
+                    }
+                )
+            else:
+                ops.append(
+                    {
+                        "operation": "inventory_save",
+                        "payload": {
+                            "month": result["month"],
+                            "year": result["year"],
+                            "notes": result.get("notes", ""),
+                            # Ingested items whose SKU isn't already in the index
+                            # land in "New Items" so the manager reviews additions.
+                            "review_new": True,
+                            "items": [item],
+                        },
+                    }
+                )
         return ops
 
     if operation == "event_create":
@@ -268,12 +324,16 @@ async def upload_file(
     hint: Optional[str] = Form(None),
     month: int = Form(default=0),
     year: int = Form(default=0),
+    week: int = Form(default=0),
+    direction: str = Form(default="received"),
     auth_user: dict = Depends(_get_auth_user),
 ):
     """
     Upload a file for AI extraction and staging.
     - hint: optional operation type hint (inventory / events / haccp / menu / log)
     - month/year: target period for inventory imports (defaults to current month/year)
+    - week: 1-4 to post a weekly invoice into that week's column (0 = whole-month save)
+    - direction: 'received' (Imports) or 'issued' (Exports) for a weekly post
     """
     now = datetime.now(timezone.utc)
     if not month:
@@ -291,7 +351,14 @@ async def upload_file(
 
     try:
         ops = _extract_ops(
-            file.filename or "upload", content, hint, month, year, ai_config
+            file.filename or "upload",
+            content,
+            hint,
+            month,
+            year,
+            ai_config,
+            week=week,
+            direction=direction,
         )
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Extraction failed: {e}")

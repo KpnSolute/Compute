@@ -10,4 +10,5 @@ PyJWT
 httpx
 pdfplumber
 openpyxl
+Pillow
 

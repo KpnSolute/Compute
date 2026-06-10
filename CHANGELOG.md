@@ -16,6 +16,72 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v1.9.5] — 2026-06-09 — Deterministic invoice parser + OCR image receipt support integrated into Data Entry
+
+**Claude (Senior Dev Manager):** Integrated the custom `pdf_to_xlsx.py` invoice extraction script into the backend AI pipeline as a deterministic pre-AI layer. US Foods PDF invoices and image-based receipts now parse without consuming any AI API tokens. AI (Groq) is retained as fallback only for unrecognized formats.
+
+**New module — `backend/ai/invoice_parser.py`:**
+Full deterministic invoice extraction engine extracted and rewritten from the user's `pdf_to_xlsx.py` script, adapted to work with raw `bytes` (not file paths) as required by FastAPI. Key capabilities:
+- **Three-stage PDF cascade:** (1) native pdfplumber text extraction → (2) OCR.space cloud API (set `OCR_API_KEY` env var) → (3) local pytesseract fallback (optional system install).
+- **Image receipts:** direct OCR.space → pytesseract fallback for `.jpg/.jpeg/.png/.webp/.bmp/.gif/.tif/.tiff/.heic/.heif`.
+- **Three regex engines:** `USFOODS_LINE_RE` (tabular: ITEM_NO ORD SHP ADJ UNIT SKU body PRICE EXT), `RECEIPT_LINE_RE` (thermal: QTY ITEM# DESC PRICE TOTAL), `GENERIC_LINE_RE` (fallback: desc + two prices).
+- **Inline category detection:** parses US Foods section headers (DRY GROCERY, REFRIGERATED, FROZEN, etc.) and `DEPARTMENT: X` labels.
+- **15 metadata patterns:** invoice number, invoice date, account number, vendor name, PO, totals, tax, discounts.
+- **`VENDOR_CAT_BRIDGE`:** 20-entry static map from vendor category names → MJCC category names with live DB name validation.
+- **`invoice_items_to_ops()`:** converts parsed items to `inventory_week_update` (when week=1–4) or `inventory_save` (week=0) operation dicts. Items without SKU get a slug-generated `INV-XXX` identity. Unknown categories pass through to dispatch which routes them to "New Items" (review_new=True).
+
+**`backend/ai/parser.py` — route PDFs and images through invoice parser:**
+`detect_and_parse()` now returns `('invoice_items', {'meta':..., 'items':[...]})` for PDFs (if the invoice parser found ≥1 item) and for all image extensions. Falls back to `('text', plain_text)` for non-invoice PDFs (e.g. menus), empty text for failed image OCR.
+
+**`backend/routes/data_entry.py` — `_extract_ops()` short-circuit:**
+Added `invoice_parser` import and a new branch at the top of `_extract_ops`: when `kind == 'invoice_items'`, skip `classify_operation` and all AI calls entirely. Call `invoice_parser.invoice_items_to_ops()` with live categories from DB and the week/direction params from the upload form. Returns immediately.
+
+**`backend/ai/engine.py` + `context.py` — stale model fix:**
+Replaced deprecated `mixtral-8x7b-32768` with `llama-3.3-70b-versatile` as the default Groq model in `GROQ_MODELS` list, `complete()` env fallback, and `context.py` config default. Added `qwen-qwq-32b` to the model picker list.
+
+**`backend/requirements.txt`:** Added `Pillow` for local image OCR support (optional — `_extract_image_local_ocr` gracefully skips if not importable, but it's now in the image).
+
+**`frontend/src/components/DataEntry.tsx`:**
+- File input `accept` updated to include image types: `.jpg,.jpeg,.png,.webp,.bmp,.gif,.tif,.tiff`.
+- Label updated from "CSV / Excel / PDF / TSV" to "CSV / Excel / PDF / Image".
+
+**Environment variable needed on Render:** `OCR_API_KEY` — free OCR.space API key (api.ocr.space/SIGN-UP). Without it, image receipts require local pytesseract (not available on Render slim). Scanned PDFs without `OCR_API_KEY` also won't extract. Digital PDFs work without it.
+
+**Files changed:** `backend/ai/invoice_parser.py` (new), `backend/ai/parser.py`, `backend/routes/data_entry.py`, `backend/ai/engine.py`, `backend/ai/context.py`, `backend/requirements.txt`, `frontend/src/components/DataEntry.tsx`.
+
+**Build:** `tsc -b && vite build` — 0 type errors, clean exit. Python `py_compile` — 0 syntax errors across all 5 changed backend files.
+
+**Push:** pending — not yet pushed
+
+---
+
+## [v1.9.4] — 2026-06-09 — Weekly invoice selector complete + Source Control fully wired for inventory mgmt
+
+**Claude (Senior Dev Manager):** Closed five interrelated gaps in the weekly invoice / Source Control pipeline. All changes are build-verified (`tsc --noEmit` 0 · `npm run build` 0).
+
+**1 — DataEntry weekly selector: operations pills were never rendering.**
+`DataEntry.tsx` typed `UploadResult.operations` as `string[]` but the API returns a `Record<string,number>` dict (e.g. `{"inventory_week_update": 3}`). `result.operations?.length` was always `undefined > 0 = false`. Fixed the TypeScript type in both `DataEntry.tsx` and `api.ts`, and changed the display to `Object.entries()` so pills now read `inventory_week_update × 3`.
+
+**2 — `dispatch_inventory_save` was zeroing all W1–W4 columns on every save.**
+The upsert always wrote `w1_received: item.get("w1r", 0)` etc., so any MonthlyInventory or DataEntry bulk-import save silently destroyed weekly invoice data. Fixed `dispatch.py` to only include w* columns when they are **explicitly present** in the item payload dict. Omitted fields leave the DB column untouched.
+
+**3 — `MonthlyInventory.handleSave` was doubling weekly data on repeat saves.**
+The aggregate `received = w1r+w2r+w3r+w4r` was being written back as `w1r`, so each save inflated the total. Fixed: `handleSave` now sends only `{sku, desc, category, onHand: closing, par, price}` — no w* fields. Received/Issued cells are now **read-only** computed totals; weekly W1–W4 data is managed exclusively via the compact view invoice flow.
+
+**4 — Compact view "Stage weekly changes" used wrong staging operation.**
+Was always routing to `inventory_save` (writes on_hand + all weekly columns). Weekly invoice changes must route to `inventory_week_update` (writes a single `w{n}_{direction}` column, leaves everything else intact). Refactored `stageCompactChanges` to branch on `compactWeek`:
+- `compactWeek > 0` → `inventory_week_update` staging entry for the chosen week+direction; any on_hand/par-only dirty rows stage separately as `inventory_save`.
+- `compactWeek = 0` (whole-month) → `inventory_save` with only explicitly-edited w* fields included (conditional spread, not defaults-to-0).
+
+**5 — Compact view had no invoice mode UI.**
+Added `compactWeek` (0–4) and `compactDir` ('received'|'issued') state to `InventoryView`. The compact stagebar now shows **Week selector** (Month save / W1–W4 Invoice) + **Direction selector** (Received ↑ / Issued ↓, visible only when week > 0). The stage button label updates to `Stage W2 received` etc. to confirm what will be committed.
+
+**Files changed:** `DataEntry.tsx`, `api.ts`, `backend/staging/dispatch.py`, `Operations.tsx`, `Portal.tsx`.
+
+**Push:** pending — not yet pushed
+
+---
+
 ## [v1.9.3] — 2026-06-09 — Category dropdowns sourced from the API (New Items always a reassign target)
 
 **Claude:** Closed the minor refinement flagged in v1.9.2. The Inventory **Add item** + **Edit item** modals derived their category dropdown from item-present categories, so an *empty* "New Items" bucket never appeared as a manual reassign target. `Portal.tsx` InventoryView now fetches `GET /api/inventory-categories` (authoritative, `sort_order`-ed, includes empty buckets) on mount and the dropdowns use `catOptions` = API names ∪ item-derived names (fallback to derived if the fetch fails). Verify: `tsc --noEmit` 0 · `npm run build` 0. **Push:** `1d48c53` (main). Live UI confirm pending static redeploy.

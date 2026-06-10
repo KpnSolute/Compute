@@ -41,11 +41,11 @@ def _ollama_complete(messages: list[dict], model: str, base_url: str) -> str:
 SUPPORTED_PROVIDERS = ("groq", "ollama")
 
 GROQ_MODELS = [
-    "mixtral-8x7b-32768",
-    "llama-3.1-70b-versatile",
+    "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant",
     "llama3-70b-8192",
     "gemma2-9b-it",
+    "qwen-qwq-32b",
 ]
 
 OLLAMA_MODELS = [
@@ -64,7 +64,7 @@ def complete(messages: list[dict], config: dict | None = None) -> str:
     """
     cfg = config or {}
     provider = cfg.get("provider") or os.getenv("AI_PROVIDER", "groq")
-    model = cfg.get("model") or os.getenv("GROQ_MODEL", "mixtral-8x7b-32768")
+    model = cfg.get("model") or os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
     if provider == "groq":
         api_key = os.getenv("GROQ_API_KEY", "")
