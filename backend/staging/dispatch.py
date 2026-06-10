@@ -269,13 +269,24 @@ def dispatch_menu_save(payload: dict) -> dict:
 
 def dispatch_event_create(payload: dict) -> dict:
     sup = _client()
-    clean = {k: v for k, v in payload.items() if v is not None}
+    staging_id = payload.get("_staging_entry_id")
+    clean = {k: v for k, v in payload.items() if v is not None and not k.startswith("_")}
+    if staging_id:
+        existing = sup.table("events").select("id").eq("staging_entry_id", staging_id).limit(1).execute()
+        if existing.data:
+            return {"applied": 0, "skipped": True}
+        clean["staging_entry_id"] = staging_id
     r = sup.table("events").insert(clean).execute()
     return {"applied": 1, "event": r.data[0] if r.data else None}
 
 
 def dispatch_haccp_save(payload: dict) -> dict:
     sup = _client()
+    staging_id = payload.get("_staging_entry_id")
+    if staging_id:
+        existing = sup.table("haccp_logs").select("id").eq("staging_entry_id", staging_id).limit(1).execute()
+        if existing.data:
+            return {"applied": 0, "skipped": True}
     row = {
         "location": payload.get("location", ""),
         "temperature": payload.get("temperature", 0),
@@ -285,12 +296,19 @@ def dispatch_haccp_save(payload: dict) -> dict:
         "notes": payload.get("notes", ""),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    if staging_id:
+        row["staging_entry_id"] = staging_id
     r = sup.table("haccp_logs").insert(row).execute()
     return {"applied": 1, "log": r.data[0] if r.data else None}
 
 
 def dispatch_daily_log_save(payload: dict) -> dict:
     sup = _client()
+    staging_id = payload.get("_staging_entry_id")
+    if staging_id:
+        existing = sup.table("daily_operations_logs").select("id").eq("staging_entry_id", staging_id).limit(1).execute()
+        if existing.data:
+            return {"applied": 0, "skipped": True}
     row = {
         "entry_type": payload.get("entry_type", ""),
         "title": payload.get("title", ""),
@@ -300,6 +318,8 @@ def dispatch_daily_log_save(payload: dict) -> dict:
         "created_by": payload.get("created_by", ""),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    if staging_id:
+        row["staging_entry_id"] = staging_id
     r = sup.table("daily_operations_logs").insert(row).execute()
     return {"applied": 1, "log": r.data[0] if r.data else None}
 

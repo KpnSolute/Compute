@@ -175,7 +175,7 @@ async def run_sync(
 
 
 @router.get("/status")
-async def sync_status():
+async def sync_status(auth_user: dict = Depends(_require_admin_or_manager)):
     """Return counts of pending, synced, and failed queue entries."""
     try:
         all_r = (

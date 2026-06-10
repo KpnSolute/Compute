@@ -572,7 +572,7 @@ async def get_period_status(auth_user: dict = Depends(_get_auth_user)):
     stored in the DB — i.e. the cafeteria has moved into a new month but no
     rollover happened, so users are still looking at the previous month.
     """
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     current_month = now.month - 1  # 0-indexed to match the DB/JS convention
     current_year = now.year
 

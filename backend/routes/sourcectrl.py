@@ -59,35 +59,6 @@ class RejectBody(BaseModel):
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 
-def _resolve_author(author_id: str) -> str:
-    """Return a valid user_profiles.id. Falls back to first admin if not found."""
-    try:
-        r = (
-            _client()
-            .table("user_profiles")
-            .select("id")
-            .eq("id", author_id)
-            .limit(1)
-            .execute()
-        )
-        if r.data:
-            return r.data[0]["id"]
-    except Exception:
-        pass
-    r = (
-        _client()
-        .table("user_profiles")
-        .select("id")
-        .eq("role", "admin")
-        .limit(1)
-        .execute()
-    )
-    if r.data:
-        return r.data[0]["id"]
-    raise HTTPException(
-        status_code=400, detail="No valid author found in user_profiles."
-    )
-
 
 def _get_auth_user(authorization: str = Header("")) -> dict:
     """Resolve caller from Bearer token (JWT or pin_). Raises 401 if missing or invalid."""
@@ -316,14 +287,15 @@ async def approve_commit(
         )
         entries = staging_r.data or []
 
-        # 2 — replay all operations before checking errors (P1.4: avoids silent partial
-        # application where earlier entries applied but a mid-batch failure left no audit trail).
+        # 2 — replay all operations before checking errors (P1.4). Inject
+        # _staging_entry_id so insert-type dispatches (event_create, haccp_save,
+        # daily_log_save) can skip on retry instead of duplicating rows.
         replay_results = []
         for entry in entries:
             op = entry.get("operation")
             fp = entry.get("full_payload")
             if op and fp:
-                result = replay(op, fp)
+                result = replay(op, {**fp, "_staging_entry_id": entry["entry_id"]})
                 replay_results.append(
                     {"entry_id": entry["entry_id"], "operation": op, "result": result}
                 )
