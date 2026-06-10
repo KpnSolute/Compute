@@ -96,15 +96,18 @@ def _get_auth_user(authorization: str = Header("")) -> dict:
         raise HTTPException(status_code=401, detail="Missing authorization token")
     if token.startswith("pin_"):
         user_id = token[4:]
-        r = (
-            _client()
-            .table("user_profiles")
-            .select("id,role,active")
-            .eq("id", user_id)
-            .eq("active", True)
-            .limit(1)
-            .execute()
-        )
+        try:
+            r = (
+                _client()
+                .table("user_profiles")
+                .select("id,role,active")
+                .eq("id", user_id)
+                .eq("active", True)
+                .limit(1)
+                .execute()
+            )
+        except Exception:
+            raise HTTPException(status_code=401, detail="Invalid session")
         if not r.data:
             raise HTTPException(status_code=401, detail="Invalid session")
         return r.data[0]
@@ -114,15 +117,18 @@ def _get_auth_user(authorization: str = Header("")) -> dict:
     user_id = claims.get("sub")
     if not user_id:
         raise HTTPException(status_code=401, detail="Token missing user ID")
-    r = (
-        _client()
-        .table("user_profiles")
-        .select("id,role,active")
-        .eq("id", user_id)
-        .eq("active", True)
-        .limit(1)
-        .execute()
-    )
+    try:
+        r = (
+            _client()
+            .table("user_profiles")
+            .select("id,role,active")
+            .eq("id", user_id)
+            .eq("active", True)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        raise HTTPException(status_code=401, detail="User not found or inactive")
     if not r.data:
         raise HTTPException(status_code=401, detail="User not found or inactive")
     return r.data[0]
