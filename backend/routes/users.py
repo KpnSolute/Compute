@@ -475,15 +475,14 @@ async def get_user_preferences(current_user: dict = Depends(_require_any_auth)):
     try:
         result = (
             supabase_service.table("app_settings")
-            .select("value")
-            .eq("key", key)
+            .select("setting_value")
+            .eq("setting_key", key)
             .limit(1)
             .execute()
         )
         if result.data:
-            import json as _json
-            raw = result.data[0]["value"]
-            return _json.loads(raw) if isinstance(raw, str) else raw
+            raw = result.data[0]["setting_value"]
+            return raw if isinstance(raw, dict) else {}
         return {}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
@@ -494,7 +493,7 @@ async def update_user_preferences(
     req: UserPrefsRequest, current_user: dict = Depends(_require_any_auth)
 ):
     """Upsert the calling user's preferences into app_settings."""
-    import json as _json
+    from datetime import timezone
 
     key = f"user_prefs_{current_user['id']}"
     prefs: dict = {}
@@ -504,22 +503,27 @@ async def update_user_preferences(
     try:
         existing = (
             supabase_service.table("app_settings")
-            .select("value")
-            .eq("key", key)
+            .select("setting_value")
+            .eq("setting_key", key)
             .limit(1)
             .execute()
         )
+        now = datetime.now(timezone.utc).isoformat()
         if existing.data:
-            raw = existing.data[0]["value"]
-            current_prefs = _json.loads(raw) if isinstance(raw, str) else (raw or {})
+            current_prefs = existing.data[0]["setting_value"] or {}
             current_prefs.update(prefs)
             supabase_service.table("app_settings").update(
-                {"value": _json.dumps(current_prefs)}
-            ).eq("key", key).execute()
+                {"setting_value": current_prefs, "updated_at": now}
+            ).eq("setting_key", key).execute()
             return current_prefs
         else:
             supabase_service.table("app_settings").insert(
-                {"key": key, "value": _json.dumps(prefs)}
+                {
+                    "setting_key": key,
+                    "setting_value": prefs,
+                    "updated_by": current_user["id"],
+                    "updated_at": now,
+                }
             ).execute()
             return prefs
     except Exception as e:
