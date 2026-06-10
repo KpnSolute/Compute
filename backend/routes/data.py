@@ -5,7 +5,7 @@ Provides endpoints for checklist, servsafe, meal periods, incidents,
 invoices, inventory categories, dashboard stats, and archives.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query, Header, Depends
 from pydantic import BaseModel
 from backend.routes import supabase_service, jwt_validator
@@ -142,7 +142,7 @@ async def create_incident(
     payload: IncidentCreate, auth_user: dict = Depends(_get_auth_user)
 ):
     try:
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         result = (
             supabase_service.table("incident_logs")
             .insert(

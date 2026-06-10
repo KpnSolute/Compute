@@ -24,13 +24,17 @@ def _client():
 # ── per-operation diff handlers ───────────────────────────────────────────────
 
 
-def _diff_inventory_item(item: dict) -> dict:
-    """Compare a single inventory item payload against live inventory_items."""
+def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dict:
+    """Compare a single inventory item payload against live DB state.
+
+    on_hand is read from monthly_inventory (the real source of truth), not the dead
+    inventory_items.on_hand column. category is included in change detection (P1.3).
+    """
     sku = item.get("sku", "")
     r = (
         _client()
         .table("inventory_items")
-        .select("id,sku,description,unit_price,par_level,on_hand,unit")
+        .select("id,sku,description,unit_price,par_level,unit,inventory_categories(name)")
         .eq("sku", sku)
         .limit(1)
         .execute()
@@ -56,17 +60,40 @@ def _diff_inventory_item(item: dict) -> dict:
             "changes": list(after.keys()),
         }
 
+    live_category = ""
+    cat_data = live.get("inventory_categories")
+    if isinstance(cat_data, dict):
+        live_category = cat_data.get("name") or ""
+
+    # Fetch on_hand from monthly_inventory — inventory_items.on_hand is not maintained.
+    live_on_hand = 0
+    if month is not None and year is not None:
+        db_month = month - 1  # convert 1-indexed API month → 0-indexed DB month
+        mi_r = (
+            _client()
+            .table("monthly_inventory")
+            .select("on_hand")
+            .eq("item_id", live["id"])
+            .eq("month", db_month)
+            .eq("year", year)
+            .limit(1)
+            .execute()
+        )
+        if mi_r.data:
+            live_on_hand = int(mi_r.data[0].get("on_hand") or 0)
+
     before = {
         "sku": live["sku"],
         "description": live.get("description", ""),
         "unit_price": float(live.get("unit_price") or 0),
         "par_level": int(live.get("par_level") or 0),
-        "on_hand": int(live.get("on_hand") or 0),
+        "on_hand": live_on_hand,
+        "category": live_category,
     }
 
     changed_fields = [
         k
-        for k in ("description", "unit_price", "par_level", "on_hand")
+        for k in ("description", "unit_price", "par_level", "on_hand", "category")
         if before.get(k) != after.get(k)
     ]
 
@@ -82,7 +109,9 @@ def _diff_inventory_item(item: dict) -> dict:
 
 def _diff_inventory_save(payload: dict) -> dict:
     items = payload.get("items", [])
-    rows = [_diff_inventory_item(it) for it in items]
+    month = payload.get("month")
+    year = payload.get("year")
+    rows = [_diff_inventory_item(it, month=month, year=year) for it in items]
     new_count = sum(1 for r in rows if r["status"] == "new")
     update_count = sum(1 for r in rows if r["status"] == "update")
     unchanged_count = sum(1 for r in rows if r["status"] == "unchanged")

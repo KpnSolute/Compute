@@ -369,7 +369,7 @@ async def upload_file(
         )
 
     batch_id = str(uuid.uuid4())
-    submitter = _first_admin()
+    submitter = auth_user["id"]
 
     try:
         staged = _stage_entries(ops, batch_id, file.filename or "upload", submitter)

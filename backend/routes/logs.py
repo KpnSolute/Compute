@@ -11,7 +11,7 @@ Endpoints:
 - GET /api/logs/compliance - Get compliance status
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query, Header, Depends
 from pydantic import BaseModel, ConfigDict, Field
 from backend.routes import supabase_service, jwt_validator
@@ -193,7 +193,7 @@ async def record_haccp_log(
         )
 
     try:
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         result = (
             supabase_service.table("haccp_logs")
             .insert(
@@ -288,7 +288,7 @@ async def record_daily_log(
         500: Database error
     """
     try:
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         result = (
             supabase_service.table("daily_operations_logs")
             .insert(

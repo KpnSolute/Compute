@@ -1,7 +1,7 @@
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel
 from supabase import create_client
 from dotenv import load_dotenv
@@ -74,7 +74,6 @@ def _resolve_author(author_id: str) -> str:
             return r.data[0]["id"]
     except Exception:
         pass
-    # Fallback: first admin user
     r = (
         _client()
         .table("user_profiles")
@@ -90,11 +89,58 @@ def _resolve_author(author_id: str) -> str:
     )
 
 
+def _get_auth_user(authorization: str = Header("")) -> dict:
+    """Resolve caller from Bearer token (JWT or pin_). Raises 401 if missing or invalid."""
+    token = (authorization or "").replace("Bearer ", "").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing authorization token")
+    if token.startswith("pin_"):
+        user_id = token[4:]
+        r = (
+            _client()
+            .table("user_profiles")
+            .select("id,role,active")
+            .eq("id", user_id)
+            .eq("active", True)
+            .limit(1)
+            .execute()
+        )
+        if not r.data:
+            raise HTTPException(status_code=401, detail="Invalid session")
+        return r.data[0]
+    claims = jwt_validator.verify_token(token)
+    if not claims:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    user_id = claims.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Token missing user ID")
+    r = (
+        _client()
+        .table("user_profiles")
+        .select("id,role,active")
+        .eq("id", user_id)
+        .eq("active", True)
+        .limit(1)
+        .execute()
+    )
+    if not r.data:
+        raise HTTPException(status_code=401, detail="User not found or inactive")
+    return r.data[0]
+
+
+def _require_admin_or_manager(auth_user: dict = Depends(_get_auth_user)) -> dict:
+    if auth_user.get("role") not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin or manager role required")
+    return auth_user
+
+
 # ── routes ───────────────────────────────────────────────────────────────────
 
 
 @router.get("/commits")
-async def get_commits(limit: int = 50, offset: int = 0):
+async def get_commits(
+    limit: int = 50, offset: int = 0, auth_user: dict = Depends(_get_auth_user)
+):
     try:
         commits_r = (
             _client()
@@ -121,7 +167,6 @@ async def get_commits(limit: int = 50, offset: int = 0):
         for row in counts_r.data or []:
             count_map[row["commit_id"]] = count_map.get(row["commit_id"], 0) + 1
 
-        # Enrich with author display names
         author_ids = list(
             {c["author_id"] for c in commits_r.data if c.get("author_id")}
         )
@@ -147,8 +192,7 @@ async def get_commits(limit: int = 50, offset: int = 0):
                     "submitter_role": profile.get("role"),
                 }
             )
-        # Order by date *pushed* (github_synced_at) for Source Control history, fallback to merged/created.
-        # This ensures the commit list and "last commit" are structured chronologically by push to the data archive, not raw created_at.
+        # Order by push date (github_synced_at) for Source Control history, fallback to merged/created.
         result.sort(
             key=lambda c: (c.get("github_synced_at") or c.get("merged_at") or c.get("created_at") or ""),
             reverse=True,
@@ -161,7 +205,9 @@ async def get_commits(limit: int = 50, offset: int = 0):
 
 
 @router.get("/staging")
-async def get_staging(entity_type: Optional[str] = None):
+async def get_staging(
+    entity_type: Optional[str] = None, auth_user: dict = Depends(_get_auth_user)
+):
     try:
         q = (
             _client()
@@ -210,48 +256,15 @@ async def get_staging(entity_type: Optional[str] = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _resolve_submitter(authorization: str) -> str | None:
-    """Extract user ID from Bearer token (JWT or pin_<id>). Returns None if unresolvable."""
-    token = (authorization or "").replace("Bearer ", "").strip()
-    if not token:
-        return None
-    if token.startswith("pin_"):
-        user_id = token[4:]
-        r = _client().table("user_profiles").select("id").eq("id", user_id).eq("active", True).limit(1).execute()
-        return r.data[0]["id"] if r.data else None
-    claims = jwt_validator.verify_token(token)
-    if not claims:
-        return None
-    user_id = claims.get("sub")
-    if not user_id:
-        return None
-    r = _client().table("user_profiles").select("id").eq("id", user_id).eq("active", True).limit(1).execute()
-    return r.data[0]["id"] if r.data else None
-
-
 @router.post("/staging", status_code=201)
-async def submit_staging(body: SubmitStagingBody, authorization: str = Header("")):
+async def submit_staging(
+    body: SubmitStagingBody, auth_user: dict = Depends(_get_auth_user)
+):
     if body.entity_type not in ENTITY_TYPES:
         raise HTTPException(
             status_code=422, detail=f"entity_type must be one of {sorted(ENTITY_TYPES)}"
         )
     try:
-        author_id = _resolve_submitter(authorization)
-        if not author_id:
-            profiles_r = (
-                _client()
-                .table("user_profiles")
-                .select("id")
-                .eq("role", "admin")
-                .limit(1)
-                .execute()
-            )
-            author_id = profiles_r.data[0]["id"] if profiles_r.data else None
-        if not author_id:
-            raise HTTPException(
-                status_code=400, detail="No valid user found to assign as submitter."
-            )
-
         row = {
             "entity_type": body.entity_type,
             "entity_id": body.entity_id,
@@ -261,7 +274,7 @@ async def submit_staging(body: SubmitStagingBody, authorization: str = Header(""
             "change_type": body.change_type,
             "metadata": body.metadata or {},
             "status": "pending",
-            "submitted_by": author_id,
+            "submitted_by": auth_user["id"],
             "source": "dashboard",
             "operation": body.operation,
             "full_payload": body.full_payload,
@@ -277,7 +290,10 @@ async def submit_staging(body: SubmitStagingBody, authorization: str = Header(""
 
 
 @router.post("/commits", status_code=201)
-async def approve_commit(body: ApproveCommitBody):
+async def approve_commit(
+    body: ApproveCommitBody,
+    auth_user: dict = Depends(_require_admin_or_manager),
+):
     if not body.staging_ids:
         raise HTTPException(status_code=422, detail="staging_ids must not be empty.")
     try:
@@ -294,7 +310,8 @@ async def approve_commit(body: ApproveCommitBody):
         )
         entries = staging_r.data or []
 
-        # 2 — replay operations (entries with an operation key get dispatched to live tables)
+        # 2 — replay all operations before checking errors (P1.4: avoids silent partial
+        # application where earlier entries applied but a mid-batch failure left no audit trail).
         replay_results = []
         for entry in entries:
             op = entry.get("operation")
@@ -304,11 +321,19 @@ async def approve_commit(body: ApproveCommitBody):
                 replay_results.append(
                     {"entry_id": entry["entry_id"], "operation": op, "result": result}
                 )
-                if result.get("error"):
-                    raise HTTPException(
-                        status_code=500,
-                        detail=f"Replay failed for {op}: {result['error']}",
-                    )
+
+        replay_errors = [r for r in replay_results if r["result"].get("error")]
+        if replay_errors:
+            applied_ids = [
+                r["entry_id"] for r in replay_results if not r["result"].get("error")
+            ]
+            detail = "; ".join(
+                f"{r['operation']}: {r['result']['error']}" for r in replay_errors
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=f"Replay failed: {detail}. Applied entries (no rollback): {applied_ids or 'none'}.",
+            )
 
         # 3 — create commit row
         commit_r = (
@@ -391,7 +416,11 @@ async def approve_commit(body: ApproveCommitBody):
 
 
 @router.delete("/staging/{entry_id}", status_code=204)
-async def reject_staging(entry_id: str, review_note: Optional[str] = None):
+async def reject_staging(
+    entry_id: str,
+    review_note: Optional[str] = None,
+    auth_user: dict = Depends(_require_admin_or_manager),
+):
     try:
         now = datetime.now(timezone.utc).isoformat()
         r = (
@@ -401,6 +430,7 @@ async def reject_staging(entry_id: str, review_note: Optional[str] = None):
                 {
                     "status": "rejected",
                     "review_note": review_note,
+                    "reviewed_by": auth_user["id"],
                     "reviewed_at": now,
                 }
             )

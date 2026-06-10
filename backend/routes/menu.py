@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Header, Depends
 from pydantic import BaseModel
 from backend.routes import supabase_service, jwt_validator
@@ -139,7 +139,7 @@ async def update_menu(
     if not cycle_id:
         raise HTTPException(status_code=404, detail="No active menu cycle found")
 
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
 
     supabase_service.table("menu_entries").delete().eq("day_of_week", day).eq(
         "cycle_id", cycle_id

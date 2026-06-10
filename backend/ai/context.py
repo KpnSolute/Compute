@@ -66,7 +66,8 @@ def build_inventory_context(categories: dict, vendors: dict) -> str:
     cat_list = ", ".join(f"{n} (id={i})" for n, i in categories.items())
     ven_list = ", ".join(f"{n} (id={i})" for n, i in vendors.items()) or "none"
     return f"""INVENTORY SCHEMA CONTEXT:
-inventory_items columns: sku (text, unique key), description (text), category (text — must match list), unit_price (float), par_level (int), on_hand (int), unit (text, e.g. 'each','case','lb','oz','gal')
+inventory_items columns: sku (text, unique key), description (text), category (text — must match list), unit_price (float), par_level (int), unit (text, e.g. 'each','case','lb','oz','gal')
+monthly_inventory columns: item_id (fk), month (0-indexed int), year (int), on_hand (int — REAL source of current quantity, NOT inventory_items)
 
 VALID CATEGORIES (use exact name): {cat_list}
 VALID VENDORS: {ven_list}

@@ -12,7 +12,7 @@ Endpoints:
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Header, Depends
 from pydantic import BaseModel, Field
@@ -37,14 +37,14 @@ class InventoryItem(BaseModel):
     category: str
     price: Optional[float] = Field(None, ge=0)
     unit: str = "each"
-    w1r: int = 0
-    w2r: int = 0
-    w3r: int = 0
-    w4r: int = 0
-    w1i: int = 0
-    w2i: int = 0
-    w3i: int = 0
-    w4i: int = 0
+    w1r: Optional[int] = None
+    w2r: Optional[int] = None
+    w3r: Optional[int] = None
+    w4r: Optional[int] = None
+    w1i: Optional[int] = None
+    w2i: Optional[int] = None
+    w3i: Optional[int] = None
+    w4i: Optional[int] = None
 
 
 class InventorySnapshot(BaseModel):
@@ -248,7 +248,7 @@ async def get_inventory(
             items=items,
             metadata={"month": month, "year": year, "period": period_id},
             notes="",
-            created_at=created_at or datetime.utcnow().isoformat(),
+            created_at=created_at or datetime.now(timezone.utc).isoformat(),
         )
 
     except HTTPException:
@@ -295,7 +295,7 @@ async def save_inventory(
     month = meta.get("month")  # 1-indexed from frontend
     year = meta.get("year")
     if month is None or year is None:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         month = month or now.month  # 1-indexed
         year = year or now.year
 
@@ -312,7 +312,7 @@ async def save_inventory(
             category_map[c["name"]] = c["id"]
         new_items_cat_id = get_new_items_category_id(supabase_service)
 
-        created_at = datetime.utcnow().isoformat()
+        created_at = datetime.now(timezone.utc).isoformat()
 
         for item in payload.items:
             # Identity resolved by SKU only (sku is now NOT NULL + UNIQUE). An
@@ -332,23 +332,26 @@ async def save_inventory(
             if not inv_item_id:
                 continue
 
-            # Upsert monthly_inventory by item_id + month + year (DB stores 0-indexed month)
+            # Upsert monthly_inventory by item_id + month + year (DB stores 0-indexed month).
+            # Weekly columns are only written when explicitly provided — omitting them
+            # preserves existing W1-W4 data instead of zeroing it on every save (P0.2).
             monthly_fields = {
                 "item_id": inv_item_id,
                 "month": db_month,
                 "year": year,
                 "on_hand": item.onHand,
-                "w1_received": item.w1r,
-                "w2_received": item.w2r,
-                "w3_received": item.w3r,
-                "w4_received": item.w4r,
-                "w1_issued": item.w1i,
-                "w2_issued": item.w2i,
-                "w3_issued": item.w3i,
-                "w4_issued": item.w4i,
             }
             if item.price is not None:
                 monthly_fields["unit_price"] = item.price
+            for src, col in [
+                ("w1r", "w1_received"), ("w2r", "w2_received"),
+                ("w3r", "w3_received"), ("w4r", "w4_received"),
+                ("w1i", "w1_issued"),   ("w2i", "w2_issued"),
+                ("w3i", "w3_issued"),   ("w4i", "w4_issued"),
+            ]:
+                val = getattr(item, src)
+                if val is not None:
+                    monthly_fields[col] = val
             supabase_service.table("monthly_inventory").upsert(
                 monthly_fields,
                 on_conflict="item_id,month,year",

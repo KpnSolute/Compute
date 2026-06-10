@@ -3,7 +3,8 @@ import json
 import base64
 import httpx
 from datetime import datetime, timezone
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
+from backend.routes import jwt_validator
 from supabase import create_client
 from dotenv import load_dotenv
 
@@ -116,8 +117,50 @@ async def _drain_queue():
     return results
 
 
+def _require_admin_or_manager(authorization: str = Header("")) -> dict:
+    """Require admin or manager role; raises 401/403 otherwise."""
+    token = (authorization or "").replace("Bearer ", "").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing authorization token")
+    if token.startswith("pin_"):
+        user_id = token[4:]
+        r = (
+            _client()
+            .table("user_profiles")
+            .select("id,role,active")
+            .eq("id", user_id)
+            .eq("active", True)
+            .limit(1)
+            .execute()
+        )
+        if not r.data or r.data[0].get("role") not in ("admin", "manager"):
+            raise HTTPException(status_code=403, detail="Admin or manager role required")
+        return r.data[0]
+    claims = jwt_validator.verify_token(token)
+    if not claims:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    user_id = claims.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Token missing user ID")
+    r = (
+        _client()
+        .table("user_profiles")
+        .select("id,role,active")
+        .eq("id", user_id)
+        .eq("active", True)
+        .limit(1)
+        .execute()
+    )
+    if not r.data or r.data[0].get("role") not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin or manager role required")
+    return r.data[0]
+
+
 @router.post("/run")
-async def run_sync(background_tasks: BackgroundTasks):
+async def run_sync(
+    background_tasks: BackgroundTasks,
+    auth_user: dict = Depends(_require_admin_or_manager),
+):
     """Drain the github_sync_queue. Runs in background, returns immediately."""
     if not GITHUB_TOKEN:
         raise HTTPException(status_code=503, detail="GITHUB_TOKEN not configured.")

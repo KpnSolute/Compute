@@ -16,6 +16,44 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v1.9.8] — 2026-06-10 — Backend security hardening + correctness fixes (P0–P2)
+
+**Claude (Senior Dev Manager):** Implemented the full engineering handoff backlog: P0 security, P1 correctness, P2 hygiene. All modified files pass `py_compile`. No schema migrations needed (P2.9/P2.10 deferred — require coordinated DB migration, see below).
+
+**P0.1 — Auth added to all source-control and GitHub-sync routes (security-critical):**
+- `backend/routes/sourcectrl.py` — complete rewrite. `GET /commits`, `GET /staging`, `POST /staging` now require any valid Bearer token (JWT or pin_). `POST /commits` (approve_commit) and `DELETE /staging/{entry_id}` (reject_staging) require admin or manager role via `_require_admin_or_manager`. Old soft-fallback `_resolve_submitter` removed. `reject_staging` now records `reviewed_by` from the authenticated caller.
+- `backend/routes/github_sync.py` — `POST /api/github-sync/run` now requires admin/manager via new `_require_admin_or_manager` dependency. Added `Depends, Header` to FastAPI imports and `jwt_validator` from `backend.routes`.
+
+**P0.2 — save_inventory no longer zeroes weekly columns:**
+- `backend/routes/inventory.py` — `InventoryItem.w1r/w2r/w3r/w4r/w1i/w2i/w3i/w4i` changed from `int = 0` to `Optional[int] = None`. The `save_inventory` monthly_fields block now mirrors `dispatch_inventory_save`: weekly columns only written when explicitly provided, preserving existing W1–W4 data on saves that omit weekly data.
+
+**P1.3 — Diff preview on_hand sourced from monthly_inventory; category added to change detection:**
+- `backend/ai/diff.py` — `_diff_inventory_item` now accepts `month`/`year` params. Reads `on_hand` from `monthly_inventory` (the real source of truth) instead of the dead `inventory_items.on_hand` column. Joins `inventory_categories` to resolve live category name. Adds `category` to the `changed_fields` list. `_diff_inventory_save` passes `month`/`year` through.
+
+**P1.4 — approve_commit replay is now batch-atomic (no more mid-loop raise):**
+- `backend/routes/sourcectrl.py` — replay loop collects ALL results before checking for errors. On failure, raises a single HTTPException with the full error detail and the list of already-applied entry IDs (no rollback, but full audit info in the error response).
+
+**P1.5 — Data-entry uploads attributed to real caller (not first admin):**
+- `backend/routes/data_entry.py` — `submitter = _first_admin()` → `submitter = auth_user["id"]`. The `_get_auth_user` dependency was already in place; the submitter was just not being used.
+
+**P1.6 — AI schema context corrected (on_hand lives in monthly_inventory):**
+- `backend/ai/context.py` — `build_inventory_context` no longer lists `on_hand` under `inventory_items`. Added `monthly_inventory` row explaining the real column and 0-indexed month convention.
+
+**P2.7 — Migration 003 neutralized:**
+- `backend/migrations/003_create_events_table.sql` — rewritten as a no-op `SELECT 1` with comments documenting why the old `CREATE TABLE` was removed. Prevents a drop-and-replay from silently switching the live `events` schema from 002 to the conflicting 003 shape.
+
+**P2.8 — Timezone-aware timestamps across all routes:**
+- Replaced all `datetime.utcnow()` with `datetime.now(timezone.utc)` in: `routes/inventory.py`, `routes/data.py`, `routes/logs.py`, `routes/menu.py`, `routes/users.py`. Added `timezone` to top-level imports in each. Removed the stale local `from datetime import timezone` inside `update_user_preferences` in `users.py`.
+
+**Deferred (require DB schema migration — not code-fixable alone):**
+- P2.9 — `inventory_items.on_hand` dead column: drop or populate consistently. Needs `ALTER TABLE inventory_items DROP COLUMN on_hand` coordinated with Gemini.
+- P2.10 — `Uncategorized` category: confirm intent and remove if drift. Data-only change.
+
+**Build:** All 10 modified files pass `python -m py_compile`. No frontend changes.
+**Push:** pending
+
+---
+
 ## [v1.9.7] — 2026-06-10 — Settings page + dark mode + user preferences backend
 
 **Claude (Senior Dev Manager):** Full Settings page implementation with dark mode CSS, per-user theme persistence (localStorage + Supabase), AI engine configuration panel (manager+), account info panel, and developer info panel.

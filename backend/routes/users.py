@@ -14,7 +14,7 @@ Endpoints:
 
 import json
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib import request
 from urllib.error import HTTPError
 
@@ -314,7 +314,7 @@ async def create_user(
     if req.pin and not req.pin.isdigit():
         raise HTTPException(status_code=400, detail="PIN must be numeric")
 
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
 
     try:
         password = req.password or secrets.token_urlsafe(18)
@@ -412,7 +412,7 @@ async def update_user(
         # No fields to update, return current user
         return UserResponse(**user)
 
-    update_data["updated_at"] = datetime.utcnow().isoformat()
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
 
     try:
         result = (
@@ -493,8 +493,6 @@ async def update_user_preferences(
     req: UserPrefsRequest, current_user: dict = Depends(_require_any_auth)
 ):
     """Upsert the calling user's preferences into app_settings."""
-    from datetime import timezone
-
     key = f"user_prefs_{current_user['id']}"
     prefs: dict = {}
     if req.theme is not None:
@@ -562,7 +560,7 @@ async def disable_user(user_id: str, admin_user: dict = Depends(_require_admin))
         supabase_service.table("user_profiles").update(
             {
                 "active": False,
-                "updated_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
             }
         ).eq("id", user_id).execute()
 
