@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { I } from '../lib/icons';
 import { ROLE_LEVEL, MONTHS } from '../lib/constants';
 import { api } from '../lib/api';
+import { useEffect } from 'react';
 
 type Hint = '' | 'inventory' | 'events' | 'haccp' | 'menu' | 'log';
 
@@ -29,6 +30,115 @@ interface DiffTable {
     rows?: DiffRow[];
 }
 
+// ── style constants ────────────────────────────────────────────────────────────
+
+const LBL: React.CSSProperties = {
+    display: 'block',
+    fontSize: 11,
+    fontWeight: 700,
+    color: 'var(--muted)',
+    marginBottom: 5,
+};
+
+const STEP_LBL: React.CSSProperties = {
+    fontSize: 10.5,
+    fontWeight: 800,
+    color: 'var(--faint)',
+    textTransform: 'uppercase',
+    letterSpacing: '.07em',
+    marginBottom: 10,
+};
+
+function Hr() {
+    return (
+        <div style={{ borderTop: '1px solid var(--line-soft)', margin: '18px -17px' }} />
+    );
+}
+
+// ── diff row ───────────────────────────────────────────────────────────────────
+
+function DiffRowPreview({ row }: { row: DiffRow }) {
+    const sku =
+        row.after?.sku || row.before?.sku || '';
+    const desc =
+        row.after?.description || row.before?.description ||
+        row.after?.desc || row.before?.desc || '';
+    const changes = row.changes || [];
+
+    return (
+        <tr>
+            <td style={{ width: 72 }}>
+                <span
+                    className={
+                        row.status === 'new'
+                            ? 'pill ok'
+                            : row.status === 'update'
+                              ? 'pill warn'
+                              : 'pill off'
+                    }
+                >
+                    {row.status || '—'}
+                </span>
+            </td>
+            <td style={{ width: 110 }}>
+                <code style={{ fontSize: 11 }}>{sku || '—'}</code>
+            </td>
+            <td
+                style={{
+                    maxWidth: 200,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    fontSize: 12,
+                    color: desc ? 'var(--ink)' : 'var(--faint)',
+                }}
+            >
+                {desc || '—'}
+            </td>
+            <td>
+                {changes.length > 0 ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        {changes.slice(0, 5).map((field, i) => {
+                            const bv = row.before?.[field];
+                            const av = row.after?.[field];
+                            return (
+                                <span
+                                    key={i}
+                                    style={{
+                                        fontSize: 10.5,
+                                        background: 'var(--amber-bg)',
+                                        color: 'var(--amber-ink)',
+                                        padding: '2px 7px',
+                                        borderRadius: 5,
+                                        fontWeight: 600,
+                                    }}
+                                >
+                                    {field}
+                                    {bv !== undefined && bv !== null
+                                        ? ` ${bv} →`
+                                        : ':'}
+                                    {` ${av ?? '—'}`}
+                                </span>
+                            );
+                        })}
+                        {changes.length > 5 && (
+                            <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>
+                                +{changes.length - 5} more
+                            </span>
+                        )}
+                    </div>
+                ) : row.status === 'new' ? (
+                    <span style={{ fontSize: 11, color: 'var(--muted)' }}>new entry</span>
+                ) : (
+                    '—'
+                )}
+            </td>
+        </tr>
+    );
+}
+
+// ── main component ─────────────────────────────────────────────────────────────
+
 export function DataEntry({ user }: { user: any }) {
     const lvl = ROLE_LEVEL[user.role as keyof typeof ROLE_LEVEL] ?? 0;
     const now = new Date();
@@ -37,8 +147,6 @@ export function DataEntry({ user }: { user: any }) {
     const [hint, setHint] = useState<Hint>('');
     const [month, setMonth] = useState<number>(now.getMonth());
     const [year, setYear] = useState<number>(now.getFullYear());
-    // Weekly invoice target: 0 = whole-month save, 1-4 = post into that week's
-    // column; direction = 'received' (Imports) or 'issued' (Exports).
     const [week, setWeek] = useState<number>(0);
     const [direction, setDirection] = useState<'received' | 'issued'>('received');
 
@@ -71,7 +179,9 @@ export function DataEntry({ user }: { user: any }) {
         setResult(null);
         setPreview(null);
         try {
-            const res = await api.uploadDataEntry(file, hint, month + 1, year, week, direction);
+            const res = await api.uploadDataEntry(
+                file, hint, month + 1, year, week, direction,
+            );
             setResult(res);
             await loadPreview(res.batch_id);
         } catch (e: any) {
@@ -81,238 +191,406 @@ export function DataEntry({ user }: { user: any }) {
         }
     }, [file, hint, month, year, week, direction, loadPreview]);
 
+    const clearFile = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setFile(null);
+        setResult(null);
+        setUploadErr(null);
+        setPreview(null);
+    };
+
+    const targetLine = [
+        `${MONTHS[month]} ${year}`,
+        week > 0 ? `W${week} ${direction}` : 'whole month',
+        hint || null,
+    ]
+        .filter(Boolean)
+        .join(' · ');
+
     return (
         <div className="fade-in">
             <div className="page-head">
                 <div>
                     <h2>Data Entry</h2>
                     <div className="ph-sub">
-                        AI file ingestion &middot; parse &rarr; extract &rarr; stage &rarr; review diff
+                        Upload invoices &amp; files — extract, stage, review in Source Control
                     </div>
                 </div>
             </div>
 
-            {/* Upload panel */}
+            {/* ── Upload card ─────────────────────────────────────────────── */}
             <div className="card">
                 <div className="card-head">
                     <h3>Upload file</h3>
                 </div>
                 <div className="card-body">
-                    <div
-                        style={{
-                            display: 'flex',
-                            flexWrap: 'wrap',
-                            gap: 12,
-                            alignItems: 'flex-end',
-                        }}
-                    >
-                        <div style={{ flex: '1 1 240px' }}>
-                            <label className="sc-lbl">File (CSV / Excel / PDF / Image)</label>
+
+                    {/* Step 1 — File */}
+                    <div>
+                        <div style={STEP_LBL}>1 — File</div>
+                        <label
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 13,
+                                border: `2px dashed ${file ? 'var(--accent)' : 'var(--line)'}`,
+                                borderRadius: 10,
+                                padding: '13px 15px',
+                                cursor: 'pointer',
+                                background: file ? 'var(--accent-soft)' : 'var(--surface-2)',
+                                transition: 'border-color .15s, background .15s',
+                            }}
+                        >
                             <input
                                 type="file"
                                 accept=".csv,.tsv,.xls,.xlsx,.pdf,.txt,.jpg,.jpeg,.png,.webp,.bmp,.gif,.tif,.tiff"
-                                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                                style={{ display: 'none' }}
+                                onChange={(e) => {
+                                    setFile(e.target.files?.[0] ?? null);
+                                    setResult(null);
+                                    setUploadErr(null);
+                                    setPreview(null);
+                                }}
                             />
-                        </div>
-                        <div>
-                            <label className="sc-lbl">Hint</label>
-                            <select
-                                className="tb-select"
-                                value={hint}
-                                onChange={(e) => setHint(e.target.value as Hint)}
-                            >
-                                <option value="">Auto-detect</option>
-                                <option value="inventory">Inventory</option>
-                                <option value="events">Events</option>
-                                <option value="haccp">HACCP</option>
-                                <option value="menu">Menu</option>
-                                <option value="log">Log</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="sc-lbl">Month</label>
-                            <select
-                                className="tb-select"
-                                value={month}
-                                onChange={(e) => setMonth(+e.target.value)}
-                            >
-                                {MONTHS.map((nm, i) => (
-                                    <option key={i} value={i}>
-                                        {nm}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="sc-lbl">Year</label>
-                            <select
-                                className="tb-select"
-                                value={year}
-                                onChange={(e) => setYear(+e.target.value)}
-                            >
-                                {[2024, 2025, 2026].map((yr) => (
-                                    <option key={yr} value={yr}>
-                                        {yr}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="sc-lbl">Week</label>
-                            <select
-                                className="tb-select"
-                                value={week}
-                                onChange={(e) => setWeek(+e.target.value)}
-                            >
-                                <option value={0}>Whole month</option>
-                                <option value={1}>Week 1</option>
-                                <option value={2}>Week 2</option>
-                                <option value={3}>Week 3</option>
-                                <option value={4}>Week 4</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="sc-lbl">Direction</label>
-                            <select
-                                className="tb-select"
-                                value={direction}
-                                onChange={(e) =>
-                                    setDirection(e.target.value as 'received' | 'issued')
-                                }
-                                disabled={week === 0}
-                                title={
-                                    week === 0
-                                        ? 'Pick a week to post Imports/Exports'
-                                        : undefined
-                                }
-                            >
-                                <option value="received">Imports (Received)</option>
-                                <option value="issued">Exports (Exported)</option>
-                            </select>
-                        </div>
-                        <div>
-                            <button
-                                className="btn primary"
-                                onClick={doUpload}
-                                disabled={!file || uploading}
-                            >
-                                {I.inbox({ style: { width: 14, height: 14 } })}{' '}
-                                {uploading ? 'Uploading…' : 'Upload'}
-                            </button>
+                            {I.fileText({
+                                style: {
+                                    width: 20,
+                                    height: 20,
+                                    flexShrink: 0,
+                                    color: file ? 'var(--accent)' : 'var(--muted)',
+                                },
+                            })}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                {file ? (
+                                    <>
+                                        <div
+                                            style={{
+                                                fontWeight: 700,
+                                                fontSize: 13,
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                whiteSpace: 'nowrap',
+                                            }}
+                                        >
+                                            {file.name}
+                                        </div>
+                                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                                            {file.size < 1024
+                                                ? `${file.size} B`
+                                                : `${(file.size / 1024).toFixed(0)} KB`}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div style={{ fontWeight: 700, fontSize: 13 }}>
+                                            Click to browse
+                                        </div>
+                                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                                            CSV, Excel, PDF, images (jpg, png, webp…)
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                            {file && (
+                                <button
+                                    onClick={clearFile}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        color: 'var(--muted)',
+                                        padding: 4,
+                                        borderRadius: 6,
+                                        display: 'flex',
+                                        flexShrink: 0,
+                                    }}
+                                    title="Remove file"
+                                >
+                                    {I.x({ style: { width: 15, height: 15 } })}
+                                </button>
+                            )}
+                        </label>
+                    </div>
+
+                    <Hr />
+
+                    {/* Step 2 — Target */}
+                    <div>
+                        <div style={STEP_LBL}>2 — Target period &amp; type</div>
+                        <div
+                            style={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                gap: 20,
+                                alignItems: 'flex-start',
+                            }}
+                        >
+                            {/* Period + hint */}
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                                <div>
+                                    <label style={LBL}>Month</label>
+                                    <select
+                                        className="tb-select"
+                                        value={month}
+                                        onChange={(e) => setMonth(+e.target.value)}
+                                    >
+                                        {MONTHS.map((nm, i) => (
+                                            <option key={i} value={i}>{nm}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style={LBL}>Year</label>
+                                    <select
+                                        className="tb-select"
+                                        value={year}
+                                        onChange={(e) => setYear(+e.target.value)}
+                                    >
+                                        {[2024, 2025, 2026].map((yr) => (
+                                            <option key={yr} value={yr}>{yr}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style={LBL}>Type hint</label>
+                                    <select
+                                        className="tb-select"
+                                        value={hint}
+                                        onChange={(e) => setHint(e.target.value as Hint)}
+                                    >
+                                        <option value="">Auto-detect</option>
+                                        <option value="inventory">Inventory</option>
+                                        <option value="events">Events</option>
+                                        <option value="haccp">HACCP</option>
+                                        <option value="menu">Menu</option>
+                                        <option value="log">Log</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Invoice week — segmented buttons */}
+                            <div>
+                                <label style={LBL}>Invoice week</label>
+                                <div style={{ display: 'flex', gap: 4 }}>
+                                    {[0, 1, 2, 3, 4].map((w) => (
+                                        <button
+                                            key={w}
+                                            className={week === w ? 'btn primary' : 'btn'}
+                                            style={{
+                                                padding: '5px 11px',
+                                                fontSize: 12,
+                                                fontWeight: 700,
+                                            }}
+                                            onClick={() => setWeek(w)}
+                                        >
+                                            {w === 0 ? 'Month' : `W${w}`}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Direction — visible only when a week is selected */}
+                            {week > 0 && (
+                                <div>
+                                    <label style={LBL}>Direction</label>
+                                    <div style={{ display: 'flex', gap: 4 }}>
+                                        <button
+                                            className={direction === 'received' ? 'btn primary' : 'btn'}
+                                            style={{ padding: '5px 11px', fontSize: 12, fontWeight: 700 }}
+                                            onClick={() => setDirection('received')}
+                                        >
+                                            ↓ Received
+                                        </button>
+                                        <button
+                                            className={direction === 'issued' ? 'btn accent' : 'btn'}
+                                            style={{ padding: '5px 11px', fontSize: 12, fontWeight: 700 }}
+                                            onClick={() => setDirection('issued')}
+                                        >
+                                            ↑ Issued
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
 
+                    <Hr />
+
+                    {/* Action row */}
+                    <div
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: 10,
+                        }}
+                    >
+                        <div style={{ fontSize: 12, color: 'var(--muted)', minWidth: 0 }}>
+                            {file ? (
+                                <>
+                                    <span
+                                        style={{
+                                            fontWeight: 700,
+                                            color: 'var(--ink)',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                            display: 'inline-block',
+                                            maxWidth: 200,
+                                            verticalAlign: 'bottom',
+                                        }}
+                                    >
+                                        {file.name}
+                                    </span>
+                                    {' → '}
+                                    {targetLine}
+                                </>
+                            ) : (
+                                'Select a file to upload'
+                            )}
+                        </div>
+                        <button
+                            className="btn primary"
+                            onClick={doUpload}
+                            disabled={!file || uploading}
+                            style={{ minWidth: 130 }}
+                        >
+                            {I.inbox({ style: { width: 14, height: 14 } })}
+                            {uploading ? 'Uploading…' : 'Upload'}
+                        </button>
+                    </div>
+
+                    {/* Error */}
                     {uploadErr && (
-                        <div className="banner warn" style={{ marginTop: 12 }}>
+                        <div className="banner warn" style={{ marginTop: 12, marginBottom: 0 }}>
                             {I.alert()}
                             <span>{uploadErr}</span>
                         </div>
                     )}
 
-                    {result && (
-                        <div style={{ marginTop: 12 }}>
-                            <div className="ph-sub">
-                                Batch <b>{result.batch_id}</b> &middot;{' '}
-                                {result.staged_count} entries staged from{' '}
-                                <b>{result.file}</b> &middot; {MONTHS[result.month - 1] ?? result.month}{' '}
-                                {result.year}
-                            </div>
-                            {result.operations && Object.keys(result.operations).length > 0 && (
-                                <div style={{ marginTop: 6 }}>
-                                    {Object.entries(result.operations).map(([op, count], i) => (
-                                        <span key={i} className="pill ok" style={{ marginRight: 6 }}>
-                                            {op} × {count}
-                                        </span>
-                                    ))}
+                    {/* Success */}
+                    {result && !uploading && (
+                        <div
+                            style={{
+                                marginTop: 12,
+                                padding: '12px 15px',
+                                background: 'var(--green-chip)',
+                                borderRadius: 10,
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: 12,
+                                flexWrap: 'wrap',
+                            }}
+                        >
+                            {I.checkCircle({
+                                style: { width: 17, height: 17, color: 'var(--green-ink)', flexShrink: 0, marginTop: 1 },
+                            })}
+                            <div style={{ flex: 1, minWidth: 140 }}>
+                                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--green-ink)' }}>
+                                    {result.staged_count} entries staged
                                 </div>
-                            )}
+                                <div
+                                    style={{
+                                        fontSize: 11,
+                                        color: 'var(--green-ink)',
+                                        opacity: 0.75,
+                                        marginTop: 2,
+                                    }}
+                                >
+                                    {result.file} · {MONTHS[result.month - 1] ?? result.month}{' '}
+                                    {result.year} · batch {result.batch_id.slice(0, 8)}…
+                                </div>
+                            </div>
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    gap: 5,
+                                    flexWrap: 'wrap',
+                                    alignItems: 'center',
+                                }}
+                            >
+                                {Object.entries(result.operations).map(([op, count], i) => (
+                                    <span key={i} className="pill ok">
+                                        {op} × {count}
+                                    </span>
+                                ))}
+                            </div>
                         </div>
                     )}
                 </div>
             </div>
 
-            {/* Preview panel */}
+            {/* ── Preview / diff card ─────────────────────────────────────── */}
             {(result || previewLoading || previewErr) && (
-                <div className="card" style={{ marginTop: 16 }}>
+                <div className="card" style={{ marginTop: 14 }}>
                     <div className="card-head">
                         <h3>Preview &amp; diff</h3>
                         {result && (
                             <span
                                 className="ch-link"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
                                 onClick={() => loadPreview(result.batch_id)}
                             >
-                                Refresh
+                                {I.refresh({ style: { width: 11, height: 11 } })} Refresh
                             </span>
                         )}
                     </div>
+
                     {previewErr && (
                         <div className="card-body">
-                            <div className="banner warn">
-                                {I.alert()}
-                                <span>{previewErr}</span>
+                            <div className="banner warn" style={{ marginBottom: 0 }}>
+                                {I.alert()} <span>{previewErr}</span>
                             </div>
                         </div>
                     )}
+
                     {previewLoading && (
                         <div className="card-body">
                             <div className="ph-sub">Computing diff…</div>
                         </div>
                     )}
+
                     {!previewLoading &&
                         preview &&
                         preview.map((d, di) => (
                             <div key={di}>
-                                <div className="card-head">
-                                    <h3>
-                                        {d.table}
-                                        {d.operation ? ` · ${d.operation}` : ''}
-                                    </h3>
-                                    {d.summary && <span className="ph-sub">{d.summary}</span>}
+                                <div
+                                    className="card-head"
+                                    style={{ background: 'var(--surface-2)' }}
+                                >
+                                    <div
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 8,
+                                        }}
+                                    >
+                                        <span className="pill off" style={{ fontSize: 10 }}>
+                                            {d.operation || d.table}
+                                        </span>
+                                        <span style={{ fontSize: 12.5, fontWeight: 600 }}>
+                                            {d.table}
+                                        </span>
+                                    </div>
+                                    {d.summary && (
+                                        <span className="ph-sub">{d.summary}</span>
+                                    )}
                                 </div>
                                 <div className="card-body flush tbl-wrap">
                                     <table className="data">
                                         <thead>
                                             <tr>
                                                 <th>Status</th>
-                                                <th>Before</th>
-                                                <th>After</th>
+                                                <th>SKU</th>
+                                                <th>Description</th>
                                                 <th>Changes</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {(d.rows || []).map((row, ri) => (
-                                                <tr key={ri}>
-                                                    <td>
-                                                        <span
-                                                            className={
-                                                                row.status === 'new'
-                                                                    ? 'pill ok'
-                                                                    : row.status === 'update'
-                                                                      ? 'pill warn'
-                                                                      : 'pill off'
-                                                            }
-                                                        >
-                                                            {row.status || '—'}
-                                                        </span>
-                                                    </td>
-                                                    <td>
-                                                        <code style={{ fontSize: 11 }}>
-                                                            {row.before
-                                                                ? JSON.stringify(row.before)
-                                                                : '—'}
-                                                        </code>
-                                                    </td>
-                                                    <td>
-                                                        <code style={{ fontSize: 11 }}>
-                                                            {row.after
-                                                                ? JSON.stringify(row.after)
-                                                                : '—'}
-                                                        </code>
-                                                    </td>
-                                                    <td>
-                                                        {(row.changes || []).join(', ') || '—'}
-                                                    </td>
-                                                </tr>
+                                                <DiffRowPreview key={ri} row={row} />
                                             ))}
                                         </tbody>
                                     </table>
@@ -322,11 +600,13 @@ export function DataEntry({ user }: { user: any }) {
                 </div>
             )}
 
-            {/* Settings sub-panel — manager+ only (lvl >= 30) */}
+            {/* ── AI settings — manager+ only (lvl ≥ 30) ─────────────────── */}
             {lvl >= 30 && <DataEntrySettings />}
         </div>
     );
 }
+
+// ── AI settings panel ──────────────────────────────────────────────────────────
 
 function DataEntrySettings() {
     const [loading, setLoading] = useState(true);
@@ -355,9 +635,7 @@ function DataEntrySettings() {
                 if (alive) setLoading(false);
             }
         })();
-        return () => {
-            alive = false;
-        };
+        return () => { alive = false; };
     }, []);
 
     const save = async () => {
@@ -375,17 +653,16 @@ function DataEntrySettings() {
     };
 
     return (
-        <div className="card" style={{ marginTop: 16 }}>
+        <div className="card" style={{ marginTop: 14 }}>
             <div className="card-head">
                 <h3>AI stack settings</h3>
-                <span className="ph-sub">Manager and above</span>
+                <span className="ph-sub">manager and above</span>
             </div>
             <div className="card-body">
-                {loading && <div className="ph-sub">Loading settings…</div>}
+                {loading && <div className="ph-sub">Loading…</div>}
                 {err && (
-                    <div className="banner warn">
-                        {I.alert()}
-                        <span>{err}</span>
+                    <div className="banner warn" style={{ marginBottom: 0 }}>
+                        {I.alert()} <span>{err}</span>
                     </div>
                 )}
                 {!loading && (
@@ -398,7 +675,7 @@ function DataEntrySettings() {
                         }}
                     >
                         <div>
-                            <label className="sc-lbl">Provider</label>
+                            <label style={LBL}>Provider</label>
                             {providers.length > 0 ? (
                                 <select
                                     className="tb-select"
@@ -406,37 +683,33 @@ function DataEntrySettings() {
                                     onChange={(e) => setProvider(e.target.value)}
                                 >
                                     {providers.map((p) => (
-                                        <option key={p} value={p}>
-                                            {p}
-                                        </option>
+                                        <option key={p} value={p}>{p}</option>
                                     ))}
                                 </select>
                             ) : (
                                 <input
-                                    className="sheet-inp"
+                                    className="sheet-inp txt"
                                     value={provider}
+                                    style={{ width: 90 }}
                                     onChange={(e) => setProvider(e.target.value)}
                                 />
                             )}
                         </div>
-                        <div style={{ flex: '1 1 220px' }}>
-                            <label className="sc-lbl">Model</label>
+                        <div style={{ flex: '1 1 200px' }}>
+                            <label style={LBL}>Model</label>
                             <input
-                                className="sheet-inp"
+                                className="sheet-inp txt"
                                 value={model}
+                                style={{ width: '100%' }}
                                 onChange={(e) => setModel(e.target.value)}
                             />
                         </div>
-                        <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <button className="btn primary" onClick={save} disabled={saving}>
                                 {saving ? 'Saving…' : 'Save'}
                             </button>
+                            {saved && <span className="pill ok">Saved</span>}
                         </div>
-                        {saved && (
-                            <span className="pill ok" style={{ marginBottom: 6 }}>
-                                Saved
-                            </span>
-                        )}
                     </div>
                 )}
             </div>
