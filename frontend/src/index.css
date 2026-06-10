@@ -1265,3 +1265,187 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
   table.data.compact{min-width:760px}
   .cinp{width:40px;font-size:16px}
 }
+
+/* ── dark mode ── */
+[data-theme="dark"] {
+  /* background hierarchy */
+  --bg:              #0f1117;
+  --surface:         #161b22;
+  --surface-2:       #1c2128;
+
+  /* borders */
+  --line:            #30363d;
+  --line-soft:       #21262d;
+
+  /* text */
+  --ink:             #e6edf3;
+  --muted:           #8b949e;
+  --faint:           #484f58;
+
+  /* navy / primary */
+  --navy:            #1e3a5f;
+  --navy-2:          #58a6ff;
+  --navy-hover:      #2d5986;
+  --navy-ink:        #0d1117;
+
+  /* accent (GitHub-style blue on dark) */
+  --accent:          #58a6ff;
+  --accent-2:        #4493f8;
+  --accent-soft:     rgba(88,166,255,0.1);
+  --accent-chip:     rgba(88,166,255,0.15);
+  --accent-chip-ink: #58a6ff;
+
+  /* green */
+  --green:           #3fb950;
+  --green-bg:        rgba(35,134,54,0.15);
+  --green-chip:      rgba(35,134,54,0.2);
+  --green-ink:       #3fb950;
+
+  /* amber / warn */
+  --amber:           #d29922;
+  --amber-bg:        rgba(187,128,9,0.15);
+  --amber-ink:       #d29922;
+
+  /* red */
+  --red:             #f85149;
+  --red-bg:          rgba(248,81,73,0.1);
+
+  /* blue chip */
+  --blue:            #58a6ff;
+  --blue-bg:         rgba(88,166,255,0.1);
+
+  /* shadows — heavier on dark so elevation is still visible */
+  --shadow:          0 1px 3px rgba(0,0,0,.4),0 4px 16px rgba(0,0,0,.3);
+  --shadow-lg:       0 8px 32px rgba(0,0,0,.5),0 24px 60px rgba(0,0,0,.4);
+
+  /* cover --primary reference in .stage-cb */
+  --primary:         #58a6ff;
+}
+
+/* ── body & selection ── */
+[data-theme="dark"] body { background:var(--bg); color:var(--ink) }
+[data-theme="dark"] ::selection { background:rgba(88,166,255,.25) }
+
+/* ── auth / login page ── */
+[data-theme="dark"] .auth,
+[data-theme="dark"] .auth-form-wrap { background:var(--bg) }
+
+/* ── topbar stays navy — no override needed; it already uses var(--navy) ── */
+
+/* ── sidebar ── */
+[data-theme="dark"] .sidebar { background:var(--surface); border-right-color:var(--line) }
+
+/* ── user-menu popup ── */
+[data-theme="dark"] .usermenu {
+  background:var(--surface-2);
+  border-color:var(--line);
+  color:var(--ink);
+}
+[data-theme="dark"] .um-item:hover { background:var(--surface) }
+
+/* ── cards & major panels ── */
+[data-theme="dark"] .card,
+[data-theme="dark"] .stat-card,
+[data-theme="dark"] .sheet-sec,
+[data-theme="dark"] .sheet-summary,
+[data-theme="dark"] .sync-card,
+[data-theme="dark"] .tpl-card,
+[data-theme="dark"] .formbar,
+[data-theme="dark"] .placeholder {
+  background:var(--surface-2);
+  border-color:var(--line);
+}
+
+/* ── modal ── */
+[data-theme="dark"] .modal {
+  background:var(--surface);
+  border-color:var(--line);
+}
+[data-theme="dark"] .modal-x:hover { background:var(--surface-2) }
+
+/* ── generic .btn (white bg variant) ── */
+[data-theme="dark"] .btn {
+  background:var(--surface-2);
+  border-color:var(--line);
+  color:var(--ink);
+}
+[data-theme="dark"] .btn:hover { background:#21262d }
+[data-theme="dark"] .btn.primary { background:var(--navy); border-color:var(--navy); color:#e6edf3 }
+[data-theme="dark"] .btn.primary:hover { background:var(--navy-hover) }
+
+/* ── form inputs ── */
+[data-theme="dark"] .field .ipt,
+[data-theme="dark"] .ipt.sel,
+[data-theme="dark"] .sheet-inp,
+[data-theme="dark"] .cinp,
+[data-theme="dark"] .req-field .ipt {
+  background:var(--surface-2);
+  border-color:var(--line);
+  color:var(--ink);
+}
+[data-theme="dark"] .field .ipt:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(88,166,255,.12) }
+[data-theme="dark"] .sheet-inp:focus  { border-color:var(--accent); background:rgba(88,166,255,.08) }
+[data-theme="dark"] .cinp:focus        { border-color:var(--accent); background:var(--surface) }
+[data-theme="dark"] select.btn { background:var(--surface-2); color:var(--ink) }
+
+/* ── tables ── */
+[data-theme="dark"] table.data thead tr { background:var(--surface-2) }
+[data-theme="dark"] table.data tbody tr:hover td,
+[data-theme="dark"] table.data.sheet tbody tr:hover td,
+[data-theme="dark"] table.data.compact tbody tr:hover td { background:#21262d }
+[data-theme="dark"] table.data.sheet tfoot td,
+[data-theme="dark"] table.data.compact tfoot td { background:var(--surface-2) }
+
+/* ── calendar ── */
+[data-theme="dark"] .cal-cell         { background:var(--surface) }
+[data-theme="dark"] .cal-cell.empty   { background:var(--surface-2) }
+[data-theme="dark"] .cal-cell.has:hover,
+[data-theme="dark"] .cal-cell.today   { background:rgba(88,166,255,.07) }
+[data-theme="dark"] .cal-dow          { background:var(--surface-2) }
+
+/* ── event chips ── */
+[data-theme="dark"] .evchip           { background:var(--surface-2); border-color:var(--line); color:var(--muted) }
+[data-theme="dark"] .evchip:hover     { background:var(--surface) }
+
+/* ── day pills ── */
+[data-theme="dark"] .day-pill         { background:var(--surface-2); border-color:var(--line); color:var(--muted) }
+[data-theme="dark"] .day-pill:hover   { background:var(--surface); color:var(--ink) }
+
+/* ── meal-summary pills ── */
+[data-theme="dark"] .ms-pill          { background:var(--surface-2); border-color:var(--line) }
+
+/* ── inspection rate buttons ── */
+[data-theme="dark"] .rate-btn         { background:var(--surface-2); border-color:var(--line); color:var(--muted) }
+
+/* ── quick-access buttons ── */
+[data-theme="dark"] .qa-btn           { background:var(--surface-2); border-color:var(--line); color:var(--ink) }
+[data-theme="dark"] .qa-btn:hover     { background:var(--accent-soft); border-color:var(--accent) }
+
+/* ── meal-count toggle ── */
+[data-theme="dark"] .mt-btn           { background:var(--surface-2); border-color:var(--line); color:var(--muted) }
+
+/* ── inventory view-toggle ── */
+[data-theme="dark"] .view-toggle      { background:var(--surface-2); border-color:var(--line) }
+[data-theme="dark"] .vt-btn.active    { background:var(--surface); color:var(--ink) }
+
+/* ── category accordion ── */
+[data-theme="dark"] .cat-sec          { background:var(--surface); border-color:var(--line) }
+[data-theme="dark"] .cat-sec-head     { background:var(--surface) }
+[data-theme="dark"] .cat-sec-head:hover { background:var(--surface-2) }
+
+/* ── segment control (login) ── */
+[data-theme="dark"] .seg              { background:var(--surface-2); border-color:var(--line) }
+[data-theme="dark"] .seg button[data-on="true"] { background:var(--surface); color:var(--accent) }
+
+/* ── commit graph dot ── */
+[data-theme="dark"] .cg-dot           { background:var(--surface) }
+
+/* ── report rows ── */
+[data-theme="dark"] .report-row:hover  { background:var(--surface-2) }
+[data-theme="dark"] .report-row.on     { background:rgba(88,166,255,.08) }
+[data-theme="dark"] .report-row.on .rr-ic { background:var(--surface-2) }
+
+/* ── scrollbars (webkit) ── */
+[data-theme="dark"] ::-webkit-scrollbar              { width:6px; height:6px; background:var(--surface-2) }
+[data-theme="dark"] ::-webkit-scrollbar-thumb        { background:var(--line); border-radius:4px }
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover  { background:var(--muted) }

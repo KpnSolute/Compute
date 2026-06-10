@@ -356,4 +356,13 @@ export const api = {
     return req('/api/data-entry/settings', { method: 'PUT', body: JSON.stringify(body) });
   },
 
+  // User preferences (theme, etc.) — saved per-user in Supabase app_settings
+  async getUserPreferences(): Promise<{ theme?: string }> {
+    return req('/api/users/me/preferences');
+  },
+
+  async updateUserPreferences(prefs: { theme?: string }): Promise<any> {
+    return req('/api/users/me/preferences', { method: 'PUT', body: JSON.stringify(prefs) });
+  },
+
 };

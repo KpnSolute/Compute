@@ -16,6 +16,33 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v1.9.7] — 2026-06-10 — Settings page + dark mode + user preferences backend
+
+**Claude (Senior Dev Manager):** Full Settings page implementation with dark mode CSS, per-user theme persistence (localStorage + Supabase), AI engine configuration panel (manager+), account info panel, and developer info panel.
+
+**New files:**
+- `frontend/src/lib/theme.ts` — `ThemePref` type (`light|auto|dark`), `getThemePref`, `applyThemePref`, `saveThemePref`; auto mode tracks OS `prefers-color-scheme` via MediaQueryList.
+- `frontend/src/components/Settings.tsx` — full Settings page: Appearance card with visual `ThemeCard` components (mini UI previews for each mode), Account card (avatar initials, username, role pill, email, member since), AI Engine card (manager+ only, provider dropdown + model input backed by existing `/api/data-entry/settings`), Developer info grid.
+
+**Updated files:**
+- `frontend/src/lib/api.ts` — added `getUserPreferences()` (`GET /api/users/me/preferences`) and `updateUserPreferences()` (`PUT /api/users/me/preferences`).
+- `frontend/src/components/Portal.tsx` — imported `Settings` + theme utilities; added `useEffect` on mount to apply saved theme and watch OS `prefers-color-scheme` changes; added `if (active === "settings") return <Settings user={user} />;` route.
+- `backend/routes/users.py` — added `_require_any_auth` dependency (accepts JWT and `pin_` tokens); added `GET /api/users/me/preferences` and `PUT /api/users/me/preferences` backed by `app_settings` table (key: `user_prefs_{user_id}`).
+- `frontend/src/index.css` — `[data-theme="dark"]` block appended (dark palette: bg `#0f1117`, surface `#161b22`, card `#1c2128`, accent `#58a6ff`); covers all 28 CSS tokens + structural overrides for sidebar, cards, inputs, table rows, modals, scrollbars.
+
+**Build:** clean — `tsc -b && vite build` 0 type errors, 593 kB JS (same chunk baseline).
+**Push:** pending
+
+---
+
+## [v1.9.6] — 2026-06-09 — Data Entry UI redesign
+
+**Claude (Senior Dev Manager):** Full UI rewrite of `DataEntry.tsx`. File drop zone with click-to-browse label, accent border when file selected, ✕ clear. Segmented week buttons `[Month W1 W2 W3 W4]`. Direction toggle only shown when week>0. Two-step layout with Hr dividers, action row with summary line, green success banner, `DiffRowPreview` component with SKU + Description + amber change chips.
+
+**Push:** a9151c6
+
+---
+
 ## [v1.9.5] — 2026-06-09 — Deterministic invoice parser + OCR image receipt support integrated into Data Entry
 
 **Claude (Senior Dev Manager):** Integrated the custom `pdf_to_xlsx.py` invoice extraction script into the backend AI pipeline as a deterministic pre-AI layer. US Foods PDF invoices and image-based receipts now parse without consuming any AI API tokens. AI (Groq) is retained as fallback only for unrecognized formats.

@@ -434,6 +434,98 @@ async def update_user(
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
+async def _require_any_auth(authorization: str = Header("")) -> dict:
+    """Accept any valid token — JWT (admin/manager) or pin_ (staff)."""
+    token = authorization.replace("Bearer ", "") if authorization else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing authorization token")
+
+    if token.startswith("pin_"):
+        # pin_ tokens encode user_id as the remainder
+        user_id = token[4:]
+        user = await _get_user_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid session")
+        if not user.get("active"):
+            raise HTTPException(status_code=401, detail="User account is inactive")
+        return user
+
+    claims = jwt_validator.verify_token(token)
+    if not claims:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    user_id = claims.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Token missing user ID")
+    user = await _get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="User profile not found")
+    if not user.get("active"):
+        raise HTTPException(status_code=401, detail="User account is inactive")
+    return user
+
+
+class UserPrefsRequest(BaseModel):
+    theme: str | None = None
+
+
+@router.get("/me/preferences")
+async def get_user_preferences(current_user: dict = Depends(_require_any_auth)):
+    """Return the calling user's saved preferences from app_settings."""
+    key = f"user_prefs_{current_user['id']}"
+    try:
+        result = (
+            supabase_service.table("app_settings")
+            .select("value")
+            .eq("key", key)
+            .limit(1)
+            .execute()
+        )
+        if result.data:
+            import json as _json
+            raw = result.data[0]["value"]
+            return _json.loads(raw) if isinstance(raw, str) else raw
+        return {}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@router.put("/me/preferences")
+async def update_user_preferences(
+    req: UserPrefsRequest, current_user: dict = Depends(_require_any_auth)
+):
+    """Upsert the calling user's preferences into app_settings."""
+    import json as _json
+
+    key = f"user_prefs_{current_user['id']}"
+    prefs: dict = {}
+    if req.theme is not None:
+        prefs["theme"] = req.theme
+
+    try:
+        existing = (
+            supabase_service.table("app_settings")
+            .select("value")
+            .eq("key", key)
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            raw = existing.data[0]["value"]
+            current_prefs = _json.loads(raw) if isinstance(raw, str) else (raw or {})
+            current_prefs.update(prefs)
+            supabase_service.table("app_settings").update(
+                {"value": _json.dumps(current_prefs)}
+            ).eq("key", key).execute()
+            return current_prefs
+        else:
+            supabase_service.table("app_settings").insert(
+                {"key": key, "value": _json.dumps(prefs)}
+            ).execute()
+            return prefs
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
 @router.delete("/{user_id}", status_code=204)
 async def disable_user(user_id: str, admin_user: dict = Depends(_require_admin)):
     """

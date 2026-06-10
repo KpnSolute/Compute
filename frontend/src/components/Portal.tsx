@@ -35,6 +35,8 @@ import { CycleMenu } from "./CycleMenu";
 import { SnackBar, MonthlyInventory } from "./Operations";
 import { SourceControl } from "./SourceControl";
 import { Reports } from "./Reports";
+import { Settings } from "./Settings";
+import { getThemePref, applyThemePref } from "../lib/theme";
 
 let toastTimer: ReturnType<typeof setTimeout>;
 function toast(msg: string) {
@@ -3489,6 +3491,16 @@ export function Portal({
         (window as any).__logout = onLogout;
     }, [onLogout]);
 
+    // Apply saved theme on mount and react to OS preference changes (auto mode)
+    useEffect(() => {
+        const pref = getThemePref(user.id);
+        applyThemePref(pref);
+        const mq = window.matchMedia('(prefers-color-scheme: dark)');
+        const handler = () => applyThemePref(getThemePref(user.id));
+        mq.addEventListener('change', handler);
+        return () => mq.removeEventListener('change', handler);
+    }, [user.id]);
+
     const navItem = NAV.flatMap((g) => g.items).find((it) => it.key === active);
     useEffect(() => {
         if (navItem && lvl < (navItem.min || 0)) setActive("dashboard");
@@ -3548,6 +3560,7 @@ export function Portal({
         if (active === "dataentry") return <DataEntry user={user} />;
         if (active === "users") return <UsersView />;
         if (active === "archives") return <ArchivesView period={period} />;
+        if (active === "settings") return <Settings user={user} />;
         return <PlaceholderPage pageKey={active} />;
     };
 
