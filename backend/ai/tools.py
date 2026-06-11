@@ -80,37 +80,51 @@ def get_inventory(args: dict, user_role: str) -> dict:
     month = int(args.get('month', now.month))
     year  = int(args.get('year',  now.year))
     try:
-        svc    = _client()
-        items  = svc.table('inventory_items').select('id,sku,description,category,unit_price,par_level,unit').execute()
-        inv    = svc.table('monthly_inventory').select('item_id,on_hand').eq('month', month).eq('year', year).execute()
+        svc   = _client()
+        items = svc.table('inventory_items').select(
+            'id,sku,description,category_id,unit_price,par_level,unit,inventory_categories(name)'
+        ).execute()
+        inv     = svc.table('monthly_inventory').select('item_id,on_hand').eq('month', month).eq('year', year).execute()
         inv_map = {r['item_id']: r['on_hand'] for r in (inv.data or [])}
-        result = []
+        result    = []
+        new_items = []
         total_val = 0.0
         for item in (items.data or []):
+            sku      = (item.get('sku') or '').strip()
+            is_new   = not sku
+            cat_name = ((item.get('inventory_categories') or {}).get('name') or '') if not is_new else 'New Items'
             oh  = inv_map.get(item['id'], 0)
             par = item.get('par_level') or 0
             val = oh * (item.get('unit_price') or 0)
             total_val += val
-            result.append({
-                'sku':         item['sku'],
-                'description': item['description'],
-                'category':    item.get('category', ''),
-                'on_hand':     oh,
-                'par_level':   par,
-                'below_par':   oh < par,
-                'unit':        item.get('unit', ''),
-                'value':       round(val, 2),
-            })
-        below = [r for r in result if r['below_par']]
+            row = {
+                'sku':          sku or f'(new:{item["id"][:8]})',
+                'description':  item['description'],
+                'category':     cat_name,
+                'on_hand':      oh,
+                'par_level':    par,
+                'below_par':    oh < par,
+                'unit':         item.get('unit', ''),
+                'value':        round(val, 2),
+                'is_new_item':  is_new,
+            }
+            if is_new:
+                new_items.append(row)
+            else:
+                result.append(row)
+        all_items = result + new_items
+        below = [r for r in all_items if r['below_par']]
         cats  = sorted(set(r['category'] for r in result if r['category']))
         return {
             'month':            month,
             'year':             year,
-            'total_items':      len(result),
+            'total_items':      len(all_items),
+            'new_items_count':  len(new_items),
             'total_value':      round(total_val, 2),
             'below_par_count':  len(below),
             'below_par_items':  below[:15],
             'categories':       cats,
+            'new_items':        new_items[:10],
         }
     except Exception as exc:
         return {'error': str(exc)}
@@ -227,14 +241,11 @@ def get_haccp_logs(args: dict, user_role: str) -> dict:
     limit = min(int(args.get('limit', 10)), 50)
     try:
         svc  = _client()
-        r    = svc.table('haccp_logs').select('date,location,item,temp,pass,notes').order('date', desc=True).limit(limit).execute()
+        r    = svc.table('haccp_logs').select('timestamp,location,temperature,unit,checked_by,notes').order('timestamp', desc=True).limit(limit).execute()
         rows = r.data or []
-        fails = [l for l in rows if not l.get('pass')]
         return {
-            'count':    len(rows),
-            'failures': len(fails),
-            'recent':   rows[:5],
-            'recent_failures': fails[:5],
+            'count':  len(rows),
+            'recent': rows,
         }
     except Exception as exc:
         return {'error': str(exc)}
@@ -246,7 +257,7 @@ def get_daily_logs(args: dict, user_role: str) -> dict:
     limit = min(int(args.get('limit', 10)), 50)
     try:
         svc = _client()
-        r   = svc.table('daily_operations_logs').select('date,entry_type,description,author').order('date', desc=True).limit(limit).execute()
+        r   = svc.table('daily_operations_logs').select('entry_type,title,description,severity,created_by,created_at').order('created_at', desc=True).limit(limit).execute()
         return {'count': len(r.data or []), 'logs': r.data or []}
     except Exception as exc:
         return {'error': str(exc)}
