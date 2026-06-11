@@ -4,19 +4,7 @@ import { type User, ROLE_LEVEL, ROLE_LABEL } from "../lib/constants";
 import { api, type Commit, type StagingEntry } from "../lib/api";
 
 const t = (msg: string) => (window as any).toast?.(msg);
-
-const OP_ICON: Record<string, string> = {
-    inventory_save: "box",
-    inventory_week_update: "box",
-    item_update: "box",
-    item_delete: "del",
-    menu_save: "book",
-    event_create: "calCheck",
-    haccp_save: "thermo",
-    daily_log_save: "checkSquare",
-    user_create: "user",
-    user_update: "user",
-};
+type SCTab = "changes" | "history" | "ai";
 
 const OP_LABEL: Record<string, string> = {
     inventory_save: "Inventory update",
@@ -31,9 +19,21 @@ const OP_LABEL: Record<string, string> = {
     user_update: "User update",
 };
 
+const OP_KIND: Record<string, "M" | "A" | "D"> = {
+    inventory_save: "M",
+    inventory_week_update: "M",
+    item_update: "M",
+    item_delete: "D",
+    menu_save: "M",
+    event_create: "A",
+    haccp_save: "A",
+    daily_log_save: "A",
+    user_create: "A",
+    user_update: "M",
+};
+
 function relTime(iso: string) {
-    const d = new Date(iso),
-        now = new Date();
+    const d = new Date(iso), now = new Date();
     const mins = Math.round((now.getTime() - d.getTime()) / 60000);
     if (mins < 1) return "just now";
     if (mins < 60) return mins + " min ago";
@@ -48,106 +48,77 @@ function shortSha(sha: string | null | undefined): string {
     return sha ? sha.slice(0, 7) : "";
 }
 
-function ConfirmDialog({
-    message,
-    onConfirm,
-    onCancel,
-}: {
-    message: string;
-    onConfirm: () => void;
-    onCancel: () => void;
-}) {
-    return (
-        <div className="modal-overlay" onClick={onCancel}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
-                <div
-                    className="modal-body"
-                    style={{ padding: 24, textAlign: "center" }}
-                >
-                    <p
-                        style={{
-                            margin: "0 0 18px",
-                            fontSize: 13.5,
-                            lineHeight: 1.5,
-                        }}
-                    >
-                        {message}
-                    </p>
-                    <div
-                        style={{
-                            display: "flex",
-                            gap: 10,
-                            justifyContent: "center",
-                        }}
-                    >
-                        <button className="btn" onClick={onCancel}>
-                            Cancel
-                        </button>
-                        <button
-                            className="btn primary"
-                            onClick={onConfirm}
-                            style={{
-                                background: "var(--red)",
-                                borderColor: "var(--red)",
-                            }}
-                        >
-                            {I.check({ style: { width: 14, height: 14 } })}{" "}
-                            Confirm
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
+function opPayloadSummary(entry: StagingEntry): string {
+    const fp = (entry as any).full_payload;
+    const op = (entry as any).operation;
+    if (op === "inventory_save" && fp?.items)
+        return `${fp.items.length} item${fp.items.length !== 1 ? "s" : ""}`;
+    if (op === "inventory_week_update" && fp?.items)
+        return `${fp.items.length} item${fp.items.length !== 1 ? "s" : ""} → W${fp.week} ${fp.direction === "issued" ? "exported" : "received"}`;
+    if (op === "item_update" && fp?.sku)
+        return `Edit ${fp.sku}${fp.category ? ` → ${fp.category}` : ""}`;
+    if (op === "item_delete" && fp?.sku) return `Delete ${fp.sku}`;
+    if (op === "menu_save" && fp?.day) return `Menu for ${fp.day}`;
+    if (op === "event_create" && fp?.title) return fp.title;
+    if (op === "haccp_save" && fp?.location)
+        return `${fp.location} · ${fp.temperature}${fp.unit}`;
+    if (op === "daily_log_save" && fp?.title) return fp.title;
+    return "";
 }
 
-export function SourceControl({
+export function SourceControlPanel({
     user,
+    open,
+    onClose,
     onCountChange,
 }: {
     user: User;
+    open: boolean;
+    onClose: () => void;
     onCountChange?: (n: number) => void;
 }) {
     const lvl = ROLE_LEVEL[user.role] || 0;
     const isStaff = lvl < 20;
-    const canReview = lvl >= 30;
+    const canCommit = lvl >= 30;
 
+    const [tab, setTab] = useState<SCTab>("changes");
     const [staged, setStaged] = useState<StagingEntry[]>([]);
     const [commits, setCommits] = useState<Commit[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
     const [busy, setBusy] = useState(false);
     const [selected, setSelected] = useState<Set<string>>(new Set());
+    const [commitMsg, setCommitMsg] = useState("");
     const [confirm, setConfirm] = useState<{
         action: string;
         entries: StagingEntry[];
     } | null>(null);
 
+    const [aiPrompt, setAiPrompt] = useState("");
+    const [aiRunning, setAiRunning] = useState(false);
+    const [aiResult, setAiResult] = useState<string | null>(null);
+
     const loadData = useCallback(async () => {
+        setLoading(true);
         try {
-            const [s, c] = await Promise.all([
-                api.getStaging(),
-                api.getCommits(),
-            ]);
-            setStaged(s);
-            // Defensive sort by date *pushed* (github_synced_at) so Source Control history is never out of order.
-            // Numeric date compare (not lexical string) for robustness; fallback chain: synced (the push), merged, created.
+            const [s, c] = await Promise.all([api.getStaging(), api.getCommits()]);
+            setStaged(s || []);
             const sorted = [...(c || [])].sort((a, b) => {
-                const da = new Date((a as any).github_synced_at || (a as any).merged_at || (a as any).created_at || 0).getTime();
-                const db = new Date((b as any).github_synced_at || (b as any).merged_at || (b as any).created_at || 0).getTime();
-                return db - da; // newest first
+                const da = new Date((a as any).github_synced_at || (a as any).merged_at || a.created_at || 0).getTime();
+                const db = new Date((b as any).github_synced_at || (b as any).merged_at || b.created_at || 0).getTime();
+                return db - da;
             });
             setCommits(sorted);
         } catch {
             setStaged([]);
             setCommits([]);
-            t("Failed to load staging data");
         }
         setLoading(false);
     }, []);
 
     useEffect(() => {
-        loadData();
-    }, [loadData]);
+        if (open) loadData();
+    }, [open, loadData]);
+
     useEffect(() => {
         onCountChange?.(staged.length);
     }, [staged.length, onCountChange]);
@@ -158,7 +129,7 @@ export function SourceControl({
             s.submitter_name?.startsWith(user.display_name),
     );
     const visibleStaged = isStaff ? myStaged : staged;
-    const lastCommit = commits[0]; // [0] is newest by pushed date after sort in loadData + backend
+    const lastCommit = commits[0];
 
     function toggleSelect(id: string) {
         setSelected((p) => {
@@ -170,35 +141,26 @@ export function SourceControl({
     }
 
     function toggleAll() {
-        if (selected.size === visibleStaged.length) {
-            setSelected(new Set());
-        } else {
-            setSelected(new Set(visibleStaged.map((s) => s.entry_id)));
-        }
+        if (selected.size === visibleStaged.length) setSelected(new Set());
+        else setSelected(new Set(visibleStaged.map((s) => s.entry_id)));
     }
 
-    async function handleApprove(entries: StagingEntry[]) {
+    async function doCommit(entries: StagingEntry[]) {
         setConfirm(null);
         setBusy(true);
         try {
             const ids = entries.map((e) => e.entry_id);
-            const commit = await api.approveCommit({
-                staging_ids: ids,
-                message:
-                    entries.length === 1
-                        ? entries[0].operation
-                            ? OP_LABEL[entries[0].operation] ||
-                              entries[0].change_type
-                            : entries[0].new_value_text || entries[0].field_name
-                        : `Batch commit — ${entries.length} staged change${entries.length !== 1 ? "s" : ""}`,
-                author_id: user.id,
-            });
+            const msg =
+                commitMsg.trim() ||
+                (entries.length === 1
+                    ? OP_LABEL[(entries[0] as any).operation] || entries[0].change_type
+                    : `Batch commit — ${entries.length} change${entries.length !== 1 ? "s" : ""}`);
+            const commit = await api.approveCommit({ staging_ids: ids, message: msg, author_id: user.id });
             setStaged((s) => s.filter((x) => !ids.includes(x.entry_id)));
             setCommits((cs) => [commit, ...cs]);
             setSelected(new Set());
-            t(
-                `Committed ${entries.length} change${entries.length !== 1 ? "s" : ""}`,
-            );
+            setCommitMsg("");
+            t(`Committed ${entries.length} change${entries.length !== 1 ? "s" : ""}`);
         } catch (err: any) {
             t(`Commit failed: ${err?.message || "Unknown error"}`);
         } finally {
@@ -206,16 +168,12 @@ export function SourceControl({
         }
     }
 
-    async function handleReject(entry: StagingEntry) {
+    async function doReject(entry: StagingEntry) {
         setBusy(true);
         try {
             await api.rejectStaging(entry.entry_id);
             setStaged((s) => s.filter((x) => x.entry_id !== entry.entry_id));
-            setSelected((p) => {
-                const n = new Set(p);
-                n.delete(entry.entry_id);
-                return n;
-            });
+            setSelected((p) => { const n = new Set(p); n.delete(entry.entry_id); return n; });
             t("Entry returned to author");
         } catch (err: any) {
             t(`Rejection failed: ${err?.message || "Unknown error"}`);
@@ -224,416 +182,423 @@ export function SourceControl({
         }
     }
 
-    const opPayloadSummary = (entry: StagingEntry): string => {
-        const fp = (entry as any).full_payload;
-        const op = (entry as any).operation;
-        if (op === "inventory_save" && fp?.items)
-            return `${fp.items.length} item${fp.items.length !== 1 ? "s" : ""}`;
-        if (op === "inventory_week_update" && fp?.items)
-            return `${fp.items.length} item${fp.items.length !== 1 ? "s" : ""} → W${fp.week} ${fp.direction === "issued" ? "exported" : "received"}`;
-        if (op === "item_update" && fp?.sku)
-            return `Edit ${fp.sku}${fp.category ? ` → ${fp.category}` : ""}`;
-        if (op === "item_delete" && fp?.sku)
-            return `Delete ${fp.sku}`;
-        if (op === "menu_save" && fp?.day) return `Menu for ${fp.day}`;
-        if (op === "event_create" && fp?.title) return fp.title;
-        if (op === "haccp_save" && fp?.location)
-            return `${fp.location} · ${fp.temperature}${fp.unit}`;
-        if (op === "daily_log_save" && fp?.title) return fp.title;
-        return "";
-    };
+    async function runAICommit() {
+        if (!aiPrompt.trim()) return;
+        setAiRunning(true);
+        setAiResult(null);
+        try {
+            const res = await api.sendAgentMessage(aiPrompt.trim());
+            setAiResult(res.response);
+            t("AI processed — check Changes tab");
+            await loadData();
+            setTab("changes");
+        } catch (err: any) {
+            const msg = err?.message || "Unknown error";
+            t(`AI error: ${msg}`);
+            setAiResult(`Error: ${msg}`);
+        } finally {
+            setAiRunning(false);
+        }
+    }
+
+    const selectedEntries = visibleStaged.filter((s) => selected.has(s.entry_id));
 
     return (
-        <div className="fade-in">
-            {confirm && (
-                <ConfirmDialog
-                    message={
-                        confirm.action === "approveAll"
-                            ? `Commit all ${confirm.entries.length} staged change${confirm.entries.length !== 1 ? "s" : ""} to the record? This will apply changes and push to GitHub.`
-                            : `Commit this change to the record? It will be applied to live data and pushed to GitHub.`
-                    }
-                    onConfirm={() => handleApprove(confirm.entries)}
-                    onCancel={() => setConfirm(null)}
-                />
-            )}
+        <>
+            {open && <div className="sc-backdrop" onClick={onClose} />}
 
-            <div className="page-head">
-                <div>
-                    <h2>{isStaff ? "My Submissions" : "Source Control"}</h2>
-                    <div className="ph-sub">
-                        {isStaff
-                            ? "Submit changes for review — an admin approves and commits them"
-                            : "Review queue, commit history & data-store sync"}
-                        {" · "}
-                        {loading ? "…" : staged.length + " pending"}
+            <div className={"sc-panel" + (open ? " open" : "")}>
+                {/* ── Header ── */}
+                <div className="sc-header">
+                    <div className="sc-title-row">
+                        <span className="sc-title-icon">
+                            {I.branch({ style: { width: 14, height: 14 } })}
+                        </span>
+                        <span className="sc-title">SOURCE CONTROL</span>
+                        <span className="sc-branch-badge">main</span>
+                        <div style={{ flex: 1 }} />
+                        <button
+                            className="sc-icon-btn"
+                            onClick={loadData}
+                            disabled={loading}
+                            title="Refresh"
+                        >
+                            {I.refresh({ style: { width: 14, height: 14 } })}
+                        </button>
+                        <button
+                            className="sc-icon-btn"
+                            onClick={onClose}
+                            title="Close panel"
+                        >
+                            {I.x({ style: { width: 14, height: 14 } })}
+                        </button>
+                    </div>
+
+                    <div className="sc-tabs">
+                        {(["changes", "history", "ai"] as SCTab[]).map((tb) => (
+                            <button
+                                key={tb}
+                                className={"sc-tab" + (tab === tb ? " active" : "")}
+                                onClick={() => setTab(tb)}
+                            >
+                                {tb === "changes" && (
+                                    <>
+                                        Changes
+                                        {visibleStaged.length > 0 && (
+                                            <span className="sc-tab-badge">{visibleStaged.length}</span>
+                                        )}
+                                    </>
+                                )}
+                                {tb === "history" && "History"}
+                                {tb === "ai" && (
+                                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                        {I.flame({ style: { width: 11, height: 11 } })} AI
+                                    </span>
+                                )}
+                            </button>
+                        ))}
                     </div>
                 </div>
-                <div className="ph-actions">
-                    {canReview && selected.size > 0 && (
-                        <button
-                            className="btn primary"
-                            onClick={() =>
-                                setConfirm({
-                                    action: "approveSelected",
-                                    entries: staged.filter((s) =>
-                                        selected.has(s.entry_id),
-                                    ),
-                                })
-                            }
-                            disabled={busy}
-                        >
-                            {I.check({ style: { width: 14, height: 14 } })}{" "}
-                            Commit selected ({selected.size})
-                        </button>
-                    )}
-                    {canReview && visibleStaged.length > 0 && (
-                        <button
-                            className="btn primary"
-                            onClick={() =>
-                                setConfirm({
-                                    action: "approveAll",
-                                    entries: visibleStaged,
-                                })
-                            }
-                            disabled={busy}
-                        >
-                            {I.branch()} Commit all ({visibleStaged.length})
-                        </button>
-                    )}
-                </div>
-            </div>
 
-            <div className="banner info" style={{ marginBottom: 12 }}>
-                {I.flame({ style: { width: 15, height: 15 } })}
-                <span>
-                    SourceCtrl pipeline: Upload/import (including AI data-entry)
-                    → staged diff → manager/admin review → commit to live data +
-                    GitHub snapshot sync.
-                </span>
-            </div>
-
-            <div className="sync-card on">
-                <div className="sync-ic">
-                    {I.database({ style: { width: 20, height: 20 } })}
-                </div>
-                <div className="sync-body">
-                    <div className="sync-title">
-                        Data store ·{" "}
-                        <span className="mono">MJCC-Portal/mjcc</span>{" "}
-                        <span className="sync-branch">main</span>
-                    </div>
-                    <div className="sync-sub">
-                        Live — snapshots push after every commit
-                        {lastCommit && (
-                            <>
-                                {" · last commit "}
-                                <span className="commit-hash">
-                                    {shortSha(lastCommit.github_sha) ||
-                                        lastCommit.commit_id.slice(0, 7)}
-                                </span>{" "}
+                {/* ── Status bar ── */}
+                <div className="sc-status-bar">
+                    <span className={"sc-status-dot " + (lastCommit?.github_sha ? "synced" : "pending")} />
+                    <span>MJCC-Portal/mjcc</span>
+                    {lastCommit && (
+                        <>
+                            <span className="sc-status-sep">·</span>
+                            <span className="mono" style={{ fontSize: 10, opacity: 0.7 }}>
+                                {shortSha(lastCommit.github_sha) || lastCommit.commit_id.slice(0, 7)}
+                            </span>
+                            <span style={{ opacity: 0.6, fontSize: 10.5 }}>
                                 {relTime((lastCommit as any).github_synced_at || lastCommit.merged_at || lastCommit.created_at)}
-                            </>
-                        )}
-                    </div>
+                            </span>
+                        </>
+                    )}
                 </div>
-                <span
-                    className={
-                        "pill " + (lastCommit?.github_sha ? "ok" : "warn")
-                    }
-                >
-                    {lastCommit?.github_sha ? "Synced" : "Pending sync"}
-                </span>
-            </div>
 
-            <div className="grid-2">
-                <div
-                    style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 16,
-                    }}
-                >
-                    <div className="card">
-                        <div className="card-head">
-                            <h3>
-                                {canReview && visibleStaged.length > 0 && (
-                                    <label
-                                        style={{
-                                            marginRight: 8,
-                                            cursor: "pointer",
-                                        }}
-                                        title="Select all"
-                                    >
+                {/* ── Body ── */}
+                <div className="sc-body">
+                    {loading && (
+                        <div className="sc-loading">
+                            <div className="spinner" style={{ width: 18, height: 18 }} />
+                            <span>Loading…</span>
+                        </div>
+                    )}
+
+                    {/* ── CHANGES TAB ── */}
+                    {!loading && tab === "changes" && (
+                        <div className="sc-changes">
+                            <div className="sc-section-head">
+                                {canCommit && visibleStaged.length > 0 && (
+                                    <label className="sc-select-all" title="Select all">
                                         <input
                                             type="checkbox"
-                                            checked={
-                                                selected.size ===
-                                                    visibleStaged.length &&
-                                                visibleStaged.length > 0
-                                            }
+                                            checked={selected.size === visibleStaged.length && visibleStaged.length > 0}
                                             onChange={toggleAll}
-                                            style={{ marginRight: 6 }}
                                         />
                                     </label>
                                 )}
-                                {isStaff
-                                    ? "My pending submissions"
-                                    : "Review queue"}
-                            </h3>
-                            <span className="ch-link">
-                                {visibleStaged.length} staged
-                            </span>
-                        </div>
-                        <div className="card-body flush">
-                            {loading ? (
-                                <div
-                                    style={{
-                                        padding: "26px 17px",
-                                        textAlign: "center",
-                                        color: "var(--faint)",
-                                        fontSize: 12.5,
-                                    }}
-                                >
-                                    Loading…
+                                <span className="sc-section-label">
+                                    {isStaff ? "MY SUBMISSIONS" : "STAGED CHANGES"}
+                                </span>
+                                {visibleStaged.length > 0 && (
+                                    <span className="sc-section-count">{visibleStaged.length}</span>
+                                )}
+                            </div>
+
+                            {visibleStaged.length === 0 && (
+                                <div className="sc-empty">
+                                    <div className="sc-empty-icon">
+                                        {I.branch({ style: { width: 26, height: 26 } })}
+                                    </div>
+                                    <div className="sc-empty-title">Working tree is clean</div>
+                                    <div className="sc-empty-sub">
+                                        Make inventory or data edits to stage changes for review.
+                                    </div>
                                 </div>
-                            ) : visibleStaged.length === 0 ? (
-                                <div
-                                    style={{
-                                        padding: "26px 17px",
-                                        textAlign: "center",
-                                        color: "var(--faint)",
-                                        fontSize: 12.5,
-                                    }}
-                                >
-                                    Nothing staged — the working tree is
-                                    clean.
-                                </div>
-                            ) : (
-                                visibleStaged.map((ch) => {
-                                    const op = (ch as any).operation;
-                                    const icon = op
-                                        ? OP_ICON[op] || "clock"
-                                        : "clock";
-                                    const opLabel = op
-                                        ? OP_LABEL[op] || op
-                                        : ch.change_type;
-                                    const summary =
-                                        opPayloadSummary(ch) ||
-                                        ch.new_value_text ||
-                                        ch.field_name;
-                                    return (
-                                        <div
-                                            className="stage-item"
-                                            key={ch.entry_id}
-                                        >
-                                            {canReview && (
-                                                <label
-                                                    className="stage-cb"
-                                                    onClick={(e) =>
-                                                        e.stopPropagation()
-                                                    }
-                                                >
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={selected.has(
-                                                            ch.entry_id,
-                                                        )}
-                                                        onChange={() =>
-                                                            toggleSelect(
-                                                                ch.entry_id,
-                                                            )
-                                                        }
-                                                    />
-                                                </label>
+                            )}
+
+                            {visibleStaged.map((ch) => {
+                                const op = (ch as any).operation || ch.change_type;
+                                const kind = OP_KIND[op] ?? "M";
+                                const label = OP_LABEL[op] || op;
+                                const summary = opPayloadSummary(ch) || ch.new_value_text || ch.field_name;
+                                const isSel = selected.has(ch.entry_id);
+
+                                return (
+                                    <div
+                                        key={ch.entry_id}
+                                        className={"sc-change-item" + (isSel ? " selected" : "")}
+                                    >
+                                        {canCommit && (
+                                            <label
+                                                className="sc-cb"
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isSel}
+                                                    onChange={() => toggleSelect(ch.entry_id)}
+                                                />
+                                            </label>
+                                        )}
+                                        <span className={"sc-kind sc-kind-" + kind.toLowerCase()}>
+                                            {kind}
+                                        </span>
+                                        <div className="sc-change-body">
+                                            <div className="sc-change-name">{label}</div>
+                                            {summary && (
+                                                <div className="sc-change-desc">{summary}</div>
                                             )}
-                                            <div className="stage-ic">
-                                                {I[icon]({
-                                                    style: {
-                                                        width: 15,
-                                                        height: 15,
-                                                    },
-                                                })}
+                                            <div className="sc-change-meta">
+                                                <span className="sc-avatar-xs">
+                                                    {(ch.submitter_name || ch.submitted_by)[0]?.toUpperCase() || "?"}
+                                                </span>
+                                                <span>{ch.submitter_name || ch.submitted_by}</span>
+                                                {ch.submitter_role && (
+                                                    <span className={"pill role-" + ch.submitter_role} style={{ padding: "0 5px", fontSize: 9 }}>
+                                                        {ROLE_LABEL[ch.submitter_role as keyof typeof ROLE_LABEL] || ch.submitter_role}
+                                                    </span>
+                                                )}
+                                                <span style={{ marginLeft: "auto", opacity: 0.65 }}>
+                                                    {relTime(ch.created_at)}
+                                                </span>
                                             </div>
-                                            <div className="stage-body">
-                                                <div className="stage-top">
-                                                    <span className="stage-type">
-                                                        {opLabel}
-                                                    </span>
-                                                    <span className="stage-items">
-                                                        {relTime(ch.created_at)}
-                                                    </span>
-                                                </div>
-                                                <div className="stage-summary">
-                                                    {summary}
-                                                </div>
-                                                <div className="stage-meta">
-                                                    <span
-                                                        className="avatar"
-                                                        style={{
-                                                            width: 18,
-                                                            height: 18,
-                                                            fontSize: 8,
-                                                            borderRadius: 5,
-                                                        }}
-                                                    >
-                                                        {(ch.submitter_name ||
-                                                            ch.submitted_by)[0]?.toUpperCase() ||
-                                                            "?"}
-                                                    </span>
-                                                    <b>
-                                                        {ch.submitter_name ||
-                                                            ch.submitted_by}
-                                                    </b>
-                                                    {ch.submitter_role && (
-                                                        <span
-                                                            className={
-                                                                "pill role-" +
-                                                                ch.submitter_role
-                                                            }
-                                                        >
-                                                            {ROLE_LABEL[
-                                                                ch.submitter_role as keyof typeof ROLE_LABEL
-                                                            ] ||
-                                                                ch.submitter_role}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            {canReview ? (
-                                                <div className="stage-actions">
+                                        </div>
+                                        <div className="sc-item-actions">
+                                            {canCommit ? (
+                                                <>
                                                     <button
-                                                        className="btn"
-                                                        style={{
-                                                            padding: "6px 10px",
-                                                        }}
-                                                        onClick={() =>
-                                                            handleReject(ch)
-                                                        }
+                                                        className="sc-icon-btn danger"
+                                                        onClick={() => doReject(ch)}
                                                         disabled={busy}
                                                         title="Return to author"
                                                     >
-                                                        {I.x({
-                                                            style: {
-                                                                width: 14,
-                                                                height: 14,
-                                                            },
-                                                        })}
+                                                        {I.x({ style: { width: 11, height: 11 } })}
                                                     </button>
                                                     <button
-                                                        className="btn primary"
-                                                        style={{
-                                                            padding: "6px 11px",
-                                                        }}
+                                                        className="sc-icon-btn ok"
                                                         onClick={() =>
-                                                            setConfirm({
-                                                                action: "approve",
-                                                                entries: [ch],
-                                                            })
+                                                            setConfirm({ action: "single", entries: [ch] })
                                                         }
                                                         disabled={busy}
+                                                        title="Commit"
                                                     >
-                                                        {I.check({
-                                                            style: {
-                                                                width: 14,
-                                                                height: 14,
-                                                            },
-                                                        })}{" "}
-                                                        Commit
+                                                        {I.check({ style: { width: 11, height: 11 } })}
                                                     </button>
-                                                </div>
+                                                </>
                                             ) : (
-                                                <span className="pill warn">
-                                                    Pending review
-                                                </span>
+                                                <span className="sc-pending-badge">Pending</span>
                                             )}
                                         </div>
-                                    );
-                                })
-                            )}
-                        </div>
-                    </div>
-                </div>
-
-                <div className="card" style={{ height: "fit-content" }}>
-                    <div className="card-head">
-                        <h3>Commit history</h3>
-                        <span className="ch-link">
-                            {commits.length} commits
-                        </span>
-                    </div>
-                    <div className="card-body flush">
-                        {commits.length === 0 && !loading ? (
-                            <div
-                                style={{
-                                    padding: "26px 17px",
-                                    textAlign: "center",
-                                    color: "var(--faint)",
-                                    fontSize: 12.5,
-                                }}
-                            >
-                                No commits yet.
-                            </div>
-                        ) : (
-                            commits.map((c, i) => (
-                                <div className="commit-item" key={c.commit_id}>
-                                    <div className="commit-graph">
-                                        <span className="cg-dot" />
-                                        {i < commits.length - 1 && (
-                                            <span className="cg-line" />
-                                        )}
                                     </div>
-                                    <div className="commit-body">
-                                        <div className="commit-msg">
-                                            {c.message}
-                                        </div>
-                                        <div className="commit-meta">
-                                            <span className="commit-hash">
-                                                {shortSha(c.github_sha) ||
-                                                    c.commit_id.slice(0, 7)}
-                                            </span>
-                                            <b>
-                                                {c.author_name || c.author_id}
-                                            </b>
-                                            {c.submitter_role && (
-                                                <span
-                                                    className={
-                                                        "pill role-" +
-                                                        c.submitter_role
-                                                    }
-                                                >
-                                                    {ROLE_LABEL[
-                                                        c.submitter_role as keyof typeof ROLE_LABEL
-                                                    ] || c.submitter_role}
-                                                </span>
-                                            )}
-                                            <span>{relTime((c as any).github_synced_at || c.merged_at || c.created_at)}</span>
-                                            {c.github_sha && (
-                                                <span className="synced-tag">
-                                                    {I.check({
-                                                        style: {
-                                                            width: 11,
-                                                            height: 11,
-                                                        },
-                                                    })}{" "}
-                                                    synced
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div className="commit-diff">
-                                            <span className="diff-files">
-                                                {c.change_count} field
-                                                {c.change_count !== 1
-                                                    ? "s"
-                                                    : ""}
-                                            </span>
-                                        </div>
+                                );
+                            })}
+
+                            {/* Manager commit controls */}
+                            {canCommit && visibleStaged.length > 0 && (
+                                <div className="sc-commit-area">
+                                    <textarea
+                                        className="sc-commit-msg"
+                                        placeholder="Commit message (auto-generated if blank)…"
+                                        rows={2}
+                                        value={commitMsg}
+                                        onChange={(e) => setCommitMsg(e.target.value)}
+                                    />
+                                    <div className="sc-commit-btns">
+                                        {selected.size > 0 && (
+                                            <button
+                                                className="btn primary"
+                                                style={{ flex: 1, justifyContent: "center" }}
+                                                onClick={() =>
+                                                    setConfirm({ action: "selected", entries: selectedEntries })
+                                                }
+                                                disabled={busy}
+                                            >
+                                                {I.check({ style: { width: 13, height: 13 } })}
+                                                &nbsp;Commit {selected.size}
+                                            </button>
+                                        )}
+                                        <button
+                                            className="btn primary"
+                                            style={{ flex: 1, justifyContent: "center" }}
+                                            onClick={() =>
+                                                setConfirm({ action: "all", entries: visibleStaged })
+                                            }
+                                            disabled={busy}
+                                        >
+                                            {I.branch()}&nbsp;Commit all ({visibleStaged.length})
+                                        </button>
                                     </div>
                                 </div>
-                            ))
-                        )}
-                    </div>
+                            )}
+
+                            {/* Staff note */}
+                            {isStaff && (
+                                <div className="sc-staff-note">
+                                    {I.user({ style: { width: 12, height: 12 } })}
+                                    <span>Your changes are pending manager review.</span>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* ── HISTORY TAB ── */}
+                    {!loading && tab === "history" && (
+                        <div className="sc-history">
+                            <div className="sc-section-head">
+                                <span className="sc-section-label">COMMIT LOG</span>
+                                {commits.length > 0 && (
+                                    <span className="sc-section-count">{commits.length}</span>
+                                )}
+                            </div>
+
+                            {commits.length === 0 ? (
+                                <div className="sc-empty">
+                                    <div className="sc-empty-title">No commits yet</div>
+                                </div>
+                            ) : (
+                                commits.map((c, i) => (
+                                    <div key={c.commit_id} className="sc-commit-item">
+                                        <div className="sc-graph">
+                                            <span className="sc-g-dot" />
+                                            {i < commits.length - 1 && (
+                                                <span className="sc-g-line" />
+                                            )}
+                                        </div>
+                                        <div className="sc-commit-body">
+                                            <div className="sc-hist-msg">{c.message}</div>
+                                            <div className="sc-commit-meta">
+                                                <span className="sc-sha mono">
+                                                    {shortSha(c.github_sha) || c.commit_id.slice(0, 7)}
+                                                </span>
+                                                <span>{c.author_name || c.author_id}</span>
+                                                {c.submitter_role && (
+                                                    <span
+                                                        className={"pill role-" + c.submitter_role}
+                                                        style={{ padding: "0 5px", fontSize: 9 }}
+                                                    >
+                                                        {ROLE_LABEL[c.submitter_role as keyof typeof ROLE_LABEL] || c.submitter_role}
+                                                    </span>
+                                                )}
+                                                <span style={{ marginLeft: "auto", opacity: 0.6 }}>
+                                                    {relTime((c as any).github_synced_at || c.merged_at || c.created_at)}
+                                                </span>
+                                            </div>
+                                            <div className="sc-commit-detail">
+                                                <span>{c.change_count} field{c.change_count !== 1 ? "s" : ""}</span>
+                                                {c.github_sha && (
+                                                    <span className="sc-synced">
+                                                        {I.check({ style: { width: 10, height: 10 } })} synced
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    )}
+
+                    {/* ── AI TAB ── */}
+                    {!loading && tab === "ai" && (
+                        <div className="sc-ai">
+                            <div className="sc-section-head">
+                                <span className="sc-section-label">
+                                    {I.flame({ style: { width: 11, height: 11, display: "inline-block", marginRight: 5 } })}
+                                    AI COMMIT ASSISTANT
+                                </span>
+                            </div>
+
+                            <div className="sc-ai-desc">
+                                Describe a change in plain English. The AI will apply it and stage it for review.
+                            </div>
+
+                            <textarea
+                                className="sc-ai-input"
+                                placeholder={"e.g. \"Set chicken stock to 20 units\"\n\"Add new item: Olive Oil, $8.50, par 6\"\n\"Mark all dairy items below par as critical\""}
+                                rows={5}
+                                value={aiPrompt}
+                                onChange={(e) => setAiPrompt(e.target.value)}
+                                disabled={aiRunning}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) runAICommit();
+                                }}
+                            />
+
+                            <button
+                                className="btn primary"
+                                style={{ width: "100%", justifyContent: "center", marginTop: 10 }}
+                                onClick={runAICommit}
+                                disabled={aiRunning || !aiPrompt.trim()}
+                            >
+                                {aiRunning ? (
+                                    <>
+                                        <div className="spinner" style={{ width: 13, height: 13 }} />
+                                        &nbsp;Processing…
+                                    </>
+                                ) : (
+                                    <>
+                                        {I.flame({ style: { width: 14, height: 14 } })}&nbsp;Apply &amp; Stage
+                                    </>
+                                )}
+                            </button>
+
+                            {aiResult && (
+                                <div className="sc-ai-result">
+                                    <div className="sc-ai-result-head">AI Response</div>
+                                    <div className="sc-ai-result-body">{aiResult}</div>
+                                    <button
+                                        className="sc-ai-result-link"
+                                        onClick={() => setTab("changes")}
+                                    >
+                                        View staged changes →
+                                    </button>
+                                </div>
+                            )}
+
+                            <div className="sc-ai-roles">
+                                <div className="sc-ai-role-row">
+                                    <span className="pill role-staff" style={{ fontSize: 10 }}>Staff</span>
+                                    <span>Changes staged → awaiting manager approval</span>
+                                </div>
+                                <div className="sc-ai-role-row">
+                                    <span className="pill role-manager" style={{ fontSize: 10 }}>Manager</span>
+                                    <span>Changes staged → you can commit immediately</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
+
+                {/* ── Confirm dialog ── */}
+                {confirm && (
+                    <div className="sc-confirm-overlay" onClick={() => setConfirm(null)}>
+                        <div className="sc-confirm" onClick={(e) => e.stopPropagation()}>
+                            <p>
+                                {confirm.action === "all"
+                                    ? `Commit all ${confirm.entries.length} staged change${confirm.entries.length !== 1 ? "s" : ""}? Changes will be applied and pushed to GitHub.`
+                                    : confirm.action === "selected"
+                                        ? `Commit ${confirm.entries.length} selected change${confirm.entries.length !== 1 ? "s" : ""}?`
+                                        : "Commit this change to the record?"}
+                            </p>
+                            <div className="sc-confirm-btns">
+                                <button className="btn" onClick={() => setConfirm(null)}>
+                                    Cancel
+                                </button>
+                                <button
+                                    className="btn primary"
+                                    onClick={() => doCommit(confirm.entries)}
+                                    disabled={busy}
+                                >
+                                    {I.check({ style: { width: 13, height: 13 } })}&nbsp;Commit
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
-        </div>
+        </>
     );
 }

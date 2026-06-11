@@ -34,7 +34,7 @@ import { EventsCalendar } from "./EventsCalendar";
 import { MealLog, InspectionSheet, FoodRequest } from "./Forms";
 import { CycleMenu } from "./CycleMenu";
 import { SnackBar, MonthlyInventory } from "./Operations";
-import { SourceControl } from "./SourceControl";
+import { SourceControlPanel } from "./SourceControl";
 import { Reports } from "./Reports";
 import { Settings } from "./Settings";
 import { AgentBubble } from "./AgentBubble";
@@ -103,12 +103,18 @@ function Topbar({
     setPeriod,
     sidebarOpen,
     toggleSidebar,
+    scOpen,
+    onToggleSC,
+    scCount,
 }: {
     user: User;
     period: [number, number];
     setPeriod: (p: [number, number]) => void;
     sidebarOpen?: boolean;
     toggleSidebar?: () => void;
+    scOpen?: boolean;
+    onToggleSC?: () => void;
+    scCount?: number;
 }) {
     const [menu, setMenu] = useState(false);
     useEffect(() => {
@@ -173,6 +179,19 @@ function Topbar({
                         </option>
                     ))}
                 </select>
+                {onToggleSC && (
+                    <button
+                        className={"tb-sc-btn" + (scOpen ? " active" : "")}
+                        onClick={onToggleSC}
+                        title="Source Control"
+                        aria-label="Toggle Source Control panel"
+                    >
+                        {I.branch({ style: { width: 16, height: 16 } })}
+                        {(scCount ?? 0) > 0 && (
+                            <span className="nb">{scCount}</span>
+                        )}
+                    </button>
+                )}
                 <div
                     className="tb-user"
                     onClick={(e) => {
@@ -929,11 +948,15 @@ function InventoryView({
     period,
     invState,
     onSync,
+    openSC,
+    scCount,
 }: {
     user: User;
     period: [number, number];
     invState: any;
     onSync: () => void;
+    openSC?: () => void;
+    scCount?: number;
 }) {
     const lvl = ROLE_LEVEL[user.role];
     const canStage = lvl >= 10;
@@ -1076,6 +1099,7 @@ function InventoryView({
                 `Inventory update · ${row.desc}`,
             );
             toast(`Staged inventory update for ${row.desc}`);
+            openSC?.();
             setDraft((prev) => {
                 const copy = { ...prev };
                 delete copy[sku];
@@ -1155,6 +1179,7 @@ function InventoryView({
                 }
                 await Promise.all(ops);
                 toast(`Staged W${compactWeek} ${compactDir} invoice · ${n} item${n !== 1 ? "s" : ""}`);
+                openSC?.();
             } else {
                 // Whole-month save: on_hand/par + any explicitly-edited weekly columns.
                 // Only w* keys present in wkDraft are included, so unedited weeks are preserved.
@@ -1181,6 +1206,7 @@ function InventoryView({
                     `Inventory update · ${n} item${n !== 1 ? "s" : ""}`,
                 );
                 toast(`Staged inventory changes for ${n} item${n !== 1 ? "s" : ""}`);
+                openSC?.();
             }
             setWkDraft({});
             setDraft((prev) => {
@@ -1235,6 +1261,7 @@ function InventoryView({
                 `New item · ${desc}`,
             );
             toast(`Staged new item: ${desc}`);
+            openSC?.();
             setShowAddItem(false);
             setNewItem(blankItem);
         } catch (e: any) {
@@ -1266,6 +1293,7 @@ function InventoryView({
                 `Edit item · ${desc}`,
             );
             toast(`Staged edit for ${desc}`);
+            openSC?.();
             setEditTarget(null);
         } catch (e: any) {
             toast(`Failed to edit: ${e?.message || "Unknown error"}`);
@@ -1287,6 +1315,7 @@ function InventoryView({
                 `Delete item · ${editTarget.desc}`,
             );
             toast(`Staged delete for ${editTarget.desc}`);
+            openSC?.();
             setEditTarget(null);
         } catch (e: any) {
             toast(`Failed to delete: ${e?.message || "Unknown error"}`);
@@ -1383,6 +1412,16 @@ function InventoryView({
                             {Object.keys(draft).length} pending change
                             {Object.keys(draft).length !== 1 ? "s" : ""}
                         </span>
+                    )}
+                    {openSC && (scCount ?? 0) > 0 && (
+                        <button
+                            className="btn sc-staged-pill"
+                            onClick={openSC}
+                            title="Open Source Control"
+                        >
+                            {I.branch({ style: { width: 13, height: 13 } })}
+                            {scCount} staged
+                        </button>
                     )}
                     {lvl >= 30 && (
                         <button
@@ -3538,6 +3577,7 @@ export function Portal({
         new Date().getFullYear(),
     ]);
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [scPanelOpen, setScPanelOpen] = useState(false);
     const [invState, reloadInv] = useInventory();
     const [stagedCount, setStagedCount] = useState(0);
     useEffect(() => {
@@ -3567,6 +3607,10 @@ export function Portal({
     const canAccess = (routeKey: string) => lvl >= (ROUTE_MIN[routeKey] ?? 10);
     const goTo = (routeKey: string) => {
         setSidebarOpen(false);
+        if (routeKey === "sourcectrl") {
+            setScPanelOpen((v) => !v);
+            return;
+        }
         if (!canAccess(routeKey)) {
             const need = ROUTE_MIN[routeKey] ?? 10;
             const role =
@@ -3590,7 +3634,14 @@ export function Portal({
     const renderPage = () => {
         if (!canAccess(active)) return <PlaceholderPage pageKey={active} />;
         if (active === "dashboard") return <Dashboard {...common} />;
-        if (active === "inventory") return <InventoryView {...common} />;
+        if (active === "inventory")
+            return (
+                <InventoryView
+                    {...common}
+                    openSC={() => setScPanelOpen(true)}
+                    scCount={stagedCount}
+                />
+            );
         if (active === "haccp") return <ComplianceHub user={user} />;
         if (active === "dailyops") return <DailyOps user={user} />;
         if (active === "events") return <EventsCalendar user={user} />;
@@ -3601,13 +3652,6 @@ export function Portal({
         if (active === "snackbar") return <SnackBar user={user} />;
         if (active === "moninv")
             return <MonthlyInventory user={user} period={period} />;
-        if (active === "sourcectrl")
-            return (
-                <SourceControl
-                    user={user}
-                    onCountChange={(n) => setStagedCount(n)}
-                />
-            );
         if (active === "reports")
             return <Reports user={user} period={period} />;
         if (active === "dataentry") return <DataEntry user={user} onNavigate={goTo} />;
@@ -3624,13 +3668,16 @@ export function Portal({
     const toggleSidebar = () => setSidebarOpen((v) => !v);
 
     return (
-        <div className={portalCls} data-density={density}>
+        <div className={portalCls + (scPanelOpen ? " sc-open" : "")} data-density={density}>
             <Topbar
                 user={user}
                 period={period}
                 setPeriod={setPeriod}
                 sidebarOpen={sidebarOpen}
                 toggleSidebar={toggleSidebar}
+                scOpen={scPanelOpen}
+                onToggleSC={() => setScPanelOpen((v) => !v)}
+                scCount={stagedCount}
             />
             <Sidebar
                 user={user}
@@ -3669,6 +3716,12 @@ export function Portal({
                 )}
                 {renderPage()}
             </main>
+            <SourceControlPanel
+                user={user}
+                open={scPanelOpen}
+                onClose={() => setScPanelOpen(false)}
+                onCountChange={(n) => setStagedCount(n)}
+            />
             <AgentBubble user={user} />
         </div>
     );

@@ -16,6 +16,53 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v2.4.1] — 2026-06-11 — SC staging fixes: missing fields + auto-open panel + production push
+
+**Claude (task force — sequential-thinking + chrome-devtools + Supabase MCP):**
+Full diagnostic of the inventory/source-control system via live network probing. Confirmed via direct API calls against production backend.
+
+**Root causes found and fixed:**
+
+**Track A — Backend (`backend/routes/sourcectrl.py`):**
+- `get_staging` SELECT query was missing `operation` and `full_payload` columns. These are required by the SC panel to display `OP_LABEL[op]` and `opPayloadSummary()`. Without them every staged entry showed only the raw `change_type` string with no payload summary. Added both columns to the SELECT.
+
+**Track B — Frontend (`frontend/src/components/Portal.tsx` — InventoryView):**
+- After every successful staging action (`stageInventoryRow`, `stageCompactChanges` invoice path, `stageCompactChanges` month-save path, `submitNewItem`, `submitEditItem`, `deleteEditItem`) the SC panel now auto-opens via `openSC?.()`. Previously users got a toast but no visual confirmation that the staged item landed in the panel — and no path to the commit confirm dialog without manually navigating to Source Control.
+
+**What the live probe confirmed:**
+- POST /api/staging → 201 ✓ (staging itself was never broken)
+- POST /api/commits → 201 ✓ (commit + replay + github_sync_queue all functional)
+- GET /api/staging → 200 but missing `operation`/`full_payload` ← the actual bug
+- Auth token key in localStorage is `mjc_backend_token` (confirmed)
+- DB tables: staging_entries, commits, commit_changes, github_sync_queue all exist with correct schema
+
+**v2.4.0 changes (SC drawer, topbar button, inventory pill, SourceControl.tsx rewrite, index.css SC panel styles) are included in this push — they were committed locally but not yet pushed to production.**
+
+**Note:** A probe staging entry and commit were created during diagnosis (commit "PROBE TEST — delete this commit", staging entry c489946a). The TEST-SKU-PROBE inventory_item was cleaned from the DB. The commit row remains in the commits table (status=merged) but has no real data impact.
+
+**Build:** `tsc --noEmit` clean. `npm run build` expected clean (same pre-existing any-warnings only).
+**Push:** pending → pushing now
+
+---
+
+## [v2.4.0] — 2026-06-11 — Source Control side panel + AI commit + role-based permissions
+
+**Claude (frontend):** Complete Source Control overhaul — from full-page view to a VSCode-style right-side drawer accessible on every page.
+
+**What changed:**
+- `frontend/src/components/SourceControl.tsx` — Full rewrite. Exports `SourceControlPanel` (slide-in drawer, `open/onClose` props). Three tabs: **Changes** (staged items with M/A/D kind badges, role-based commit/reject controls, commit message textarea), **History** (commit graph with dots/lines, SHA, author, sync badge), **AI Commit** (natural language → `api.sendAgentMessage()` → auto-stages → redirects to Changes tab).
+- `frontend/src/components/Portal.tsx` — Added `scPanelOpen` state. Topbar gets `onToggleSC` / `scCount` / `scOpen` props → renders a branch-icon button with staged-count badge. `goTo('sourcectrl')` now **toggles the panel** instead of navigating away (panel overlays current view). InventoryView gets `openSC` + `scCount` props → shows "N staged →" pill in page header. `SourceControlPanel` rendered at Portal level outside `<main>`.
+- `frontend/src/index.css` — 130+ lines of SC panel CSS appended: `.sc-panel`, `.sc-header`, `.sc-tabs`, `.sc-change-item`, `.sc-kind-m/a/d` badges, `.sc-commit-area`, `.sc-confirm`, dark-theme overrides, mobile full-width override.
+
+**Role behavior (unchanged logic, improved UI):**
+- Staff (lvl < 20): sees own staged items, "Pending review" badge, no commit button. AI tab stages → awaiting manager.
+- Manager (lvl ≥ 30): sees all staged items, checkboxes, per-item approve/reject, batch "Commit all", commit message textarea. AI tab stages → can immediately commit.
+
+**Build:** `tsc --noEmit` clean. `npm run build` passes (0 errors, same pre-existing any-warnings).
+**Push:** pending — not yet pushed
+
+---
+
 ## [v2.3.0] — 2026-06-10 — Apple Intelligence UI + AI Automations + SOP Agent
 
 **Claude (full-stack):** Major feature update across frontend, backend, and AI layer.

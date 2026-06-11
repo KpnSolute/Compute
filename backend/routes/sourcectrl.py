@@ -191,7 +191,8 @@ async def get_staging(
             .table("staging_entries")
             .select(
                 "entry_id,entity_type,entity_id,field_name,old_value_text,new_value_text,"
-                "change_type,metadata,status,submitted_by,review_note,created_at,expires_at"
+                "change_type,metadata,status,submitted_by,review_note,created_at,expires_at,"
+                "operation,full_payload"
             )
             .eq("status", "pending")
         )
