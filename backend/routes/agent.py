@@ -197,105 +197,111 @@ class ChatRequest(BaseModel):
 
 @router.post('/chat')
 async def agent_chat(body: ChatRequest, authorization: str = Header('')):
-    user = _resolve_user(authorization)
-    cfg  = _load_config()
+    from fastapi.responses import JSONResponse
+    try:
+        user = _resolve_user(authorization)
+        cfg  = _load_config()
 
-    if not cfg.get('enabled', True):
-        raise HTTPException(status_code=403, detail='MJCC AI Agent is currently disabled.')
+        if not cfg.get('enabled', True):
+            raise HTTPException(status_code=403, detail='MJCC AI Agent is currently disabled.')
 
-    min_role  = cfg.get('min_role', 'staff')
-    user_role = user.get('role', 'staff')
-    if ROLE_LEVEL.get(user_role, 0) < ROLE_LEVEL.get(min_role, 10):
-        raise HTTPException(status_code=403, detail=f'Agent requires {min_role} role or above.')
+        min_role  = cfg.get('min_role', 'staff')
+        user_role = user.get('role', 'staff')
+        if ROLE_LEVEL.get(user_role, 0) < ROLE_LEVEL.get(min_role, 10):
+            raise HTTPException(status_code=403, detail=f'Agent requires {min_role} role or above.')
 
-    user_id = user['id']
-    rem_h, rem_d = _check_rate_limit(user_id, user_role, cfg)
+        user_id = user['id']
+        rem_h, rem_d = _check_rate_limit(user_id, user_role, cfg)
 
-    # Load recent conversation history
-    history = _load_history(user_id, limit=cfg.get('max_turns', 20))
-    messages: list[dict] = [{'role': 'system', 'content': _build_system_prompt(user, cfg)}]
+        # Load recent conversation history
+        history = _load_history(user_id, limit=cfg.get('max_turns', 20))
+        messages: list[dict] = [{'role': 'system', 'content': _build_system_prompt(user, cfg)}]
 
-    # Convert stored history to AI messages (last HISTORY_TRIM turns)
-    for turn in history[-HISTORY_TRIM:]:
-        r = turn['role']
-        if r == 'user':
-            messages.append({'role': 'user', 'content': turn['content']})
-        elif r == 'assistant':
-            messages.append({'role': 'assistant', 'content': turn['content']})
-        # tool turns are embedded in subsequent user messages — skip separate role
+        # Convert stored history to AI messages (last HISTORY_TRIM turns)
+        for turn in history[-HISTORY_TRIM:]:
+            r = turn['role']
+            if r == 'user':
+                messages.append({'role': 'user', 'content': turn['content']})
+            elif r == 'assistant':
+                messages.append({'role': 'assistant', 'content': turn['content']})
 
-    # Append new user message
-    messages.append({'role': 'user', 'content': body.message})
+        # Append new user message
+        messages.append({'role': 'user', 'content': body.message})
 
-    # Resolve AI config: always start from get_ai_config() (checks api_keys table first,
-    # then app_settings, then env vars), then apply any agent-level overrides.
-    from backend.ai.context import get_ai_config
-    ai_cfg = get_ai_config()
-    if cfg.get('provider'):
-        ai_cfg['provider'] = cfg['provider']
-    if cfg.get('model'):
-        ai_cfg['model'] = cfg['model']
+        # Resolve AI config: always start from get_ai_config() (checks api_keys table first,
+        # then app_settings, then env vars), then apply any agent-level overrides.
+        from backend.ai.context import get_ai_config
+        ai_cfg = get_ai_config()
+        if cfg.get('provider'):
+            ai_cfg['provider'] = cfg['provider']
+        if cfg.get('model'):
+            ai_cfg['model'] = cfg['model']
 
-    role_tools = _tools_for_role(user_role, cfg)
-    used_tool_calls: list[dict] = []
-    final_response  = ''
+        role_tools = _tools_for_role(user_role, cfg)
+        used_tool_calls: list[dict] = []
+        final_response  = ''
 
-    # ── ReAct loop ────────────────────────────────────────────────────────────
-    for iteration in range(MAX_ITERATIONS):
-        response_text = engine.complete(
-            messages,
-            config=ai_cfg,
-            operation='agent_chat',
-            called_by=user_id,
+        # ── ReAct loop ────────────────────────────────────────────────────────────
+        for _iteration in range(MAX_ITERATIONS):
+            response_text = engine.complete(
+                messages,
+                config=ai_cfg,
+                operation='agent_chat',
+                called_by=user_id,
+            )
+
+            tool_calls = _parse_tool_calls(response_text)
+            if not tool_calls:
+                final_response = response_text.strip()
+                break
+
+            # Execute all tool calls in this iteration
+            tool_results_text = ''
+            for tc in tool_calls:
+                tool_name = tc.get('name', '')
+                tool_args = tc.get('args', {})
+
+                if tool_name not in role_tools:
+                    result = {'error': f"Tool '{tool_name}' is not available for your role or is disabled."}
+                elif tool_name not in TOOL_REGISTRY:
+                    result = {'error': f"Unknown tool: '{tool_name}'"}
+                else:
+                    try:
+                        result = TOOL_REGISTRY[tool_name](tool_args, user_role)
+                    except Exception as exc:
+                        result = {'error': str(exc)}
+
+                used_tool_calls.append({
+                    'name':           tool_name,
+                    'args':           tool_args,
+                    'result_summary': _summarize_result(tool_name, result),
+                })
+                tool_results_text += f'\n<tool_result name="{tool_name}">{json.dumps(result, default=str)}</tool_result>'
+                _store_turn(user_id, 'tool', json.dumps(result, default=str), tool_name, tool_args, result)
+
+            messages.append({'role': 'assistant', 'content': response_text})
+            messages.append({'role': 'user', 'content': f'Tool results:{tool_results_text}\n\nPlease provide your response based on the above data.'})
+
+        else:
+            final_response = 'I reached my step limit. Please try a more specific question.'
+
+        _store_turn(user_id, 'user',      body.message)
+        _store_turn(user_id, 'assistant', final_response)
+        _record_usage(user_id)
+
+        return {
+            'response':   final_response,
+            'tool_calls': used_tool_calls,
+            'rate_limit': {'remaining_hour': rem_h, 'remaining_day': rem_d},
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={'detail': f'Agent error: {str(exc)[:300]}'},
         )
-
-        tool_calls = _parse_tool_calls(response_text)
-        if not tool_calls:
-            # Final answer — no tool calls
-            final_response = response_text.strip()
-            break
-
-        # Execute all tool calls in this iteration
-        tool_results_text = ''
-        for tc in tool_calls:
-            tool_name = tc.get('name', '')
-            tool_args = tc.get('args', {})
-
-            if tool_name not in role_tools:
-                result = {'error': f"Tool '{tool_name}' is not available for your role or is disabled."}
-            elif tool_name not in TOOL_REGISTRY:
-                result = {'error': f"Unknown tool: '{tool_name}'"}
-            else:
-                try:
-                    result = TOOL_REGISTRY[tool_name](tool_args, user_role)
-                except Exception as exc:
-                    result = {'error': str(exc)}
-
-            used_tool_calls.append({
-                'name':           tool_name,
-                'args':           tool_args,
-                'result_summary': _summarize_result(tool_name, result),
-            })
-            tool_results_text += f'\n<tool_result name="{tool_name}">{json.dumps(result, default=str)}</tool_result>'
-            _store_turn(user_id, 'tool', json.dumps(result, default=str), tool_name, tool_args, result)
-
-        # Append assistant response + tool results as next user turn
-        messages.append({'role': 'assistant', 'content': response_text})
-        messages.append({'role': 'user', 'content': f'Tool results:{tool_results_text}\n\nPlease provide your response based on the above data.'})
-
-    else:
-        final_response = 'I reached my step limit. Please try a more specific question.'
-
-    # Persist the user message and final response
-    _store_turn(user_id, 'user',      body.message)
-    _store_turn(user_id, 'assistant', final_response)
-    _record_usage(user_id)
-
-    return {
-        'response':   final_response,
-        'tool_calls': used_tool_calls,
-        'rate_limit': {'remaining_hour': rem_h, 'remaining_day': rem_d},
-    }
 
 
 def _summarize_result(tool_name: str, result: dict) -> str:
