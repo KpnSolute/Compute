@@ -140,6 +140,8 @@ def _extract_ops(
     ai_config: dict,
     week: int = 0,
     direction: str = "received",
+    tools_cfg: dict | None = None,
+    called_by: str | None = None,
 ) -> list[dict]:
     """Parse file and extract list of {operation, payload} dicts."""
     kind, data = file_parser.detect_and_parse(filename, content)
@@ -163,6 +165,15 @@ def _extract_ops(
     text = data if kind == "text" else None
 
     operation = mapper.classify_operation(filename, hint, rows, ai_config)
+
+    # Enforce tool toggles — reject before any AI call if the tool is disabled
+    from backend.ai.context import OPERATION_TO_TOOL
+    tool_key = OPERATION_TO_TOOL.get(operation)
+    if tool_key and tools_cfg is not None and not tools_cfg.get(tool_key, True):
+        raise HTTPException(
+            status_code=403,
+            detail=f"AI tool '{tool_key}' is disabled by the administrator.",
+        )
 
     if operation == "inventory_save":
         if rows is not None:
@@ -257,7 +268,7 @@ def _extract_ops(
         },
         {"role": "user", "content": f"FILE CONTENT:\n{(text or '')[:8000]}"},
     ]
-    raw = ai_engine.complete(messages, ai_config)
+    raw = ai_engine.complete(messages, ai_config, operation=operation, called_by=called_by)
     payload = ai_engine.extract_json(raw)
     if isinstance(payload, list):
         payload = {"items": payload}
@@ -334,6 +345,7 @@ async def upload_file(
         raise HTTPException(status_code=413, detail="File too large (max 10 MB).")
 
     ai_config = ctx.get_ai_config()
+    tools_cfg = ctx.get_ai_tools_config()
 
     try:
         ops = _extract_ops(
@@ -345,7 +357,11 @@ async def upload_file(
             ai_config,
             week=week,
             direction=direction,
+            tools_cfg=tools_cfg,
+            called_by=auth_user["id"],
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Extraction failed: {e}")
 
@@ -453,6 +469,8 @@ async def get_settings(auth_user: dict = Depends(_get_auth_user)):
         "current": config,
         "supported_providers": ai_engine.SUPPORTED_PROVIDERS,
         "groq_models": ai_engine.GROQ_MODELS,
+        "anthropic_models": ai_engine.ANTHROPIC_MODELS,
+        "openai_models": ai_engine.OPENAI_MODELS,
         "ollama_models": ai_engine.OLLAMA_MODELS,
     }
 
@@ -473,3 +491,194 @@ async def update_settings(body: AISettingsBody, auth_user: dict = Depends(_get_a
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return {"ok": True, "config": config}
+
+
+# ── AI management — sudo only ─────────────────────────────────────────────────
+
+
+async def _require_sudo_for_ai(auth_user: dict = Depends(_get_auth_user)) -> dict:
+    """Require sudo role for all AI management endpoints (keys, tools, usage)."""
+    if auth_user.get('role') != 'sudo':
+        raise HTTPException(status_code=403, detail='AI management requires sudo role')
+    return auth_user
+
+
+class AIKeyUpdateBody(BaseModel):
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+@router.get("/ai-keys")
+async def get_ai_keys(auth_user: dict = Depends(_require_sudo_for_ai)):
+    """List all AI provider key status. Never returns the actual key string."""
+    try:
+        result = _client().table('api_keys').select('provider,is_active,base_url,updated_at,api_key').execute()
+        rows = result.data or []
+        return [
+            {
+                'provider': r['provider'],
+                'is_active': r['is_active'],
+                'has_key': bool(r.get('api_key')),
+                'base_url': r.get('base_url'),
+                'updated_at': r.get('updated_at'),
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Database error: {str(e)}')
+
+
+@router.put("/ai-keys/{provider}")
+async def update_ai_key(provider: str, body: AIKeyUpdateBody, auth_user: dict = Depends(_require_sudo_for_ai)):
+    """Update API key / base_url / active status for a provider."""
+    if provider not in ai_engine.SUPPORTED_PROVIDERS:
+        raise HTTPException(status_code=422, detail=f'Unknown provider: {provider}')
+
+    svc = _client()
+    now = _now()
+    update_data: dict = {'updated_at': now, 'updated_by': auth_user['id']}
+
+    if body.api_key is not None and body.api_key != '':
+        update_data['api_key'] = body.api_key
+    if body.base_url is not None:
+        update_data['base_url'] = body.base_url or None
+
+    if body.is_active is True:
+        # Only one provider active at a time
+        try:
+            svc.table('api_keys').update({'is_active': False}).neq('provider', provider).execute()
+        except Exception:
+            pass
+        update_data['is_active'] = True
+    elif body.is_active is False:
+        update_data['is_active'] = False
+
+    try:
+        result = (
+            svc.table('api_keys')
+            .upsert({'provider': provider, **update_data}, on_conflict='provider')
+            .execute()
+        )
+        row = result.data[0] if result.data else {}
+        return {
+            'provider': provider,
+            'is_active': row.get('is_active', False),
+            'has_key': bool(row.get('api_key')),
+            'updated_at': row.get('updated_at'),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Database error: {str(e)}')
+
+
+# ── AI tools config ───────────────────────────────────────────────────────────
+
+
+class AIToolsBody(BaseModel):
+    tools: dict  # {tool_key: bool}
+
+
+@router.get("/ai-tools")
+async def get_ai_tools(auth_user: dict = Depends(_require_sudo_for_ai)):
+    """Return current AI tool toggle configuration."""
+    return ctx.get_ai_tools_config()
+
+
+@router.put("/ai-tools")
+async def update_ai_tools(body: AIToolsBody, auth_user: dict = Depends(_require_sudo_for_ai)):
+    """Update AI tool toggles. Only known tool keys are stored."""
+    from backend.ai.context import DEFAULT_TOOLS
+    sanitized = {k: bool(v) for k, v in body.tools.items() if k in DEFAULT_TOOLS}
+    try:
+        ctx.save_ai_tools_config(sanitized)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return ctx.get_ai_tools_config()
+
+
+# ── AI usage stats ────────────────────────────────────────────────────────────
+
+
+@router.get("/ai-usage")
+async def get_ai_usage(
+    days: int = 30,
+    limit: int = 50,
+    auth_user: dict = Depends(_require_sudo_for_ai),
+):
+    """
+    Return AI usage stats + recent log rows for the past N days.
+    days  — rolling window for aggregate stats (default 30)
+    limit — number of recent rows to return (default 50, max 200)
+    """
+    svc = _client()
+    from datetime import datetime, timezone, timedelta
+
+    since = (datetime.now(timezone.utc) - timedelta(days=min(days, 365))).isoformat()
+    limit = min(limit, 200)
+
+    # ── aggregate stats ──
+    try:
+        agg_rows = (
+            svc.table('ai_usage_logs')
+            .select('provider,tokens_in,tokens_out,cost_usd,success,duration_ms')
+            .gte('created_at', since)
+            .execute()
+        ).data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Database error: {str(e)}')
+
+    total_calls = len(agg_rows)
+    total_success = sum(1 for r in agg_rows if r.get('success'))
+    total_tokens_in  = sum(r.get('tokens_in', 0) or 0 for r in agg_rows)
+    total_tokens_out = sum(r.get('tokens_out', 0) or 0 for r in agg_rows)
+    total_cost = sum(float(r.get('cost_usd') or 0) for r in agg_rows)
+    avg_duration = (
+        int(sum(r.get('duration_ms', 0) or 0 for r in agg_rows) / total_calls)
+        if total_calls else 0
+    )
+
+    # per-provider breakdown
+    by_provider: dict[str, dict] = {}
+    for r in agg_rows:
+        p = r.get('provider', 'unknown')
+        if p not in by_provider:
+            by_provider[p] = {'calls': 0, 'tokens_in': 0, 'tokens_out': 0, 'cost_usd': 0.0}
+        by_provider[p]['calls'] += 1
+        by_provider[p]['tokens_in']  += r.get('tokens_in', 0) or 0
+        by_provider[p]['tokens_out'] += r.get('tokens_out', 0) or 0
+        by_provider[p]['cost_usd']   += float(r.get('cost_usd') or 0)
+
+    # per-operation breakdown
+    by_operation: dict[str, int] = {}
+    for r in agg_rows:
+        op = r.get('operation') or 'unknown'
+        by_operation[op] = by_operation.get(op, 0) + 1
+
+    # ── recent rows ──
+    try:
+        recent = (
+            svc.table('ai_usage_logs')
+            .select('id,provider,model,operation,tokens_in,tokens_out,cost_usd,duration_ms,success,error_msg,called_by,created_at')
+            .order('created_at', desc=True)
+            .limit(limit)
+            .execute()
+        ).data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Database error: {str(e)}')
+
+    return {
+        'window_days': days,
+        'summary': {
+            'total_calls':    total_calls,
+            'successful':     total_success,
+            'failed':         total_calls - total_success,
+            'tokens_in':      total_tokens_in,
+            'tokens_out':     total_tokens_out,
+            'total_tokens':   total_tokens_in + total_tokens_out,
+            'cost_usd':       round(total_cost, 6),
+            'avg_duration_ms': avg_duration,
+        },
+        'by_provider':  by_provider,
+        'by_operation': by_operation,
+        'recent':       recent,
+    }

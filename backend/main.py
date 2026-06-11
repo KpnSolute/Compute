@@ -12,6 +12,7 @@ from backend.routes.sourcectrl import router as sourcectrl_router
 from backend.routes.github_sync import router as github_sync_router
 from backend.routes.data import router as data_router
 from backend.routes.data_entry import router as data_entry_router
+from backend.routes.agent import router as agent_router
 
 load_dotenv()
 
@@ -36,6 +37,7 @@ app.include_router(sourcectrl_router)
 app.include_router(github_sync_router)
 app.include_router(data_router)
 app.include_router(data_entry_router)
+app.include_router(agent_router)
 
 
 @app.get("/health")

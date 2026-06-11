@@ -1,97 +1,327 @@
-"""Provider-agnostic AI engine. Reads active config from app_settings or env fallback."""
+"""Provider-agnostic AI engine with usage logging.
+
+Supported providers:
+  groq       — Groq cloud (llama, gemma, qwen)
+  anthropic  — Anthropic cloud (claude-*)
+  openai     — OpenAI cloud (gpt-*)
+  mistral    — Mistral AI cloud (mistral-*, mixtral-*)
+  ollama     — Local Ollama server (any model)
+  lm_studio  — Local LM Studio (OpenAI-compatible; runs GGUF models locally)
+
+Usage is logged to ai_usage_logs after every call (best-effort, never raises).
+"""
 
 import json
 import os
+import time
 import httpx
 
-# ── provider implementations ──────────────────────────────────────────────────
+# ── cost rates (USD per 1k tokens, approximate) ───────────────────────────────
+
+COST_RATES: dict[str, dict[str, float]] = {
+    'groq':      {'in': 0.00059, 'out': 0.00079},
+    'anthropic': {'in': 0.003,   'out': 0.015},
+    'openai':    {'in': 0.00015, 'out': 0.0006},   # gpt-4o-mini baseline
+    'mistral':   {'in': 0.0014,  'out': 0.0014},
+    'ollama':    {'in': 0.0,     'out': 0.0},
+    'lm_studio': {'in': 0.0,     'out': 0.0},
+}
+
+# ── provider implementations — return (text, {tokens_in, tokens_out}) ─────────
 
 
-def _groq_complete(messages: list[dict], model: str, api_key: str) -> str:
+def _groq_complete(messages: list[dict], model: str, api_key: str) -> tuple[str, dict]:
     resp = httpx.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": model,
-            "messages": messages,
-            "temperature": 0.1,
-            "max_tokens": 4096,
-        },
+        'https://api.groq.com/openai/v1/chat/completions',
+        headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+        json={'model': model, 'messages': messages, 'temperature': 0.1, 'max_tokens': 4096},
         timeout=60,
     )
     resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
+    data = resp.json()
+    usage = data.get('usage', {})
+    return (
+        data['choices'][0]['message']['content'],
+        {'tokens_in': usage.get('prompt_tokens', 0), 'tokens_out': usage.get('completion_tokens', 0)},
+    )
 
 
-def _ollama_complete(messages: list[dict], model: str, base_url: str) -> str:
+def _anthropic_complete(messages: list[dict], model: str, api_key: str) -> tuple[str, dict]:
+    system_parts = [m['content'] for m in messages if m.get('role') == 'system']
+    user_messages = [m for m in messages if m.get('role') != 'system']
+    body: dict = {'model': model, 'max_tokens': 4096, 'messages': user_messages}
+    if system_parts:
+        body['system'] = '\n\n'.join(system_parts)
     resp = httpx.post(
-        f"{base_url}/api/chat",
-        json={"model": model, "messages": messages, "stream": False},
+        'https://api.anthropic.com/v1/messages',
+        headers={
+            'x-api-key': api_key,
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json',
+        },
+        json=body,
+        timeout=60,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    usage = data.get('usage', {})
+    return (
+        data['content'][0]['text'],
+        {'tokens_in': usage.get('input_tokens', 0), 'tokens_out': usage.get('output_tokens', 0)},
+    )
+
+
+def _openai_complete(
+    messages: list[dict], model: str, api_key: str, base_url: str | None = None
+) -> tuple[str, dict]:
+    endpoint = (base_url or 'https://api.openai.com').rstrip('/') + '/v1/chat/completions'
+    resp = httpx.post(
+        endpoint,
+        headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+        json={'model': model, 'messages': messages, 'temperature': 0.1, 'max_tokens': 4096},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    usage = data.get('usage', {})
+    return (
+        data['choices'][0]['message']['content'],
+        {'tokens_in': usage.get('prompt_tokens', 0), 'tokens_out': usage.get('completion_tokens', 0)},
+    )
+
+
+def _mistral_complete(messages: list[dict], model: str, api_key: str) -> tuple[str, dict]:
+    resp = httpx.post(
+        'https://api.mistral.ai/v1/chat/completions',
+        headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+        json={'model': model, 'messages': messages, 'temperature': 0.1, 'max_tokens': 4096},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    usage = data.get('usage', {})
+    return (
+        data['choices'][0]['message']['content'],
+        {'tokens_in': usage.get('prompt_tokens', 0), 'tokens_out': usage.get('completion_tokens', 0)},
+    )
+
+
+def _ollama_complete(messages: list[dict], model: str, base_url: str) -> tuple[str, dict]:
+    resp = httpx.post(
+        f'{base_url}/api/chat',
+        json={'model': model, 'messages': messages, 'stream': False},
         timeout=120,
     )
     resp.raise_for_status()
-    return resp.json()["message"]["content"]
+    data = resp.json()
+    # Ollama reports eval_count (output tokens); prompt_eval_count (input tokens)
+    return (
+        data['message']['content'],
+        {
+            'tokens_in': data.get('prompt_eval_count', 0),
+            'tokens_out': data.get('eval_count', 0),
+        },
+    )
+
+
+# ── provider registry ─────────────────────────────────────────────────────────
+
+SUPPORTED_PROVIDERS = ('groq', 'anthropic', 'openai', 'mistral', 'ollama', 'lm_studio')
+
+PROVIDER_LABELS = {
+    'groq':      'Groq',
+    'anthropic': 'Anthropic (Claude)',
+    'openai':    'OpenAI',
+    'mistral':   'Mistral AI',
+    'ollama':    'Ollama (local)',
+    'lm_studio': 'LM Studio (local)',
+}
+
+GROQ_MODELS = [
+    'llama-3.3-70b-versatile',
+    'llama-3.1-8b-instant',
+    'llama3-70b-8192',
+    'gemma2-9b-it',
+    'qwen-qwq-32b',
+]
+ANTHROPIC_MODELS = [
+    'claude-sonnet-4-20250514',
+    'claude-haiku-4-5-20251001',
+    'claude-opus-4-6',
+]
+OPENAI_MODELS = ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo']
+MISTRAL_MODELS = [
+    'mistral-small-latest',
+    'mistral-medium-latest',
+    'mistral-large-latest',
+    'open-mistral-7b',
+    'open-mixtral-8x7b',
+]
+OLLAMA_MODELS  = ['llama3.2:3b', 'llama3.1:8b', 'mistral:7b', 'mixtral:8x7b', 'phi3:mini']
+LM_STUDIO_MODELS = ['local-model']   # user fills in whatever is loaded
+
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+def _get_db_row(provider: str) -> tuple[str | None, str | None]:
+    """Query api_keys for (api_key, base_url). Returns (None, None) on any error."""
+    try:
+        from supabase import create_client
+        url = os.getenv('SUPABASE_URL')
+        key = os.getenv('SUPABASE_SERVICE_KEY')
+        if not url or not key:
+            return None, None
+        svc = create_client(url, key)
+        r = svc.table('api_keys').select('api_key,base_url').eq('provider', provider).limit(1).execute()
+        if r.data:
+            row = r.data[0]
+            return row.get('api_key') or None, row.get('base_url') or None
+    except Exception:
+        pass
+    return None, None
+
+
+def _log_usage(
+    provider: str,
+    model: str,
+    tokens_in: int,
+    tokens_out: int,
+    duration_ms: int,
+    operation: str | None,
+    called_by: str | None,
+    success: bool,
+    error_msg: str | None,
+) -> None:
+    """Write one row to ai_usage_logs. Never raises — logging must not break the caller."""
+    try:
+        rate = COST_RATES.get(provider, {'in': 0.0, 'out': 0.0})
+        cost = (tokens_in * rate['in'] + tokens_out * rate['out']) / 1000.0
+
+        from supabase import create_client
+        url = os.getenv('SUPABASE_URL')
+        key = os.getenv('SUPABASE_SERVICE_KEY')
+        if not url or not key:
+            return
+        svc = create_client(url, key)
+        svc.table('ai_usage_logs').insert({
+            'provider':    provider,
+            'model':       model,
+            'operation':   operation,
+            'tokens_in':   tokens_in,
+            'tokens_out':  tokens_out,
+            'cost_usd':    float(cost),
+            'duration_ms': duration_ms,
+            'success':     success,
+            'error_msg':   error_msg,
+            'called_by':   called_by,
+        }).execute()
+    except Exception:
+        pass
 
 
 # ── public interface ──────────────────────────────────────────────────────────
 
-SUPPORTED_PROVIDERS = ("groq", "ollama")
-
-GROQ_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "llama3-70b-8192",
-    "gemma2-9b-it",
-    "qwen-qwq-32b",
-]
-
-OLLAMA_MODELS = [
-    "llama3.2:3b",
-    "llama3.1:8b",
-    "mistral:7b",
-    "mixtral:8x7b",
-]
-
-
-def complete(messages: list[dict], config: dict | None = None) -> str:
+def complete(
+    messages: list[dict],
+    config: dict | None = None,
+    *,
+    operation: str | None = None,
+    called_by: str | None = None,
+) -> str:
     """
     Send messages to the configured AI provider and return the response text.
-    config: {'provider': 'groq'|'ollama', 'model': '...', 'ollama_url': '...'}
-    Falls back to env vars if config is None.
+
+    config  — {'provider': ..., 'model': ..., 'ollama_url': ...}
+    operation — caller label for usage logs (e.g. 'inventory_save', 'event_create')
+    called_by — user_id for usage logs
+
+    Key resolution order: api_keys table → env vars.
+    Usage is logged to ai_usage_logs (best-effort, never raises).
     """
     cfg = config or {}
-    provider = cfg.get("provider") or os.getenv("AI_PROVIDER", "groq")
-    model = cfg.get("model") or os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    provider = cfg.get('provider') or os.getenv('AI_PROVIDER', 'groq')
+    model    = cfg.get('model')    or os.getenv('GROQ_MODEL', 'llama-3.3-70b-versatile')
 
-    if provider == "groq":
-        api_key = os.getenv("GROQ_API_KEY", "")
-        if not api_key:
-            raise RuntimeError("GROQ_API_KEY not set")
-        return _groq_complete(messages, model, api_key)
+    t0 = time.monotonic()
+    text: str = ''
+    usage: dict = {'tokens_in': 0, 'tokens_out': 0}
+    success = True
+    error_msg: str | None = None
 
-    if provider == "ollama":
-        base_url = cfg.get("ollama_url") or os.getenv(
-            "OLLAMA_URL", "http://localhost:11434"
+    try:
+        if provider == 'groq':
+            db_key, _ = _get_db_row('groq')
+            api_key = db_key or os.getenv('GROQ_API_KEY', '')
+            if not api_key:
+                raise RuntimeError('GROQ_API_KEY not set')
+            text, usage = _groq_complete(messages, model, api_key)
+
+        elif provider == 'anthropic':
+            db_key, _ = _get_db_row('anthropic')
+            api_key = db_key or os.getenv('ANTHROPIC_API_KEY', '')
+            if not api_key:
+                raise RuntimeError('ANTHROPIC_API_KEY not set')
+            text, usage = _anthropic_complete(messages, model or 'claude-sonnet-4-20250514', api_key)
+
+        elif provider == 'openai':
+            db_key, db_url = _get_db_row('openai')
+            api_key = db_key or os.getenv('OPENAI_API_KEY', '')
+            if not api_key:
+                raise RuntimeError('OPENAI_API_KEY not set')
+            text, usage = _openai_complete(messages, model or 'gpt-4o-mini', api_key, db_url)
+
+        elif provider == 'mistral':
+            db_key, _ = _get_db_row('mistral')
+            api_key = db_key or os.getenv('MISTRAL_API_KEY', '')
+            if not api_key:
+                raise RuntimeError('MISTRAL_API_KEY not set')
+            text, usage = _mistral_complete(messages, model or 'mistral-small-latest', api_key)
+
+        elif provider == 'ollama':
+            _, db_url = _get_db_row('ollama')
+            base_url = db_url or cfg.get('ollama_url') or os.getenv('OLLAMA_URL', 'http://localhost:11434')
+            text, usage = _ollama_complete(messages, model, base_url)
+
+        elif provider == 'lm_studio':
+            _, db_url = _get_db_row('lm_studio')
+            base_url = db_url or cfg.get('lm_studio_url') or os.getenv('LM_STUDIO_URL', 'http://localhost:1234')
+            # LM Studio is OpenAI-compatible; no API key required by default
+            db_key, _ = _get_db_row('lm_studio')
+            api_key = db_key or os.getenv('LM_STUDIO_API_KEY', 'lm-studio')
+            text, usage = _openai_complete(messages, model or 'local-model', api_key, base_url)
+
+        else:
+            raise ValueError(f'Unknown AI provider: {provider!r}. Must be one of {SUPPORTED_PROVIDERS}')
+
+    except Exception as exc:
+        success = False
+        error_msg = str(exc)[:500]
+        raise
+
+    finally:
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        _log_usage(
+            provider=provider,
+            model=model,
+            tokens_in=usage.get('tokens_in', 0),
+            tokens_out=usage.get('tokens_out', 0),
+            duration_ms=duration_ms,
+            operation=operation,
+            called_by=called_by,
+            success=success,
+            error_msg=error_msg,
         )
-        return _ollama_complete(messages, model, base_url)
 
-    raise ValueError(
-        f"Unknown AI provider: {provider!r}. Must be one of {SUPPORTED_PROVIDERS}"
-    )
+    return text
 
 
 def extract_json(text: str) -> dict | list:
     """Pull the first JSON object or array out of an AI response."""
     text = text.strip()
-    # strip markdown code fences
-    if text.startswith("```"):
+    if text.startswith('```'):
         lines = text.splitlines()
-        text = "\n".join(line for line in lines if not line.startswith("```")).strip()
-    # find outermost { or [
-    for start_char, end_char in [("{", "}"), ("[", "]")]:
+        text = '\n'.join(line for line in lines if not line.startswith('```')).strip()
+    for start_char, end_char in [('{', '}'), ('[', ']')]:
         s = text.find(start_char)
         if s == -1:
             continue
@@ -102,5 +332,5 @@ def extract_json(text: str) -> dict | list:
             elif ch == end_char:
                 depth -= 1
                 if depth == 0:
-                    return json.loads(text[s : i + 1])
-    raise ValueError(f"No JSON found in AI response: {text[:200]}")
+                    return json.loads(text[s: i + 1])
+    raise ValueError(f'No JSON found in AI response: {text[:200]}')

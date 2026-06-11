@@ -16,6 +16,109 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v2.1.0] — 2026-06-10 — MJCC AI Agent — floating bubble, ReAct loop, tool registry, sudo control
+
+**Claude (Senior Dev Manager):** Full agentic AI integration. Sequential-thinking used to plan all 10 files before writing a single line.
+
+**DB (Supabase MCP — migration `create_agent_tables`):**
+- `agent_conversations(id, user_id, role, content, tool_name, tool_args, tool_result, created_at)` — per-user chat history; RLS service-role only.
+- `agent_usage(id, user_id, created_at)` — rate-limit tracking; RLS service-role only.
+- `app_settings` key `agent_config` — agent configuration (enabled, min_role, rate limits, allowed_tools, provider/model override).
+
+**`backend/ai/tools.py` (NEW):**
+- 11 tool implementations that execute real Supabase queries: `get_dashboard_stats`, `get_inventory`, `get_events`, `get_menu`, `get_reorders`, `get_period_status`, `get_users`, `get_haccp_logs`, `get_daily_logs`, `create_event`, `get_ai_usage`.
+- `TOOL_REGISTRY` dict + `TOOL_MIN_ROLE` dict (per-tool role gate) + `TOOL_DESCRIPTIONS` prompt fragment.
+- Each tool takes `(args: dict, user_role: str)` — role checked inside tool AND by the router.
+
+**`backend/routes/agent.py` (NEW):**
+- POST `/api/agent/chat` — full ReAct loop: sends message to AI, parses `<tool_call>{...}</tool_call>` tags, executes tools, appends results, loops up to 8 iterations until final answer. Rate-limit checked before loop, usage recorded after.
+- GET `/api/agent/history?limit=N` — per-user conversation history.
+- DELETE `/api/agent/history` — clear user's history.
+- GET `/api/agent/config` — returns public-safe config (no secrets).
+- PUT `/api/agent/config` — sudo-only config update.
+- Multi-tool-call support: multiple `<tool_call>` blocks per AI response parsed and executed.
+- `_build_system_prompt()` — injects user name/role/time + available tool list into system message.
+- Rate limiting: hourly + daily windows, per-role configurable, 429 on breach.
+
+**`backend/main.py`:** agent_router imported and registered.
+
+**`frontend/src/lib/api.ts`:** 5 agent methods added — `getAgentConfig`, `updateAgentConfig`, `sendAgentMessage`, `getAgentHistory`, `clearAgentHistory`.
+
+**`frontend/src/components/AgentBubble.tsx` (NEW):**
+- Fixed bottom-right bubble (52px circle → 380×520px chat panel).
+- CSS transitions on width/height/border-radius (cubic-bezier, 220ms).
+- Proximity detection: `mousemove` listener calculates distance from bubble center; bubble grows + glows when cursor within 130px.
+- Chat UI: message history (user right-aligned navy, assistant left-aligned surface-2), `ThinkingDots` animation, `ToolCallPill` expandable pills showing tool name + result summary.
+- Suggestion chips when conversation is empty.
+- Loads last 30 turns on mount; auto-scrolls on new messages; focuses input on open.
+- Rate-limit remaining shown in header.
+
+**`frontend/src/components/Portal.tsx`:** `AgentBubble` imported and mounted at root level (below `<main>` inside portal wrapper).
+
+**`frontend/src/components/Settings.tsx`:** `AIManagementPanel` extended with 4th tab **Agent**:
+- Enable/disable toggle, min-role radio, per-role rate limit table (hour/day), tool grid (11 tools with role badges), provider/model override inputs, max-turns field.
+- `AgentTab` calls `GET /api/agent/config` on load and `PUT /api/agent/config` on save.
+- `AITab` type updated to `'providers' | 'tools' | 'usage' | 'agent'`.
+
+**`frontend/src/index.css`:** `.agent-dot` + `@keyframes agentBounce` added for thinking indicator.
+
+**Build:** `tsc -b && vite build` — 0 errors, 623 kB JS. `py_compile` clean on all new backend files.
+**Push:** pending
+
+---
+
+## [v2.0.1] — 2026-06-10 — AI Management: sudo-only gate, 6 providers, tool toggles, usage analytics
+
+**Claude (Senior Dev Manager):** Completed the AI management overhaul following the sprint 1+2 requirements.
+
+**Changes:**
+- `frontend/src/components/Settings.tsx`:
+  - Replaced `AIProvidersPanel` and `AIEnginePanel` with a single tabbed `AIManagementPanel` — **Providers**, **Tools**, **Usage** tabs.
+  - **Providers tab** (`ProvidersTab`): 6 providers — groq, anthropic, openai, mistral, ollama, lm_studio. Radio selects active provider; key-input (password) for cloud providers; base_url input for local (Ollama, LM Studio). Radio + Save are independent — can update key without switching active provider.
+  - **Tools tab** (`ToolsTab`): toggle grid for 8 tool keys (`inventory`, `events`, `menu`, `haccp`, `daily_ops`, `source_ctrl`, `reports`, `suggestions`). Toggle state is visual-first; requires explicit "Save tool config" button. Disabled tools reject uploads server-side before any AI tokens.
+  - **Usage tab** (`UsageTab`): 7-day / 30-day / 90-day window selector; summary stat boxes (calls, success, fail, tokens in/out, est. cost, avg latency); per-provider breakdown; per-operation pill counts; recent calls table (time, provider, model, op, tokens, cost, ms, ok/fail badge).
+  - Gate changed from `{lvl >= 40 && <AIProvidersPanel />}` → `{user.role === 'sudo' && <AIManagementPanel />}`. Admins no longer see AI settings. No fallback for manager-level.
+  - Removed dead `AIEnginePanel` function and dead `lvl` / `ROLE_LEVEL` import.
+  - `TOOL_DEFS` icon type annotation removed (unused, caused TS error).
+- `backend/ai/engine.py` (from v2.0.0): mistral and lm_studio providers added; all providers return `(text, {tokens_in, tokens_out})`; usage logged to `ai_usage_logs` in `finally` block.
+- `backend/ai/context.py` (from v2.0.0): `DEFAULT_TOOLS`, `OPERATION_TO_TOOL`, `get_ai_tools_config()`, `save_ai_tools_config()` added.
+- `backend/routes/data_entry.py` (from v2.0.0): AI tools/usage endpoints added; tool gate enforced before AI call; sudo-only gate on AI management endpoints.
+
+**Build:** `tsc -b && vite build` — 0 errors, 609 kB JS bundle. No new backend changes this entry.
+**Push:** pending
+
+---
+
+## [v2.0.0] — 2026-06-10 — Sudo role + AI key management + user profile customization
+
+**Claude (Senior Dev Manager):** Three-feature sprint implemented in full.
+
+**Feature 1 — Sudo role + restricted user management:**
+- DB migration `add_sudo_role_to_user_profiles`: dropped old role check constraint, added new one accepting `staff|assistant|manager|admin|sudo`.
+- `backend/routes/users.py` full rewrite: role hierarchy dict `ROLE_LEVEL` added. `_require_admin` now requires role >= 40 (admin or sudo); new `_require_sudo` requires role == 'sudo'. List/Get routes use `_require_admin`; Create/Update/Delete routes use `_require_sudo`. PUT guard: only sudo can set role='sudo'. Pattern validators updated to accept 'sudo'.
+- `frontend/src/lib/constants.ts`: `Role` type and `ROLE_LEVEL`/`ROLE_LABEL` maps updated with sudo (50, 'Sudo Administrator'). `User` interface extended with profile fields.
+- `frontend/src/components/Portal.tsx`: `UsersView` now receives `user` prop. All write controls (Invite, Edit, Disable) hidden unless `user.role === 'sudo'`. Read-only notice shown for admin. Role dropdown only shows 'Sudo Administrator' option when caller is sudo. `Role` type imported.
+
+**Feature 2 — Multi-provider AI key management:**
+- DB migration `create_api_keys_table`: `api_keys` table with RLS (service-role only), seeded with groq/anthropic/openai/ollama rows.
+- `backend/ai/engine.py`: added `_anthropic_complete` (POST /v1/messages, Anthropic format) and `_openai_complete` (POST /v1/chat/completions with optional base_url). `SUPPORTED_PROVIDERS` updated; `ANTHROPIC_MODELS` and `OPENAI_MODELS` lists added. `complete()` now queries `api_keys` table for stored keys before falling back to env vars.
+- `backend/ai/context.py`: `get_ai_config()` now checks `api_keys WHERE is_active=true` first, then app_settings, then env vars.
+- `backend/routes/data_entry.py`: GET `/api/data-entry/ai-keys` returns provider status (never the key), PUT `/api/data-entry/ai-keys/{provider}` upserts key/base_url/is_active (enforces single-active constraint). Settings response now includes anthropic_models and openai_models.
+- `frontend/src/lib/api.ts`: added `getAIKeys()` and `updateAIKey()`.
+- `frontend/src/components/Settings.tsx`: new `AIProvidersPanel` (admin+) with radio active selection, per-row password inputs (shows "●●●●●● key saved" when stored), Ollama base_url input, shared model field. Replaces AI Engine card for admin+; manager role (30–39) still sees old simple AIEnginePanel.
+
+**Feature 3 — User profile customization:**
+- DB migration `add_profile_fields_to_user_profiles`: `phone text DEFAULT ''`, `job_title text DEFAULT ''`, `avatar_url text DEFAULT ''`, `bio text DEFAULT ''` added to `user_profiles`.
+- `backend/routes/users.py`: `UserResponse` extended with new fields; `UserUpdateRequest` and `UserSelfUpdateRequest` added; GET/PUT `/api/users/me` implemented (self-service, no role/username change). `/me/preferences` and `/me` correctly ordered before `/{user_id}` to avoid path collision.
+- `frontend/src/lib/api.ts`: added `getMyProfile()` and `updateMyProfile()`.
+- `frontend/src/components/Settings.tsx`: new `ProfileEditPanel` replaces read-only Account card — editable display_name, last_name, phone, job_title, bio (char counter), avatar_url (live preview with initials fallback). Replaces the static Account card.
+- `frontend/src/components/Portal.tsx` UsersView: job_title shown as accent subtitle under display_name. Edit modal extended with phone/job_title/bio/avatar_url fields.
+
+**Build:** `tsc -b && vite build` — 0 errors, 602 kB JS. `python -m py_compile` clean on all 4 modified backend files.
+**Push:** pending
+
+---
+
 ## [v1.9.9] — 2026-06-10 — P1.4 idempotent replay + final cleanup
 
 **Claude (Senior Dev Manager):** Closed the last open items from the handoff.

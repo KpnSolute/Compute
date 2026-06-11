@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { I, KpnMark } from "../lib/icons";
 import {
     type User,
+    type Role,
     ROLE_LEVEL,
     ROLE_LABEL,
     MONTHS,
@@ -36,6 +37,7 @@ import { SnackBar, MonthlyInventory } from "./Operations";
 import { SourceControl } from "./SourceControl";
 import { Reports } from "./Reports";
 import { Settings } from "./Settings";
+import { AgentBubble } from "./AgentBubble";
 import { getThemePref, applyThemePref } from "../lib/theme";
 
 let toastTimer: ReturnType<typeof setTimeout>;
@@ -2733,7 +2735,8 @@ function InventoryView({
     );
 }
 
-function UsersView() {
+function UsersView({ user: currentUser }: { user: User }) {
+    const isSudo = currentUser.role === 'sudo';
     const blankForm = {
         username: "",
         email: "",
@@ -2743,6 +2746,10 @@ function UsersView() {
         pin: "",
         password: "",
         active: true,
+        phone: "",
+        job_title: "",
+        bio: "",
+        avatar_url: "",
     };
     const [state, setState] = useState({
         loading: true,
@@ -2806,6 +2813,10 @@ function UsersView() {
             pin: u.pin || "",
             password: "",
             active: u.active !== false,
+            phone: u.phone || "",
+            job_title: u.job_title || "",
+            bio: u.bio || "",
+            avatar_url: u.avatar_url || "",
         });
         setShowForm(true);
     };
@@ -2844,6 +2855,10 @@ function UsersView() {
                     role: form.role,
                     pin: form.role === "staff" ? form.pin : null,
                     active: form.active,
+                    phone: form.phone || undefined,
+                    job_title: form.job_title || undefined,
+                    bio: form.bio || undefined,
+                    avatar_url: form.avatar_url || undefined,
                 });
                 toast(`Updated ${displayName}`);
             } else {
@@ -2888,13 +2903,16 @@ function UsersView() {
                     <h2>Users &amp; Access</h2>
                     <div className="ph-sub">
                         {users.length} accounts · role-based access control
+                        {!isSudo && " · read-only view"}
                     </div>
                 </div>
-                <div className="ph-actions">
-                    <button className="btn primary" onClick={openCreate}>
-                        {I.plus()} Invite user
-                    </button>
-                </div>
+                {isSudo && (
+                    <div className="ph-actions">
+                        <button className="btn primary" onClick={openCreate}>
+                            {I.plus()} Invite user
+                        </button>
+                    </div>
+                )}
             </div>
 
             {state.loading && <Loading label="Loading directory…" />}
@@ -2920,7 +2938,7 @@ function UsersView() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {users.map((u: User) => (
+                                {users.map((u: any) => (
                                     <tr key={u.id || u.username}>
                                         <td>
                                             <div className="user-cell">
@@ -2936,6 +2954,11 @@ function UsersView() {
                                                         {u.display_name}{" "}
                                                         {u.last_name || ""}
                                                     </div>
+                                                    {u.job_title && (
+                                                        <div style={{ fontSize: 11, color: "var(--accent)", fontWeight: 600 }}>
+                                                            {u.job_title}
+                                                        </div>
+                                                    )}
                                                     <div
                                                         style={{
                                                             fontSize: 11,
@@ -2960,7 +2983,7 @@ function UsersView() {
                                                     "pill role-" + u.role
                                                 }
                                             >
-                                                {ROLE_LABEL[u.role] || u.role}
+                                                {ROLE_LABEL[u.role as Role] || u.role}
                                             </span>
                                         </td>
                                         <td style={{ color: "var(--muted)" }}>
@@ -2980,36 +3003,40 @@ function UsersView() {
                                             )}
                                         </td>
                                         <td style={{ display: "flex", gap: 6 }}>
-                                            <button
-                                                className="btn"
-                                                style={{ padding: "5px 9px" }}
-                                                onClick={() => openEdit(u)}
-                                                title="Edit user"
-                                            >
-                                                {I.edit({
-                                                    style: {
-                                                        width: 14,
-                                                        height: 14,
-                                                    },
-                                                })}
-                                            </button>
-                                            <button
-                                                className="btn"
-                                                style={{
-                                                    padding: "5px 9px",
-                                                    color: "var(--red)",
-                                                }}
-                                                onClick={() => disableUser(u)}
-                                                disabled={u.active === false}
-                                                title="Disable user"
-                                            >
-                                                {I.del({
-                                                    style: {
-                                                        width: 14,
-                                                        height: 14,
-                                                    },
-                                                })}
-                                            </button>
+                                            {isSudo && (
+                                                <>
+                                                    <button
+                                                        className="btn"
+                                                        style={{ padding: "5px 9px" }}
+                                                        onClick={() => openEdit(u)}
+                                                        title="Edit user"
+                                                    >
+                                                        {I.edit({
+                                                            style: {
+                                                                width: 14,
+                                                                height: 14,
+                                                            },
+                                                        })}
+                                                    </button>
+                                                    <button
+                                                        className="btn"
+                                                        style={{
+                                                            padding: "5px 9px",
+                                                            color: "var(--red)",
+                                                        }}
+                                                        onClick={() => disableUser(u)}
+                                                        disabled={u.active === false}
+                                                        title="Disable user"
+                                                    >
+                                                        {I.del({
+                                                            style: {
+                                                                width: 14,
+                                                                height: 14,
+                                                            },
+                                                        })}
+                                                    </button>
+                                                </>
+                                            )}
                                         </td>
                                     </tr>
                                 ))}
@@ -3072,6 +3099,7 @@ function UsersView() {
                                     <option value="assistant">Assistant</option>
                                     <option value="manager">Manager</option>
                                     <option value="admin">Administrator</option>
+                                    {isSudo && <option value="sudo">Sudo Administrator</option>}
                                 </select>
                             </label>
                             {form.role === "staff" ? (
@@ -3094,6 +3122,30 @@ function UsersView() {
                                     />
                                 </label>
                             ) : null}
+                            <label>
+                                <span>Job Title</span>
+                                <input
+                                    value={form.job_title}
+                                    onChange={(e) => updateForm("job_title", e.target.value)}
+                                    placeholder="e.g. Cafeteria Manager"
+                                />
+                            </label>
+                            <label>
+                                <span>Phone</span>
+                                <input
+                                    value={form.phone}
+                                    onChange={(e) => updateForm("phone", e.target.value)}
+                                    placeholder="e.g. 305-555-0100"
+                                />
+                            </label>
+                            <label>
+                                <span>Avatar URL</span>
+                                <input
+                                    value={form.avatar_url}
+                                    onChange={(e) => updateForm("avatar_url", e.target.value)}
+                                    placeholder="https://…"
+                                />
+                            </label>
                             {editing && (
                                 <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
                                     <input
@@ -3558,7 +3610,7 @@ export function Portal({
         if (active === "reports")
             return <Reports user={user} period={period} />;
         if (active === "dataentry") return <DataEntry user={user} />;
-        if (active === "users") return <UsersView />;
+        if (active === "users") return <UsersView user={user} />;
         if (active === "archives") return <ArchivesView period={period} />;
         if (active === "settings") return <Settings user={user} />;
         return <PlaceholderPage pageKey={active} />;
@@ -3613,6 +3665,7 @@ export function Portal({
                 )}
                 {renderPage()}
             </main>
+            <AgentBubble user={user} />
         </div>
     );
 }

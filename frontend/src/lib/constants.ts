@@ -1,4 +1,4 @@
-export type Role = 'staff' | 'assistant' | 'manager' | 'admin';
+export type Role = 'staff' | 'assistant' | 'manager' | 'admin' | 'sudo';
 
 export interface User {
   id: string;
@@ -10,6 +10,12 @@ export interface User {
   pin?: string | null;
   password?: string | null;
   access_token?: string;
+  email?: string;
+  phone?: string;
+  job_title?: string;
+  avatar_url?: string;
+  bio?: string;
+  created_at?: string;
 }
 
 export const ROLE_LEVEL: Record<Role, number> = {
@@ -17,6 +23,7 @@ export const ROLE_LEVEL: Record<Role, number> = {
   assistant: 20,
   manager: 30,
   admin: 40,
+  sudo: 50,
 };
 
 export const ROLE_LABEL: Record<Role, string> = {
@@ -24,6 +31,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   assistant: 'Assistant',
   manager: 'Manager',
   admin: 'Administrator',
+  sudo: 'Sudo Administrator',
 };
 
 export const MONTHS = [

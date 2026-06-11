@@ -365,4 +365,64 @@ export const api = {
     return req('/api/users/me/preferences', { method: 'PUT', body: JSON.stringify(prefs) });
   },
 
+  // Self-service profile
+  async getMyProfile(): Promise<any> {
+    return req('/api/users/me');
+  },
+
+  async updateMyProfile(body: { display_name?: string; last_name?: string; phone?: string; job_title?: string; bio?: string; avatar_url?: string }): Promise<any> {
+    return req('/api/users/me', { method: 'PUT', body: JSON.stringify(body) });
+  },
+
+  // AI key management (sudo only)
+  async getAIKeys(): Promise<Array<{ provider: string; is_active: boolean; has_key: boolean; base_url: string | null; updated_at: string | null }>> {
+    return req('/api/data-entry/ai-keys');
+  },
+
+  async updateAIKey(provider: string, body: { api_key?: string; base_url?: string; is_active?: boolean }): Promise<any> {
+    return req(`/api/data-entry/ai-keys/${encodeURIComponent(provider)}`, { method: 'PUT', body: JSON.stringify(body) });
+  },
+
+  // AI tool toggles (sudo only)
+  async getAITools(): Promise<Record<string, boolean>> {
+    return req('/api/data-entry/ai-tools');
+  },
+
+  async updateAITools(tools: Record<string, boolean>): Promise<Record<string, boolean>> {
+    return req('/api/data-entry/ai-tools', { method: 'PUT', body: JSON.stringify({ tools }) });
+  },
+
+  // AI usage stats (sudo only)
+  async getAIUsage(days?: number, limit?: number): Promise<any> {
+    const params = new URLSearchParams();
+    if (days !== undefined) params.set('days', String(days));
+    if (limit !== undefined) params.set('limit', String(limit));
+    const qs = params.toString();
+    return req(`/api/data-entry/ai-usage${qs ? '?' + qs : ''}`);
+  },
+
+  // ── Agent ────────────────────────────────────────────────────────────────
+
+  async getAgentConfig(): Promise<any> {
+    return req('/api/agent/config');
+  },
+
+  async updateAgentConfig(body: any): Promise<any> {
+    return req('/api/agent/config', { method: 'PUT', body: JSON.stringify(body) });
+  },
+
+  async sendAgentMessage(message: string): Promise<{ response: string; tool_calls: any[]; rate_limit: any }> {
+    return req('/api/agent/chat', { method: 'POST', body: JSON.stringify({ message }) });
+  },
+
+  async getAgentHistory(limit?: number): Promise<any[]> {
+    const qs = limit ? `?limit=${limit}` : '';
+    const data: any = await req(`/api/agent/history${qs}`);
+    return data.turns || [];
+  },
+
+  async clearAgentHistory(): Promise<{ deleted: number }> {
+    return req('/api/agent/history', { method: 'DELETE' });
+  },
+
 };
