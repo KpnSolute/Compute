@@ -323,7 +323,7 @@ export const api = {
   },
 
   // Data Entry
-  async uploadDataEntry(file: File, hint: string, month?: number, year?: number, week?: number, direction?: string): Promise<{ batch_id: string; staged_count: number; operations: Record<string, number>; file: string; month: number; year: number }> {
+  async uploadDataEntry(file: File, hint: string, month?: number, year?: number, week?: number, direction?: string, description?: string): Promise<{ batch_id: string; staged_count: number; operations: Record<string, number>; file: string; month: number; year: number }> {
     const token = getBackendToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -334,6 +334,7 @@ export const api = {
     if (year !== undefined) form.append('year', String(year));
     if (week !== undefined) form.append('week', String(week));
     if (direction !== undefined) form.append('direction', direction);
+    if (description?.trim()) form.append('description', description.trim());
     const res = await fetch(BASE + '/api/data-entry/upload', { method: 'POST', headers, body: form });
     if (!res.ok) {
       let body: string;
@@ -423,6 +424,18 @@ export const api = {
 
   async clearAgentHistory(): Promise<{ deleted: number }> {
     return req('/api/agent/history', { method: 'DELETE' });
+  },
+
+  // Automations — stored server-side in app_settings keyed by user
+  async getAutomations(): Promise<any[]> {
+    try { const d: any = await req('/api/agent/automations'); return d.automations || []; }
+    catch { return []; }
+  },
+  async saveAutomations(automations: any[]): Promise<void> {
+    await req('/api/agent/automations', { method: 'PUT', body: JSON.stringify({ automations }) });
+  },
+  async runAutomation(prompt: string): Promise<{ response: string; tool_calls: any[] }> {
+    return req('/api/agent/chat', { method: 'POST', body: JSON.stringify({ message: prompt }) });
   },
 
 };

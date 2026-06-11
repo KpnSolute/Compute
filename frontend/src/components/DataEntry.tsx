@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { I } from '../lib/icons';
-import { ROLE_LEVEL, MONTHS } from '../lib/constants';
+import { ROLE_LEVEL, MONTHS, loadAIPrefs } from '../lib/constants';
 import { api } from '../lib/api';
 
 type Hint = '' | 'inventory' | 'events' | 'haccp' | 'menu' | 'log';
@@ -230,12 +230,15 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
     const isSudo = lvl >= 50;
     const now = new Date();
 
+    const aiPrefs = loadAIPrefs(user.id);
+
     const [file, setFile]           = useState<File | null>(null);
     const [hint, setHint]           = useState<Hint>('');
     const [month, setMonth]         = useState<number>(now.getMonth());
     const [year, setYear]           = useState<number>(now.getFullYear());
     const [week, setWeek]           = useState<number>(0);
     const [direction, setDirection] = useState<'received' | 'issued'>('received');
+    const [description, setDescription] = useState('');
 
     const [uploading, setUploading]     = useState(false);
     const [aiStage, setAiStage]         = useState(0);
@@ -293,7 +296,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         setResult(null);
         setPreview(null);
         try {
-            const res = await api.uploadDataEntry(file, hint, month + 1, year, week, direction);
+            const res = await api.uploadDataEntry(file, hint, month + 1, year, week, direction, description);
             setResult(res);
             await loadPreview(res.batch_id);
         } catch (e: any) {
@@ -301,7 +304,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         } finally {
             setUploading(false);
         }
-    }, [file, hint, month, year, week, direction, loadPreview]);
+    }, [file, hint, month, year, week, direction, description, loadPreview]);
 
     const clearAll = () => {
         setFile(null);
@@ -367,11 +370,13 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                     {/* Step 1 — File drop zone */}
                     <div>
                         <div style={STEP_LBL}>1 — File</div>
-                        <FileZone
-                            file={file} uploading={uploading}
-                            onFile={f => { setFile(f); setResult(null); setUploadErr(null); setPreview(null); }}
-                            onClear={clearAll}
-                        />
+                        <div className={aiPrefs.effects && uploading ? 'ai-ring-wrap' : ''} style={{ borderRadius: 12 }}>
+                            <FileZone
+                                file={file} uploading={uploading}
+                                onFile={f => { setFile(f); setResult(null); setUploadErr(null); setPreview(null); }}
+                                onClear={clearAll}
+                            />
+                        </div>
                         {uploading && <AIStatusBanner stage={aiStage} />}
                     </div>
 
@@ -450,6 +455,28 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                             )}
                         </div>
                     </div>
+
+                    {/* Step 3 — Optional admin description */}
+                    {lvl >= 40 && (
+                        <>
+                            <Hr />
+                            <div>
+                                <div style={STEP_LBL}>3 — Change description <span style={{ fontWeight: 400, color: 'var(--faint)', textTransform: 'none' }}>(optional · logged with commit)</span></div>
+                                <textarea
+                                    className={`sheet-inp txt${aiPrefs.effects ? ' ai-ring' : ''}`}
+                                    value={description}
+                                    rows={2}
+                                    maxLength={500}
+                                    placeholder="Describe what this upload contains or why you're making this change — e.g. 'Monthly pull sheet from vendor, updating W2 received quantities for dry goods'"
+                                    style={{ width: '100%', resize: 'vertical', fontSize: 12.5 }}
+                                    onChange={e => setDescription(e.target.value)}
+                                />
+                                <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 4 }}>
+                                    {description.length}/500 · the AI will use this as context when parsing ambiguous fields
+                                </div>
+                            </div>
+                        </>
+                    )}
 
                     <Hr />
 

@@ -490,6 +490,61 @@ table.data.logtbl td{padding:6px 10px}
 @keyframes aiGlowPulse{0%,100%{box-shadow:0 0 0 0 rgba(30,58,138,0),0 0 0 0 rgba(59,130,246,0);border-color:var(--navy)}50%{box-shadow:0 0 0 6px rgba(30,58,138,0.15),0 0 22px 6px rgba(59,130,246,0.12);border-color:#3b82f6}}
 @keyframes aiScanLine{0%{transform:translateY(-100%)}100%{transform:translateY(900%)}}
 @keyframes aiSparkFade{0%,100%{opacity:0;transform:scale(0.4) rotate(0deg)}50%{opacity:1;transform:scale(1) rotate(180deg)}}
+
+/* ── Apple Intelligence animated border ──────────────────────────────────────
+   @property enables smooth conic-gradient angle animation (Chrome/Edge/Safari).
+   Fallback: browsers without @property see a static accent border.          */
+@property --ai-angle{syntax:'<angle>';inherits:false;initial-value:0deg}
+@keyframes aiFieldSpin{to{--ai-angle:360deg}}
+
+/* Thin flowing ring — for always-on AI-enhanced inputs */
+.ai-ring{
+  border:1.5px solid transparent!important;
+  background-image:
+    linear-gradient(var(--surface),var(--surface)),
+    conic-gradient(from var(--ai-angle),
+      #6366f1 0%,#818cf8 15%,#a78bfa 28%,
+      #ec4899 45%,#f472b6 55%,
+      #06b6d4 70%,#38bdf8 82%,
+      #6366f1 100%);
+  background-origin:border-box;
+  background-clip:padding-box,border-box;
+  animation:aiFieldSpin 3s linear infinite;
+  outline:none!important;
+}
+/* Stronger glow variant — active processing state */
+.ai-ring-active{
+  border:2px solid transparent!important;
+  background-image:
+    linear-gradient(var(--surface),var(--surface)),
+    conic-gradient(from var(--ai-angle),
+      #6366f1 0%,#8b5cf6 20%,#ec4899 42%,
+      #06b6d4 65%,#6366f1 100%);
+  background-origin:border-box;
+  background-clip:padding-box,border-box;
+  animation:aiFieldSpin 1.8s linear infinite;
+  box-shadow:0 0 0 3px rgba(99,102,241,.12),0 0 18px 4px rgba(139,92,246,.08)!important;
+  outline:none!important;
+}
+/* Wrapper approach — wraps an input in the gradient ring (use when direct bg-clip won't work) */
+.ai-ring-wrap{
+  display:inline-flex;position:relative;
+  padding:1.5px;border-radius:8px;
+  background:conic-gradient(from var(--ai-angle),
+    #6366f1 0%,#a78bfa 25%,#ec4899 50%,#06b6d4 75%,#6366f1 100%);
+  animation:aiFieldSpin 3s linear infinite;
+}
+.ai-ring-wrap>*{background:var(--surface);border-radius:7px;border:none!important;outline:none!important;width:100%}
+/* Dark mode: inner background matches dark surface */
+[data-theme="dark"] .ai-ring,.dark .ai-ring,.ai-ring-active{
+  background-image:
+    linear-gradient(var(--surface),var(--surface)),
+    conic-gradient(from var(--ai-angle),
+      #6366f1,#818cf8,#a78bfa,#ec4899,#06b6d4,#6366f1);
+  background-origin:border-box;background-clip:padding-box,border-box;
+}
+[data-theme="dark"] .ai-ring-wrap>*,.dark .ai-ring-wrap>*{background:var(--surface)}
+
 /* mobile responsive helpers */
 @media(max-width:640px){.de-controls-row{flex-direction:column!important;gap:12px!important}.ai-studio-grid{grid-template-columns:1fr!important}.ai-preset-grid{grid-template-columns:1fr!important}.ai-stat-row{flex-direction:column!important}.de-file-zone{padding:18px 14px!important}}
 

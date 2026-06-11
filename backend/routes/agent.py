@@ -168,11 +168,61 @@ def _tools_for_role(user_role: str, cfg: dict) -> set[str]:
     return allowed & gated
 
 
+MJCC_CONTEXT = """
+== WHO YOU ARE ==
+You are MJCC AI — not an external chatbot, but a fully embedded digital partner built into the Miami Job Corps Cafeteria management system. You think, work, and communicate like a trusted member of the cafeteria team. You know the operation inside and out.
+
+== THE ORGANIZATION ==
+Miami Job Corps Center (MJCC) is a federal residential training program serving young adults (16–24) in Miami, FL. The Cafeteria provides three daily meals (breakfast, lunch, dinner) plus snack bar service to approximately 300+ students and staff. The cafeteria team is responsible for food safety, inventory management, event catering, HACCP compliance, and operational reporting.
+
+Meal service hours: Breakfast 6–8 AM · Lunch 11 AM–1:30 PM · Dinner 5–7 PM · Snack Bar limited hours.
+Meal rates: Breakfast $3.50 · Lunch $5.75 · Dinner $5.75.
+
+== FOOD SAFETY (SOPs) ==
+HACCP (Hazard Analysis Critical Control Points) is federally required. Key safe-cooking temperatures:
+- Poultry, stuffed foods: 165°F for 15 sec
+- Ground meats, pork, fish: 155°F for 15 sec
+- Beef/veal/lamb steaks, seafood: 145°F for 15 sec
+- Hot-holding minimum: 135°F · Cold-holding maximum: 41°F
+Refrigeration: 35°F–41°F is the safe range. Danger zone: 41°F–140°F — any food left there for 4+ hours is discarded.
+HACCP logs must be recorded at every meal service. Any out-of-range temperature requires corrective action and a note.
+
+== INVENTORY SYSTEM ==
+Inventory is managed by SKU (primary identity). Each item has a category, unit, par level, and unit price.
+- Monthly inventory: on-hand counts recorded by period (month/year)
+- Weekly: W1–W4 received (deliveries/imports) and issued (consumed/exports) columns
+- Items below par need reorder — this is the most common alert
+- New items (no SKU assigned) appear in the "New Items" review category and need manager approval
+- Categories include dry goods, proteins, produce, dairy, condiments, beverages, paper goods, etc.
+- Source Control: all data changes are staged and reviewed before committing (like git for inventory)
+
+== ROLE HIERARCHY ==
+staff(10) → assistant(20) → manager(30) → admin(40) → sudo(50)
+- Staff: basic operations, view inventory, log meals
+- Assistant: data entry, inventory updates, HACCP logging
+- Manager: approve commits, create events, view users and compliance
+- Admin: full system access, AI configuration, all data
+- Sudo: system-level access, AI key management, agent configuration
+
+== COMMUNICATION STYLE ==
+- Speak as a team member, not a corporate chatbot. Be direct, practical, and efficient.
+- Always lead with the answer, then provide detail. Never pad with disclaimers.
+- Use simple formatting: bullet points for lists, bold for key numbers.
+- If you don't know something, say so and offer to look it up using tools.
+- Flag food safety issues immediately and clearly — they are never optional.
+- When someone asks about inventory, always check real data first (use get_inventory tool).
+"""
+
+
 def _build_system_prompt(user: dict, cfg: dict) -> str:
     role_tools = _tools_for_role(user.get('role', 'staff'), cfg)
     now = datetime.now(timezone.utc).strftime('%A, %B %d %Y %H:%M UTC')
-    return f"""You are MJCC AI, the intelligent system manager for the Miami Job Corps Cafeteria.
-You assist {user.get('display_name') or user.get('username', 'staff')} ({user.get('role', 'staff')}) with cafeteria operations.
+    user_name = user.get('display_name') or user.get('username', 'team member')
+    user_role = user.get('role', 'staff')
+    return f"""{MJCC_CONTEXT}
+
+== SESSION ==
+You are speaking with: {user_name} ({user_role})
 Current date/time: {now}
 
 {TOOL_DESCRIPTIONS}
@@ -186,6 +236,7 @@ Rules:
 4. When creating events or modifying data, confirm what you did.
 5. If a tool returns an error, explain it and offer alternatives.
 6. Never hallucinate data — always use tools for facts about inventory, events, users, etc.
+7. Reference MJCC SOPs and food safety standards when relevant — this is mission-critical compliance work.
 """
 
 
@@ -393,3 +444,49 @@ def _check_min_role(user: dict, cfg: dict) -> None:
     user_role = user.get('role', 'staff')
     if ROLE_LEVEL.get(user_role, 0) < ROLE_LEVEL.get(min_role, 10):
         raise HTTPException(status_code=403, detail=f'Agent requires {min_role} role or above.')
+
+
+# ── automations — per-user, stored in app_settings ───────────────────────────
+
+_AUTO_KEY_PREFIX = 'ai_automations_'
+
+
+def _auto_key(user_id: str) -> str:
+    return f'{_AUTO_KEY_PREFIX}{user_id}'
+
+
+@router.get('/automations')
+async def get_automations(authorization: str = Header('')):
+    user = _resolve_user(authorization)
+    key  = _auto_key(user['id'])
+    try:
+        r    = supabase_service.table('app_settings').select('setting_value').eq('setting_key', key).limit(1).execute()
+        raw  = (r.data or [{}])[0].get('setting_value')
+        # jsonb comes back as a Python list; string is a legacy fallback
+        if isinstance(raw, str):
+            import json as _json
+            autos = _json.loads(raw)
+        else:
+            autos = raw or []
+    except Exception:
+        autos = []
+    return {'automations': autos}
+
+
+class AutomationsRequest(BaseModel):
+    automations: list[dict]
+
+
+@router.put('/automations')
+async def save_automations(body: AutomationsRequest, authorization: str = Header('')):
+    user = _resolve_user(authorization)
+    key  = _auto_key(user['id'])
+    try:
+        # setting_value is jsonb — pass the list directly, no JSON-stringify
+        supabase_service.table('app_settings').upsert(
+            {'setting_key': key, 'setting_value': body.automations, 'updated_at': datetime.now(timezone.utc).isoformat()},
+            on_conflict='setting_key',
+        ).execute()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f'Failed to save automations: {exc}')
+    return {'saved': len(body.automations)}

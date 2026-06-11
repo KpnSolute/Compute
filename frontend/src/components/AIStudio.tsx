@@ -585,26 +585,282 @@ function PresetCard({ preset, user }: { preset: Preset; user: User }) {
     );
 }
 
+// ── custom automation builder ─────────────────────────────────────────────────
+
+interface Automation {
+    id: string;
+    name: string;
+    goal: string;      // natural language description of what to do
+    schedule: string;  // human-readable e.g. "Every Monday at 8am"
+    cron: string;      // cron expression for Render
+    enabled: boolean;
+    last_run?: string;
+    last_result?: string;
+}
+
+const SCHEDULE_OPTIONS = [
+    { label: 'Every weekday morning (8am)', cron: '0 8 * * 1-5' },
+    { label: 'Every Monday (weekly digest)', cron: '0 8 * * 1' },
+    { label: 'First of the month', cron: '0 6 1 * *' },
+    { label: 'Daily at 6am', cron: '0 6 * * *' },
+    { label: 'Every Friday (end of week)', cron: '0 16 * * 5' },
+];
+
+function AutomationCard({ auto, onRun, onDelete, onToggle }: {
+    auto: Automation;
+    onRun: (a: Automation) => void;
+    onDelete: (id: string) => void;
+    onToggle: (id: string) => void;
+}) {
+    const [running, setRunning] = useState(false);
+    const [result, setResult]   = useState<string | null>(auto.last_result || null);
+    const [expanded, setExpanded] = useState(false);
+
+    const run = async () => {
+        setRunning(true);
+        setResult(null);
+        try {
+            const res = await api.runAutomation(auto.goal);
+            setResult(res.response);
+            onRun({ ...auto, last_run: new Date().toISOString(), last_result: res.response });
+        } catch (e: any) {
+            setResult(`Error: ${e?.message || 'Unknown error'}`);
+        } finally { setRunning(false); }
+    };
+
+    return (
+        <div style={{
+            background: 'var(--surface)', border: `1.5px solid ${auto.enabled ? 'var(--accent)' : 'var(--line)'}`,
+            borderRadius: 12, overflow: 'hidden',
+            opacity: auto.enabled ? 1 : 0.65,
+        }}>
+            <div style={{ padding: '16px 18px' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                            <span style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--ink)' }}>{auto.name}</span>
+                            <span style={{ fontSize: 10.5, color: 'var(--faint)', background: 'var(--surface-2)', padding: '2px 7px', borderRadius: 6 }}>
+                                {auto.schedule}
+                            </span>
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.45 }}>{auto.goal}</div>
+                        {auto.last_run && (
+                            <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 5 }}>
+                                Last run: {new Date(auto.last_run).toLocaleString()}
+                            </div>
+                        )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
+                        {/* enabled toggle */}
+                        <div onClick={() => onToggle(auto.id)} style={{
+                            width: 34, height: 18, borderRadius: 9, cursor: 'pointer',
+                            background: auto.enabled ? 'var(--accent)' : 'var(--line)',
+                            position: 'relative', transition: 'background .15s',
+                        }}>
+                            <div style={{
+                                position: 'absolute', top: 3, left: auto.enabled ? 17 : 3,
+                                width: 12, height: 12, borderRadius: '50%', background: '#fff',
+                                transition: 'left .15s',
+                            }} />
+                        </div>
+                        <button onClick={run} disabled={running} style={{
+                            padding: '5px 13px', borderRadius: 7, border: 'none',
+                            background: running ? 'var(--line)' : 'var(--navy)', color: running ? 'var(--muted)' : '#fff',
+                            fontWeight: 700, fontSize: 12, cursor: running ? 'default' : 'pointer',
+                        }}>
+                            {running ? '…' : '▶ Run'}
+                        </button>
+                        <button onClick={() => setExpanded(x => !x)} style={{
+                            padding: '5px 8px', borderRadius: 7, border: '1px solid var(--line)',
+                            background: 'var(--surface-2)', cursor: 'pointer', fontSize: 11,
+                        }}>
+                            {expanded ? '▲' : '▼'}
+                        </button>
+                        <button onClick={() => onDelete(auto.id)} style={{
+                            padding: '5px 8px', borderRadius: 7, border: '1px solid var(--line)',
+                            background: 'var(--surface-2)', cursor: 'pointer', fontSize: 11,
+                            color: 'var(--red)',
+                        }}>✕</button>
+                    </div>
+                </div>
+                {expanded && result && (
+                    <div style={{
+                        marginTop: 12, padding: '10px 14px', borderRadius: 8,
+                        background: 'var(--surface-2)', border: '1px solid var(--line)',
+                        fontSize: 12, color: 'var(--ink)', lineHeight: 1.6, whiteSpace: 'pre-wrap',
+                    }}>
+                        {result}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+const BLANK_AUTO: Omit<Automation, 'id'> = {
+    name: '', goal: '', schedule: SCHEDULE_OPTIONS[0].label, cron: SCHEDULE_OPTIONS[0].cron,
+    enabled: true,
+};
+
 export function AIPresetsView({ user }: { user: User }) {
+    const [customs, setCustoms]   = useState<Automation[]>([]);
+    const [loading, setLoading]   = useState(true);
+    const [saving,  setSaving]    = useState(false);
+    const [form,    setForm]      = useState<typeof BLANK_AUTO>({ ...BLANK_AUTO });
+    const [adding,  setAdding]    = useState(false);
+
+    useEffect(() => {
+        api.getAutomations().then(a => setCustoms(a as Automation[])).catch(() => {}).finally(() => setLoading(false));
+    }, []);
+
+    const persist = async (next: Automation[]) => {
+        setSaving(true);
+        try { await api.saveAutomations(next); } catch { /* non-fatal */ }
+        finally { setSaving(false); }
+    };
+
+    const addAuto = () => {
+        if (!form.name.trim() || !form.goal.trim()) return;
+        const next: Automation = {
+            ...form, id: `auto_${Date.now()}`, enabled: true,
+        };
+        const updated = [...customs, next];
+        setCustoms(updated);
+        persist(updated);
+        setForm({ ...BLANK_AUTO });
+        setAdding(false);
+    };
+
+    const handleRun = (updated: Automation) => {
+        const next = customs.map(a => a.id === updated.id ? updated : a);
+        setCustoms(next);
+        persist(next);
+    };
+
+    const handleDelete = (id: string) => {
+        const next = customs.filter(a => a.id !== id);
+        setCustoms(next);
+        persist(next);
+    };
+
+    const handleToggle = (id: string) => {
+        const next = customs.map(a => a.id === id ? { ...a, enabled: !a.enabled } : a);
+        setCustoms(next);
+        persist(next);
+    };
+
+    const LBL: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginBottom: 5 };
+
     return (
         <div style={{ padding: '28px 32px', maxWidth: 900 }}>
+
+            {/* Header */}
             <div style={{ marginBottom: 24 }}>
-                <h2 style={{ fontSize: 20, fontWeight: 800, color: 'var(--ink)', margin: '0 0 6px' }}>Automation Presets</h2>
+                <h2 style={{ fontSize: 20, fontWeight: 800, color: 'var(--ink)', margin: '0 0 6px' }}>
+                    ✦ AI Automations
+                </h2>
                 <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
-                    One-click AI workflows. Hit Run and MJCC AI pulls live data, reasons through it, and returns an actionable summary.
+                    Build custom AI workflows in plain English. MJCC AI handles the rest — pulling live data, reasoning through it, and delivering actionable results.
                 </p>
             </div>
 
-            <div className="ai-preset-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 14 }}>
-                {PRESETS.map(p => <PresetCard key={p.id} preset={p} user={user} />)}
+            {/* Quick-run presets */}
+            <div style={{ marginBottom: 28 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 12 }}>
+                    Quick Automations
+                </div>
+                <div className="ai-preset-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
+                    {PRESETS.map(p => <PresetCard key={p.id} preset={p} user={user} />)}
+                </div>
             </div>
 
+            {/* Custom automations */}
+            <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.07em' }}>
+                        My Automations {saving && <span style={{ fontWeight: 400, color: 'var(--faint)' }}>· saving…</span>}
+                    </div>
+                    <button className="btn primary" style={{ fontSize: 12, padding: '5px 14px' }} onClick={() => setAdding(a => !a)}>
+                        {adding ? '✕ Cancel' : '+ New Automation'}
+                    </button>
+                </div>
+
+                {/* Builder form */}
+                {adding && (
+                    <div style={{
+                        padding: '18px 20px', marginBottom: 14, borderRadius: 12,
+                        background: 'var(--accent-soft)', border: '1.5px solid var(--accent)',
+                    }}>
+                        <div style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--navy)', marginBottom: 14 }}>
+                            ✦ Describe your automation
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                            <div>
+                                <label style={LBL}>Name</label>
+                                <input className="sheet-inp txt" style={{ width: '100%' }}
+                                    placeholder="e.g. Weekly Inventory Digest"
+                                    value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+                            </div>
+                            <div>
+                                <label style={LBL}>Schedule</label>
+                                <select className="tb-select" style={{ width: '100%' }}
+                                    value={form.schedule}
+                                    onChange={e => {
+                                        const opt = SCHEDULE_OPTIONS.find(o => o.label === e.target.value);
+                                        setForm(f => ({ ...f, schedule: e.target.value, cron: opt?.cron || '0 8 * * 1' }));
+                                    }}>
+                                    {SCHEDULE_OPTIONS.map(o => <option key={o.cron} value={o.label}>{o.label}</option>)}
+                                </select>
+                            </div>
+                        </div>
+                        <div style={{ marginBottom: 14 }}>
+                            <label style={LBL}>What should AI do? <span style={{ fontWeight: 400, color: 'var(--faint)' }}>(plain English)</span></label>
+                            <textarea className="sheet-inp txt" rows={3} style={{ width: '100%', resize: 'vertical', fontSize: 12.5 }}
+                                placeholder={'e.g. "Check inventory for items below par level, then summarize what needs to be reordered this week with estimated quantities"\n\nor: "Get the dashboard stats and send me a morning briefing with any alerts"'}
+                                value={form.goal}
+                                onChange={e => setForm(f => ({ ...f, goal: e.target.value }))} />
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <button className="btn primary" onClick={addAuto} disabled={!form.name.trim() || !form.goal.trim()}>
+                                Save Automation
+                            </button>
+                            <span style={{ fontSize: 11, color: 'var(--faint)' }}>
+                                Cron: <code style={{ fontFamily: 'var(--mono)' }}>{form.cron}</code>
+                            </span>
+                        </div>
+                    </div>
+                )}
+
+                {loading ? (
+                    <div style={{ color: 'var(--muted)', fontSize: 12, padding: '20px 0' }}>Loading automations…</div>
+                ) : customs.length === 0 ? (
+                    <div style={{
+                        padding: '28px', textAlign: 'center', borderRadius: 12,
+                        background: 'var(--surface-2)', border: '1px dashed var(--line)',
+                    }}>
+                        <div style={{ fontSize: 28, marginBottom: 10 }}>🤖</div>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)', marginBottom: 6 }}>No automations yet</div>
+                        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+                            Build your first automation above — describe what you want in plain English and MJCC AI will execute it on schedule.
+                        </div>
+                    </div>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {customs.map(a => (
+                            <AutomationCard key={a.id} auto={a}
+                                onRun={handleRun} onDelete={handleDelete} onToggle={handleToggle} />
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Cron scheduling note */}
             <div style={{
                 marginTop: 24, padding: '14px 18px',
                 background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 10,
                 fontSize: 12, color: 'var(--muted)', lineHeight: 1.6,
             }}>
-                <strong style={{ color: 'var(--ink)' }}>Coming soon:</strong> Custom presets, scheduled automation (run daily at 7am), and Slack/email delivery of results.
+                <strong style={{ color: 'var(--ink)' }}>Scheduled execution:</strong> For fully automated runs, connect a Render Cron Service to <code style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>POST /api/agent/chat</code> with the automation prompt. Hit <strong>▶ Run</strong> above for on-demand execution now.
             </div>
         </div>
     );

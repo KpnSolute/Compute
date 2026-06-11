@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { I } from '../lib/icons';
 import { api } from '../lib/api';
 import { type ThemePref, getThemePref, saveThemePref } from '../lib/theme';
+import { type AIPrefs, loadAIPrefs, saveAIPrefs } from '../lib/constants';
 
 // ── shared label style ────────────────────────────────────────────────────────
 
@@ -363,6 +364,75 @@ function ProfileEditPanel({ user }: { user: any }) {
                     <AccountField label="Email" value={user.email || '—'} />
                     <AccountField label="User ID" value={(user.id || '').slice(0, 12) + '…'} mono />
                     <AccountField label="Member since" value={user.created_at ? new Date(user.created_at).toLocaleDateString() : '—'} />
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ── AI Preferences panel (all users) ─────────────────────────────────────────
+
+const AI_PREF_ITEMS: Array<{ key: keyof AIPrefs; label: string; desc: string }> = [
+    { key: 'effects',  label: 'AI visual effects',   desc: 'Apple Intelligence border glow on inventory inputs, upload animations, and scan-line effects' },
+    { key: 'bubble',   label: 'AI agent bubble',      desc: 'Floating chat bubble in the bottom-right corner — ask the AI anything about operations' },
+    { key: 'autoAI',   label: 'Auto-detect in Data Entry', desc: 'AI automatically identifies file type and routes data — uncheck to always choose manually' },
+];
+
+function AIPrefsPanel({ user }: { user: any }) {
+    const [prefs, setPrefs] = useState<AIPrefs>(() => loadAIPrefs(user.id));
+    const [saved, setSaved] = useState(false);
+
+    const toggle = (key: keyof AIPrefs) => {
+        const next = { ...prefs, [key]: !prefs[key] };
+        setPrefs(next);
+        saveAIPrefs(user.id, next);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 1800);
+    };
+
+    return (
+        <div className="card" style={{ marginTop: 14 }}>
+            <div className="card-head">
+                <div>
+                    <h3>AI Preferences</h3>
+                    <span className="ph-sub">your personal AI experience — changes apply instantly</span>
+                </div>
+                {saved && <span className="pill ok">Saved</span>}
+            </div>
+            <div className="card-body">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {AI_PREF_ITEMS.map(({ key, label, desc }) => {
+                        const on = prefs[key];
+                        return (
+                            <label key={key} style={{
+                                display: 'flex', alignItems: 'flex-start', gap: 12,
+                                padding: '12px 14px', borderRadius: 10, cursor: 'pointer',
+                                background: on ? 'var(--accent-soft)' : 'var(--surface-2)',
+                                border: `1.5px solid ${on ? 'var(--accent)' : 'var(--line)'}`,
+                                transition: 'border-color .12s, background .12s',
+                            }}>
+                                {/* iOS-style toggle */}
+                                <div onClick={() => toggle(key)} style={{
+                                    marginTop: 2, width: 40, height: 22, borderRadius: 11, flexShrink: 0,
+                                    background: on ? 'var(--accent)' : 'var(--line)',
+                                    position: 'relative', transition: 'background .15s', cursor: 'pointer',
+                                }}>
+                                    <div style={{
+                                        position: 'absolute', top: 3, left: on ? 21 : 3,
+                                        width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                                        transition: 'left .15s', boxShadow: '0 1px 4px rgba(0,0,0,.2)',
+                                    }} />
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                    <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)' }}>{label}</div>
+                                    <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 2 }}>{desc}</div>
+                                </div>
+                            </label>
+                        );
+                    })}
+                </div>
+                <div style={{ marginTop: 12, fontSize: 11, color: 'var(--faint)' }}>
+                    These preferences are stored locally on this device. They do not affect how other users experience the system.
                 </div>
             </div>
         </div>
@@ -1092,6 +1162,9 @@ export function Settings({ user }: { user: any }) {
 
             {/* ── Account / Profile Edit ──────────────────────────────────── */}
             <ProfileEditPanel user={user} />
+
+            {/* ── AI Preferences — all users ────────────────────────────────── */}
+            <AIPrefsPanel user={user} />
 
             {/* ── AI Management — sudo only ─────────────────────────────────── */}
             {user.role === 'sudo' && <AIManagementPanel />}

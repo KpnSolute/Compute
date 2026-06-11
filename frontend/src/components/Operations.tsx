@@ -24,7 +24,7 @@ function cell(val: number | undefined, onChange: (v: string) => void, canEdit: b
   if (!canEdit) return <span className="num">{val || 0}</span>;
   return (
     <input
-      className="sheet-inp mobile-num-inp"
+      className="sheet-inp mobile-num-inp ai-ring"
       type="number"
       step="0.5"
       style={{ width: 54 }}

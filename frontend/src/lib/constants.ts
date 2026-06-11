@@ -161,3 +161,44 @@ export const MEAL_COLS = ['Breakfast', 'Lunch', 'Dinner'];
 
 export const DOW_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 export const DOW_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
+// ── AI user preferences ───────────────────────────────────────────────────────
+
+export interface AIPrefs {
+  effects: boolean;   // Apple Intelligence border glow + animations
+  bubble:  boolean;   // floating agent chat bubble
+  autoAI:  boolean;   // AI auto-detect in Data Entry
+}
+
+const DEFAULT_AI_PREFS: AIPrefs = { effects: true, bubble: true, autoAI: true };
+
+function aiPrefsKey(userId: string) { return `mjcc_ai_prefs_${userId}`; }
+
+export function loadAIPrefs(userId: string): AIPrefs {
+  try {
+    const raw = localStorage.getItem(aiPrefsKey(userId));
+    if (!raw) return { ...DEFAULT_AI_PREFS };
+    return { ...DEFAULT_AI_PREFS, ...JSON.parse(raw) };
+  } catch { return { ...DEFAULT_AI_PREFS }; }
+}
+
+export function saveAIPrefs(userId: string, prefs: AIPrefs): void {
+  localStorage.setItem(aiPrefsKey(userId), JSON.stringify(prefs));
+  window.dispatchEvent(new CustomEvent('mjcc-ai-prefs', { detail: { userId, prefs } }));
+}
+
+// React hook — re-renders when prefs change in any tab/component
+import { useState as _useState, useEffect as _useEffect } from 'react';
+export function useAIPrefs(userId: string): [AIPrefs, (p: AIPrefs) => void] {
+  const [prefs, setPrefs] = _useState<AIPrefs>(() => loadAIPrefs(userId));
+  _useEffect(() => {
+    const h = (e: Event) => {
+      const ce = e as CustomEvent;
+      if (ce.detail?.userId === userId) setPrefs(ce.detail.prefs);
+    };
+    window.addEventListener('mjcc-ai-prefs', h);
+    return () => window.removeEventListener('mjcc-ai-prefs', h);
+  }, [userId]);
+  const save = (p: AIPrefs) => { saveAIPrefs(userId, p); setPrefs(p); };
+  return [prefs, save];
+}

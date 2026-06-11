@@ -323,6 +323,7 @@ async def upload_file(
     year: int = Form(default=0),
     week: int = Form(default=0),
     direction: str = Form(default="received"),
+    description: Optional[str] = Form(None),
     auth_user: dict = Depends(_get_auth_user),
 ):
     """
@@ -383,7 +384,7 @@ async def upload_file(
     for op in ops:
         op_counts[op["operation"]] = op_counts.get(op["operation"], 0) + 1
 
-    return {
+    resp: dict = {
         "batch_id": batch_id,
         "staged_count": len(staged),
         "operations": op_counts,
@@ -394,6 +395,9 @@ async def upload_file(
         "ai_model": ai_config.get("model", ""),
         "staging_ids": [s["entry_id"] for s in staged],
     }
+    if description:
+        resp["description"] = description[:500]
+    return resp
 
 
 @router.get("/preview/{batch_id}")
