@@ -90,6 +90,14 @@ export const NAV = [
     ],
   },
   {
+    group: 'AI Studio',
+    items: [
+      { key: 'ai-usage',   label: 'My Usage',   icon: 'trend',    min: 10 },
+      { key: 'ai-tools',   label: 'Tools',       icon: 'database', min: 10 },
+      { key: 'ai-presets', label: 'Automation',  icon: 'flame',    min: 10 },
+    ],
+  },
+  {
     group: 'Administration',
     items: [
       { key: 'users', label: 'Users & Access', icon: 'users', min: 40 },

@@ -38,6 +38,7 @@ import { SourceControl } from "./SourceControl";
 import { Reports } from "./Reports";
 import { Settings } from "./Settings";
 import { AgentBubble } from "./AgentBubble";
+import { AIUsageView, AIToolsView, AIPresetsView } from "./AIStudio";
 import { getThemePref, applyThemePref } from "../lib/theme";
 
 let toastTimer: ReturnType<typeof setTimeout>;
@@ -3613,6 +3614,9 @@ export function Portal({
         if (active === "users") return <UsersView user={user} />;
         if (active === "archives") return <ArchivesView period={period} />;
         if (active === "settings") return <Settings user={user} />;
+        if (active === "ai-usage")   return <AIUsageView user={user} />;
+        if (active === "ai-tools")   return <AIToolsView user={user} />;
+        if (active === "ai-presets") return <AIPresetsView user={user} />;
         return <PlaceholderPage pageKey={active} />;
     };
 
