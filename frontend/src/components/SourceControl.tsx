@@ -119,6 +119,19 @@ export function SourceControlPanel({
         if (open) loadData();
     }, [open, loadData]);
 
+    // Real-time updates: reload whenever any component stages or rejects something
+    useEffect(() => {
+        const handler = () => loadData();
+        window.addEventListener('mjcc:staging-changed', handler);
+        return () => window.removeEventListener('mjcc:staging-changed', handler);
+    }, [loadData]);
+
+    // Polling fallback for cross-tab changes and external staging (30s)
+    useEffect(() => {
+        const id = setInterval(loadData, 30000);
+        return () => clearInterval(id);
+    }, [loadData]);
+
     useEffect(() => {
         onCountChange?.(staged.length);
     }, [staged.length, onCountChange]);
@@ -161,6 +174,7 @@ export function SourceControlPanel({
             setSelected(new Set());
             setCommitMsg("");
             t(`Committed ${entries.length} change${entries.length !== 1 ? "s" : ""}`);
+            window.dispatchEvent(new CustomEvent('mjcc:committed'));
         } catch (err: any) {
             t(`Commit failed: ${err?.message || "Unknown error"}`);
         } finally {
@@ -175,6 +189,7 @@ export function SourceControlPanel({
             setStaged((s) => s.filter((x) => x.entry_id !== entry.entry_id));
             setSelected((p) => { const n = new Set(p); n.delete(entry.entry_id); return n; });
             t("Entry returned to author");
+            window.dispatchEvent(new CustomEvent('mjcc:staging-changed'));
         } catch (err: any) {
             t(`Rejection failed: ${err?.message || "Unknown error"}`);
         } finally {

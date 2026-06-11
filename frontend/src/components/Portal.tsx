@@ -3584,6 +3584,13 @@ export function Portal({
         (window as any).__logout = onLogout;
     }, [onLogout]);
 
+    // Reload inventory automatically when a commit is applied
+    useEffect(() => {
+        const handler = () => reloadInv();
+        window.addEventListener('mjcc:committed', handler);
+        return () => window.removeEventListener('mjcc:committed', handler);
+    }, [reloadInv]);
+
     // Apply saved theme on mount and react to OS preference changes (auto mode)
     useEffect(() => {
         const pref = getThemePref(user.id);

@@ -297,7 +297,9 @@ export const api = {
   },
 
   async submitStaging(body: SubmitStagingBody): Promise<StagingEntry> {
-    return req('/api/staging', { method: 'POST', body: JSON.stringify(body) });
+    const result = await req('/api/staging', { method: 'POST', body: JSON.stringify(body) });
+    window.dispatchEvent(new CustomEvent('mjcc:staging-changed'));
+    return result;
   },
 
   async stageChange(operation: string, entityType: EntityType, entityId: string, payload: any, summary: string): Promise<StagingEntry> {

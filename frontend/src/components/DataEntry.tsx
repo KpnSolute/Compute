@@ -298,6 +298,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         try {
             const res = await api.uploadDataEntry(file, hint, month + 1, year, week, direction, description);
             setResult(res);
+            window.dispatchEvent(new CustomEvent('mjcc:staging-changed'));
             await loadPreview(res.batch_id);
         } catch (e: any) {
             setUploadErr(e?.message || 'Upload failed');
