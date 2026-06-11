@@ -16,6 +16,44 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v2.3.0] — 2026-06-10 — Apple Intelligence UI + AI Automations + SOP Agent
+
+**Claude (full-stack):** Major feature update across frontend, backend, and AI layer.
+
+**Apple Intelligence border animation:**
+- `index.css`: Added `@property --ai-angle` CSS Houdini property + `@keyframes aiFieldSpin`. Three classes: `.ai-ring` (thin flowing conic-gradient border, always-on for AI fields), `.ai-ring-active` (stronger glow during processing), `.ai-ring-wrap` (wrapper div approach for elements where background-clip won't work).
+- Applied `.ai-ring` to `Operations.tsx` inventory cell inputs (`cell()` function).
+- Applied `.ai-ring-wrap` around DataEntry file zone during active upload.
+- Applied `.ai-ring` to DataEntry description textarea.
+
+**DataEntry — change description field:**
+- Step 3 added for admin+ users: a textarea to describe what the upload contains / why the change is being made.
+- AI uses this as context when parsing ambiguous fields in the uploaded file.
+- Wired through `api.ts` (`uploadDataEntry` 7th param), `data_entry.py` (new `description` Form field), returned in response as `description` key.
+
+**Settings — AI Preferences (all users):**
+- New `AIPrefsPanel` card visible to all users, not just sudo.
+- Three toggles: **AI visual effects** (glow borders, animations), **AI agent bubble** (floating chat widget), **Auto-detect in Data Entry** (AI auto-routes uploads).
+- Stored in localStorage per user ID; broadcast via `CustomEvent('mjcc-ai-prefs')` so all mounted components respond instantly.
+- `lib/constants.ts` now exports `AIPrefs`, `loadAIPrefs`, `saveAIPrefs`, `useAIPrefs` hook.
+
+**AI Studio — real Automation Builder:**
+- `AIPresetsView` expanded into a full automation system.
+- Users describe their automation goal in plain English + pick a schedule (Every Monday, Daily 6am, etc.).
+- Custom automations saved to Supabase `app_settings` (jsonb) per-user via new `/api/agent/automations` GET + PUT endpoints.
+- Each automation has: name, goal, schedule label, cron expression, enabled toggle, last-run timestamp, last result expandable panel.
+- **▶ Run Now** fires the agent immediately. For scheduled execution, a Render Cron Service pointing to `/api/agent/chat` is the path.
+
+**MJCC AI — SOP-enriched system prompt:**
+- `MJCC_CONTEXT` constant in `agent.py` gives the agent its full identity: Miami Job Corps Center, student population, meal service hours/rates, full HACCP SOP (cooking temps, danger zone 41–140°F, safe holding ranges), inventory system (SKU-based, categories, monthly periods, source control), role hierarchy (staff→sudo), and communication style directives.
+- Agent now responds as a MJCC team member, not a generic AI.
+
+**Verified:** `tsc --noEmit` — 0 errors. `ast.parse` — all backend files OK. `git commit 778ebca`.
+
+**Push:** pending — not yet pushed.
+
+---
+
 ## [v2.2.2] — 2026-06-10 — Fix AI agent tool column mismatches + SKU identity
 
 **Claude (backend/AI lane):** Three AI tool functions in `backend/ai/tools.py` were querying columns that don't exist in the actual schema, causing 500 errors in the agent loop.
