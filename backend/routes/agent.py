@@ -227,14 +227,14 @@ async def agent_chat(body: ChatRequest, authorization: str = Header('')):
     # Append new user message
     messages.append({'role': 'user', 'content': body.message})
 
-    # Determine AI config for agent (can override data-entry provider)
-    ai_cfg: dict | None = None
+    # Resolve AI config: always start from get_ai_config() (checks api_keys table first,
+    # then app_settings, then env vars), then apply any agent-level overrides.
+    from backend.ai.context import get_ai_config
+    ai_cfg = get_ai_config()
     if cfg.get('provider'):
-        from backend.ai.context import get_ai_config
-        base = get_ai_config()
-        ai_cfg = {**base, 'provider': cfg['provider']}
-        if cfg.get('model'):
-            ai_cfg['model'] = cfg['model']
+        ai_cfg['provider'] = cfg['provider']
+    if cfg.get('model'):
+        ai_cfg['model'] = cfg['model']
 
     role_tools = _tools_for_role(user_role, cfg)
     used_tool_calls: list[dict] = []
