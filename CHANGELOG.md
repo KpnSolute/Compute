@@ -41,7 +41,7 @@ Full diagnostic of the inventory/source-control system via live network probing.
 **Note:** A probe staging entry and commit were created during diagnosis (commit "PROBE TEST — delete this commit", staging entry c489946a). The TEST-SKU-PROBE inventory_item was cleaned from the DB. The commit row remains in the commits table (status=merged) but has no real data impact.
 
 **Build:** `tsc --noEmit` clean. `npm run build` expected clean (same pre-existing any-warnings only).
-**Push:** pending → pushing now
+**Push:** 92f86cc — 2026-06-11
 
 ---
 
