@@ -16,6 +16,28 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v2.2.1] — 2026-06-11 — Login fix: jeremiah/sudo
+
+**WatchCommander-Debugger (diagnosis + fix):** User `jeremiah` could not log in after their `user_profiles.role` was changed `admin` → `sudo`. Diagnosed as a frontend role allow-list gate, NOT a password problem.
+
+**Failure chain traced:**
+- `Login.tsx::doLogin('admin')` → `realLogin()` → `db.auth.signInWithPassword()` **succeeds** (confirmed live: `auth.users.last_sign_in_at` for `jeremiah@mjc-cafeteria.com` updated to `2026-06-11 02:28:53` — password `JerBlue.16` is valid, account confirmed, not banned, `id` matches `user_profiles.id` `d3d7cf98-…`).
+- `realLogin()` then fetched the profile (`role='sudo'`) and hit the hardcoded gate `frontend/src/lib/supabase.ts:114`: `if (!['admin','manager','assistant'].includes(profile.role))` → `sudo` not in list → `signOut()` + returned `Staff accounts must use the Staff login.` So Supabase Auth never handed the token to `backendLogin()`.
+
+**Verified NOT at fault:**
+- `backend/routes/auth.py /api/auth/login` (Mode 1, JWT) does NOT gate on role — only checks `active`. It would have accepted `sudo`.
+- Supabase Auth password/account state — healthy. No password reset needed.
+- Secondary role gates: every other gate uses `ROLE_LEVEL[user.role]` (`constants.ts` has `sudo: 50`, highest tier) so `sudo` passes all `lvl >= X` checks, including Portal nav. No second wall.
+
+**Fix applied (`[CLAUDE TASK]`, Claude auth/UI-glue lane):**
+- `frontend/src/lib/supabase.ts:114` — added `'sudo'` to the allowed-role array: `['admin', 'manager', 'assistant', 'sudo']`.
+
+**Verification:** `tsc --noEmit` clean (0 errors). Login `jeremiah` / `JerBlue.16` (Admin/Manager tab) should now pass the gate, call `backendLogin`, and enter the Portal as Sudo Administrator.
+
+**Note / future-proofing (unflagged landmine):** this gate is a hardcoded string list that drifts from `constants.ts ROLE_LEVEL`. Any future role added to `ROLE_LEVEL` but not to this array will silently break admin login again. Recommend a follow-up to gate by `ROLE_LEVEL[profile.role] >= ROLE_LEVEL.assistant` instead of a literal list. Not done here to keep the fix surgical.
+
+**Push:** pending — not yet pushed.
+
 ## [v2.1.0] — 2026-06-10 — MJCC AI Agent — floating bubble, ReAct loop, tool registry, sudo control
 
 **Claude (Senior Dev Manager):** Full agentic AI integration. Sequential-thinking used to plan all 10 files before writing a single line.
@@ -63,7 +85,77 @@ This is the **central development memory and discussion board** for development 
 **`frontend/src/index.css`:** `.agent-dot` + `@keyframes agentBounce` added for thinking indicator.
 
 **Build:** `tsc -b && vite build` — 0 errors, 623 kB JS. `py_compile` clean on all new backend files.
-**Push:** pending
+**Push:** d2af30d (prior) — prior session
+
+---
+
+## [v2.1.1] — 2026-06-11 — Agent CORS fix + Groq key seeded + jeremiah → sudo
+
+**Claude (Senior Dev Manager):**
+
+**Root causes resolved from v2.1.0 pending issues:**
+- `POST /api/agent/chat` returned 500 with no CORS headers → browser blocked with `ERR_FAILED`. Root cause: unhandled exceptions propagated through FastAPI before Starlette's CORSMiddleware could add `Access-Control-Allow-Origin`. Fix: wrapped entire `agent_chat` handler body in `try/except`; non-HTTP exceptions now return explicit `JSONResponse(status_code=500)` which the middleware intercepts correctly. `HTTPException` re-raised so 401/403/429 still use FastAPI's own handler.
+- `engine.complete()` defaulted to `AI_PROVIDER=ollama` (Render env var) when no active key found → connection refused → 500. Fix (two-part): (1) DB — set `api_keys.is_active=true` for groq, all others false; (2) Code (v2.1.0 prior commit) — `agent.py` always calls `get_ai_config()` which reads `api_keys` table first.
+
+**`backend/routes/agent.py`:**
+- `agent_chat` handler wrapped in `try/except HTTPException: raise; except Exception: return JSONResponse(500)`.
+- `for iteration` → `for _iteration` (unused loop variable).
+
+**Supabase `api_keys` table (MCP — no migration needed):**
+- All providers set `is_active=false`.
+- groq row upserted with real key, `is_active=true`.
+
+**`user_profiles` (Supabase MCP):**
+- `jeremiah` role updated `admin` → `sudo`. Jeremiah now has full AIManagementPanel + Agent config access.
+
+**Push:** 7f9b9c0 — 2026-06-11
+
+---
+
+## [v2.1.2] — 2026-06-11 — Full API sweep: model fix, sudo gates, endpoint validation
+
+**Claude (Senior Dev Manager):** Live API test run against prod via Chrome DevTools MCP. Identified and fixed 3 issues.
+
+**Root cause — agent 400 from Groq:** Render env var `GROQ_MODEL=mixtral-8x7b-32768` (a deprecated/removed Groq model). Fix: seeded `app_settings.ai_config = {"provider":"groq","model":"llama-3.3-70b-versatile"}` via Supabase MCP — `get_ai_config()` now reads this before falling through to env vars. Agent chat confirmed working (200, real tool calls, real data).
+
+**Root cause — sudo role rejected at 3 route guards:**
+- `backend/routes/github_sync.py` — `_require_admin_or_manager`: both PIN and JWT paths had `not in ("admin","manager")` → added `"sudo"`.
+- `backend/routes/inventory.py` — rollover endpoint: same tuple → added `"sudo"`.
+- `backend/routes/sourcectrl.py` — `_require_admin_or_manager`: same tuple → added `"sudo"`.
+- All other numeric role checks (`ROLE_LEVEL >= 40`) already pass sudo (50).
+
+**Endpoint sweep results (29 endpoints tested as jeremiah/sudo):**
+- 27/28 GET endpoints → 200 ✅
+- `/api/menu/{day}` → requires 3-letter format (Mon/Tue/Wed etc.) — correct behavior, not a bug.
+- `/api/github-sync/status` → 403 (fixed by role gate commit, will pass after redeploy).
+
+**Supabase DB changes (no migration):**
+- `app_settings` seeded: `ai_config`, `agent_config`.
+- `api_keys`: groq key upserted, `is_active=true`; all others `is_active=false`.
+- `user_profiles`: jeremiah `role` → `sudo`.
+
+**Push:** 4b564e2 — 2026-06-11
+
+---
+
+## [v2.2.0] — 2026-06-11 — AI Studio nav group
+
+**Claude (Senior Dev Manager):** New "AI Studio" nav group with 3 full-page views. All users with agent access (min staff) see it.
+
+**`frontend/src/lib/constants.ts`:**
+- Added "AI Studio" NAV group (inserted before Administration): `ai-usage` (trend icon), `ai-tools` (database icon), `ai-presets` (flame icon), all `min: 10`.
+
+**`frontend/src/components/AIStudio.tsx` (NEW — 3 exported views):**
+- `AIUsageView`: 7d/30d window toggle; stat boxes (today's calls, hour limit, Nd conversations, tool calls); CSS bar chart of activity by day; recent conversations list; top tools bar chart; admin+ sees full system-wide `ai_usage_logs` table (provider, model, operation, tokens, cost, ms, status).
+- `AIToolsView`: Card grid of all 11 MJCC AI tools (TOOL_META mirrors backend TOOL_MIN_ROLE). Each card shows emoji, label, role badge, enabled/disabled indicator (green dot = in allowed_tools AND role sufficient; grey = role too low or disabled by admin).
+- `AIPresetsView`: 6 preset automation cards — Dashboard Briefing, Inventory Health Check, Weekly Event Preview, Reorder Report, Daily Ops Summary, Tonight's Menu. Run button calls `api.sendAgentMessage(preset.prompt)`; result shown inline with tool-call pills; last-run timestamp saved to localStorage.
+
+**`frontend/src/components/Portal.tsx`:**
+- Imported `AIUsageView`, `AIToolsView`, `AIPresetsView` from `./AIStudio`.
+- Added 3 `renderPage()` branches for `ai-usage`, `ai-tools`, `ai-presets`.
+
+**Build:** `tsc -b && vite build` — 0 errors, 643 kB JS.
+**Push:** cbd0cb8 — 2026-06-11
 
 ---
 

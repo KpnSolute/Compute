@@ -3610,7 +3610,7 @@ export function Portal({
             );
         if (active === "reports")
             return <Reports user={user} period={period} />;
-        if (active === "dataentry") return <DataEntry user={user} />;
+        if (active === "dataentry") return <DataEntry user={user} onNavigate={goTo} />;
         if (active === "users") return <UsersView user={user} />;
         if (active === "archives") return <ArchivesView period={period} />;
         if (active === "settings") return <Settings user={user} />;

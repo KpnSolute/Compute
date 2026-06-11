@@ -218,7 +218,7 @@ export function AIUsageView({ user }: { user: User }) {
             </div>
 
             {/* Stat row */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 24 }}>
+            <div className="ai-stat-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 24 }}>
                 <StatBox label="Today's Calls" value={todayCalls} sub={`of ${dayLimit} daily limit`} />
                 <StatBox label="Hour Limit" value={hourLimit} sub="requests / hour" tint="var(--muted)" />
                 <StatBox label={`${window}d Conversations`} value={myTurns.length} sub="messages sent" tint="#7c3aed" />
@@ -377,7 +377,7 @@ export function AIToolsView({ user }: { user: User }) {
                 </p>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
+            <div className="ai-studio-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
                 {Object.entries(TOOL_META).map(([key, meta]) => {
                     const minLevel   = ROLE_LEVEL[meta.minRole as keyof typeof ROLE_LEVEL] ?? 0;
                     const roleOk     = userLevel >= minLevel;
@@ -595,7 +595,7 @@ export function AIPresetsView({ user }: { user: User }) {
                 </p>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: 14 }}>
+            <div className="ai-preset-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 14 }}>
                 {PRESETS.map(p => <PresetCard key={p.id} preset={p} user={user} />)}
             </div>
 

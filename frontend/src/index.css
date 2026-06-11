@@ -485,6 +485,14 @@ table.data.logtbl td{padding:6px 10px}
 .agent-dot{width:6px;height:6px;border-radius:50%;background:var(--navy);animation:agentBounce 1.2s infinite ease-in-out}
 @keyframes agentBounce{0%,80%,100%{transform:translateY(0);opacity:.6}40%{transform:translateY(-6px);opacity:1}}
 
+/* AI data-entry glow */
+.ai-glow-zone{animation:aiGlowPulse 1.6s ease-in-out infinite!important;border-style:solid!important}
+@keyframes aiGlowPulse{0%,100%{box-shadow:0 0 0 0 rgba(30,58,138,0),0 0 0 0 rgba(59,130,246,0);border-color:var(--navy)}50%{box-shadow:0 0 0 6px rgba(30,58,138,0.15),0 0 22px 6px rgba(59,130,246,0.12);border-color:#3b82f6}}
+@keyframes aiScanLine{0%{transform:translateY(-100%)}100%{transform:translateY(900%)}}
+@keyframes aiSparkFade{0%,100%{opacity:0;transform:scale(0.4) rotate(0deg)}50%{opacity:1;transform:scale(1) rotate(180deg)}}
+/* mobile responsive helpers */
+@media(max-width:640px){.de-controls-row{flex-direction:column!important;gap:12px!important}.ai-studio-grid{grid-template-columns:1fr!important}.ai-preset-grid{grid-template-columns:1fr!important}.ai-stat-row{flex-direction:column!important}.de-file-zone{padding:18px 14px!important}}
+
 .day-pills{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:18px}
 .day-pill{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border:1.5px solid var(--line);background:#fff;border-radius:22px;font-size:12.5px;font-weight:700;color:var(--muted);cursor:pointer;transition:all .14s}
 .day-pill:hover{background:var(--surface-2);color:var(--ink)}

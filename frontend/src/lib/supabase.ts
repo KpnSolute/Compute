@@ -111,7 +111,7 @@ export async function realLogin({
       await db.auth.signOut();
       return { ok: false, error: 'Account is disabled.' };
     }
-    if (!['admin', 'manager', 'assistant'].includes(profile.role)) {
+    if (!['admin', 'manager', 'assistant', 'sudo'].includes(profile.role)) {
       await db.auth.signOut();
       return { ok: false, error: 'Staff accounts must use the Staff login.' };
     }
