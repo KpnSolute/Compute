@@ -16,6 +16,24 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v2.4.2] — 2026-06-11 — Real-time SC panel: event bus + poll fallback
+
+**Claude:** Live editor latency eliminated. SC panel no longer requires a page refresh to reflect new staging activity.
+
+**Event bus (`mjcc:staging-changed` / `mjcc:committed`):**
+- `api.ts` — dispatches `mjcc:staging-changed` on every `submitStaging` success (covers all inventory stage actions)
+- `DataEntry.tsx` — dispatches `mjcc:staging-changed` immediately after upload completes
+- `SourceControl.tsx` — listens to `mjcc:staging-changed` → calls `loadData()` (instant badge + list update). Also dispatches `mjcc:committed` after successful commit and `mjcc:staging-changed` after reject.
+- `Portal.tsx` — listens to `mjcc:committed` → calls `reloadInv()` so inventory values/counts update without a manual refresh.
+
+**30-second poll fallback:** `SourceControl.tsx` runs `setInterval(loadData, 30000)` as a background catch-all for cross-tab edits or external staging that bypass the event bus.
+
+**Net effect:** Stage a row in inventory → SC badge updates immediately. Upload via Data Entry → badge jumps instantly, panel shows new entries. Commit → inventory value/par refreshes automatically. No page reload needed anywhere in the flow.
+
+**Push:** d572049 — 2026-06-11
+
+---
+
 ## [v2.4.1] — 2026-06-11 — SC staging fixes: missing fields + auto-open panel + production push
 
 **Claude (task force — sequential-thinking + chrome-devtools + Supabase MCP):**
