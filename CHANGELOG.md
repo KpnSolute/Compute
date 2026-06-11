@@ -16,6 +16,26 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v2.2.2] — 2026-06-10 — Fix AI agent tool column mismatches + SKU identity
+
+**Claude (backend/AI lane):** Three AI tool functions in `backend/ai/tools.py` were querying columns that don't exist in the actual schema, causing 500 errors in the agent loop.
+
+**Fixes applied:**
+
+- **`get_inventory`**: Was selecting `'category'` text column — actual column is `category_id` (uuid FK to `inventory_categories`). Fixed by joining `inventory_categories(name)` via Supabase relationship syntax. Items with blank SKU are now flagged `is_new_item: true` and surfaced in a separate `new_items` list in the response — consistent with the SKU-as-primary-identity contract in `inventory_identity.py`.
+
+- **`get_haccp_logs`**: Was selecting `'date,location,item,temp,pass'` — none of these match actual columns (`timestamp`, `temperature`, `checked_by`). Was also computing fake pass/fail via a `pass` boolean field that doesn't exist. Fixed select; simplified response to return raw temperature readings for the agent to interpret.
+
+- **`get_daily_logs`**: Was selecting `'date,entry_type,description,author'` — actual columns are `created_at`, `entry_type`, `title`, `description`, `severity`, `created_by`. Fixed select and order clause.
+
+**SKU-as-primary-identity:** Verified that `backend/inventory_identity.py`, `backend/staging/dispatch.py`, and the inventory routes all already implement SKU-based identity correctly (items with no/blank SKU auto-generate `MJC-<hex>` SKUs and land in the "New Items" review category). No additional changes needed in dispatch.
+
+**Verified:** `ast.parse()` syntax OK. `git commit 788e6e3`.
+
+**Push:** pending — not yet pushed.
+
+---
+
 ## [v2.2.1] — 2026-06-11 — Login fix: jeremiah/sudo
 
 **WatchCommander-Debugger (diagnosis + fix):** User `jeremiah` could not log in after their `user_profiles.role` was changed `admin` → `sudo`. Diagnosed as a frontend role allow-list gate, NOT a password problem.
