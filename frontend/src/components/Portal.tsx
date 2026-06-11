@@ -960,6 +960,7 @@ function InventoryView({
 }) {
     const lvl = ROLE_LEVEL[user.role];
     const canStage = lvl >= 10;
+    const canEditPar = lvl >= 30;
     const [q, setQ] = useState("");
     const [cat, setCat] = useState("");
     const [draft, setDraft] = useState<
@@ -1054,16 +1055,17 @@ function InventoryView({
         sku: string,
         field: "onHand" | "par",
         value: string,
-        fallback: number,
+        onHandFallback: number,
+        parFallback: number,
     ) => {
         const num = Number.isFinite(parseFloat(value))
             ? Math.max(0, parseFloat(value))
-            : fallback;
+            : field === "onHand" ? onHandFallback : parFallback;
         setDraft((prev) => ({
             ...prev,
             [sku]: {
-                onHand: prev[sku]?.onHand ?? fallback,
-                par: prev[sku]?.par ?? fallback,
+                onHand: prev[sku]?.onHand ?? onHandFallback,
+                par: prev[sku]?.par ?? parFallback,
                 [field]: num,
             },
         }));
@@ -1576,6 +1578,7 @@ function InventoryView({
                                                                 "onHand",
                                                                 e.target.value,
                                                                 r.onHand,
+                                                                r.par,
                                                             )
                                                         }
                                                         style={{
@@ -1593,7 +1596,7 @@ function InventoryView({
                                                     color: "var(--faint)",
                                                 }}
                                             >
-                                                {canStage ? (
+                                                {canEditPar ? (
                                                     <input
                                                         className="sheet-inp mobile-num-inp"
                                                         type="number"
@@ -1605,6 +1608,7 @@ function InventoryView({
                                                                 sku,
                                                                 "par",
                                                                 e.target.value,
+                                                                r.onHand,
                                                                 r.par,
                                                             )
                                                         }
@@ -1879,6 +1883,7 @@ function InventoryView({
                                                                                                     .target
                                                                                                     .value,
                                                                                                 r.onHand,
+                                                                                                r.par,
                                                                                             )
                                                                                         }
                                                                                         style={{
@@ -1897,7 +1902,7 @@ function InventoryView({
                                                                                     color: "var(--faint)",
                                                                                 }}
                                                                             >
-                                                                                {canStage ? (
+                                                                                {canEditPar ? (
                                                                                     <input
                                                                                         className="sheet-inp mobile-num-inp"
                                                                                         type="number"
@@ -1917,6 +1922,7 @@ function InventoryView({
                                                                                                 e
                                                                                                     .target
                                                                                                     .value,
+                                                                                                r.onHand,
                                                                                                 r.par,
                                                                                             )
                                                                                         }
@@ -2295,6 +2301,7 @@ function InventoryView({
                                                                                                     .target
                                                                                                     .value,
                                                                                                 r.onHand,
+                                                                                                r.par,
                                                                                             )
                                                                                         }
                                                                                     />
@@ -2312,7 +2319,7 @@ function InventoryView({
                                                                                 )}
                                                                             </td>
                                                                             <td className="r num">
-                                                                                {canStage ? (
+                                                                                {canEditPar ? (
                                                                                     <input
                                                                                         className="cinp"
                                                                                         type="number"
@@ -2331,6 +2338,7 @@ function InventoryView({
                                                                                                 e
                                                                                                     .target
                                                                                                     .value,
+                                                                                                r.onHand,
                                                                                                 r.par,
                                                                                             )
                                                                                         }

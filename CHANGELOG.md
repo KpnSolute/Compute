@@ -16,6 +16,25 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v2.4.3] — 2026-06-11 — Inventory input: par contamination fix + manager-only par editing
+
+**Claude:** Fixed critical bug where editing On Hand overwrote Par Level with the old On Hand value. Added manager-only gate on Par inputs.
+
+**Root cause:** `setDraftField` in `Portal.tsx` used a single `fallback` parameter for both `onHand` and `par` initialization. When a user edited On Hand first, the draft for that SKU was created with `par: fallback` where `fallback = r.onHand` (passed at the call site for On Hand edits). This contaminated `par` with the old On Hand value, which then propagated into the staging payload and was written to `inventory_items.par_level` by `dispatch_inventory_save` → `resolve_and_write_item`.
+
+**Fix (`Portal.tsx`):**
+- `setDraftField` signature changed from `(sku, field, value, fallback)` to `(sku, field, value, onHandFallback, parFallback)`.
+- Draft initialization now: `onHand: prev[sku]?.onHand ?? onHandFallback`, `par: prev[sku]?.par ?? parFallback`.
+- Numeric fallback for invalid input also field-aware: `field === "onHand" ? onHandFallback : parFallback`.
+- All 6 call sites (regular view ×2, grouped view ×2, compact view ×2) updated to pass `r.onHand, r.par` as the two separate fallbacks.
+- Added `canEditPar = lvl >= 30` (manager+). Par inputs in all 3 views now gate on `canEditPar` instead of `canStage`. Staff (lvl 10-29) see par as read-only — they can only edit On Hand.
+
+**Verified:** `tsc --noEmit` clean (exit 0) before push.
+
+**Push:** pending — 2026-06-11
+
+---
+
 ## [v2.4.2] — 2026-06-11 — Real-time SC panel: event bus + poll fallback
 
 **Claude:** Live editor latency eliminated. SC panel no longer requires a page refresh to reflect new staging activity.
