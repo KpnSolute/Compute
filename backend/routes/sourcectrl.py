@@ -106,7 +106,7 @@ def _get_auth_user(authorization: str = Header("")) -> dict:
 
 
 def _require_admin_or_manager(auth_user: dict = Depends(_get_auth_user)) -> dict:
-    if auth_user.get("role") not in ("admin", "manager"):
+    if auth_user.get("role") not in ("admin", "manager", "sudo"):
         raise HTTPException(status_code=403, detail="Admin or manager role required")
     return auth_user
 

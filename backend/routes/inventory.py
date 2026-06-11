@@ -624,7 +624,7 @@ async def rollover_period(
     month's opening balance, and publishes the old month.
     """
     role = (auth_user.get("role") or "").lower()
-    if role not in ("admin", "manager"):
+    if role not in ("admin", "manager", "sudo"):
         raise HTTPException(
             status_code=403, detail="Manager access required to roll over the month."
         )

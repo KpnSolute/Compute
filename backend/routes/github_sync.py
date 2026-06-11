@@ -136,7 +136,7 @@ def _require_admin_or_manager(authorization: str = Header("")) -> dict:
             )
         except Exception:
             raise HTTPException(status_code=401, detail="Invalid session")
-        if not r.data or r.data[0].get("role") not in ("admin", "manager"):
+        if not r.data or r.data[0].get("role") not in ("admin", "manager", "sudo"):
             raise HTTPException(status_code=403, detail="Admin or manager role required")
         return r.data[0]
     claims = jwt_validator.verify_token(token)
@@ -157,7 +157,7 @@ def _require_admin_or_manager(authorization: str = Header("")) -> dict:
         )
     except Exception:
         raise HTTPException(status_code=401, detail="User not found or inactive")
-    if not r.data or r.data[0].get("role") not in ("admin", "manager"):
+    if not r.data or r.data[0].get("role") not in ("admin", "manager", "sudo"):
         raise HTTPException(status_code=403, detail="Admin or manager role required")
     return r.data[0]
 
