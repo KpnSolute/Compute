@@ -16,6 +16,31 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v2.5.2] — 2026-06-11 — Backend: unit field, on_hand guard, staging dedup + role filter
+
+**Claude:** 4-file backend fix targeting the remaining root causes behind "par replacing on_hand" and silent data loss during commit replay. All changes are surgical and backward-compatible. No schema migrations required.
+
+**Fixes applied:**
+
+| ID | File | What changed |
+|----|------|-------------|
+| BE-INV-A | `backend/inventory_identity.py` | Added `unit` parameter to `resolve_and_write_item`; unit is now written to `inventory_items.unit` on every insert + update path |
+| BE-INV-A | `backend/routes/inventory.py` | `_flatten_rows` now maps `inventory_items.unit` → `InventoryItem.unit` (was always returning "each" regardless of DB value); `save_inventory` passes `unit=` to resolver |
+| BE-INV-A | `backend/staging/dispatch.py` | `dispatch_inventory_save` + `dispatch_inventory_week` both pass `unit=item.get("unit")` to resolver |
+| BE-INV-D (new) | `backend/staging/dispatch.py` | `dispatch_inventory_save` `on_hand` write is now conditional: `item.get("onHand") is not None` guard prevents a missing/absent key from silently zeroing an existing monthly balance (closes the backend contamination vector where default 0 overwrote a valid count when `onHand` was absent from payload) |
+| BE-SC-03 | `backend/routes/sourcectrl.py` | `GET /staging`: staff role users now filtered to their own pending entries only; managers/admins see all |
+| I-INV-04 | `backend/routes/sourcectrl.py` | `POST /staging`: dedup — if the same submitter has a pending entry for the same `entity_id + field_name`, it is updated in place rather than creating a duplicate |
+| BE-SC-04 | `backend/routes/sourcectrl.py` | `DELETE /staging/{entry_id}`: added `.eq("status", "pending")` guard — reject can no longer overwrite already-merged entries |
+
+**Remaining backend items (not in this pass):**
+- BE-INV-B: `POST /api/inventory` has no role check — staff can bypass staging via direct save
+- BE-SC-02: commit replay is not atomic — data applies before commit row is created; partial failure leaves orphan applied data
+- I-SC-02: GitHub sync worker broken — `github_sync_queue` items enqueue but are not processed (Render infra, separate investigation)
+
+**Push:** 032c285 — 2026-06-11
+
+---
+
 ## [v2.5.1] — 2026-06-11 — Inventory input system: all critical + high frontend bugs fixed
 
 **Claude:** Fixed every confirmed bug in the inventory dynamic input system. 9 targeted changes across 4 files. `tsc --noEmit` exits 0.
