@@ -16,6 +16,29 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v3.0.4] — 2026-06-12 — Track 3: category management panel + CRUD endpoints
+
+**Claude (mjcc-ui + mjcc-api):** Track 3 inventory management — category CRUD.
+
+**backend/routes/data.py:**
+- `POST /api/inventory-categories` — create (auto-assigns sort_order = max+1)
+- `PATCH /api/inventory-categories/{id}` — rename + optional sort_order update
+- `DELETE /api/inventory-categories/{id}` — blocked with 409 if active items assigned
+- `_require_manager()` guard (role_level >= 30) for all mutation endpoints
+
+**frontend/src/components/Portal.tsx:**
+- `CategoryManager` component: WinCard (collapsed by default), inline rename, sort-order input, delete + confirm, add-new form with Enter key support
+- "New Items" review bucket: marked with pill, delete disabled client-side
+- Rendered below inventory table gated by `canEditPar` (manager+)
+- `reloadCatNames` callback in `InventoryView` refreshes the category dropdown after mutations
+
+**frontend/src/lib/api.ts:** `createCategory`, `updateCategory`, `deleteCategory` methods
+
+**Build:** `tsc` 0 · `npm run build` 0 · `ruff` 0
+**Push:** `6248d07` — 2026-06-12
+
+---
+
 ## [v3.0.3] — 2026-06-12 — Track 1+3: topbar breadcrumb + period status pill
 
 **Claude (mjcc-ui + mjcc-api):** Two targeted improvements shipped together.
