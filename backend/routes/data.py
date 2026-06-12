@@ -234,6 +234,80 @@ async def get_inventory_categories(auth_user: dict = Depends(_get_auth_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _require_manager(auth_user: dict = Depends(_get_auth_user)) -> dict:
+    role_levels = {'staff': 10, 'assistant': 20, 'manager': 30, 'admin': 40, 'sudo': 50}
+    if role_levels.get(auth_user.get('role', ''), 0) < 30:
+        raise HTTPException(status_code=403, detail='Manager or above required')
+    return auth_user
+
+
+class CategoryBody(BaseModel):
+    name: str
+    sort_order: int | None = None
+
+
+@router.post('/inventory-categories', status_code=201)
+async def create_category(body: CategoryBody, auth_user: dict = Depends(_require_manager)):
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail='Category name is required')
+    # auto-assign sort_order = max + 1 if not provided
+    try:
+        existing = supabase_service.table('inventory_categories').select('sort_order').execute()
+        max_sort = max((r.get('sort_order') or 0 for r in (existing.data or [])), default=0)
+        sort_order = body.sort_order if body.sort_order is not None else max_sort + 1
+        result = supabase_service.table('inventory_categories').insert(
+            {'name': name, 'sort_order': sort_order}
+        ).execute()
+        return result.data[0] if result.data else {}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch('/inventory-categories/{cat_id}')
+async def update_category(cat_id: str, body: CategoryBody, auth_user: dict = Depends(_require_manager)):
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail='Category name is required')
+    update: dict = {'name': name}
+    if body.sort_order is not None:
+        update['sort_order'] = body.sort_order
+    try:
+        result = (
+            supabase_service.table('inventory_categories')
+            .update(update)
+            .eq('id', cat_id)
+            .execute()
+        )
+        return result.data[0] if result.data else {}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete('/inventory-categories/{cat_id}', status_code=204)
+async def delete_category(cat_id: str, auth_user: dict = Depends(_require_manager)):
+    # Block deletion if any inventory items are assigned to this category
+    try:
+        items = (
+            supabase_service.table('inventory_items')
+            .select('id')
+            .eq('category_id', cat_id)
+            .eq('active', True)
+            .limit(1)
+            .execute()
+        )
+        if items.data:
+            raise HTTPException(
+                status_code=409,
+                detail='Cannot delete a category that has active inventory items',
+            )
+        supabase_service.table('inventory_categories').delete().eq('id', cat_id).execute()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Dashboard Stats ────────────────────────────────────────────────────────
 
 

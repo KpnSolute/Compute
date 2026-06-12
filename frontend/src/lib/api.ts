@@ -248,6 +248,22 @@ export const api = {
     return req('/api/inventory-categories');
   },
 
+  async createCategory(name: string, sort_order?: number): Promise<any> {
+    return req('/api/inventory-categories', {
+      method: 'POST', body: JSON.stringify({ name, sort_order: sort_order ?? null }),
+    });
+  },
+
+  async updateCategory(id: string, name: string, sort_order?: number): Promise<any> {
+    return req(`/api/inventory-categories/${encodeURIComponent(id)}`, {
+      method: 'PATCH', body: JSON.stringify({ name, sort_order: sort_order ?? null }),
+    });
+  },
+
+  async deleteCategory(id: string): Promise<void> {
+    return req(`/api/inventory-categories/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+
   // Dashboard
   async getDashboardStats(): Promise<any> {
     return req('/api/dashboard/stats');

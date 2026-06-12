@@ -1064,18 +1064,15 @@ function InventoryView({
     // "New Items"), so the add/edit dropdowns can target a bucket even when no
     // item is in it yet. Falls back to item-derived names if the fetch fails.
     const [apiCatNames, setApiCatNames] = useState<string[]>([]);
-    useEffect(() => {
-        let alive = true;
+    const reloadCatNames = useCallback(() => {
         api.getInventoryCategories()
             .then((rows: any[]) => {
-                if (alive && Array.isArray(rows))
+                if (Array.isArray(rows))
                     setApiCatNames(rows.map((c) => c.name).filter(Boolean));
             })
             .catch(() => {});
-        return () => {
-            alive = false;
-        };
     }, []);
+    useEffect(() => { reloadCatNames(); }, [reloadCatNames]);
 
     // Weekly pulled (issued, ↓) / received (↑) columns — mirrors the offline
     // template's compact sheet. Edits live in local `wkDraft` and are persisted
@@ -2838,7 +2835,172 @@ function InventoryView({
                     </div>
                 </div>
             )}
+
+            {/* Category management — manager+ only */}
+            {canEditPar && (
+                <CategoryManager onChanged={reloadCatNames} />
+            )}
         </div>
+    );
+}
+
+function CategoryManager({ onChanged }: { onChanged?: () => void }) {
+    const [cats, setCats] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [err, setErr] = useState<string | null>(null);
+    const [editing, setEditing] = useState<Record<string, { name: string; sort_order: string }>>({});
+    const [editBusy, setEditBusy] = useState<Record<string, boolean>>({});
+    const [delBusy, setDelBusy] = useState<Record<string, boolean>>({});
+    const [newName, setNewName] = useState('');
+    const [addBusy, setAddBusy] = useState(false);
+    const [addErr, setAddErr] = useState<string | null>(null);
+
+    const load = useCallback(() => {
+        setLoading(true);
+        setErr(null);
+        api.getInventoryCategories()
+            .then(data => { setCats(data || []); })
+            .catch(e => { setErr(e?.message || 'Failed to load categories'); })
+            .finally(() => setLoading(false));
+    }, []);
+
+    useEffect(() => { load(); }, [load]);
+
+    const startEdit = (cat: any) =>
+        setEditing(p => ({ ...p, [cat.id]: { name: cat.name, sort_order: String(cat.sort_order ?? '') } }));
+    const cancelEdit = (id: string) =>
+        setEditing(p => { const n = { ...p }; delete n[id]; return n; });
+
+    const saveEdit = async (cat: any) => {
+        const vals = editing[cat.id];
+        if (!vals) return;
+        setEditBusy(p => ({ ...p, [cat.id]: true }));
+        try {
+            const sortVal = vals.sort_order !== '' ? +vals.sort_order : undefined;
+            await api.updateCategory(cat.id, vals.name, sortVal);
+            cancelEdit(cat.id);
+            load();
+            onChanged?.();
+        } catch (e: any) {
+            setErr(e?.message || 'Save failed');
+        } finally {
+            setEditBusy(p => ({ ...p, [cat.id]: false }));
+        }
+    };
+
+    const doDelete = async (cat: any) => {
+        if (!window.confirm(`Delete category "${cat.name}"? This cannot be undone.`)) return;
+        setDelBusy(p => ({ ...p, [cat.id]: true }));
+        try {
+            await api.deleteCategory(cat.id);
+            load();
+            onChanged?.();
+        } catch (e: any) {
+            setErr(e?.message || 'Delete failed');
+        } finally {
+            setDelBusy(p => ({ ...p, [cat.id]: false }));
+        }
+    };
+
+    const doAdd = async () => {
+        if (!newName.trim()) return;
+        setAddBusy(true);
+        setAddErr(null);
+        try {
+            await api.createCategory(newName.trim());
+            setNewName('');
+            load();
+            onChanged?.();
+        } catch (e: any) {
+            setAddErr(e?.message || 'Add failed');
+        } finally {
+            setAddBusy(false);
+        }
+    };
+
+    return (
+        <WinCard title="Category management" defaultOpen={false} style={{ marginTop: 16 }}>
+            {loading && <div style={{ padding: '12px 0', color: 'var(--muted)', fontSize: 12 }}>Loading…</div>}
+            {err && <div className="banner warn" style={{ marginBottom: 10 }}>{I.alert()} <span>{err}</span></div>}
+            {!loading && (
+                <table className="data" style={{ marginBottom: 14 }}>
+                    <thead>
+                        <tr><th>Name</th><th className="r" style={{ width: 80 }}>Order</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        {cats.map(cat => {
+                            const isEditing = !!editing[cat.id];
+                            const isNew = cat.name === 'New Items';
+                            return (
+                                <tr key={cat.id}>
+                                    <td>
+                                        {isEditing ? (
+                                            <input
+                                                className="sheet-inp"
+                                                value={editing[cat.id].name}
+                                                onChange={e => setEditing(p => ({ ...p, [cat.id]: { ...p[cat.id], name: e.target.value } }))}
+                                                style={{ width: '100%', minWidth: 120 }}
+                                                autoFocus
+                                            />
+                                        ) : (
+                                            <span style={{ fontWeight: 600 }}>{cat.name}</span>
+                                        )}
+                                        {isNew && <span className="pill warn" style={{ marginLeft: 6, fontSize: 10 }}>review bucket</span>}
+                                    </td>
+                                    <td className="r">
+                                        {isEditing ? (
+                                            <input
+                                                className="sheet-inp"
+                                                type="number"
+                                                value={editing[cat.id].sort_order}
+                                                onChange={e => setEditing(p => ({ ...p, [cat.id]: { ...p[cat.id], sort_order: e.target.value } }))}
+                                                style={{ width: 60, textAlign: 'right' }}
+                                            />
+                                        ) : (
+                                            <span style={{ color: 'var(--muted)', fontSize: 12 }}>{cat.sort_order}</span>
+                                        )}
+                                    </td>
+                                    <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                                        {isEditing ? (
+                                            <>
+                                                <button className="btn primary" style={{ fontSize: 11, padding: '3px 10px', marginRight: 4 }} onClick={() => saveEdit(cat)} disabled={editBusy[cat.id]}>
+                                                    {editBusy[cat.id] ? '…' : 'Save'}
+                                                </button>
+                                                <button className="btn" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => cancelEdit(cat.id)}>Cancel</button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <button className="btn" style={{ fontSize: 11, padding: '3px 10px', marginRight: 4 }} onClick={() => startEdit(cat)}>Rename</button>
+                                                {!isNew && (
+                                                    <button className="btn" style={{ fontSize: 11, padding: '3px 10px', color: 'var(--red)', borderColor: 'var(--red)' }} onClick={() => doDelete(cat)} disabled={delBusy[cat.id]}>
+                                                        {delBusy[cat.id] ? '…' : 'Delete'}
+                                                    </button>
+                                                )}
+                                            </>
+                                        )}
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            )}
+            {/* Add new category */}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                    className="sheet-inp"
+                    placeholder="New category name…"
+                    value={newName}
+                    onChange={e => setNewName(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') doAdd(); }}
+                    style={{ flex: 1 }}
+                />
+                <button className="btn primary" onClick={doAdd} disabled={addBusy || !newName.trim()} style={{ minHeight: 36 }}>
+                    {addBusy ? '…' : '+ Add'}
+                </button>
+            </div>
+            {addErr && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 6 }}>{addErr}</div>}
+        </WinCard>
     );
 }
 

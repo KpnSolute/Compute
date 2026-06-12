@@ -16,6 +16,39 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v3.0.3] — 2026-06-12 — Track 1+3: topbar breadcrumb + period status pill
+
+**Claude (mjcc-ui + mjcc-api):** Two targeted improvements shipped together.
+
+**Track 1 — Topbar breadcrumb (item 5 from game plan):**
+- `tb-sub` now shows the current page name ("Dashboard", "Inventory", "Data Entry", etc.) from a `VIEW_LABELS` map instead of the static "Inventory · 28-Day Menu · Sourcing" text
+- Title shortened to "KpnCompute · MJCC" — breadcrumb in subtitle provides context
+- `active` prop added to Topbar signature; Portal passes it through
+
+**Track 3 — Period published/open status indicator:**
+- Green "Open" or amber "Published" pill rendered in topbar right of year selector
+- Fetches `GET /api/inventory/month-status?month=N&year=Y` on every period change
+- New backend endpoint in `backend/routes/inventory.py` — queries `month_status` table (0-indexed DB, 1-indexed API), returns `{month, year, status, published}`
+- New `api.getMonthStatus()` method in `frontend/src/lib/api.ts`
+- CSS: `.period-status-pill`, `.period-status-pill.open`, `.period-status-pill.published`, `.psp-dot`
+
+**Build:** `tsc --noEmit` 0 · `npm run build` 0 · `ruff check` 0
+**Push:** `6f9caaa` — 2026-06-12
+
+---
+
+## [v3.0.2] — 2026-06-12 — Phase 2: windowed cards, WinCard, modal polish
+
+**Claude (mjcc-ui):** WinCard component + all 7 dashboard cards converted. Build passes clean.
+
+**Portal.tsx:** Added `WinCard` component (collapsible panels, chevron toggle, optional traffic-light dots). All 7 Dashboard panels converted.
+**index.css:** `.card-head` bg + sizing, `.win-collapse`, `.card.win-collapsed`, `.win-dots`/`.win-dot`, modal border-radius/head, `.page-head` bottom border, `.tab-bar`/`.tab-btn`.
+
+**Build:** `tsc` 0 · `npm run build` 0
+**Push:** `b4f1c32` — 2026-06-12
+
+---
+
 ## [v3.0.1] — 2026-06-12 — Phase 1: VSCode shell — activity bar, explorer panel, status bar
 
 **Claude (mjcc-ui):** VSCode/Replit shell foundation. Build passes clean.
