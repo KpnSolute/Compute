@@ -151,6 +151,7 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
                 par=max(0, int(_to_float(inv_item.get("par_level")))),
                 category=cat.get("name") or "",
                 price=_to_float(row.get("unit_price")),
+                unit=inv_item.get("unit") or "each",
                 w1r=int(_to_float(row.get("w1_received"))),
                 w2r=int(_to_float(row.get("w2_received"))),
                 w3r=int(_to_float(row.get("w3_received"))),
@@ -328,6 +329,7 @@ async def save_inventory(
                 fallback_category_id=new_items_cat_id,
                 price=item.price,
                 par=item.par,
+                unit=item.unit or None,
             )
             if not inv_item_id:
                 continue

@@ -198,6 +198,10 @@ async def get_staging(
         )
         if entity_type:
             q = q.eq("entity_type", entity_type)
+        # Staff only see their own pending entries; managers/admins see all
+        role = (auth_user.get("role") or "").lower()
+        if role not in ("admin", "manager", "sudo"):
+            q = q.eq("submitted_by", auth_user["id"])
         r = q.order("created_at", desc=True).execute()
 
         if not r.data:
@@ -243,6 +247,33 @@ async def submit_staging(
             status_code=422, detail=f"entity_type must be one of {sorted(ENTITY_TYPES)}"
         )
     try:
+        # Dedup: if this submitter already has a pending entry for the same
+        # entity_id + field_name, update it rather than stacking duplicates.
+        existing_r = (
+            _client()
+            .table("staging_entries")
+            .select("entry_id")
+            .eq("entity_id", body.entity_id)
+            .eq("field_name", body.field_name)
+            .eq("submitted_by", auth_user["id"])
+            .eq("status", "pending")
+            .limit(1)
+            .execute()
+        )
+        if existing_r.data:
+            entry_id = existing_r.data[0]["entry_id"]
+            update_fields = {
+                "old_value_text": body.old_value,
+                "new_value_text": body.new_value,
+                "metadata": body.metadata or {},
+                "operation": body.operation,
+                "full_payload": body.full_payload,
+            }
+            r = _client().table("staging_entries").update(update_fields).eq("entry_id", entry_id).execute()
+            if not r.data:
+                raise HTTPException(status_code=500, detail="Dedup update returned no data.")
+            return r.data[0]
+
         row = {
             "entity_type": body.entity_type,
             "entity_id": body.entity_id,
@@ -414,10 +445,11 @@ async def reject_staging(
                 }
             )
             .eq("entry_id", entry_id)
+            .eq("status", "pending")
             .execute()
         )
         if not r.data:
-            raise HTTPException(status_code=404, detail="Staging entry not found.")
+            raise HTTPException(status_code=404, detail="Staging entry not found or already processed.")
         return None
     except HTTPException:
         raise

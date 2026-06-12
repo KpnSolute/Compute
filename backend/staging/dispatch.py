@@ -53,17 +53,22 @@ def dispatch_inventory_save(payload: dict) -> dict:
             fallback_category_id=new_items_cat_id,
             price=item.get("price"),
             par=item.get("par"),
+            unit=item.get("unit") or None,
             force_review_category=review_new,
         )
         if not item_id:
             continue
 
-        monthly_fields = {
+        monthly_fields: dict = {
             "item_id": item_id,
             "month": db_month,
             "year": year,
-            "on_hand": item.get("onHand", 0),
         }
+        # Only write on_hand when explicitly in the payload — a missing key must
+        # not zero an existing balance. Default 0 only for new rows (DB default).
+        on_hand = item.get("onHand")
+        if on_hand is not None:
+            monthly_fields["on_hand"] = max(0, int(on_hand))
         if item.get("price") is not None:
             monthly_fields["unit_price"] = item["price"]
         # Only write weekly columns when explicitly present in the payload — omitting
@@ -193,6 +198,7 @@ def dispatch_inventory_week(payload: dict) -> dict:
             fallback_category_id=new_items_cat_id,
             price=item.get("price"),
             par=item.get("par"),
+            unit=item.get("unit") or None,
             force_review_category=review_new,
         )
         if not item_id:

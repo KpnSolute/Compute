@@ -54,6 +54,7 @@ def resolve_and_write_item(
     fallback_category_id: str | None,
     price=None,
     par=None,
+    unit: str | None = None,
     force_review_category: bool = False,
 ) -> tuple[str | None, str, bool]:
     """Find an inventory_items row by SKU (or create it). Returns
@@ -73,8 +74,8 @@ def resolve_and_write_item(
     )
     row = (existing.data or [None])[0]
 
-    # Shared fields written on both insert and update. Only write par/price when
-    # the payload actually carries them — a missing value must not zero the
+    # Shared fields written on both insert and update. Only write par/price/unit
+    # when the payload actually carries them — a missing value must not zero the
     # shared inventory_items row across every period.
     fields = {
         "sku": sku,
@@ -85,6 +86,8 @@ def resolve_and_write_item(
         fields["unit_price"] = price
     if par is not None:
         fields["par_level"] = par
+    if unit:
+        fields["unit"] = unit
 
     if row:
         item_id = row["id"]
