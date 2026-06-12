@@ -16,6 +16,34 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v3.0.5] — 2026-06-12 — Phase 3: complete AI data entry UI
+
+**Claude (mjcc-ui):** Rewrote `DataEntry.tsx` to fully expose the already-built backend AI pipeline.
+
+**Upload card → WinCard** (traffic-light dots, collapsible, consistent Phase 2 windowed style).
+
+**AI stack settings enhanced:**
+- Provider dropdown with human-readable labels (Groq, Anthropic, OpenAI, Mistral, Ollama, LM Studio)
+- Model dropdown populated from API per-provider model lists — changes on provider switch, falls back to text input for custom
+- Local providers (Ollama, LM Studio) show Server URL field
+
+**AI keys management (sudo only) — `AIKeysPanel`:**
+- Lists all 6 providers with key-set indicator (● Key set / ○ No key) and active status pill
+- Inline key update: password input (never revealed), base URL for OpenAI/Ollama/LM Studio, active checkbox
+- Only one provider can be active at a time (backend enforces)
+- Without this, there was no way to set API keys from the UI
+
+**AI usage stats (sudo only) — `AIUsagePanel`:**
+- 7d / 30d / 90d rolling window toggle
+- Summary tiles: calls, success rate, total tokens, total cost, avg latency
+- Per-provider breakdown table
+- Recent 50 calls with model, operation, token count, cost, latency, status, error preview
+
+**Build:** `tsc` 0 · `npm run build` 0
+**Push:** `958a2f6` — 2026-06-12
+
+---
+
 ## [v3.0.4] — 2026-06-12 — Track 3: category management panel + CRUD endpoints
 
 **Claude (mjcc-ui + mjcc-api):** Track 3 inventory management — category CRUD.
