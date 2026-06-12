@@ -577,6 +577,24 @@ def _label(month: int | None, year: int | None) -> str:
     return f"{_MONTHS[month]} {year}"
 
 
+@router.get("/month-status")
+async def get_month_status(month: int, year: int, auth_user: dict = Depends(_get_auth_user)):
+    """Return published/open status for a specific period.
+    month is 1-indexed (API convention); DB stores 0-indexed.
+    """
+    db_month = month - 1
+    r = (
+        supabase_service.table('month_status')
+        .select('status')
+        .eq('month', db_month)
+        .eq('year', year)
+        .limit(1)
+        .execute()
+    )
+    status = r.data[0]['status'] if r.data else 'open'
+    return {'month': month, 'year': year, 'status': status, 'published': status == 'published'}
+
+
 @router.get("/period-status", response_model=PeriodStatus)
 async def get_period_status(auth_user: dict = Depends(_get_auth_user)):
     """Compare the current real-world month to the latest inventory period.

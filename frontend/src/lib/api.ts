@@ -178,6 +178,10 @@ export const api = {
     return req('/api/inventory/period-status');
   },
 
+  async getMonthStatus(month: number, year: number): Promise<{ month: number; year: number; status: string; published: boolean }> {
+    return req(`/api/inventory/month-status?month=${month}&year=${year}`);
+  },
+
   async performRollover(message?: string): Promise<{ ok: boolean; result: any }> {
     return req('/api/inventory/rollover', { method: 'POST', body: JSON.stringify({ message: message ?? null }) });
   },

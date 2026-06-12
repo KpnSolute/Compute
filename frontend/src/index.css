@@ -396,6 +396,12 @@ table.data .num{font-family:var(--mono);font-weight:700}
 .inv-badge.err .rt{background:#F87171;animation:none}
 .inv-badge.syncing .rt{background:#FBBF24}
 .inv-badge{cursor:pointer}
+.period-status-pill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:99px;white-space:nowrap;flex-shrink:0}
+.period-status-pill.open{background:#f0fdf4;color:#15803d;border:1px solid #86efac}
+.period-status-pill.published{background:#fff7ed;color:#b45309;border:1px solid #fcd34d}
+.psp-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.period-status-pill.open .psp-dot{background:#22c55e}
+.period-status-pill.published .psp-dot{background:#f59e0b}
 
 .load-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;gap:16px;color:var(--muted)}
 .spinner{width:34px;height:34px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}

@@ -13,6 +13,23 @@ import {
 const ROUTE_MIN: Record<string, number> = Object.fromEntries(
     NAV.flatMap((g) => g.items.map((i) => [i.key, i.min || 0])),
 ) as Record<string, number>;
+
+const VIEW_LABELS: Record<string, string> = {
+    dashboard:  'Dashboard',
+    inventory:  'Inventory',
+    moninv:     'Monthly Inventory',
+    archives:   'Archives',
+    events:     'Events',
+    mballot:    'Meal Log',
+    compliance: 'Compliance',
+    dataentry:  'Data Entry',
+    sourcectrl: 'Source Control',
+    reports:    'Reports',
+    settings:   'Settings',
+    forms:      'Forms',
+    templates:  'Templates',
+    users:      'Users',
+};
 import {
     realLogout,
     loadLog,
@@ -106,6 +123,8 @@ function Topbar({
     scOpen,
     onToggleSC,
     scCount,
+    active,
+    periodPublished,
 }: {
     user: User;
     period: [number, number];
@@ -115,6 +134,8 @@ function Topbar({
     scOpen?: boolean;
     onToggleSC?: () => void;
     scCount?: number;
+    active?: string;
+    periodPublished?: boolean | null;
 }) {
     const [menu, setMenu] = useState(false);
     useEffect(() => {
@@ -147,9 +168,9 @@ function Topbar({
                     <KpnMark size={26} />
                 </span>
                 <div>
-                    <div className="tb-title">KpnCompute · MJCC Portal</div>
+                    <div className="tb-title">KpnCompute · MJCC</div>
                     <div className="tb-sub">
-                        Inventory · 28-Day Menu · Sourcing
+                        {active && VIEW_LABELS[active] ? VIEW_LABELS[active] : 'Portal'}
                     </div>
                 </div>
             </div>
@@ -179,6 +200,12 @@ function Topbar({
                         </option>
                     ))}
                 </select>
+                {periodPublished !== null && periodPublished !== undefined && (
+                    <span className={`period-status-pill${periodPublished ? ' published' : ' open'}`}>
+                        <span className="psp-dot" />
+                        {periodPublished ? 'Published' : 'Open'}
+                    </span>
+                )}
                 {onToggleSC && (
                     <button
                         className={"tb-sc-btn" + (scOpen ? " active" : "")}
@@ -3625,9 +3652,21 @@ export function Portal({
     const [scPanelOpen, setScPanelOpen] = useState(false);
     const [invState, reloadInv] = useInventory();
     const [stagedCount, setStagedCount] = useState(0);
+    const [periodPublished, setPeriodPublished] = useState<boolean | null>(null);
+
     useEffect(() => {
         (window as any).__logout = onLogout;
     }, [onLogout]);
+
+    // Fetch published/open status for the currently selected period
+    useEffect(() => {
+        let alive = true;
+        setPeriodPublished(null);
+        api.getMonthStatus(period[0] + 1, period[1])
+            .then(s => { if (alive) setPeriodPublished(s.published); })
+            .catch(() => { if (alive) setPeriodPublished(null); });
+        return () => { alive = false; };
+    }, [period[0], period[1]]);
 
     // Reload inventory automatically when a commit is applied
     useEffect(() => {
@@ -3735,6 +3774,8 @@ export function Portal({
                 scOpen={scPanelOpen}
                 onToggleSC={() => setScPanelOpen((v) => !v)}
                 scCount={stagedCount}
+                active={active}
+                periodPublished={periodPublished}
             />
             <ActivityBar
                 user={user}
