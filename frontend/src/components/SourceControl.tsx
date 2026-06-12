@@ -132,14 +132,24 @@ export function SourceControlPanel({
         return () => clearInterval(id);
     }, [loadData]);
 
+    // Refresh immediately when the tab comes back into focus — browsers throttle
+    // setInterval in background tabs, so this guarantees a fresh load on return.
+    useEffect(() => {
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') loadData();
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        return () => document.removeEventListener('visibilitychange', onVisible);
+    }, [loadData]);
+
     useEffect(() => {
         onCountChange?.(staged.length);
     }, [staged.length, onCountChange]);
 
     const myStaged = staged.filter(
         (s) =>
-            s.submitted_by === user.username ||
-            s.submitter_name?.startsWith(user.display_name),
+            s.submitted_by === user.id ||
+            s.submitter_name === user.display_name,
     );
     const visibleStaged = isStaff ? myStaged : staged;
     const lastCommit = commits[0];

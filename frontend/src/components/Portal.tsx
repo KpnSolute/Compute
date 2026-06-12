@@ -1058,17 +1058,26 @@ function InventoryView({
         onHandFallback: number,
         parFallback: number,
     ) => {
-        const num = Number.isFinite(parseFloat(value))
-            ? Math.max(0, parseFloat(value))
-            : field === "onHand" ? onHandFallback : parFallback;
-        setDraft((prev) => ({
-            ...prev,
-            [sku]: {
-                onHand: prev[sku]?.onHand ?? onHandFallback,
-                par: prev[sku]?.par ?? parFallback,
-                [field]: num,
-            },
-        }));
+        const parsed = parseFloat(value);
+        const valid = Number.isFinite(parsed);
+        setDraft((prev) => {
+            const cur = prev[sku];
+            // When the user clears/invalidates the field, preserve the existing
+            // draft value rather than snapping back to the DB fallback mid-input.
+            const num = valid
+                ? Math.max(0, parsed)
+                : field === "onHand"
+                    ? (cur?.onHand ?? onHandFallback)
+                    : (cur?.par ?? parFallback);
+            return {
+                ...prev,
+                [sku]: {
+                    onHand: cur?.onHand ?? onHandFallback,
+                    par: cur?.par ?? parFallback,
+                    [field]: num,
+                },
+            };
+        });
     };
 
     const stageInventoryRow = async (row: any) => {
@@ -1149,11 +1158,12 @@ function InventoryView({
                         const qty = wkDraft[sku]?.[colKey] ?? (r[colKey] ?? 0);
                         return { sku, desc: r.desc, category: r.cat, price: r.price, par: r.par, qty };
                     });
-                // Rows with only on_hand/par edits (no wkDraft) still need an inventory_save.
+                // Rows with on_hand/par edits need an inventory_save regardless of
+                // whether they also have wkDraft entries — both changes are staged independently.
                 const monthItems = dirty
                     .filter((r: any) => {
                         const sku = String(r.sku || "");
-                        return draft[sku] && !wkDraft[sku];
+                        return Boolean(draft[sku]);
                     })
                     .map((r: any) => {
                         const sku = String(r.sku);
@@ -1958,33 +1968,38 @@ function InventoryView({
                                                                                 <td className="r">
                                                                                     <button
                                                                                         className="btn"
+                                                                                        disabled={!sku}
+                                                                                        style={{
+                                                                                            padding: "5px 10px",
+                                                                                            marginRight: 6,
+                                                                                        }}
+                                                                                        onClick={() => openEdit(r)}
+                                                                                        title="Edit / reassign / delete this item"
+                                                                                    >
+                                                                                        Edit
+                                                                                    </button>
+                                                                                    <button
+                                                                                        className="btn"
                                                                                         disabled={
                                                                                             !hasDraft ||
                                                                                             !sku ||
                                                                                             Boolean(
-                                                                                                stagingBusy[
-                                                                                                    sku
-                                                                                                ],
+                                                                                                stagingBusy[sku],
                                                                                             )
                                                                                         }
                                                                                         style={{
-                                                                                            padding:
-                                                                                                "5px 10px",
+                                                                                            padding: "5px 10px",
                                                                                         }}
                                                                                         onClick={() =>
-                                                                                            stageInventoryRow(
-                                                                                                {
-                                                                                                    ...r,
-                                                                                                    onHand,
-                                                                                                    par,
-                                                                                                },
-                                                                                            )
+                                                                                            stageInventoryRow({
+                                                                                                ...r,
+                                                                                                onHand,
+                                                                                                par,
+                                                                                            })
                                                                                         }
                                                                                         title="Stage this row in Source Control"
                                                                                     >
-                                                                                        {stagingBusy[
-                                                                                            sku
-                                                                                        ]
+                                                                                        {stagingBusy[sku]
                                                                                             ? "Staging…"
                                                                                             : "Stage"}
                                                                                     </button>
@@ -3320,6 +3335,7 @@ function ArchivesView(_props: { period: [number, number] }) {
         let alive = true;
         (async () => {
             setLoading(true);
+            try {
             const data = await api.getInventoryHistory();
             if (!alive) return;
             const arch = (data || []).map((s: any) => {
@@ -3352,7 +3368,11 @@ function ArchivesView(_props: { period: [number, number] }) {
                 };
             });
             setArchives(arch);
-            setLoading(false);
+            } catch {
+                if (alive) setArchives([]);
+            } finally {
+                if (alive) setLoading(false);
+            }
         })();
         return () => {
             alive = false;
@@ -3666,7 +3686,7 @@ export function Portal({
         if (active === "foodreq") return <FoodRequest user={user} />;
         if (active === "snackbar") return <SnackBar user={user} />;
         if (active === "moninv")
-            return <MonthlyInventory user={user} period={period} />;
+            return <MonthlyInventory user={user} period={period} openSC={() => setScPanelOpen(true)} />;
         if (active === "reports")
             return <Reports user={user} period={period} />;
         if (active === "dataentry") return <DataEntry user={user} onNavigate={goTo} />;

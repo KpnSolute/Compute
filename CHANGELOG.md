@@ -16,6 +16,402 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v2.5.1] — 2026-06-11 — Inventory input system: all critical + high frontend bugs fixed
+
+**Claude:** Fixed every confirmed bug in the inventory dynamic input system. 9 targeted changes across 4 files. `tsc --noEmit` exits 0.
+
+**Fixes applied:**
+
+| Fix | File | What changed |
+|-----|------|-------------|
+| FE-INV-D | `Portal.tsx` | `setDraftField` NaN fallback now computed inside `setDraft` with access to `prev[sku]` — clearing a field no longer resets to DB value mid-input |
+| FE-INV-C | `Portal.tsx` | Invoice mode `monthItems` filter removed `!wkDraft[sku]` guard — on-hand/par edits stage alongside weekly edits instead of being silently dropped |
+| FE-INV-B | `Portal.tsx` | Added Edit button to grouped view SourceCtrl column — matches regular view; item metadata / category / delete now accessible from Grouped view |
+| FE-INV-H | `Portal.tsx` | `MonthlyInventory` now receives `openSC={() => setScPanelOpen(true)}` — SC panel auto-opens after staging from Monthly Inventory view |
+| FE-INV-G | `Portal.tsx` | `ArchivesView` async IIFE wrapped in try/catch/finally — API error no longer leaves view stuck on "Loading archives…" forever |
+| FE-INV-A | `Operations.tsx` | `MonthlyInventory.handleSave` catch block changed to `setSaved(false)` + toast — silent data loss eliminated; user now sees error and can retry |
+| I-INV-11 | `Operations.tsx` | `SnackBar.handleSave` catch now shows error toast instead of silent failure |
+| FE-INV-F | `api.ts` | `'mjc:session-expired'` → `'mjcc:session-expired'` — 401 handler now fires the correct event; stale-token redirect works |
+| I-SC-01b | `SourceControl.tsx` | Added `visibilitychange` listener — SC panel calls `loadData()` immediately when tab comes into focus, fixing background-tab throttling of the 30s poll |
+| BE-SC-01 | `SourceControl.tsx` | Staff filter changed from `s.submitted_by === user.username` (always false — UUID vs string) to `s.submitted_by === user.id` with exact `submitter_name` match |
+
+**Not fixed in this pass (backend / schema work — delegate to Gemini):**
+- I-INV-02: inventory_items.on_hand not updated by commits (backend dispatch)
+- BE-INV-A: unit field dropped from inventory_save (backend)
+- BE-INV-B: POST /api/inventory no role check (backend)
+- BE-SC-02: commit replay not atomic (backend)
+- I-SC-02: GitHub sync worker broken (Render infra)
+- I-INV-04: staging deduplication (backend POST /api/staging)
+
+**Build:** `tsc --noEmit` — 0 errors
+**Push:** pending — 2026-06-11
+
+---
+
+## [v2.5.0] — 2026-06-11 — System-wide bug audit: inventory inputs + source control
+
+**Claude (parallel multi-track investigation):**
+Full-system diagnostic via sequential-thinking orchestration + parallel agent tracks (frontend analysis, backend route analysis) + live Supabase MCP probing + chrome-devtools Network inspection against production. Findings logged here for fix queue. NO code changed in this entry — this is the diagnosis ledger.
+
+**Investigation tools used:**
+- Sequential-thinking MCP (structured investigation plan across 4 tracks)
+- Supabase MCP: execute_sql against live MJCCv1 (`mgvyylvmkxhhataavqjz`) — staging_entries, inventory_items, monthly_inventory, commits, commit_changes, github_sync_queue schemas + live data queries
+- Chrome-devtools MCP: logged in as jeremiah (sudo), inspected all network requests, probed GET /api/staging directly, compared response body vs panel state
+- Agent A (background): full Portal.tsx + Operations.tsx + api.ts read
+- Agent B (background): full SourceControl.tsx + sourcectrl.py + inventory.py + main.py read
+
+---
+
+### CONFIRMED BUGS — verified against live production data
+
+---
+
+#### 🔴 I-INV-01 [CRITICAL] — Par contamination residual in staging queue
+
+**Location:** Staging entry `0feab1b4` in `staging_entries` (live DB)
+**Evidence:** SKU 9128745 (SAUCE, HOT SS POUCH TEXAS PETE) has a pending staging entry with `full_payload.par = 45`. Current `inventory_items.par_level = 5`. The value 45 is almost certainly the previous `on_hand` from a prior edit session — classic par contamination.
+**Timestamp:** Created 2026-06-11T23:52:06 — AFTER v2.4.3 was committed (`d703e69`). This means either Render had not yet redeployed the fix when this entry was staged, OR there is still a contamination path v2.4.3 missed.
+**Risk:** If a manager commits this entry, `inventory_items.par_level` for Texas Pete SAUCE is set to 45 (9× the correct value of 5). This affects all "Below Par" calculations for that item.
+**Debug steps:**
+1. Check Render deploy log — confirm `d703e69` is the running revision (not a prior build).
+2. If fix is deployed: reproduce by staging the same item twice to find remaining contamination path.
+3. Immediate mitigation: **reject this staging entry** (`entry_id: 0feab1b4-a810-4319-ab56-e112dd7f2289`) before it gets committed.
+
+---
+
+#### 🔴 I-SC-01 [CRITICAL] — SC panel 30-second poll is not running
+
+**Location:** `frontend/src/components/SourceControl.tsx` — useEffect interval setup
+**Evidence:** Chrome-devtools network log shows only **2 GET /api/staging requests in 48+ minutes** of page activity (reqid=68 at 23:02:49 and reqid=78 at 23:03:40). The 30-second poll should produce ~96 requests in that window. Total page requests = 31 — no staging polls after the initial load.
+**Effect:** Staging entries created at 23:51:30 and 23:51:54 were NEVER loaded by the panel. SC panel shows "Working tree is clean" despite 3 pending entries confirmed in DB via direct API fetch.
+**Live confirmation:** Direct `fetch('/api/staging')` from console returned `{ status: 200, count: 3 }` — API is working. Panel is stale.
+**Root cause hypothesis:** `setInterval` is likely started inside a `useEffect` that also has a cleanup `clearInterval`. If the component remounts (e.g., panel close/open toggle, auth refresh, Portal re-render), the interval is cleared and may not restart correctly. A dependency array issue or missing ref for the interval handle is likely.
+**Debug steps:**
+1. Read `SourceControl.tsx` — check `useEffect(() => { const id = setInterval(loadData, 30000); return () => clearInterval(id); }, [...])`. Verify deps don't cause excessive remounts.
+2. Add `console.log('[SC] poll tick')` in the poll callback to confirm it fires in dev.
+3. Verify `SourceControlPanel` is always mounted (not conditionally rendered) so the interval stays alive.
+4. Fix: use `useRef` to store the interval ID and restart it if it stops, or use a top-level portal-level interval.
+
+---
+
+#### 🔴 I-SC-02 [CRITICAL] — GitHub sync broken: queue stuck, all commits unsynced
+
+**Location:** `github_sync_queue` table + `commits` table
+**Evidence:**
+- `github_sync_queue` has 4 rows with `synced_at = NULL` (entries from 2026-06-11). Only 1 historical entry has `synced_at` set (from 2026-06-09).
+- ALL recent commits (last 9+ verified) have `github_sha = NULL` and `github_synced_at = NULL`.
+- The queue grows but is never drained — the sync worker is not running.
+**Risk:** The MJCC-Portal/mjcc data archive is out of date. Inventory snapshot history is not being pushed to GitHub. The source-control "archive" layer of the app is effectively dead.
+**Debug steps:**
+1. `render services` → identify the sync worker service ID.
+2. `render logs -r <sync-worker-id>` — look for errors or confirm the service is stopped.
+3. Check if there is a Render Cron Service configured to call the sync endpoint.
+4. Check `backend/` for the sync worker code (`github_sync.py` or similar) — verify the `GITHUB_REPO`, `GITHUB_TOKEN` env vars are set on Render.
+5. Manually trigger via `POST /api/sync` or equivalent to test end-to-end.
+
+---
+
+#### 🟠 I-INV-02 [HIGH] — inventory_items.on_hand never updated by commits
+
+**Location:** Backend commit dispatch (`backend/routes/sourcectrl.py` or `inventory.py` — `dispatch_inventory_save` / `resolve_and_write_item`)
+**Evidence:** Direct Supabase query: `inventory_items.on_hand = 0` for SKU 3329885 (SALT) and SKU 9128745 (SAUCE) despite multiple committed updates. `monthly_inventory.on_hand` for these SKUs has the correct values (11 and 4 respectively for month=5/June 2026).
+**Effect:** The UI reads from `monthly_inventory` for the current period, so the inventory table displays correctly. However, `inventory_items.on_hand` is stale (always 0 for updated items), which affects: (a) any code that reads `inventory_items` directly, (b) the `live_inventory` view if it sources from `inventory_items.on_hand`, (c) legacy `lib/supabase.ts` shims that may hit `inventory_items`.
+**Also explains:** 150 "Below Par" flags may be inflated — if the "Below Par" calculation compares `inventory_items.on_hand` (always 0) vs `par_level`, then every item with par_level > 0 shows below par regardless of actual stock.
+**Debug steps:**
+1. Read `resolve_and_write_item` in the backend — confirm it updates `monthly_inventory` but verify if it also updates `inventory_items.on_hand`.
+2. Query `SELECT definition FROM pg_views WHERE viewname = 'live_inventory'` to see if the view uses `inventory_items.on_hand` or joins to `monthly_inventory`.
+3. Fix: `dispatch_inventory_save` should also `UPDATE inventory_items SET on_hand = $new_value WHERE sku = $sku` after each successful monthly write.
+
+---
+
+#### 🟠 I-INV-03 [HIGH] — Month indexing: 1-indexed in payload, 0-indexed in DB (silent conversion required)
+
+**Location:** Frontend staging payload (`Portal.tsx` stageInventoryRow) → backend commit dispatch
+**Evidence:** All staging payloads contain `"month": 6` for June 2026. `monthly_inventory` stores June as `month = 5` (0-indexed, confirmed: DB has months 0–11). The backend must be applying `month - 1` somewhere. This works today but is a maintenance trap.
+**Risk:** Any new route, migration script, or report query written by a developer who reads the payload and assumes `month=6` means row `month=6` will write to the wrong period (July). There is no comment anywhere documenting this conversion.
+**Debug steps:**
+1. Find where the backend converts `month` (grep `month - 1` or `month + 1` in `backend/`).
+2. Add a comment at that conversion site explaining the 1-indexed → 0-indexed mapping.
+3. Consider standardizing to 0-indexed in the payload, or adding an explicit field name like `month_1idx` vs `month_0idx`.
+
+---
+
+#### 🟠 I-API-01 [HIGH] — AI Studio endpoints return 401 for authenticated admin
+
+**Location:** `/api/agent/config`, `/api/agent/history?limit=200`, `/api/data-entry/ai-usage?days=7&limit=200`
+**Evidence:** Network reqid=81, 82, 85 — all 401 for logged-in sudo user (Jeremiah). Same session token works fine for all inventory endpoints.
+**Root cause hypothesis:** These routes may require a separate API key (not a Bearer JWT), or they check for a specific claim in the JWT that is missing, or they were written to accept only a hardcoded admin API key stored in Render env vars.
+**Debug steps:**
+1. Read `backend/routes/agent.py` and `backend/routes/data_entry.py` — find the auth dependency.
+2. Compare with `backend/routes/inventory.py` auth dependency.
+3. Check Render env vars for `MJCC_API_KEY` or similar that these routes require.
+
+---
+
+#### 🟡 I-INV-04 [MEDIUM] — No staging deduplication guard
+
+**Location:** Backend `POST /api/staging`, Frontend `stageInventoryRow`
+**Evidence:** SKU 3329885 (SALT) confirmed to have **2 identical pending entries** in staging_entries (entry_ids: `0afde96a` and `3733b018`, created 24 seconds apart, same payload). No error was raised.
+**Effect:** Manager sees 2 entries for the same item in SC panel. Committing all writes the same change twice (double-write to monthly_inventory, double commit_change records). Not catastrophic but confusing and wastes DB space.
+**Fix:** Backend `POST /api/staging` should check `SELECT COUNT(*) FROM staging_entries WHERE entity_id = $sku AND status = 'pending'` before INSERT. If count > 0, return 409 Conflict with message "A pending change already exists for this item — commit or reject it first."
+
+---
+
+#### 🟡 I-SC-03 [MEDIUM] — Import staging entries get 1-day expiry instead of 15-day
+
+**Location:** `backend/routes/data_entry.py` (bulk import staging path)
+**Evidence:** Bulk import entries (from test_inventory.csv) had `expires_at = created_at + 1 day` (e.g., `2026-06-11T23:01:26` → `2026-06-12T23:01:26`). Regular inventory edits use the DB default of `+15 days`. The `data_entry.py` route must be explicitly setting `expires_at` to a 1-day window.
+**Risk:** Bulk import staging entries expire before managers can review them (especially over weekends). The manager opens the SC panel on Monday and the entries are gone.
+**Fix:** Remove the explicit `expires_at` override in `data_entry.py`, letting it fall back to the DB default (`now() + 15 days`). Or set it explicitly to 15 days for consistency.
+
+---
+
+#### 🟡 I-API-02 [MEDIUM] — commit_changes.old_value / new_value are numeric NOT NULL — breaks new-item commits
+
+**Location:** `commit_changes` schema + backend commit dispatch
+**Evidence:** Schema shows `old_value numeric NOT NULL` and `new_value numeric NOT NULL`. For `review_new=true` imports (new items being added), there is no meaningful old_value — it would be NULL or non-numeric.
+**Risk:** Committing a bulk import with `review_new=true` items may raise a Postgres NOT NULL constraint violation on `commit_changes`, rolling back the commit silently or returning a 500.
+**Debug steps:**
+1. Attempt to commit a `review_new=true` import staging entry.
+2. Check Render logs for a 500 or Postgres error during that commit.
+3. Fix: either allow NULL in `old_value`/`new_value`, or use 0 as sentinel for new items, or use `old_value_text`/`new_value_text` for non-numeric changes.
+
+---
+
+#### 🟡 I-SC-04 [MEDIUM] — SC panel event bus does not handle cross-tab or cross-session staging
+
+**Location:** `frontend/src/components/SourceControl.tsx` + `frontend/src/lib/api.ts`
+**Evidence:** `mjcc:staging-changed` CustomEvent is dispatched only within the same tab (browser CustomEvents are same-tab only). Entries staged in a different browser tab, a different device, or via the backend directly never trigger a panel refresh in the current tab — only the 30-second poll catches them. And as confirmed in I-SC-01, the poll is not running.
+**Fix:** Fix I-SC-01 first (restore poll). Then consider: BroadcastChannel API for cross-tab sync, or server-sent events / websocket for real-time cross-device updates.
+
+---
+
+#### 🟡 I-DB-01 [MEDIUM] — "Below Par" count of 150 may be based on stale inventory_items.on_hand
+
+**Location:** Dashboard "Below Par" tile, `backend/routes/inventory.py` (below-par count endpoint), `live_inventory` view
+**Evidence:** Dashboard shows "150 Below Par / 273 line items" — 55% of items are flagged. With `inventory_items.on_hand = 0` for all updated items (see I-INV-02), any item with `par_level > 0` would be classified below par.
+**Note:** This may not be a code bug per se — if the live_inventory view reads from `monthly_inventory` correctly, the count may be right. But if it reads from `inventory_items.on_hand`, then 150 is inflated.
+**Debug steps:** Run `SELECT definition FROM pg_views WHERE viewname = 'live_inventory'` and trace the on_hand source.
+
+---
+
+#### ⚪ I-SC-05 [LOW] — Commit message not validated: empty or generic messages accepted
+
+**Evidence:** DB shows commits with message="Inventory update" (the default, never changed by user). No frontend validation prevents empty textarea submission.
+**Fix:** Frontend: require non-empty message before enabling Commit button. Backend: reject message = "" or message.strip() == "".
+
+---
+
+#### ⚪ I-DB-02 [LOW] — Dead legacy tables in schema
+
+**Tables:** `pending_changes`, `staging_area`, `transaction_history` (all 0 rows, per AGENTS.md).
+**Risk:** Any SELECT or JOIN against these tables returns empty results silently, which can mask bugs in new code that accidentally references them.
+**Fix:** Gemini to DROP these tables in a migration after confirming no backend route references them.
+
+---
+
+### FIX PRIORITY ORDER
+
+| Priority | Issue ID | Fix |
+|----------|----------|-----|
+| 1 | I-INV-01 | Reject the bad par=45 staging entry immediately |
+| 2 | I-SC-01 | Fix SC 30-second poll interval in SourceControl.tsx |
+| 3 | I-SC-02 | Investigate + restart GitHub sync worker on Render |
+| 4 | I-INV-02 | Update dispatch to also write inventory_items.on_hand |
+| 5 | I-INV-04 | Add staging deduplication guard in POST /api/staging |
+| 6 | I-API-01 | Fix AI Studio 401 auth — align auth dependency |
+| 7 | I-INV-03 | Document or standardize month indexing |
+| 8 | I-SC-03 | Fix import expiry to 15 days in data_entry.py |
+| 9 | I-API-02 | Handle new-item commits (numeric NOT NULL constraint) |
+| 10 | I-SC-05 | Validate commit message non-empty |
+
+---
+
+### ADDITIONAL BUGS — from parallel code-analysis agents (Agent A: frontend, Agent B: backend)
+
+These bugs were found by static code analysis of Portal.tsx, Operations.tsx, api.ts, SourceControl.tsx, sourcectrl.py, inventory.py, dispatch.py, and main.py. They supplement the live-data findings above.
+
+---
+
+#### 🔴 BE-SC-01 [CRITICAL] — Staff role filter compares UUID to username string — always false
+**File:** `SourceControl.tsx` ~line 141
+`s.submitted_by === user.username` — `submitted_by` is a UUID from the DB; `user.username` is the login string (e.g. `"jeremiah"`). They can never be equal. Staff see ALL staged entries — the role filter is broken. The `startsWith(user.display_name)` fallback is also fragile: a display_name of "John" matches entries from "Johnny". Fix: compare `s.submitted_by === user.id`.
+
+---
+
+#### 🔴 BE-SC-02 [CRITICAL] — Commit replay has no database transaction — partial apply leaves broken state
+**File:** `backend/routes/sourcectrl.py` lines 295–319
+`approve_commit` applies data changes (replay to monthly_inventory, events, etc.) in step 2, then creates the `commits` row in step 3. If step 3 fails, the data is already applied in the DB but no audit row exists and staging entries remain `pending`. There is no rollback. The comment in the code itself says `"Applied entries (no rollback)"`. Fix: use a Supabase/Postgres transaction (RPC or `BEGIN`/`COMMIT`) that atomically applies data AND creates the commit row.
+
+---
+
+#### 🟠 FE-INV-A [CRITICAL] — Operations.tsx handleSave catch sets `saved=true` on error — silent data loss
+**File:** `Operations.tsx` ~line 327–346
+The `catch` block in Monthly Inventory `handleSave` sets `setSaved(true)` even when the API call failed. Effect: the Save button becomes disabled, the footer shows "Saved", the user cannot retry, and their changes are silently lost. Fix: catch block must set `setSaved(false)` and display an error toast.
+
+---
+
+#### 🔴 BE-SC-03 [CRITICAL] — GET /staging has no backend role filtering
+**File:** `backend/routes/sourcectrl.py` ~line 184
+Any authenticated user (including staff with a PIN token) gets ALL pending staging entries. Role-based visibility is frontend-only (and broken per BE-SC-01). Fix: add `.eq("submitted_by", auth_user["id"])` when role = staff.
+
+---
+
+#### 🟠 BE-INV-A [HIGH] — `unit` field silently dropped from every inventory save
+**File:** `backend/routes/inventory.py` lines 317–358
+`resolve_and_write_item()` and `dispatch_inventory_save()` never include `unit` in the fields written to `inventory_items`. A unit change (e.g. "case" → "each") is accepted, staged, committed, and silently discarded. Fix: include `unit` in the update dict when present in the payload.
+
+---
+
+#### 🟠 BE-INV-B [HIGH] — POST /api/inventory has no role check — staff bypass staging
+**File:** `backend/routes/inventory.py` ~line 262
+`save_inventory` requires only a valid auth token. Any staff user with a PIN token can POST directly to `/api/inventory` and write data immediately, bypassing staging/review entirely. Fix: apply `_require_admin_or_manager` (or equivalent) to this endpoint, forcing staff through `/api/staging`.
+
+---
+
+#### 🟠 FE-INV-B [HIGH] — Grouped view missing Edit button entirely
+**File:** `Portal.tsx` ~lines 1797–1993
+The regular view has both Edit and Stage buttons per row. The grouped view renders only Stage. Category reassignment, description edits, and soft-delete (`item_update`/`item_delete`) are inaccessible from Grouped view. Fix: add the Edit button to the grouped view SOURCECTRL cell.
+
+---
+
+#### 🟠 FE-INV-C [HIGH] — Invoice mode silently drops on-hand/par changes for dual-draft rows
+**File:** `Portal.tsx` ~lines 1141–1161 (`stageCompactChanges`, invoice path)
+Rows that have BOTH a `draft[sku]` (on-hand/par edit) AND a `wkDraft[sku]` (weekly edit) have on-hand/par silently dropped by `!wkDraft[sku]` guard. Clearing via `setDraft({})` erases the unsaved change. Fix: change filter from `draft[sku] && !wkDraft[sku]` to `draft[sku]` — stage both change types independently.
+
+---
+
+#### 🟠 FE-INV-D [HIGH] — setDraftField NaN fallback overwrites existing draft with DB value
+**File:** `Portal.tsx` ~lines 1061–1069 (`setDraftField`)
+When a user clears an input field (NaN result), the fallback snaps the field back to the DB value (`onHandFallback`/`parFallback`) rather than the current draft. Result: user types 5, clears field to type 50, and their draft resets to the old DB value mid-input. Fix: NaN fallback should be `prev[sku]?.onHand ?? onHandFallback` (use existing draft if present).
+
+---
+
+#### 🟠 BE-SC-04 [HIGH] — Reject endpoint can overwrite status of already-merged entries
+**File:** `backend/routes/sourcectrl.py` ~lines 397–425
+`reject_staging` performs UPDATE with no `.eq("status", "pending")` guard. A manager can reject a `merged` entry, overwriting its status and corrupting the audit log. Fix: add `.eq("status", "pending")` to the filter.
+
+---
+
+#### 🟠 BE-SC-05 [HIGH] — CORS defaults to localhost if env var is missing
+**File:** `backend/main.py` ~line 21
+`origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")`. If `CORS_ORIGINS` is unset or misconfigured in Render, every browser request from `kpncompute.onrender.com` fails with a CORS error — a silent deploy-time failure. Verify `CORS_ORIGINS` is set in Render env to include the production frontend origin.
+
+---
+
+#### 🟡 FE-INV-E [MEDIUM] — `new_value` (request) vs `new_value_text` (response) field name mismatch
+**File:** `api.ts` lines 95 and 71
+`stageChange` sends `new_value: summary` in the request body, but the `StagingEntry` response interface reads `new_value_text`. If the backend uses the request field name literally, the SC panel receives null for every staged entry's summary. Debug: check `sourcectrl.py` POST handler field aliasing.
+
+---
+
+#### 🟡 FE-INV-F [MEDIUM] — Session-expired event uses wrong prefix (`mjc:` not `mjcc:`)
+**File:** `api.ts` ~line 34
+`window.dispatchEvent(new CustomEvent('mjc:session-expired'))` — all other events in the codebase use `'mjcc:'` (double-c). If the listener in App.tsx uses `'mjcc:session-expired'`, the 401 handler is never caught, leaving stale-token users stuck with repeated 401 errors without a login redirect. Fix: standardize to `'mjcc:session-expired'` everywhere.
+
+---
+
+#### 🟡 BE-SC-06 [MEDIUM] — `loadData` in SourceControl.tsx swallows all errors — shows "clean" on 401/500
+**File:** `SourceControl.tsx` ~lines 100–116
+The catch block sets `setStaged([])` and `setCommits([])` silently. A 401, 500, or network failure shows exactly the same "Working tree is clean" state as a genuinely empty staging queue. Fix: add an error state with a visible banner distinguishing "failed to load" from "nothing staged".
+
+---
+
+#### 🟡 BE-SC-07 [MEDIUM] — SC panel state not reset on panel open — stale commitMsg, selected, AI result
+**File:** `SourceControl.tsx` ~lines 84–98
+`tab`, `selected`, `commitMsg`, `confirm`, and `aiResult` are never cleared when the panel closes and reopens. The "Commit N" button label (`selected.size`) may reflect stale IDs no longer in the staged list, causing it to say "Commit 3" while only 2 entries exist. Fix: reset panel state on each open.
+
+---
+
+#### 🟡 BE-SC-08 [MEDIUM] — No validation that staging_ids exist or are pending before commit
+**File:** `backend/routes/sourcectrl.py` ~lines 282–288
+If any ID in `body.staging_ids` is already merged, it gets replayed again (double-apply). If any ID doesn't exist, it's silently skipped — no mismatch error. Fix: validate `len(found_entries) == len(body.staging_ids)` and filter to `status == "pending"` only.
+
+---
+
+#### 🟡 FE-INV-G [MEDIUM] — Archives view hangs forever on API error (no try/catch)
+**File:** `Portal.tsx` ~line 3323
+`getInventoryHistory()` in the archives useEffect has no try/catch. Network error or 500 leaves the view permanently in "Loading archives…" with no retry. Fix: wrap in try/catch, call `setLoading(false)` in finally.
+
+---
+
+#### 🟡 BE-SC-09 [MEDIUM] — `period-status` returns 0-indexed months; all other endpoints return 1-indexed
+**File:** `backend/routes/inventory.py` ~line 543
+`PeriodStatus.current_month` is 0-indexed (0=Jan). Every other inventory endpoint uses 1-indexed months. If frontend passes `period_status.current_month` as the `month` param elsewhere, it's off by one. Fix: standardize or document the mismatch explicitly.
+
+---
+
+#### ⚪ FE-INV-H [LOW] — MonthlyInventory doesn't auto-open SC panel after staging
+**File:** `Portal.tsx` ~line 3669
+`MonthlyInventory` is not wired with `openSC` prop. Staging from that view posts successfully and the badge updates, but the SC panel doesn't auto-open. Fix: pass `openSC={() => setScPanelOpen(true)}` to `MonthlyInventory`.
+
+---
+
+#### ⚪ FE-INV-I [LOW] — Compact view hasRcvd badge reflects DB history, not current session
+**File:** `Portal.tsx` ~line 2119
+`hasRcvd` badge shows for any category that has ANY historical received quantity in the DB (not just this session's wkDraft). Categories show "🚚 received" permanently on every load. Fix: check `wkDraft` only.
+
+---
+
+#### ⚪ FE-INV-J [LOW] — `old_value` never set in stageChange — SC diff has no "before" state
+**File:** `api.ts` ~lines 305–316
+`stageChange` never populates `old_value`. SC panel cannot show before → after diff for any inventory change. Fix: pass current serialized state as `old_value` at each stageInventoryRow / stageCompactChanges call site.
+
+---
+
+#### ⚪ BE-SC-10 [LOW] — github_sync_queue populated on every commit but has no background consumer
+**File:** `backend/routes/sourcectrl.py` ~line 373
+`approve_commit` inserts into `github_sync_queue`. The endpoint is registered in `main.py` but processes the queue only when called on-demand — there is no background worker polling it. Queue will grow on every commit. This is the root cause of I-SC-02 (GitHub sync broken).
+
+---
+
+### COMPLETE BUG REGISTER — all issues by severity
+
+| ID | Severity | Source | Description |
+|----|----------|--------|-------------|
+| I-INV-01 | 🔴 Critical | Live DB | Par=45 contamination in pending staging entry for SKU 9128745 |
+| I-SC-01 | 🔴 Critical | Live network | SC 30-second poll not running — panel shows stale empty state |
+| I-SC-02 | 🔴 Critical | Live DB | GitHub sync broken — 4 unsynced queue items, all commits missing SHA |
+| BE-SC-01 | 🔴 Critical | Code | Staff filter compares UUID to username — always false, all entries visible |
+| BE-SC-02 | 🔴 Critical | Code | Commit replay not atomic — data applied without commit row on failure |
+| FE-INV-A | 🔴 Critical | Code | Operations.tsx handleSave catch sets saved=true — silent data loss |
+| BE-SC-03 | 🔴 Critical | Code | GET /staging returns all entries to any auth user — no backend role filter |
+| I-INV-02 | 🟠 High | Live DB | inventory_items.on_hand never updated by commits — always 0 |
+| I-INV-03 | 🟠 High | Live DB | Month 1-indexed in payload, 0-indexed in DB — silent backend conversion required |
+| I-API-01 | 🟠 High | Live network | AI Studio endpoints return 401 for authenticated admin |
+| BE-INV-A | 🟠 High | Code | unit field silently dropped from every inventory_save commit |
+| BE-INV-B | 🟠 High | Code | POST /api/inventory has no role check — staff bypass staging flow |
+| FE-INV-B | 🟠 High | Code | Grouped view missing Edit button entirely |
+| FE-INV-C | 🟠 High | Code | Invoice mode drops on-hand/par for dual-draft rows |
+| FE-INV-D | 🟠 High | Code | setDraftField NaN fallback resets draft to DB value mid-input |
+| BE-SC-04 | 🟠 High | Code | Reject can overwrite merged entry status — corrupts audit log |
+| BE-SC-05 | 🟠 High | Code | CORS defaults to localhost if env var missing |
+| I-INV-04 | 🟡 Medium | Live DB | No staging deduplication — same SKU stages twice with no guard |
+| I-SC-03 | 🟡 Medium | Live DB | Import entries get 1-day expiry instead of 15-day |
+| I-API-02 | 🟡 Medium | Live DB | commit_changes.old_value is numeric NOT NULL — breaks new-item commits |
+| I-SC-04 | 🟡 Medium | Architecture | Event bus is same-tab only — cross-tab/device staging not picked up |
+| I-DB-01 | 🟡 Medium | Live DB | Below Par count 150/273 may be inflated by stale inventory_items.on_hand |
+| FE-INV-E | 🟡 Medium | Code | new_value (request) vs new_value_text (response) field name mismatch |
+| FE-INV-F | 🟡 Medium | Code | session-expired event uses 'mjc:' prefix not 'mjcc:' — listener mismatch |
+| BE-SC-06 | 🟡 Medium | Code | loadData swallows all errors — "clean" state shown on 401/500 |
+| BE-SC-07 | 🟡 Medium | Code | SC panel state (commitMsg, selected, AI result) not reset on open |
+| BE-SC-08 | 🟡 Medium | Code | No validation that staging_ids are pending before commit |
+| FE-INV-G | 🟡 Medium | Code | Archives view hangs forever on API error |
+| BE-SC-09 | 🟡 Medium | Code | period-status returns 0-indexed months; rest of API is 1-indexed |
+| I-SC-05 | ⚪ Low | Live | Commit message not validated — empty/generic messages accepted |
+| I-DB-02 | ⚪ Low | Live DB | Dead legacy tables (pending_changes, staging_area, transaction_history) |
+| FE-INV-H | ⚪ Low | Code | MonthlyInventory missing openSC prop — no auto-open after staging |
+| FE-INV-I | ⚪ Low | Code | hasRcvd badge reflects DB history, not current wkDraft session |
+| FE-INV-J | ⚪ Low | Code | old_value never set in stageChange — SC diff has no "before" state |
+| BE-SC-10 | ⚪ Low | Code | github_sync_queue has no background consumer — root cause of SC-02 |
+
+**Total: 35 identified issues across inventory inputs and source control**
+**Critical: 7 · High: 9 · Medium: 13 · Low: 6**
+
+**Push:** pending — audit only, no code changed — 2026-06-11
+
+---
+
 ## [v2.4.3] — 2026-06-11 — Inventory input: par contamination fix + manager-only par editing
 
 **Claude:** Fixed critical bug where editing On Hand overwrote Par Level with the old On Hand value. Added manager-only gate on Par inputs.

@@ -67,6 +67,7 @@ export function SnackBar({ user }: { user: User }) {
       setSavedAt(new Date());
     } catch {
       setSaved(false);
+      (window as any).toast?.('Save failed — check your connection and try again.');
     }
   }
 
@@ -226,9 +227,11 @@ export function SnackBar({ user }: { user: User }) {
 export function MonthlyInventory({
   user,
   period,
+  openSC,
 }: {
   user: User;
   period: [number, number];
+  openSC?: () => void;
 }) {
   const lvl = ROLE_LEVEL[user.role] || 0;
   const canEdit = lvl >= 20;
@@ -340,9 +343,10 @@ export function MonthlyInventory({
       await api.stageChange('inventory_save', 'inventory', 'batch', payload, `Monthly inventory — ${MONTHS[m]} ${y}`);
       setSaved(true);
       setSavedAt(new Date());
+      openSC?.();
     } catch {
-      setSaved(true);
-      setSavedAt(new Date());
+      setSaved(false);
+      (window as any).toast?.('Failed to stage monthly inventory — please try again.');
     }
   }
 

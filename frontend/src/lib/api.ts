@@ -31,7 +31,7 @@ async function req<T>(path: string, opts?: RequestInit): Promise<T> {
   if (res.status === 401) {
     // Stale or expired token — clear session and signal re-login
     clearBackendToken();
-    window.dispatchEvent(new CustomEvent('mjc:session-expired'));
+    window.dispatchEvent(new CustomEvent('mjcc:session-expired'));
     let body: string;
     try { const json = await res.json(); body = json.detail || 'Session expired'; }
     catch { body = 'Session expired'; }
