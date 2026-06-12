@@ -247,6 +247,28 @@ async def submit_staging(
             status_code=422, detail=f"entity_type must be one of {sorted(ENTITY_TYPES)}"
         )
     try:
+        # Reject staging to a published period before the entry ever enters the queue.
+        if body.operation in ('inventory_save', 'inventory_week_update') and body.full_payload:
+            inv_month = (body.full_payload or {}).get('month')
+            inv_year = (body.full_payload or {}).get('year')
+            if inv_month and inv_year:
+                db_month = max(0, int(inv_month) - 1)
+                ms_r = (
+                    _client()
+                    .table('month_status')
+                    .select('status')
+                    .eq('month', db_month)
+                    .eq('year', int(inv_year))
+                    .limit(1)
+                    .execute()
+                )
+                ms_row = (ms_r.data or [None])[0]
+                if ms_row and ms_row.get('status') == 'published':
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f'Period {inv_month}/{inv_year} is published and cannot be modified.',
+                    )
+
         # Dedup: if this submitter already has a pending entry for the same
         # entity_id + field_name, update it rather than stacking duplicates.
         existing_r = (
