@@ -1,44 +1,52 @@
 ---
 name: mjcc-tooling
 description: >-
-  Shared MJCC development tooling for all agents (Claude, Gemini, OpenCode).
-  One team — god-mode access to GitHub, Supabase, Render, debugger, ruff,
-  ESLint. Gemini is research lead for issues. CHANGELOG.md is the forum.
+  Shared MJCC development tooling — master index for all agents (mjcc-api,
+  mjcc-ui, mjcc-data). God-mode access to GitHub, Supabase, Render, ruff,
+  ESLint, Chrome DevTools. CHANGELOG.md is the team forum. Links to all
+  MJCC-specific skills.
 metadata:
-  version: "1.1.0"
+  version: "2.0.0"
 ---
 
-# MJCC Shared Tooling — One Team
+# MJCC Shared Tooling — Master Index
 
-**We are one team.** Claude, Gemini, and OpenCode share the same tools, the same memory (`CHANGELOG.md`), and the same skills. Lane ownership (`AGENTS.md` §5) limits **who writes which files** — not which tools you may run. Every agent has full access to everything below.
+Three specialized agents share this tooling. Lane ownership limits who writes which files — not which tools you may run.
 
-## Research lead — Gemini
+## Agent Roster (v3.0)
 
-When issues need investigation (schema doubts, 500s, auth, performance, unfamiliar bugs):
+| Agent | Role | Workspace |
+|-------|------|-----------|
+| **mjcc-api** | FastAPI backend, routes, dispatch, AI parsing | `API.md` |
+| **mjcc-ui** | React/TS frontend, Portal, index.css | `UI.md` |
+| **mjcc-data** | Supabase schema, migrations, RLS, RPCs | `DATA.md` |
 
-1. Read `CHANGELOG.md` first — may already be solved.
-2. **Invoke Gemini** for live schema verification, Supabase advisors, Render log correlation.
-3. **Invoke MJCC-debugger** (`.claude/agents/Debugy.md`) for cross-stack diagnosis — it partners with Gemini, logs fix plans to `CHANGELOG.md`, does not write production code.
+## Session Protocol (every agent, every session)
 
-Claude and OpenCode **build from research output**. Do not skip Gemini on hard problems.
+1. Read your workspace doc (`API.md` / `UI.md` / `DATA.md`)
+2. Read `CHANGELOG.md` (newest 30 lines minimum)
+3. Read `AGENTS.md` §0 (the three override rules)
+4. Work. Log to `CHANGELOG.md` before closing.
 
-## Memory and governance (every session)
+## Memory and governance
 
-1. `AGENTS.md` — single source of truth
-2. `CHANGELOG.md` — team forum; read before changes, log before closing any task
-3. Lane doc — `CLAUDE.md` (frontend/API), `GEMINI.md` (data/backend/research)
+- `AGENTS.md` — single source of truth for schema and conventions
+- `CHANGELOG.md` — team ballroom / forum; read before changes, log after
+- `DATA.md` — live schema reference (verify against DB, may lag)
+- `API.md` — endpoint contracts
+- `UI.md` — component and design-system reference
 
 ## Project structure
 
 ```
-frontend/          ← React/TS (Claude writes)
-backend/routes/    ← FastAPI data logic (Gemini writes)
-backend/staging/   ← staging gateway (Gemini writes)
-backend/main.py    ← app wiring (Claude)
-data/              ← persistence (Gemini)
-templates/         ← FROZEN — read only
-.cursor/mcp.json   ← Supabase MCP
-.cursor/skills/    ← this skill + 21 Render skills
+frontend/          ← React/TS (mjcc-ui writes)
+backend/routes/    ← FastAPI data logic (mjcc-api writes)
+backend/staging/   ← staging gateway (mjcc-api writes)
+backend/main.py    ← app wiring (mjcc-api writes)
+backend/ai/        ← AI data-entry parsing (mjcc-api writes)
+templates/         ← FROZEN — read only, never edit
+.claude/agents/    ← mjcc-api.md, mjcc-ui.md, mjcc-data.md
+.claude/skills/    ← this file + all skills below
 ```
 
 ## Tool palette (all agents — use freely)
@@ -46,35 +54,31 @@ templates/         ← FROZEN — read only
 ### GitHub
 ```bash
 git status && git diff && git log -5 --oneline
-gh pr list && gh issue view <n>    # when gh installed
+gh pr list && gh issue view <n>
 ```
-**Origin only:** `muttyman2000/MJCC-Managements-.git`. Never set `MJCC-Portal/mjcc` as origin.
+**Origin only:** `muttyman2000/MJCC-Managements-.git`
 
 ### Supabase (MJCCv1 — mgvyylvmkxhhataavqjz)
-- **MCP** (preferred): `list_tables`, `execute_sql`, `apply_migration`, advisors
-- **CLI**: `supabase` at `/usr/local/bin/supabase`
-- Auth: `SUPABASE_MCP_TOKEN` env var
+MCP (preferred): `list_tables`, `execute_sql`, `apply_migration`, `get_advisors`
+→ See skill: **mjcc-mcps**
 
 ### Render
 ```bash
 render whoami && render services
 render logs -r <service-id> --level error
 render deploys create <service-id>
-render ssh <service-id>
 ```
 Never hardcode service IDs — always `render services` first.
-
-### MJCC-debugger
-Launch `.claude/agents/Debugy.md` via Task/subagent. Diagnosis + fix plans only.
 
 ### Ruff (Python)
 ```bash
 ruff check backend/ && ruff format backend/
 ```
+→ See skill: **mjcc-ruff**
 
-### ESLint (TypeScript — no Prettier ships)
+### ESLint (TypeScript — no Prettier)
 ```bash
-cd frontend && npm run lint && tsc --noEmit && npm run build
+cd frontend && npm run lint && npx tsc --noEmit && npm run build
 ```
 
 ## Production targets
@@ -82,17 +86,22 @@ cd frontend && npm run lint && tsc --noEmit && npm run build
 | Surface | Value |
 |---------|-------|
 | API | `https://mjcc-managements.onrender.com` |
+| Frontend | `https://kpncompute.onrender.com` |
 | Supabase | `MJCCv1` (`mgvyylvmkxhhataavqjz`) |
 | Source repo | `muttyman2000/MJCC-Managements-.git` |
 
-## Agent roster
+## MJCC Skills Index
 
-| Agent | Role |
-|-------|------|
-| **Gemini** | Research lead + data/backend/schema writer |
-| **Claude** | Frontend/API builder |
-| **OpenCode** | Mechanical executor (lint, boilerplate, moves) |
-| **MJCC-debugger** | Cross-stack diagnosis (no production code) |
+| Skill | Purpose |
+|-------|---------|
+| `mjcc-tooling` | This file — master index |
+| `mjcc-mcps` | Supabase MCP, Chrome DevTools MCP, GitHub MCP usage |
+| `mjcc-ui-scheme` | CSS tokens, component classes, Portal architecture, VSCode UI |
+| `mjcc-ruff` | Python backend lint/format commands and style rules |
+| `mjcc-supabase-auth` | Auth flows, token storage, login patterns |
+| `mjcc-git` | Commit format, push workflow, branch rules |
+| `skillsense` | Auto-create a skill when you detect a repeated pattern |
+| `render-*` (21 skills) | Render platform operations |
 
 ## Logging protocol
 
@@ -100,11 +109,10 @@ Append to `CHANGELOG.md` before closing any task:
 
 ```
 ## [vX.X.X] — YYYY-MM-DD — short title
-**AgentName:** what was done and verified.
+**Claude/mjcc-api/mjcc-ui/mjcc-data:** what was done and verified.
+**Build:** tsc clean / ruff clean / build passing (as applicable)
 **Push:** pending — not yet pushed
 ```
-
-Log which verification commands ran and whether they passed.
 
 ## Browser / Chrome DevTools for live backend inspection (dev visibility)
 

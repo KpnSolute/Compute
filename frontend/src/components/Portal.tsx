@@ -34,7 +34,7 @@ import { EventsCalendar } from "./EventsCalendar";
 import { MealLog, InspectionSheet, FoodRequest } from "./Forms";
 import { CycleMenu } from "./CycleMenu";
 import { SnackBar, MonthlyInventory } from "./Operations";
-import { SourceControlPanel } from "./SourceControl";
+import { SourceControlPanel, SourceControlPage } from "./SourceControl";
 import { Reports } from "./Reports";
 import { Settings } from "./Settings";
 import { AgentBubble } from "./AgentBubble";
@@ -255,6 +255,7 @@ function Sidebar({
     const lvl = ROLE_LEVEL[user.role];
     return (
         <nav className="sidebar">
+            <div className="explorer-title">Explorer</div>
             {NAV.map((group) => {
                 const items = group.items.filter((it) => lvl >= (it.min || 0));
                 if (!items.length) return null;
@@ -293,6 +294,177 @@ function Sidebar({
                 </span>
             </div>
         </nav>
+    );
+}
+
+function ActivityBar({
+    user,
+    active,
+    explorerOpen,
+    onToggleExplorer,
+    onToggleSC,
+    scOpen,
+    scCount,
+    goTo,
+}: {
+    user: User;
+    active: string;
+    explorerOpen: boolean;
+    onToggleExplorer: () => void;
+    onToggleSC: () => void;
+    scOpen: boolean;
+    scCount: number;
+    goTo: (k: string) => void;
+}) {
+    const lvl = ROLE_LEVEL[user.role];
+    const [userMenu, setUserMenu] = useState(false);
+    useEffect(() => {
+        if (!userMenu) return;
+        const close = () => setUserMenu(false);
+        window.addEventListener("click", close);
+        return () => window.removeEventListener("click", close);
+    }, [userMenu]);
+
+    const inGroup = (keys: string[]) => keys.some((k) => active === k);
+
+    return (
+        <div className="activity-bar">
+            <div className="ab-top">
+                <button
+                    className={"ab-btn" + (explorerOpen ? " active" : "")}
+                    onClick={onToggleExplorer}
+                    title="Explorer"
+                >
+                    {I.grid({})}
+                </button>
+                <button
+                    className={"ab-btn" + (inGroup(["inventory", "moninv"]) ? " active" : "")}
+                    onClick={() => goTo("inventory")}
+                    title="Inventory"
+                >
+                    {I.box({})}
+                </button>
+                <button
+                    className={"ab-btn" + (active === "sourcectrl" || scOpen ? " active" : "")}
+                    onClick={() => active === "sourcectrl" ? onToggleSC() : goTo("sourcectrl")}
+                    title="Source Control"
+                >
+                    {I.branch({})}
+                    {scCount > 0 && <span className="ab-badge">{scCount > 9 ? "9+" : scCount}</span>}
+                </button>
+                <button
+                    className={"ab-btn" + (active === "dataentry" ? " active" : "")}
+                    onClick={() => goTo("dataentry")}
+                    title="Data Entry"
+                >
+                    {I.inbox({})}
+                </button>
+                <button
+                    className={"ab-btn" + (inGroup(["events", "menu"]) ? " active" : "")}
+                    onClick={() => goTo("events")}
+                    title="Events & Menu"
+                >
+                    {I.calCheck({})}
+                </button>
+                <button
+                    className={"ab-btn" + (active.startsWith("ai-") ? " active" : "")}
+                    onClick={() => goTo("ai-usage")}
+                    title="AI Studio"
+                >
+                    {I.flame({})}
+                </button>
+                {lvl >= 30 && (
+                    <button
+                        className={"ab-btn" + (active === "reports" ? " active" : "")}
+                        onClick={() => goTo("reports")}
+                        title="Reports"
+                    >
+                        {I.download({})}
+                    </button>
+                )}
+            </div>
+            <div className="ab-bottom">
+                {lvl >= 40 && (
+                    <button
+                        className={"ab-btn" + (inGroup(["settings", "users"]) ? " active" : "")}
+                        onClick={() => goTo("settings")}
+                        title="Settings"
+                    >
+                        {I.settings({})}
+                    </button>
+                )}
+                <button
+                    className={"ab-btn ab-user-btn" + (userMenu ? " active" : "")}
+                    onClick={(e) => { e.stopPropagation(); setUserMenu((v) => !v); }}
+                    title={`${user.display_name} ${user.last_name} — ${ROLE_LABEL[user.role]}`}
+                >
+                    <div className="avatar ab-avatar">{initials(user)}</div>
+                    {userMenu && (
+                        <div
+                            className="usermenu ab-usermenu"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="um-head">
+                                <div className="nm">{user.display_name} {user.last_name}</div>
+                                <div className="em">{user.username}@mjc-cafeteria.com</div>
+                            </div>
+                            <button className="um-item">
+                                {I.user()} My profile
+                            </button>
+                            <button
+                                className="um-item danger"
+                                onClick={() => {
+                                    realLogout();
+                                    (window as any).__logout?.();
+                                }}
+                            >
+                                {I.logout()} Sign out
+                            </button>
+                        </div>
+                    )}
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function StatusBar({
+    user,
+    period,
+    stagedCount,
+    onOpenSC,
+}: {
+    user: User;
+    period: [number, number];
+    stagedCount: number;
+    onOpenSC: () => void;
+}) {
+    const [m, y] = period;
+    return (
+        <div className="status-bar">
+            <div className="sb-left">
+                <span className="sb-pill">
+                    {I.branch({ style: { width: 11, height: 11 } })}
+                    <span>main</span>
+                </span>
+                <span className="sb-sep">|</span>
+                <span>{MONTHS[m]} {y}</span>
+                {stagedCount > 0 && (
+                    <button className="sb-pill" onClick={onOpenSC} style={{ cursor: "pointer" }}>
+                        {I.branch({ style: { width: 11, height: 11 } })}
+                        <span className="sb-staged-count">{stagedCount} staged</span>
+                    </button>
+                )}
+            </div>
+            <div className="sb-right">
+                <span>{ROLE_LABEL[user.role]}</span>
+                <span className="sb-sep">|</span>
+                <span className="sb-api">
+                    <span className="rt" />
+                    API
+                </span>
+            </div>
+        </div>
     );
 }
 
@@ -971,7 +1143,7 @@ function InventoryView({
     const [stagedValues, setStagedValues] = useState<
         Record<string, { onHand: number; par: number }>
     >({});
-    const [stagingBusy, setStagingBusy] = useState<Record<string, boolean>>({});
+    const [_stagingBusy, setStagingBusy] = useState<Record<string, boolean>>({});
     const [viewMode, setViewMode] = useState<
         "regular" | "grouped" | "compact"
     >("regular");
@@ -1085,6 +1257,23 @@ function InventoryView({
                 },
             };
         });
+    };
+
+    // Emit draft state to SC panel whenever draft changes
+    useEffect(() => {
+        window.dispatchEvent(new CustomEvent("mjcc:draft-changed", {
+            detail: Object.entries(draft).map(([sku, vals]) => {
+                const row = (invState.inv || []).find((r: any) => String(r.sku) === sku);
+                return { sku, desc: row?.desc ?? sku, onHand: vals.onHand, par: vals.par };
+            }),
+        }));
+    }, [draft, invState.inv]);
+
+    // Save draft to localStorage
+    const saveDraftLocally = () => {
+        const key = `mjcc_inv_draft_${period[0]}_${period[1]}`;
+        localStorage.setItem(key, JSON.stringify({ draft, wkDraft }));
+        toast("Draft saved locally");
     };
 
     const stageInventoryRow = async (row: any) => {
@@ -1251,6 +1440,31 @@ function InventoryView({
             setStagingBusy((prev) => ({ ...prev, __compact__: false }));
         }
     };
+
+    // SC panel → InventoryView: stage one item, stage all, or discard
+    useEffect(() => {
+        const handleStageAll = () => { void stageCompactChanges(); };
+        const handleStageDraft = (e: Event) => {
+            const sku = (e as CustomEvent<{sku: string}>).detail?.sku;
+            if (!sku) return;
+            const row = (invState.inv || []).find((r: any) => String(r.sku) === sku);
+            if (row) void stageInventoryRow({ ...row, ...(draft[sku] || {}) });
+        };
+        const handleDiscardDraft = (e: Event) => {
+            const sku = (e as CustomEvent<{sku: string}>).detail?.sku;
+            if (!sku) return;
+            setDraft((prev) => { const c = { ...prev }; delete c[sku]; return c; });
+            setStagedValues((prev) => { const c = { ...prev }; delete c[sku]; return c; });
+        };
+        window.addEventListener("mjcc:stage-all-draft", handleStageAll);
+        window.addEventListener("mjcc:stage-draft-item", handleStageDraft);
+        window.addEventListener("mjcc:discard-draft-item", handleDiscardDraft);
+        return () => {
+            window.removeEventListener("mjcc:stage-all-draft", handleStageAll);
+            window.removeEventListener("mjcc:stage-draft-item", handleStageDraft);
+            window.removeEventListener("mjcc:discard-draft-item", handleDiscardDraft);
+        };
+    }, [draft, invState.inv]);
 
     const submitNewItem = async () => {
         const desc = newItem.desc.trim();
@@ -1438,21 +1652,36 @@ function InventoryView({
                     <button className="btn" onClick={onSync}>
                         {I.refresh()} Refresh
                     </button>
-                    {canStage && Object.keys(draft).length > 0 && (
-                        <span className="pill warn">
-                            {Object.keys(draft).length} pending change
-                            {Object.keys(draft).length !== 1 ? "s" : ""}
-                        </span>
-                    )}
-                    {openSC && (scCount ?? 0) > 0 && (
-                        <button
-                            className="btn sc-staged-pill"
-                            onClick={openSC}
-                            title="Open Source Control"
-                        >
-                            {I.branch({ style: { width: 13, height: 13 } })}
-                            {scCount} staged
-                        </button>
+                    {canStage && (
+                        <>
+                            <button
+                                className="btn"
+                                disabled={Object.keys(draft).length === 0 && Object.keys(wkDraft).length === 0}
+                                onClick={saveDraftLocally}
+                                title="Save draft to local storage"
+                            >
+                                {I.save({ style: { width: 14, height: 14 } })} Save
+                            </button>
+                            <button
+                                className={"btn" + (Object.keys(draft).length + Object.keys(wkDraft).length > 0 ? " warn-outline" : "")}
+                                disabled={Object.keys(draft).length === 0 && Object.keys(wkDraft).length === 0}
+                                onClick={() => { void stageCompactChanges(); }}
+                                title="Stage all pending changes"
+                            >
+                                {I.branch({ style: { width: 13, height: 13 } })} Stage
+                                {(Object.keys(draft).length + Object.keys(wkDraft).length) > 0 && (
+                                    <span className="sc-badge-count">{Object.keys(draft).length + Object.keys(wkDraft).length}</span>
+                                )}
+                            </button>
+                            <button
+                                className={"btn" + ((scCount ?? 0) > 0 ? " sc-push-active" : "")}
+                                onClick={openSC}
+                                title="Open Source Control panel"
+                            >
+                                {I.branch({ style: { width: 13, height: 13 } })} Push
+                                {(scCount ?? 0) > 0 && <span className="sc-badge-count">{scCount}</span>}
+                            </button>
+                        </>
                     )}
                     {lvl >= 30 && (
                         <button
@@ -1556,7 +1785,6 @@ function InventoryView({
                                     const par = staged?.par ?? stagedValues[sku]?.par ?? r.par;
                                     const isLow = onHand < par && par > 0;
                                     const rowValue = onHand * (r.price || 0);
-                                    const hasDraft = Boolean(staged);
                                     return (
                                         <tr key={(r.sku || "") + i}>
                                             <td
@@ -1669,43 +1897,11 @@ function InventoryView({
                                                     <button
                                                         className="btn"
                                                         disabled={!sku}
-                                                        style={{
-                                                            padding: "5px 10px",
-                                                            marginRight: 6,
-                                                        }}
-                                                        onClick={() =>
-                                                            openEdit(r)
-                                                        }
+                                                        style={{ padding: "5px 10px" }}
+                                                        onClick={() => openEdit(r)}
                                                         title="Edit / reassign / delete this item"
                                                     >
                                                         Edit
-                                                    </button>
-                                                    <button
-                                                        className="btn"
-                                                        disabled={
-                                                            !hasDraft ||
-                                                            !sku ||
-                                                            Boolean(
-                                                                stagingBusy[
-                                                                    sku
-                                                                ],
-                                                            )
-                                                        }
-                                                        style={{
-                                                            padding: "5px 10px",
-                                                        }}
-                                                        onClick={() =>
-                                                            stageInventoryRow({
-                                                                ...r,
-                                                                onHand,
-                                                                par,
-                                                            })
-                                                        }
-                                                        title="Stage this row in Source Control"
-                                                    >
-                                                        {stagingBusy[sku]
-                                                            ? "Staging…"
-                                                            : "Stage"}
                                                     </button>
                                                 </td>
                                             )}
@@ -1715,7 +1911,7 @@ function InventoryView({
                                 {!filtered.length && (
                                     <tr>
                                         <td
-                                            colSpan={canStage ? 9 : 8}
+                                            colSpan={8}
                                             style={{
                                                 textAlign: "center",
                                                 padding: 30,
@@ -1853,10 +2049,6 @@ function InventoryView({
                                                                         onHand *
                                                                         (r.price ||
                                                                             0);
-                                                                    const hasDraft =
-                                                                        Boolean(
-                                                                            staged,
-                                                                        );
                                                                     return (
                                                                         <tr
                                                                             key={
@@ -1990,39 +2182,11 @@ function InventoryView({
                                                                                     <button
                                                                                         className="btn"
                                                                                         disabled={!sku}
-                                                                                        style={{
-                                                                                            padding: "5px 10px",
-                                                                                            marginRight: 6,
-                                                                                        }}
+                                                                                        style={{ padding: "5px 10px" }}
                                                                                         onClick={() => openEdit(r)}
                                                                                         title="Edit / reassign / delete this item"
                                                                                     >
                                                                                         Edit
-                                                                                    </button>
-                                                                                    <button
-                                                                                        className="btn"
-                                                                                        disabled={
-                                                                                            !hasDraft ||
-                                                                                            !sku ||
-                                                                                            Boolean(
-                                                                                                stagingBusy[sku],
-                                                                                            )
-                                                                                        }
-                                                                                        style={{
-                                                                                            padding: "5px 10px",
-                                                                                        }}
-                                                                                        onClick={() =>
-                                                                                            stageInventoryRow({
-                                                                                                ...r,
-                                                                                                onHand,
-                                                                                                par,
-                                                                                            })
-                                                                                        }
-                                                                                        title="Stage this row in Source Control"
-                                                                                    >
-                                                                                        {stagingBusy[sku]
-                                                                                            ? "Staging…"
-                                                                                            : "Stage"}
                                                                                     </button>
                                                                                 </td>
                                                                             )}
@@ -2055,9 +2219,6 @@ function InventoryView({
                             {canStage &&
                                 (() => {
                                     const dirtyCount = compactDirtyRows().length;
-                                    const busy = Boolean(
-                                        stagingBusy["__compact__"],
-                                    );
                                     return (
                                         <div
                                             className="compact-stagebar"
@@ -2101,21 +2262,6 @@ function InventoryView({
                                                         <option value="issued">Issued ↓</option>
                                                     </select>
                                                 )}
-                                                <button
-                                                    className="btn"
-                                                    disabled={!dirtyCount || busy}
-                                                    style={{ padding: "6px 12px" }}
-                                                    onClick={stageCompactChanges}
-                                                    title={compactWeek > 0
-                                                        ? `Stage W${compactWeek} ${compactDir} invoice in Source Control`
-                                                        : "Stage all edits in Source Control"}
-                                                >
-                                                    {busy
-                                                        ? "Staging…"
-                                                        : compactWeek > 0
-                                                            ? `Stage W${compactWeek} ${compactDir}`
-                                                            : "Stage changes"}
-                                                </button>
                                             </div>
                                         </div>
                                     );
@@ -3627,7 +3773,7 @@ export function Portal({
         new Date().getMonth(),
         new Date().getFullYear(),
     ]);
-    const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [explorerOpen, setExplorerOpen] = useState(false);
     const [scPanelOpen, setScPanelOpen] = useState(false);
     const [invState, reloadInv] = useInventory();
     const [stagedCount, setStagedCount] = useState(0);
@@ -3664,9 +3810,9 @@ export function Portal({
 
     const canAccess = (routeKey: string) => lvl >= (ROUTE_MIN[routeKey] ?? 10);
     const goTo = (routeKey: string) => {
-        setSidebarOpen(false);
+        setExplorerOpen(false);
         if (routeKey === "sourcectrl") {
-            setScPanelOpen((v) => !v);
+            setActive("sourcectrl");
             return;
         }
         if (!canAccess(routeKey)) {
@@ -3719,38 +3865,53 @@ export function Portal({
         if (active === "ai-usage")   return <AIUsageView user={user} />;
         if (active === "ai-tools")   return <AIToolsView user={user} />;
         if (active === "ai-presets") return <AIPresetsView user={user} />;
+        if (active === "sourcectrl") return <SourceControlPage user={user} />;
         return <PlaceholderPage pageKey={active} />;
     };
 
-    const portalCls = 'portal' + (sidebarOpen ? ' sidebar-open' : '');
-    const toggleSidebar = () => setSidebarOpen((v) => !v);
+    const portalCls = [
+        "portal",
+        explorerOpen ? "explorer-open" : "",
+        scPanelOpen ? "sc-open" : "",
+    ].filter(Boolean).join(" ");
+    const toggleExplorer = () => setExplorerOpen((v) => !v);
 
     return (
-        <div className={portalCls + (scPanelOpen ? " sc-open" : "")} data-density={density}>
+        <div className={portalCls} data-density={density}>
             <Topbar
                 user={user}
                 period={period}
                 setPeriod={setPeriod}
-                sidebarOpen={sidebarOpen}
-                toggleSidebar={toggleSidebar}
+                sidebarOpen={explorerOpen}
+                toggleSidebar={toggleExplorer}
                 scOpen={scPanelOpen}
                 onToggleSC={() => setScPanelOpen((v) => !v)}
                 scCount={stagedCount}
+            />
+            <ActivityBar
+                user={user}
+                active={active}
+                explorerOpen={explorerOpen}
+                onToggleExplorer={toggleExplorer}
+                onToggleSC={() => setScPanelOpen((v) => !v)}
+                scOpen={scPanelOpen}
+                scCount={stagedCount}
+                goTo={goTo}
             />
             <Sidebar
                 user={user}
                 active={active}
                 setActive={(k) => {
                     goTo(k);
-                    setSidebarOpen(false);
+                    setExplorerOpen(false);
                 }}
                 reorderCount={reorderCount}
                 stagedCount={stagedCount}
             />
-            {sidebarOpen && (
+            {explorerOpen && (
                 <div
                     className="sidebar-overlay"
-                    onClick={() => setSidebarOpen(false)}
+                    onClick={() => setExplorerOpen(false)}
                 />
             )}
             <main className="main">
@@ -3774,6 +3935,12 @@ export function Portal({
                 )}
                 {renderPage()}
             </main>
+            <StatusBar
+                user={user}
+                period={period}
+                stagedCount={stagedCount}
+                onOpenSC={() => setScPanelOpen(true)}
+            />
             <SourceControlPanel
                 user={user}
                 open={scPanelOpen}

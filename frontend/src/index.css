@@ -179,11 +179,11 @@ input{font-family:inherit}
 .key.fn{font-size:13px;font-family:var(--font);font-weight:700;color:var(--muted)}
 .key.fn svg{width:20px;height:20px}
 
-.portal{display:grid;grid-template-columns:248px 1fr;grid-template-rows:auto 1fr;height:100vh;overflow:hidden}
+.portal{display:grid;grid-template-columns:48px auto 1fr;grid-template-rows:54px 1fr 28px;height:100vh;overflow:hidden}
 .portal[data-density="compact"]{font-size:12px}
 
 .topbar{
-  grid-column:1 / -1;background:var(--navy);color:#fff;
+  grid-column:1 / -1;grid-row:1;background:var(--navy);color:#fff;
   display:flex;align-items:center;justify-content:space-between;
   padding:0 18px;height:54px;z-index:30;position:relative;gap:12px;
 }
@@ -215,12 +215,21 @@ input{font-family:inherit}
 .um-item.danger{color:var(--red)}
 .um-item.danger svg{color:var(--red)}
 
-.sidebar{background:#fff;border-right:1px solid var(--line);padding:14px 12px;overflow-y:auto;display:flex;flex-direction:column;gap:3px}
+.sidebar{
+  grid-column:2;grid-row:2;
+  background:#fff;border-right:1px solid var(--line);
+  padding:14px 12px;overflow-x:hidden;overflow-y:hidden;
+  display:flex;flex-direction:column;gap:3px;
+  width:220px;max-width:0;
+  transition:max-width .18s ease;
+}
+.portal.explorer-open .sidebar{max-width:220px;overflow-y:auto}
+.explorer-title{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:var(--faint);padding:6px 14px 10px;flex-shrink:0;white-space:nowrap}
 .nav-group-lbl{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:1.2px;color:var(--faint);padding:14px 12px 7px}
 .nav-item{
   display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:9px;cursor:pointer;
   font-size:13px;font-weight:600;color:var(--ink);border:none;background:none;width:100%;text-align:left;
-  position:relative;transition:background .12s,color .12s;
+  position:relative;transition:background .12s,color .12s;white-space:nowrap;
 }
 .nav-item svg{width:18px;height:18px;color:var(--muted);flex-shrink:0;transition:color .12s}
 .nav-item:hover{background:var(--surface-2)}
@@ -230,13 +239,13 @@ input{font-family:inherit}
 .nav-item[data-active="true"] .nb{background:rgba(255,255,255,.2);color:#fff}
 .sidebar-foot{margin-top:auto;padding:13px 12px;border-top:1px solid var(--line-soft);font-size:10.5px;color:var(--faint);line-height:1.6}
 
-.main{overflow-y:auto;padding:22px 26px;background:var(--bg);min-width:0}
+.main{grid-column:3;grid-row:2;overflow-y:auto;padding:22px 26px;background:var(--bg);min-width:0}
 .page-head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:14px;min-width:0}
 .page-head h2{font-size:22px;font-weight:800;letter-spacing:-.4px}
 .page-head .ph-sub{font-size:12.5px;color:var(--muted);margin-top:4px}
 .ph-actions{display:flex;gap:9px}
 
-.portal, .sidebar, .tb-left, .tb-right, .card, .stat-grid, .tbl-wrap {
+.portal, .sidebar, .activity-bar, .main, .tb-left, .tb-right, .card, .stat-grid, .tbl-wrap {
   min-width: 0;
 }
 
@@ -753,15 +762,74 @@ table.data.logtbl td{padding:6px 10px}
 .hamburger:hover{background:rgba(255,255,255,.18)}
 .hamburger svg{width:20px;height:20px}
 
-/* ── Sidebar open state (used on .portal) ── */
-.portal.sidebar-open .sidebar{
-  transform:translateX(0);visibility:visible;
+/* ── Activity Bar (VSCode-style left icon strip) ── */
+.activity-bar{
+  grid-column:1;grid-row:2;
+  width:48px;
+  background:#15233a;
+  display:flex;flex-direction:column;align-items:center;
+  padding:4px 0;
+  z-index:20;overflow:hidden;flex-shrink:0;
+  border-right:1px solid rgba(255,255,255,.05);
 }
+.ab-top{display:flex;flex-direction:column;align-items:center;gap:1px;flex:1;min-height:0;padding-top:4px}
+.ab-bottom{display:flex;flex-direction:column;align-items:center;gap:2px;padding-bottom:6px}
+.ab-btn{
+  width:44px;height:44px;border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+  border:none;background:none;cursor:pointer;
+  color:rgba(255,255,255,.4);
+  position:relative;transition:color .12s,background .12s;
+  flex-shrink:0;
+}
+.ab-btn:hover{color:rgba(255,255,255,.85);background:rgba(255,255,255,.06)}
+.ab-btn.active{
+  color:#fff;
+  background:rgba(255,255,255,.06);
+  box-shadow:inset 2px 0 0 var(--accent);
+}
+.ab-btn svg{width:20px;height:20px}
+.ab-badge{
+  position:absolute;top:5px;right:4px;
+  background:var(--amber);color:#fff;
+  font-size:9px;font-weight:800;
+  min-width:14px;height:14px;border-radius:7px;
+  display:flex;align-items:center;justify-content:center;
+  padding:0 3px;line-height:1;pointer-events:none;
+}
+.ab-avatar{width:28px !important;height:28px !important;border-radius:7px;font-size:11px !important}
+.ab-usermenu{top:auto !important;bottom:44px;left:52px;right:auto}
+
+/* ── Status Bar (VSCode-style bottom bar) ── */
+.status-bar{
+  grid-column:1/-1;grid-row:3;
+  background:var(--accent);color:rgba(255,255,255,.9);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 12px;height:28px;font-size:11px;font-weight:600;
+  z-index:20;user-select:none;overflow:hidden;
+}
+.sb-left,.sb-right{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.sb-sep{opacity:.4;font-weight:400;padding:0 1px}
+.sb-pill{
+  display:flex;align-items:center;gap:4px;
+  padding:1px 7px;border-radius:4px;
+  background:rgba(0,0,0,.15);cursor:pointer;
+  transition:background .12s;
+}
+.sb-pill:hover{background:rgba(0,0,0,.25)}
+.sb-api{display:flex;align-items:center;gap:4px}
+.sb-api .rt{width:6px;height:6px;border-radius:50%;background:#4ADE80;flex-shrink:0;animation:rtpulse 1.6s infinite}
+.sb-staged-count{font-weight:800}
+
+/* ── Explorer open/closed ── */
+.portal.explorer-open .sidebar{max-width:220px;overflow-y:auto}
 .sidebar-overlay{
   display:none;position:fixed;inset:0;
   background:rgba(9,22,51,.55);backdrop-filter:blur(3px);
   z-index:35;cursor:pointer;
 }
+/* Legacy: keep sidebar-open mapped to explorer-open behavior */
+.portal.sidebar-open .sidebar{transform:translateX(0);visibility:visible}
 
 /* ── Stat grid: KPI accent bar (template style) ── */
 .stat-card::before{
@@ -787,7 +855,9 @@ table.data.logtbl td{padding:6px 10px}
   .brand-stats .bs-val{font-size:20px}
   .btn-auth{padding:14px;min-height:48px;font-size:15px}
 
-  .portal{grid-template-columns:1fr}
+  .portal{grid-template-columns:1fr;grid-template-rows:48px 1fr 28px}
+  .activity-bar{display:none}
+  .status-bar{font-size:10px;padding:0 8px}
   .topbar{padding:0 8px;height:48px;gap:12px}
   .tb-left{gap:6px;min-width:0;flex:1 1 auto}
   .tb-sub{display:none}
@@ -801,20 +871,21 @@ table.data.logtbl td{padding:6px 10px}
   .hamburger{display:flex}
   .sidebar{
     position:fixed;top:0;left:0;bottom:0;width:280px;
+    max-width:unset;
     z-index:40;transform:translateX(-100%);visibility:hidden;
     transition:transform .22s cubic-bezier(.2,.8,.2,1),visibility .22s;
     border-right:1px solid var(--line);
     box-shadow:4px 0 24px rgba(9,22,51,.18);
     padding:14px 12px;
   }
-  .sidebar.open{transform:translateX(0);visibility:visible}
+  .portal.explorer-open .sidebar{transform:translateX(0);visibility:visible;max-width:unset;overflow-y:auto}
   .sidebar-overlay{display:block}
-  .portal.sidebar-open .sidebar-overlay{display:block}
+  .portal.explorer-open .sidebar-overlay{display:block}
   .nav-item{padding:13px 12px;min-height:48px;font-size:15px}
   .nav-item svg{width:20px;height:20px}
   .nav-group-lbl{padding:16px 12px 8px;font-size:10px}
 
-  .main{padding:12px 10px}
+  .main{grid-column:1;padding:12px 10px}
   .page-head{margin-bottom:12px}
   .page-head h2{font-size:17px}
   .page-head .ph-sub{font-size:10.5px}
@@ -965,7 +1036,8 @@ table.data.logtbl td{padding:6px 10px}
 @media(max-width:768px){
   .auth{grid-template-columns:1fr}
   .auth-brand{display:none}
-  .portal{grid-template-columns:1fr}
+  .portal{grid-template-columns:1fr;grid-template-rows:50px 1fr 28px}
+  .activity-bar{display:none}
   .sidebar{display:none}
   .stat-grid{grid-template-columns:repeat(2,1fr)}
   .grid-2{grid-template-columns:1fr}
@@ -973,6 +1045,7 @@ table.data.logtbl td{padding:6px 10px}
   .hamburger{display:flex}
   .sidebar{
     position:fixed;top:0;left:0;bottom:0;width:280px;
+    max-width:unset;
     z-index:40;transform:translateX(-100%);visibility:hidden;
     transition:transform .22s cubic-bezier(.2,.8,.2,1),visibility .22s;
     border-right:1px solid var(--line);
@@ -980,9 +1053,9 @@ table.data.logtbl td{padding:6px 10px}
     padding:14px 12px;
     display:flex !important;
   }
-  .sidebar.open{transform:translateX(0);visibility:visible}
+  .portal.explorer-open .sidebar{transform:translateX(0);visibility:visible;max-width:unset;overflow-y:auto}
   .sidebar-overlay{display:block}
-  .portal.sidebar-open .sidebar-overlay{display:block}
+  .portal.explorer-open .sidebar-overlay{display:block}
 
   .topbar{padding:0 10px;height:50px;gap:12px}
   .tb-sub{display:none}
@@ -1092,9 +1165,9 @@ table.data.logtbl td{padding:6px 10px}
 /* ════════════════════════════════════════════════════════════
    Collapsible sidebar toggle (desktop class)
    ════════════════════════════════════════════════════════════ */
-.portal.sidebar-collapsed{grid-template-columns:0px 1fr}
+.portal.sidebar-collapsed{grid-template-columns:48px 0px 1fr}
 .portal.sidebar-collapsed .sidebar{
-  overflow:hidden;padding:0;border-right:none;width:0;min-width:0;
+  max-width:0;overflow:hidden;padding:0;border-right:none;
 }
 .portal.sidebar-collapsed .topbar{
   grid-column:1/-1;
@@ -1522,90 +1595,86 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
    ══════════════════════════════════════════════════════════ */
 
 /* Panel container */
+/* ══════════════════════════════════════════════════════════
+   SOURCE CONTROL — VSCode-style panel + page
+   ══════════════════════════════════════════════════════════ */
+
+/* ── Slide-in panel shell ── */
 .sc-panel{position:fixed;top:0;right:0;bottom:0;width:380px;background:var(--surface);border-left:1px solid var(--line);box-shadow:-6px 0 28px rgba(9,22,51,.13);z-index:300;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .22s cubic-bezier(.2,.8,.2,1);overflow:hidden}
 .sc-panel.open{transform:translateX(0)}
 .sc-backdrop{position:fixed;inset:0;z-index:299;background:rgba(9,22,51,.3)}
 
-/* Header */
+/* ── Header ── */
 .sc-header{background:var(--surface-2);border-bottom:1px solid var(--line);flex-shrink:0}
-.sc-title-row{display:flex;align-items:center;gap:7px;padding:10px 12px 0}
+.sc-title-row{display:flex;align-items:center;gap:7px;padding:10px 12px 6px}
 .sc-title-icon{color:var(--accent);display:flex;align-items:center}
 .sc-title{font-size:10.5px;font-weight:800;letter-spacing:.08em;color:var(--muted);flex:1}
 .sc-branch-badge{font-family:var(--mono);font-size:10px;font-weight:700;background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent-chip);padding:1px 7px;border-radius:5px}
 
-/* Tabs */
-.sc-tabs{display:flex;gap:2px;padding:6px 10px 0}
-.sc-tab{background:none;border:none;font-size:12px;font-weight:600;color:var(--muted);padding:5px 10px 7px;border-radius:6px 6px 0 0;cursor:pointer;display:flex;align-items:center;gap:5px;transition:color .12s,background .12s;border-bottom:2px solid transparent}
-.sc-tab:hover{color:var(--ink);background:var(--surface)}
-.sc-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
-.sc-tab-badge{background:var(--accent);color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:10px;line-height:1.4}
-
-/* Status bar */
-.sc-status-bar{display:flex;align-items:center;gap:6px;padding:5px 14px;font-size:10.5px;color:var(--muted);background:var(--surface);border-bottom:1px solid var(--line-soft);flex-shrink:0}
+/* ── Status bar ── */
+.sc-status-bar{display:flex;align-items:center;gap:6px;padding:4px 12px 8px;font-size:10.5px;color:var(--muted);background:var(--surface-2);flex-shrink:0}
 .sc-status-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
 .sc-status-dot.synced{background:var(--green)}
 .sc-status-dot.pending{background:var(--amber)}
 .sc-status-sep{color:var(--line);font-weight:300}
 .mono{font-family:var(--mono)}
 
-/* Body */
+/* ── Body ── */
 .sc-body{flex:1;overflow-y:auto;display:flex;flex-direction:column}
 .sc-loading{display:flex;align-items:center;justify-content:center;gap:10px;padding:40px 20px;color:var(--muted);font-size:13px}
 
-/* Section header (changes/history) */
-.sc-section-head{display:flex;align-items:center;gap:7px;padding:9px 14px 6px;position:sticky;top:0;background:var(--surface);z-index:2;border-bottom:1px solid var(--line-soft)}
-.sc-section-label{font-size:10px;font-weight:800;letter-spacing:.07em;color:var(--muted);flex:1}
-.sc-section-count{font-size:10.5px;font-weight:700;color:var(--faint);background:var(--surface-2);border:1px solid var(--line);padding:1px 7px;border-radius:10px}
-.sc-select-all{display:flex;align-items:center;cursor:pointer}
-.sc-select-all input{width:14px;height:14px;cursor:pointer;accent-color:var(--accent)}
+/* ── VSCode-style commit area (top of body) ── */
+.sc-vsc-commit-area{padding:10px 10px 8px;border-bottom:1px solid var(--line);background:var(--surface);flex-shrink:0}
+.sc-vsc-commit-btn{width:100%;justify-content:center;margin-top:6px}
+.sc-commit-msg{width:100%;box-sizing:border-box;background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:7px 9px;font-size:12px;color:var(--ink);resize:none;font-family:var(--font);line-height:1.45;transition:border-color .15s}
+.sc-commit-msg:focus{outline:none;border-color:var(--accent)}
 
-/* Empty state */
-.sc-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 24px;text-align:center;gap:10px}
-.sc-empty-icon{color:var(--faint);opacity:.5}
-.sc-empty-title{font-size:13px;font-weight:700;color:var(--ink)}
-.sc-empty-sub{font-size:12px;color:var(--muted);line-height:1.5}
+/* ── VSCode-style collapsible sections ── */
+.sc-vsc-section{flex-shrink:0}
+.sc-vsc-section-head{display:flex;align-items:center;gap:5px;padding:5px 6px 5px 8px;cursor:pointer;user-select:none;background:var(--surface-2);border-bottom:1px solid var(--line-soft);position:sticky;top:0;z-index:2;transition:background .1s}
+.sc-vsc-section-head:hover{background:var(--surface)}
+.sc-vsc-chevron{font-size:10px;color:var(--muted);width:14px;flex-shrink:0}
+.sc-section-label{font-size:10.5px;font-weight:700;letter-spacing:.07em;color:var(--muted);flex:1}
+.sc-section-count{font-size:10px;font-weight:700;background:var(--accent);color:#fff;padding:1px 6px;border-radius:8px;min-width:18px;text-align:center}
 
-/* ── Change items ── */
-.sc-changes,.sc-history,.sc-ai{display:flex;flex-direction:column;flex:1}
-.sc-change-item{display:flex;align-items:flex-start;gap:9px;padding:9px 12px;border-bottom:1px solid var(--line-soft);transition:background .1s;cursor:default}
-.sc-change-item:last-child{border-bottom:none}
-.sc-change-item:hover{background:var(--surface-2)}
-.sc-change-item.selected{background:var(--accent-soft)}
-.sc-cb{display:flex;align-items:center;padding-top:3px;flex-shrink:0}
-.sc-cb input{width:14px;height:14px;cursor:pointer;accent-color:var(--accent)}
+/* ── VSCode-style file rows ── */
+.sc-vsc-file-row{display:flex;align-items:center;gap:6px;padding:4px 8px 4px 24px;min-height:28px;cursor:default;transition:background .08s;position:relative;border-bottom:1px solid transparent}
+.sc-vsc-file-row:hover{background:var(--surface-2)}
+.sc-vsc-file-row:hover .sc-vsc-file-actions{opacity:1;pointer-events:auto}
+.sc-vsc-file-icon{flex-shrink:0;color:var(--faint);display:flex;align-items:center}
+.sc-vsc-file-info{flex:1;min-width:0;display:flex;flex-direction:column}
+.sc-vsc-file-name{font-size:12.5px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3}
+.sc-vsc-file-path{font-size:10.5px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2;margin-top:1px}
 
-/* VSCode-style M/A/D kind badges */
-.sc-kind{width:16px;height:16px;border-radius:3px;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}
-.sc-kind-m{background:var(--amber-bg);color:var(--amber-ink)}
-.sc-kind-a{background:var(--green-bg);color:var(--green-ink)}
-.sc-kind-d{background:var(--red-bg);color:var(--red)}
+/* M/A/D badges — right edge, VSCode style */
+.sc-vsc-badge{font-size:10px;font-weight:800;padding:0 4px;border-radius:3px;flex-shrink:0;margin-left:4px}
+.sc-vsc-badge-m{color:#e2c08d}
+.sc-vsc-badge-a{color:#89d185}
+.sc-vsc-badge-d{color:#f48771}
 
-.sc-change-body{flex:1;min-width:0}
-.sc-change-name{font-size:12px;font-weight:700;color:var(--ink);line-height:1.3}
-.sc-change-desc{font-size:11.5px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sc-change-meta{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:10.5px;color:var(--muted)}
+/* Hover action buttons (hidden by default, VSCode style) */
+.sc-vsc-file-actions{display:flex;gap:2px;flex-shrink:0;opacity:0;pointer-events:none;transition:opacity .1s;align-items:center}
 
-.sc-avatar-xs{width:16px;height:16px;border-radius:4px;background:var(--accent-soft);color:var(--accent);font-size:8px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.sc-item-actions{display:flex;gap:4px;flex-shrink:0;align-items:center;padding-top:2px}
-.sc-pending-badge{font-size:10px;font-weight:600;color:var(--amber-ink);background:var(--amber-bg);border:1px solid var(--amber);padding:2px 7px;border-radius:5px}
-
-/* Icon buttons */
-.sc-icon-btn{background:none;border:none;cursor:pointer;color:var(--muted);padding:4px;border-radius:5px;display:flex;align-items:center;justify-content:center;transition:background .1s,color .1s}
-.sc-icon-btn:hover{background:var(--surface-2);color:var(--ink)}
+/* ── Shared icon button ── */
+.sc-icon-btn{background:none;border:none;cursor:pointer;color:var(--muted);padding:3px 4px;border-radius:4px;display:flex;align-items:center;justify-content:center;transition:background .1s,color .1s}
+.sc-icon-btn:hover{background:var(--surface);color:var(--ink)}
 .sc-icon-btn:disabled{opacity:.4;cursor:not-allowed}
 .sc-icon-btn.danger:hover{background:var(--red-bg);color:var(--red)}
 .sc-icon-btn.ok:hover{background:var(--green-bg);color:var(--green-ink)}
 
-/* Manager commit area */
-.sc-commit-area{padding:10px 12px;border-top:1px solid var(--line);background:var(--surface);flex-shrink:0}
-.sc-commit-msg{width:100%;box-sizing:border-box;background:var(--surface-2);border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:12px;color:var(--ink);resize:none;font-family:var(--font);line-height:1.45;transition:border-color .15s}
-.sc-commit-msg:focus{outline:none;border-color:var(--accent)}
-.sc-commit-btns{display:flex;gap:7px;margin-top:8px}
+/* ── Pending badge for staff ── */
+.sc-pending-badge{font-size:10px;font-weight:600;color:var(--amber-ink);background:var(--amber-bg);border:1px solid var(--amber);padding:1px 6px;border-radius:4px}
 
-/* Staff note */
+/* ── Empty state ── */
+.sc-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;text-align:center;gap:10px}
+.sc-empty-icon{color:var(--faint);opacity:.5}
+.sc-empty-title{font-size:13px;font-weight:700;color:var(--ink)}
+.sc-empty-sub{font-size:12px;color:var(--muted);line-height:1.5}
+
+/* ── Staff note ── */
 .sc-staff-note{display:flex;align-items:flex-start;gap:8px;padding:10px 14px;font-size:11.5px;color:var(--muted);background:var(--surface-2);border-top:1px solid var(--line-soft);margin-top:auto}
 
-/* ── History tab ── */
+/* ── History view ── */
 .sc-commit-item{display:flex;gap:10px;padding:0 12px}
 .sc-graph{display:flex;flex-direction:column;align-items:center;flex-shrink:0;padding-top:14px}
 .sc-g-dot{width:10px;height:10px;border-radius:50%;background:var(--surface);border:2.5px solid var(--accent);flex-shrink:0;z-index:1}
@@ -1618,51 +1687,46 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
 .sc-sha{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--accent);background:var(--accent-soft);padding:1px 5px;border-radius:4px}
 .sc-synced{display:inline-flex;align-items:center;gap:3px;color:var(--green-ink);font-weight:700}
 
-/* ── AI tab ── */
-.sc-ai{padding:0 0 12px}
-.sc-ai-desc{font-size:12px;color:var(--muted);padding:8px 14px;line-height:1.5}
-.sc-ai-input{display:block;width:100%;box-sizing:border-box;margin:0 0 0;padding:10px 14px;background:var(--surface-2);border:1px solid var(--line);border-top:none;font-size:12.5px;color:var(--ink);resize:vertical;font-family:var(--font);line-height:1.5}
-.sc-ai-input:focus{outline:none;border-color:var(--accent);background:var(--surface)}
-.sc-ai-input:disabled{opacity:.6}
-.sc-ai > .btn{margin:0 14px;width:calc(100% - 28px)}
+/* ── AI panel ── */
 .sc-ai-result{margin:12px 14px 0;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .sc-ai-result-head{font-size:10.5px;font-weight:700;color:var(--muted);padding:7px 12px;background:var(--surface);border-bottom:1px solid var(--line-soft);letter-spacing:.05em}
 .sc-ai-result-body{font-size:12px;color:var(--ink);padding:10px 12px;line-height:1.5;white-space:pre-wrap;max-height:160px;overflow-y:auto}
-.sc-ai-result-link{display:block;font-size:12px;font-weight:600;color:var(--accent);padding:7px 12px;background:none;border:none;border-top:1px solid var(--line-soft);cursor:pointer;text-align:left;width:100%}
-.sc-ai-result-link:hover{text-decoration:underline}
-.sc-ai-roles{margin:14px 14px 0;display:flex;flex-direction:column;gap:8px}
-.sc-ai-role-row{display:flex;align-items:center;gap:9px;font-size:11.5px;color:var(--muted)}
 
-/* ── Confirm dialog inside panel ── */
+/* ── Confirm overlay ── */
 .sc-confirm-overlay{position:absolute;inset:0;background:rgba(9,22,51,.5);display:flex;align-items:flex-end;justify-content:center;z-index:10;padding-bottom:20px}
 .sc-confirm{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px 16px;width:calc(100% - 32px);max-width:340px;box-shadow:0 8px 32px rgba(9,22,51,.2)}
 .sc-confirm p{font-size:13px;color:var(--ink);line-height:1.5;margin:0 0 14px}
 .sc-confirm-btns{display:flex;gap:9px}
 .sc-confirm-btns .btn{flex:1;justify-content:center}
 
-/* ── Topbar SC toggle button ── */
+/* ── Topbar SC button ── */
 .tb-sc-btn{background:none;border:1px solid var(--line);color:var(--muted);padding:5px 10px;border-radius:7px;cursor:pointer;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;transition:background .12s,color .12s,border-color .12s;position:relative}
 .tb-sc-btn:hover{background:var(--surface-2);color:var(--ink);border-color:var(--muted)}
 .tb-sc-btn.active{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
-.tb-sc-btn .nb{position:relative;top:auto;right:auto;background:var(--accent);color:#fff;font-size:9px;padding:1px 5px;border-radius:8px;line-height:1.4}
+.tb-sc-btn .nb{background:var(--accent);color:#fff;font-size:9px;padding:1px 5px;border-radius:8px;line-height:1.4}
 
-/* ── Inventory staged pill ── */
-.sc-staged-pill{color:var(--accent) !important;border-color:var(--accent) !important;background:var(--accent-soft) !important;gap:5px}
+/* ── Toolbar SC badge count ── */
+.sc-badge-count{background:var(--accent);color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;line-height:1.4;min-width:14px;text-align:center}
+.btn.warn-outline{border-color:var(--amber) !important;color:var(--amber-ink) !important}
+.btn.sc-push-active{border-color:var(--accent) !important;color:var(--accent) !important;background:var(--accent-soft) !important}
 
-/* ── Panel overlay dims content on mobile ── */
+/* ── Full-page layout ── */
+.sc-page{display:flex;flex-direction:column;height:100%}
+.sc-page-body{flex:1;overflow:hidden;display:grid;grid-template-columns:1fr;gap:0;padding:0 20px 20px}
+.sc-page-panel{display:flex;flex-direction:column;overflow:hidden;min-height:0}
+.sc-page-panel .sc-body{max-height:calc(100vh - 200px)}
+
+/* ── Mobile ── */
 @media(max-width:640px){
   .sc-panel{width:100%;max-width:100%}
-  .sc-backdrop{display:block}
 }
 
-/* ── Dark theme overrides ── */
+/* ── Dark theme ── */
 [data-theme="dark"] .sc-panel{background:var(--surface);border-color:var(--line)}
 [data-theme="dark"] .sc-header{background:var(--surface-2)}
-[data-theme="dark"] .sc-status-bar{background:var(--surface-2);border-color:var(--line)}
+[data-theme="dark"] .sc-vsc-section-head{background:var(--surface-2)}
+[data-theme="dark"] .sc-vsc-section-head:hover{background:var(--surface)}
+[data-theme="dark"] .sc-vsc-file-row:hover{background:#1e2530}
 [data-theme="dark"] .sc-commit-msg{background:var(--surface);border-color:var(--line);color:var(--ink)}
-[data-theme="dark"] .sc-change-item:hover{background:#21262d}
-[data-theme="dark"] .sc-change-item.selected{background:rgba(88,166,255,.08)}
-[data-theme="dark"] .sc-ai-input{background:var(--surface);border-color:var(--line);color:var(--ink)}
 [data-theme="dark"] .sc-confirm{background:var(--surface-2);border-color:var(--line)}
 [data-theme="dark"] .tb-sc-btn{border-color:var(--line);color:var(--muted)}
-[data-theme="dark"] .tb-sc-btn:hover{background:var(--surface-2);color:var(--ink)}

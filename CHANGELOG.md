@@ -16,6 +16,216 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v3.0.1] — 2026-06-12 — Phase 1: VSCode shell — activity bar, explorer panel, status bar
+
+**Claude (mjcc-ui):** VSCode/Replit shell foundation. Build passes clean.
+
+**index.css:**
+- Portal grid changed from `248px 1fr` (2-col) to `48px auto 1fr` (3-col: activity-bar, explorer, main) with `54px 1fr 28px` rows (topbar, content, statusbar)
+- `.sidebar` gets `grid-column:2; grid-row:2`; animates open/close via `max-width: 0 → 220px`; triggered by `.portal.explorer-open`
+- `.main` gets `grid-column:3; grid-row:2`
+- Added `.activity-bar` — `grid-column:1; grid-row:2`; dark navy strip, icon buttons with active left-border accent, badge count
+- Added `.status-bar` — `grid-column:1/-1; grid-row:3`; blue accent bar, period + staged count + role + API indicator
+- Added `.explorer-title` for VSCode-style "EXPLORER" label in panel
+- Renamed `.portal.sidebar-open` → `.portal.explorer-open` throughout (mobile breakpoints updated)
+- Mobile: `.activity-bar{display:none}`, sidebar stays as fixed overlay triggered by hamburger
+
+**Portal.tsx:**
+- `sidebarOpen` state renamed to `explorerOpen`; `toggleSidebar` → `toggleExplorer`
+- Added `ActivityBar` component: 7 icon slots (explorer, inventory, SC, data entry, events, AI, reports) + bottom user avatar with dropdown. Active state = current page section. SC icon shows badge count.
+- Added `StatusBar` component: left side shows branch + period + staged-count pill; right side shows role + API live indicator
+- `Sidebar` component unchanged except `explorer-title` div added at top
+- `portalCls` builds from `['portal', explorerOpen ? 'explorer-open' : '', scOpen ? 'sc-open' : '']`
+- Portal return JSX now renders `<ActivityBar>`, `<Sidebar>`, `<StatusBar>` alongside existing structure
+
+**Build:** tsc clean, `✓ built in 317ms`, no new warnings
+**Push:** pending
+
+---
+
+## [v3.0.0] — 2026-06-12 — GAME PLAN: VSCode UI + 3-Agent Architecture + AI Inventory
+
+**Claude (Senior Dev Manager):** Restructure complete. Agents, skills, and DATA.md created. This entry is the v3.0 game plan for the full system build-out.
+
+---
+
+### VISION — What We Are Building
+
+MJCC is evolving from a functional CRUD app into a **fully interactive, VSCode/Replit-style management system** with:
+- A windowed, activity-bar-driven UI that feels like an online IDE
+- AI-assisted data entry (file upload → parse → stage → commit)
+- Complete inventory management (current + archived periods)
+- Three specialized Claude subagents coordinating through CHANGELOG.md
+
+---
+
+### TRACK 1 — VSCode/Replit UI Overhaul (mjcc-ui)
+
+**Goal:** The MJCC Portal should feel like a windowed online IDE — not a dashboard.
+
+**Layout target:**
+```
+┌─ Activity Bar (48px) ─┬─ Explorer Panel ─┬─ Content Area (windowed) ─┐
+│  Icons for each view  │  Collapsible     │  Cards as editor panels   │
+└───────────────────────┴──────────────────┴───────────────────────────┘
+│ Status Bar — period · API status · staged count · user · push state  │
+```
+
+**Build order:**
+1. Activity bar component (far left, icon-only, replaces current sidebar icons)
+2. Collapsible explorer panel (slides in from left, houses nav tree)
+3. Status bar (bottom, persistent — connection, period, staged count, user)
+4. Windowed content cards (title bar + close + collapse on all major views)
+5. Topbar shrink → menu bar / breadcrumb only
+
+**Consistency rules:**
+- Every card = editor panel (title bar, close, scroll body)
+- Every modal = floating window (drag handle, title bar, close ×)
+- Every section = collapsible (chevron, label + count badge)
+- No banner alerts for routine state — use status bar pills
+- Dark/light theme toggle retained
+
+---
+
+### TRACK 2 — AI Data Entry Engine (mjcc-api + mjcc-data)
+
+**Goal:** Upload any file (invoice PDF, CSV, spreadsheet) → AI parses to rows → diff preview → stage → commit → live in DB.
+
+**Pipeline:**
+```
+File upload → AI extraction (Groq/Ollama) → structured rows
+    → stage as inventory_save / event_create / etc operations
+    → GET /api/data-entry/preview/{batch_id}  ← before/after diff
+    → POST /api/commits  ← manager commits
+    → dispatch → DB writes
+```
+
+**mjcc-api tasks:**
+- Verify `backend/ai/` extractor is wired and handles CSV/XLSX/PDF/TSV
+- Ensure model selection reads from `app_settings` (key `ai_provider`, `ai_model`)
+- Add `GET /api/data-entry/preview/{batch_id}` if missing
+- Wire Groq and Ollama providers with fallback
+
+**mjcc-ui tasks:**
+- DataEntry page: file drop zone, model selector, live progress feedback
+- Diff preview table (old value → new value per item)
+- Confirm + stage button → routes to SC panel
+
+**mjcc-data tasks:**
+- Verify `app_settings` has `ai_provider` and `ai_model` keys
+- Verify staging pipeline handles batch entries correctly
+
+---
+
+### TRACK 3 — Inventory Management (complete system)
+
+**Current state:** Inventory inputs work (v2.5.2 fix). Published-period guard active. Rollover RPC safe.
+
+**Remaining work:**
+- Archived periods: read-only view of published months with ending balance display
+- Period selector in topbar should indicate published vs open with visual status
+- Reorder alerts: items where `on_hand < par_level` → surface in dashboard
+- Category management: add/rename categories (currently no UI)
+- Item management: add new items, edit SKU/description/category/unit/price
+
+**mjcc-ui tasks:**
+- Archived inventory view (period picker shows all months, published = read-only badge)
+- Item management modal (add/edit items inline or via modal)
+- Dashboard reorder widget (items below par highlighted with reorder count)
+
+**mjcc-data tasks:**
+- Verify `monthly_snapshots` is populated on rollover (for archive reads)
+
+---
+
+### TRACK 4 — System Unification + Stability
+
+**Known gaps to close:**
+- `lib/supabase.ts` legacy shims (`fetchInventory`, dashboard numbers, monthly rows, reorders) — bridge remaining calls to `api.ts`
+- Reports.tsx and Operations.tsx still use legacy formatters from `supabase.ts`
+- SC panel: verify `mjcc:draft-changed` events fire correctly from all inventory views
+
+**Agent communication protocol:**
+- API agent logs `[DATA-AGENT REQUIRED]` in CHANGELOG when schema work needed
+- UI agent logs `[API-AGENT REQUIRED]` in CHANGELOG when new endpoints needed
+- Data agent confirms schema facts in DATA.md and logs `[VERIFIED: ...]`
+
+---
+
+### AGENT STRUCTURE (v3.0)
+
+| Agent | File | Workspace | Responsibilities |
+|---|---|---|---|
+| **mjcc-api** | `.claude/agents/api-agent.md` | `API.md` | FastAPI routes, dispatch, AI engine |
+| **mjcc-ui** | `.claude/agents/ui-agent.md` | `UI.md` | React components, Portal, CSS |
+| **mjcc-data** | `.claude/agents/data-agent.md` | `DATA.md` | Supabase schema, migrations, RLS |
+
+### SKILLS (v3.0)
+
+| Skill | Purpose |
+|---|---|
+| `mjcc-tooling` | Master index (updated to v2.0.0) |
+| `mjcc-mcps` | Supabase/Chrome DevTools/GitHub MCP usage |
+| `mjcc-ui-scheme` | Design system, CSS tokens, Portal architecture |
+| `mjcc-ruff` | Python backend lint/format |
+| `mjcc-supabase-auth` | Auth flows, token storage |
+| `mjcc-git` | Commit format, push workflow |
+| `skillsense` | Auto-create skills for repeated patterns |
+
+### FILES CREATED THIS SESSION
+- `.claude/agents/api-agent.md` — mjcc-api agent
+- `.claude/agents/ui-agent.md` — mjcc-ui agent
+- `.claude/agents/data-agent.md` — mjcc-data agent
+- `DATA.md` — data agent workspace (schema reference)
+- `.claude/skills/mjcc-mcps/SKILL.md`
+- `.claude/skills/mjcc-ui-scheme/SKILL.md`
+- `.claude/skills/mjcc-ruff/SKILL.md`
+- `.claude/skills/mjcc-supabase-auth/SKILL.md`
+- `.claude/skills/mjcc-git/SKILL.md`
+- `.claude/skills/skillsense/SKILL.md`
+- `.claude/skills/mjcc-tooling/SKILL.md` — updated to v2.0.0
+
+### FILES DELETED THIS SESSION
+- `.claude/agents/Debugy.md` (old MJCC-debugger)
+- `.claude/agents/Catch21.md` (old change-logger)
+- `.claude/agents/Github.md` (old git-operator)
+- `.claude/agents/mjcc-agent.md` (old orchestrator)
+
+**Push:** pending — no code changes this session, files only
+
+---
+
+## [v2.5.6] — 2026-06-12 — UI: VSCode-style Source Control + toolbar Stage/Save/Push
+
+**Claude:** Complete overhaul of Source Control UX based on user request. Build passes; no backend changes.
+
+**SourceControl.tsx — full rewrite (VSCode-style)**
+- Removed tab-based layout; replaced with two collapsible sections: **CHANGES** (unsaved draft items) and **STAGED CHANGES** (pending staging_entries), mirroring VSCode exactly.
+- Commit message textarea is now at the TOP (above sections), like VSCode.
+- File rows show: icon + filename + metadata path + M/A/D badge (right) + hover-reveal action buttons.
+- CHANGES section: each draft item shows "+" (Stage) and "×" (Discard) on hover. Section header has "Stage All" and "Discard All" icon buttons.
+- STAGED CHANGES section: each entry shows "×" (Reject) and "✓" (Commit single) on hover for managers; staff see a "Pending" badge.
+- History view reachable via back-navigation; AI assistant view retained.
+- Added `SourceControlPage` export — same content as panel but rendered as a full navigable page.
+- Window events consumed: `mjcc:stage-all-draft`, `mjcc:stage-draft-item`, `mjcc:discard-draft-item` (new, from panel → InventoryView).
+
+**Portal.tsx — inventory toolbar + SC routing**
+- Removed all per-row "Stage" buttons from Regular and Grouped table views.
+- Removed "Stage changes" button from compact stagebar (week/direction selectors remain).
+- Added three toolbar buttons (canStage ≥ 10): **Save** (persist draft to localStorage), **Stage** (calls stageCompactChanges for all views), **Push** (opens SC panel). Stage/Push show badge counts.
+- `goTo("sourcectrl")` now navigates to the SC page (`setActive("sourcectrl")`) instead of toggling the panel. The topbar SC icon still toggles the slide-in panel.
+- `renderPage()` handles `active === "sourcectrl"` → `<SourceControlPage>`.
+- `mjcc:draft-changed` event emitted on every draft state change (carries SKU, desc, onHand, par for each dirty item).
+- Event listeners added for `mjcc:stage-all-draft`, `mjcc:stage-draft-item`, `mjcc:discard-draft-item` — routed to `stageCompactChanges` / `stageInventoryRow` / `setDraft`.
+
+**index.css — VSCode-style SC panel styles**
+- Replaced old tab-based styles with VSCode-mirroring section styles: `.sc-vsc-section`, `.sc-vsc-section-head`, `.sc-vsc-file-row`, `.sc-vsc-file-actions` (hover-reveal), `.sc-vsc-badge-m/a/d`, `.sc-vsc-commit-area`.
+- Added `.sc-badge-count`, `.btn.warn-outline`, `.btn.sc-push-active`, `.sc-page`, `.sc-page-body` for toolbar + full-page layout.
+
+**Push:** pending
+
+---
+
 ## [v2.5.5] — 2026-06-12 — Backend: BUG-B par isolation + BUG-D published-month guard + running_total
 
 **Claude:** Three surgical backend fixes closing cross-period data contamination. All ruff-clean; no schema changes required.
