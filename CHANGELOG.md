@@ -16,6 +16,28 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v3.0.6] — 2026-06-12 — GPU-smooth sidebar + SC panel inside page
+
+**Claude (mjcc-ui):** Resolved two UX issues reported by user ("choppy", "source control panel should be inside the page under the main headbar").
+
+**Sidebar animation (choppiness fix):**
+- Portal grid changed from `48px auto 1fr` → `48px 1fr` (removed explorer column)
+- Sidebar converted from `max-width: 0→220px` grid animation → `position:absolute; transform:translateX(-100%)` GPU-composited overlay
+- `will-change:transform` — no layout reflow on every frame, zero jank
+
+**SC panel repositioned:**
+- Was: `position:fixed; top:0; right:0; bottom:0` — full-viewport overlay covering topbar
+- Now: `position:absolute; top:54px; right:0; bottom:28px` within `position:relative` `.portal` — anchored below topbar (54px), above status bar (28px)
+- SC backdrop scoped to main area only (`top:54px; left:48px; bottom:28px`)
+
+**Mobile cleanup:**
+- ≤768px and ≤640px breakpoints: removed stale `max-width:unset`, `visibility:hidden/visible`, old `z-index:40` — both now use clean `transform`-only approach with `z-index:80`
+
+**Verified:** `npx tsc --noEmit` + `npm run build` — `✓ built in 2.47s`, zero new errors.
+**Push:** 449f500 — 2026-06-12
+
+---
+
 ## [v3.0.5] — 2026-06-12 — Phase 3: complete AI data entry UI
 
 **Claude (mjcc-ui):** Rewrote `DataEntry.tsx` to fully expose the already-built backend AI pipeline.
