@@ -16,6 +16,22 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v2.5.3] — 2026-06-11 — FE: inventory input no longer snaps back after staging
+
+**Claude:** Chrome DevTools live test confirmed the root cause: after `stageInventoryRow` (and `stageCompactChanges`) succeeded, the code deleted `draft[sku]`, causing the displayed value to fall back to `r.onHand` (old DB value). Staging routes through Source Control queue — not a direct DB write — so `r.onHand` remains stale until a commit + reload cycle. Result: ON HAND / PAR inputs visibly snapped back to the pre-edit value ~1200ms after clicking Stage.
+
+**Fix:** Introduced `stagedValues: Record<string, { onHand, par }>` state in `Portal.tsx`.
+- `stageInventoryRow` success: saves `{onHand, par}` to `stagedValues[sku]` before clearing draft.
+- `stageCompactChanges` success: saves all staged on-hand/par values to `stagedValues` before clearing draft.
+- `setDraftField`: clears `stagedValues[sku]` when user begins a new edit (fresh edit overrides pending display).
+- All display sites (regular view, grouped view ×2, compact view ×2) updated to use `draft[sku] ?? stagedValues[sku] ?? r.onHand` priority chain.
+
+**Confirmed:** `tsc --noEmit` exits 0. Live browser test showed value holding at staged number after API returned.
+
+**Push:** pending
+
+---
+
 ## [v2.5.2] — 2026-06-11 — Backend: unit field, on_hand guard, staging dedup + role filter
 
 **Claude:** 4-file backend fix targeting the remaining root causes behind "par replacing on_hand" and silent data loss during commit replay. All changes are surgical and backward-compatible. No schema migrations required.

@@ -966,6 +966,11 @@ function InventoryView({
     const [draft, setDraft] = useState<
         Record<string, { onHand: number; par: number }>
     >({});
+    // Holds the last-staged values per SKU so inputs keep showing the staged
+    // value after draft is cleared (staging queues via SC, not direct DB write).
+    const [stagedValues, setStagedValues] = useState<
+        Record<string, { onHand: number; par: number }>
+    >({});
     const [stagingBusy, setStagingBusy] = useState<Record<string, boolean>>({});
     const [viewMode, setViewMode] = useState<
         "regular" | "grouped" | "compact"
@@ -1060,6 +1065,8 @@ function InventoryView({
     ) => {
         const parsed = parseFloat(value);
         const valid = Number.isFinite(parsed);
+        // New user edit overrides any pending-staged snapshot for this SKU.
+        setStagedValues((prev) => { const c = { ...prev }; delete c[sku]; return c; });
         setDraft((prev) => {
             const cur = prev[sku];
             // When the user clears/invalidates the field, preserve the existing
@@ -1111,6 +1118,8 @@ function InventoryView({
             );
             toast(`Staged inventory update for ${row.desc}`);
             openSC?.();
+            // Preserve the staged value so the input keeps showing it until rows reload.
+            setStagedValues((prev) => ({ ...prev, [sku]: { onHand: next.onHand, par: next.par } }));
             setDraft((prev) => {
                 const copy = { ...prev };
                 delete copy[sku];
@@ -1220,6 +1229,16 @@ function InventoryView({
                 toast(`Staged inventory changes for ${n} item${n !== 1 ? "s" : ""}`);
                 openSC?.();
             }
+            // Preserve staged values so inputs keep showing them until rows reload.
+            setStagedValues((prev) => {
+                const next = { ...prev };
+                for (const r of dirty) {
+                    const sku = String((r as any).sku || "");
+                    const d = draft[sku];
+                    next[sku] = { onHand: d?.onHand ?? (r as any).onHand, par: d?.par ?? (r as any).par };
+                }
+                return next;
+            });
             setWkDraft({});
             setDraft((prev) => {
                 const copy = { ...prev };
@@ -1533,8 +1552,8 @@ function InventoryView({
                                 {filtered.map((r: any, i: number) => {
                                     const sku = String(r.sku || "");
                                     const staged = draft[sku];
-                                    const onHand = staged?.onHand ?? r.onHand;
-                                    const par = staged?.par ?? r.par;
+                                    const onHand = staged?.onHand ?? stagedValues[sku]?.onHand ?? r.onHand;
+                                    const par = staged?.par ?? stagedValues[sku]?.par ?? r.par;
                                     const isLow = onHand < par && par > 0;
                                     const rowValue = onHand * (r.price || 0);
                                     const hasDraft = Boolean(staged);
@@ -1723,15 +1742,15 @@ function InventoryView({
                                         (s: number, r: any) => {
                                             const sku = String(r.sku || "");
                                             const oh =
-                                                draft[sku]?.onHand ?? r.onHand;
+                                                draft[sku]?.onHand ?? stagedValues[sku]?.onHand ?? r.onHand;
                                             return s + oh * (r.price || 0);
                                         },
                                         0,
                                     );
                                     const lowCount = items.filter((r: any) => {
                                         const sku = String(r.sku || "");
-                                        const oh = draft[sku]?.onHand ?? r.onHand;
-                                        const pr = draft[sku]?.par ?? r.par;
+                                        const oh = draft[sku]?.onHand ?? stagedValues[sku]?.onHand ?? r.onHand;
+                                        const pr = draft[sku]?.par ?? stagedValues[sku]?.par ?? r.par;
                                         return oh < pr && pr > 0;
                                     }).length;
                                     const open = !collapsed[c];
@@ -1820,9 +1839,11 @@ function InventoryView({
                                                                         ];
                                                                     const onHand =
                                                                         staged?.onHand ??
+                                                                        stagedValues[sku]?.onHand ??
                                                                         r.onHand;
                                                                     const par =
                                                                         staged?.par ??
+                                                                        stagedValues[sku]?.par ??
                                                                         r.par;
                                                                     const isLow =
                                                                         onHand <
@@ -2113,7 +2134,7 @@ function InventoryView({
                                         0;
                                     const rowTotal = (r: any) => {
                                         const sku = String(r.sku || "");
-                                        const oh = draft[sku]?.onHand ?? r.onHand;
+                                        const oh = draft[sku]?.onHand ?? stagedValues[sku]?.onHand ?? r.onHand;
                                         const rcv = RECEIVED.reduce(
                                             (a, k) => a + wk(r, k),
                                             0,
@@ -2137,8 +2158,8 @@ function InventoryView({
                                     const lowCount = items.filter((r: any) => {
                                         const sku = String(r.sku || "");
                                         const oh =
-                                            draft[sku]?.onHand ?? r.onHand;
-                                        const pr = draft[sku]?.par ?? r.par;
+                                            draft[sku]?.onHand ?? stagedValues[sku]?.onHand ?? r.onHand;
+                                        const pr = draft[sku]?.par ?? stagedValues[sku]?.par ?? r.par;
                                         return oh < pr && pr > 0;
                                     }).length;
                                     const open = !collapsed[c];
@@ -2249,11 +2270,13 @@ function InventoryView({
                                                                             sku
                                                                         ]
                                                                             ?.onHand ??
+                                                                        stagedValues[sku]?.onHand ??
                                                                         r.onHand;
                                                                     const par =
                                                                         draft[
                                                                             sku
                                                                         ]?.par ??
+                                                                        stagedValues[sku]?.par ??
                                                                         r.par;
                                                                     const rcv =
                                                                         RECEIVED.some(
