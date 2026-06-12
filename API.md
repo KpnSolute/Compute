@@ -2,8 +2,45 @@
 
 **Local:** `http://localhost:8000`  
 **Production:** `https://mjcc-managements.onrender.com`  
-**Auth header:** `Authorization: Bearer <token>` (all endpoints except `/api/auth/login`)  
+**Auth header:** `Authorization: Bearer <token>` (all endpoints except `POST /api/auth/login`)  
 **Content-Type:** `application/json` (except file upload which uses `multipart/form-data`)
+
+---
+
+## Data Model Clarifications
+
+### `on_hand` vs ending balance
+- `on_hand` in `monthly_inventory` is the **opening balance** for the period — the count carried forward from the prior month's rollover.
+- **Ending balance (current stock)** = `on_hand + sum(w_received) − sum(w_issued)`. The rollover function uses this formula to seed the next month's opening balance.
+- `GET /api/inventory` returns `onHand` (opening balance). The frontend computes the running total from the week columns.
+
+### Par level is global
+- `par_level` lives in `inventory_items` and is **shared across all periods**.
+- Changing par from any month's edit affects all months' display.
+- Par changes must go through `dispatch_item_update` (operation `item_update`), not `dispatch_inventory_save`.
+
+### Month indexing
+- **DB stores months 0-indexed** (0 = January, 11 = December) in `monthly_inventory`.
+- **API accepts and returns 1-indexed** (1 = January, 12 = December).
+- Conversion: `db_month = api_month − 1`.
+
+### Month status states
+- `open` — editable; writes accepted.
+- `published` — read-only after rollover. Writes to published periods return `403`.
+
+### Staging dedup
+- `POST /api/staging` deduplicates by `(entity_id, field_name, submitted_by, status=pending)`. If a matching pending entry exists for the same submitter it is **updated in-place** rather than inserting a duplicate.
+
+### Staging entity_id convention (v2.6.0)
+| Operation | `entity_id` format |
+|---|---|
+| `inventory_save` | `{sku}-{month_1indexed}-{year}` |
+| `inventory_week_update` | `W{week}-{received\|issued}-{month}-{year}` |
+| batch compact | `batch-compact-{month}-{year}` |
+| `item_update` / `item_delete` | `{sku}` |
+| `menu_save` | `{day_of_week}` |
+| `event_create` | event title slug or UUID |
+| `haccp_save` / `daily_log_save` | ISO timestamp or compound key |
 
 ---
 
@@ -17,7 +54,7 @@ Two login modes. No auth header required.
 { "access_token": "<supabase_jwt>" }
 ```
 
-**PIN mode (staff):**
+**PIN mode (staff only):**
 ```json
 { "username": "jdoe", "pin": "1234" }
 ```
@@ -32,15 +69,22 @@ Two login modes. No auth header required.
     "display_name": "string",
     "last_name": "string",
     "role": "admin | manager | staff",
-    "active": true
+    "active": true,
+    "email": "string (JWT mode only — absent in PIN response)"
   }
 }
 ```
+- PIN mode token is `pin_<user_id>` (a pseudo-token, not a signed JWT).
+- PIN login is restricted to `role = staff`; attempting PIN login as admin/manager returns `401`.
+
+**Errors:**
+- `400` — neither `access_token` nor `username+pin` provided.
+- `401` — invalid/expired token, unknown credentials, inactive account, or non-staff attempting PIN login.
 
 ---
 
 ### `GET /api/auth/me`
-Returns current user from the bearer token.
+Returns current user from the bearer token. Accepts both JWT and `pin_` tokens.
 
 **Response `200`:**
 ```json
@@ -53,13 +97,15 @@ Returns current user from the bearer token.
   "active": true
 }
 ```
+**`401`** — missing, invalid, or expired token.
 
 ---
 
 ### `POST /api/auth/logout`
-Signals session end. Frontend should discard the token.
+Signals session end. Requires `Authorization: Bearer <token>` header. Frontend must discard the token.
 
-**Response `200`:** `{ "message": "Successfully logged out" }`
+**Response `200`:** `{ "message": "Successfully logged out" }`  
+**`400`** — no token provided in header.
 
 ---
 
@@ -111,6 +157,8 @@ Signals session end. Frontend should discard the token.
   "pin": "numeric string (optional, staff login)"
 }
 ```
+> `user_profiles` has **no `password` column**. Auth is Supabase Auth (JWT) for admin/manager; PIN for staff. Never send `password` to this endpoint.
+
 **Response `201`:** Created user object.  
 **`400`** if username or email already exists.
 
@@ -143,10 +191,14 @@ Soft-delete — sets `active = false`. Does not remove the record.
 ## Inventory — `/api/inventory`
 
 ### `GET /api/inventory`
+Auth: any valid token (JWT or `pin_`).
+
 | Query Param | Type | Default | Description |
 |---|---|---|---|
-| `month` | int | current | Calendar month (1–12) |
-| `year` | int | current | 4-digit year |
+| `month` | int | latest | Calendar month, 1-indexed (1–12) |
+| `year` | int | latest | 4-digit year |
+
+If neither `month` nor `year` is provided, returns the most recent period in the DB.
 
 **Response `200`:**
 ```json
@@ -170,22 +222,23 @@ Soft-delete — sets `active = false`. Does not remove the record.
   "created_at": "ISO 8601"
 }
 ```
+- `onHand` = opening balance (DB `on_hand`). Ending balance = `onHand + sum(w_r) − sum(w_i)`.
+- Items sorted by SKU ascending.
+
+**Errors:** `400` bad month, `401` auth, `404` no inventory, `500` DB error.
 
 ---
 
 ### `POST /api/inventory`
-Save a full inventory batch. Upserts `inventory_items` by SKU and `monthly_inventory` by `item_id+month+year`.
+Auth: any valid token. Save a full inventory batch. Upserts `inventory_items` by SKU and `monthly_inventory` by `item_id+month+year`.
 
 **Body:**
 ```json
 {
-  "month": 6,
-  "year": 2026,
-  "notes": "string",
   "items": [
     {
-      "sku": "string",
-      "desc": "string",
+      "sku": "string (required)",
+      "desc": "string (required)",
       "category": "Dry Goods",
       "price": 1.50,
       "par": 10,
@@ -194,29 +247,92 @@ Save a full inventory batch. Upserts `inventory_items` by SKU and `monthly_inven
       "w1r": 0, "w2r": 0, "w3r": 0, "w4r": 0,
       "w1i": 0, "w2i": 0, "w3i": 0, "w4i": 0
     }
-  ]
+  ],
+  "metadata": { "month": 6, "year": 2026 },
+  "notes": "string (optional)"
 }
 ```
-**Response `201`:** Full inventory snapshot (same as GET).
+- `metadata.month` and `metadata.year` supply the period (1-indexed). Defaults to current month/year if omitted.
+- `par` is **optional** — omitting it does NOT zero the global `par_level`. Only send `par` when intentionally changing it.
+- Weekly columns are only written when explicitly provided; omitting them preserves existing week data.
+- Unknown categories resolve to `"New Items"` for manager review instead of failing.
+
+**Response `201`:** Full inventory snapshot (same shape as GET).  
+**Errors:** `400` empty items or negative values, `401` auth, `500` DB error.
 
 ---
 
 ### `GET /api/inventory/history`
+Auth: any valid token.
+
 | Query Param | Type | Default |
 |---|---|---|
 | `limit` | int (1–100) | 10 |
 
-**Response `200`:** Array of inventory snapshot objects.
+**Response `200`:** Array of inventory snapshot objects (same shape as GET single), ordered by year/month descending.
 
 ---
 
 ### `GET /api/inventory/reorders`
-Items where `on_hand < par_level` from the `live_inventory` view.
+Auth: any valid token. Returns items where `on_hand < par_level` in the latest period, sorted by shortage (largest first).
 
 **Response `200`:**
 ```json
-[{ "sku": "string", "description": "string", "category": "string", "on_hand": 0, "par_level": 0 }]
+[
+  {
+    "sku": "string",
+    "desc": "string",
+    "category": "string",
+    "onHand": 0,
+    "par": 10,
+    "short": 10
+  }
+]
 ```
+- `short` = `par − onHand` (units needed to reach par).
+- Only items with `par > 0` are included.
+
+---
+
+### `GET /api/inventory/period-status`
+Auth: any valid token. Compares the real-world current month to the latest inventory period in the DB.
+
+**Response `200`:**
+```json
+{
+  "current_month": 5,
+  "current_year": 2026,
+  "latest_month": 4,
+  "latest_year": 2026,
+  "next_month": 5,
+  "next_year": 2026,
+  "needs_rollover": true,
+  "current_label": "June 2026",
+  "latest_label": "May 2026",
+  "next_label": "June 2026"
+}
+```
+- All month values are **0-indexed** (0 = January) to match `monthly_inventory` and the frontend JS convention.
+- `needs_rollover` is `true` when the real-world month is newer than the latest DB period.
+- `latest_month`, `latest_year`, `next_month`, `next_year` are `null` if no inventory data exists.
+
+---
+
+### `POST /api/inventory/rollover`
+Auth: **manager or admin** (role check enforced; staff returns `403`).
+
+Calls the `perform_rollover()` Supabase SECURITY DEFINER RPC. Opens the next month, copies each item's ending balance (`on_hand + received − issued`) as the new month's opening `on_hand`, and publishes (read-locks) the old month.
+
+**Body:**
+```json
+{ "message": "string (optional commit message)" }
+```
+
+**Response `200`:**
+```json
+{ "ok": true, "result": "<rpc_return_value>" }
+```
+**Errors:** `400` no period to roll from, `403` insufficient role, `500` RPC error.
 
 ---
 
@@ -256,7 +372,7 @@ Items where `on_hand < par_level` from the `live_inventory` view.
 ## Events — `/api/events`
 
 ### `GET /api/events`
-All events ordered by date ascending.
+Auth: any valid token. Returns all events ordered by `date` ascending.
 
 **Response `200`:**
 ```json
@@ -279,6 +395,8 @@ All events ordered by date ascending.
 ---
 
 ### `POST /api/events`
+Auth: any valid token.
+
 **Body:**
 ```json
 {
@@ -290,15 +408,18 @@ All events ordered by date ascending.
   "suggested_menu": "string (optional)"
 }
 ```
-> ⚠️ Column is `cat`, not `category`.
+> Column is `cat`, not `category`.
 
-**Response `200`:** Created event object.
+**Response `200`:** Created event object.  
+**`500`** if DB insert fails.
 
 ---
 
 ## Logs — `/api/logs`
 
 ### `GET /api/logs/haccp`
+Auth: any valid token.
+
 | Query Param | Type | Default |
 |---|---|---|
 | `limit` | int (1–500) | 50 |
@@ -319,14 +440,17 @@ All events ordered by date ascending.
   }
 ]
 ```
+Ordered by `timestamp` descending.
 
 ---
 
 ### `POST /api/logs/haccp`
+Auth: any valid token.
+
 **Body:**
 ```json
 {
-  "location": "string (required)",
+  "location": "string (required, 1–100 chars)",
   "temperature": 38.5,
   "unit": "F | C",
   "timestamp": "ISO 8601 (required)",
@@ -334,11 +458,16 @@ All events ordered by date ascending.
   "notes": "string (optional)"
 }
 ```
+- `temperature` validated: −50 to 150.
+- `timestamp` must be valid ISO 8601 (Z or offset).
+
 **Response `201`:** Created HACCP log entry.
 
 ---
 
 ### `GET /api/logs/daily`
+Auth: any valid token.
+
 | Query Param | Type | Default |
 |---|---|---|
 | `limit` | int (1–500) | 50 |
@@ -360,15 +489,18 @@ All events ordered by date ascending.
   }
 ]
 ```
+Ordered by `created_at` descending.
 
 ---
 
 ### `POST /api/logs/daily`
+Auth: any valid token. `created_by` is set server-side from the auth token.
+
 **Body:**
 ```json
 {
-  "entry_type": "string (required)",
-  "title": "string (required)",
+  "entry_type": "string (required, 1–50 chars)",
+  "title": "string (required, 1–200 chars)",
   "description": "string (optional)",
   "severity": "debug | info | warning | error (default: info)",
   "data": "string (optional)"
@@ -379,7 +511,7 @@ All events ordered by date ascending.
 ---
 
 ### `GET /api/logs/compliance`
-Summary of recent HACCP checks and error-level daily logs.
+Auth: any valid token.
 
 **Response `200`:**
 ```json
@@ -392,6 +524,8 @@ Summary of recent HACCP checks and error-level daily logs.
   "recent_error_logs": []
 }
 ```
+- `status` = `"warning"` if any error-severity daily logs exist in the last 10; otherwise `"ok"`.
+- Returns the 10 most recent HACCP entries and up to 5 in each summary array.
 
 ---
 
@@ -506,7 +640,9 @@ Full snapshot detail for a specific period.
 ## Source Control — `/api`
 
 ### `GET /api/staging`
-Pending staged changes.
+Auth: any valid token.  
+- **Staff** see only their own pending entries.
+- **Admin/manager** see all pending entries.
 
 | Query Param | Type | Description |
 |---|---|---|
@@ -540,39 +676,43 @@ Pending staged changes.
 ---
 
 ### `POST /api/staging`
-Submit a change for review.
+Auth: any valid token. Submit a change for manager review.  
+Deduplicates: if the same submitter already has a pending entry for `(entity_id, field_name)`, the existing entry is updated in-place.
 
 **Body:**
 ```json
 {
-  "entity_type": "inventory | menu | user | compliance | event | ops",
-  "entity_id": "string",
-  "field_name": "string",
+  "entity_type": "inventory | menu | user | compliance | event | ops (required)",
+  "entity_id": "string (required — see entity_id convention above)",
+  "field_name": "string (required)",
   "old_value": "string (optional)",
-  "new_value": "string",
-  "change_type": "string",
-  "operation": "inventory_save | menu_save | event_create | haccp_save | daily_log | user_create | user_update (optional)",
+  "new_value": "string (default: empty string)",
+  "change_type": "string (required)",
+  "summary": "string (optional, human-readable description)",
+  "operation": "inventory_save | inventory_week_update | item_update | item_delete | menu_save | event_create | haccp_save | daily_log_save | user_create | user_update (optional)",
   "full_payload": {},
   "metadata": {}
 }
 ```
-**Response `201`:** Created staging entry.
+**Response `201`:** Created (or updated dedup) staging entry row.  
+**`422`** if `entity_type` is not in the allowed set.
 
 ---
 
 ### `DELETE /api/staging/{entry_id}`
-Reject a pending staging entry. Sets status to `rejected`.
+Auth: **admin or manager** only. Rejects a pending entry — sets `status = rejected`.
 
 | Query Param | Type | Description |
 |---|---|---|
 | `review_note` | string | Optional rejection reason |
 
-**Response `204`** No content.
+**Response `204`** No content.  
+**`403`** insufficient role. **`404`** entry not found or already processed.
 
 ---
 
 ### `GET /api/commits`
-Commit history with author info and change counts.
+Auth: any valid token. Returns commit history ordered by `github_synced_at` (falling back to `merged_at`, then `created_at`) descending.
 
 | Query Param | Type | Default |
 |---|---|---|
@@ -602,7 +742,7 @@ Commit history with author info and change counts.
 ---
 
 ### `POST /api/commits`
-Approve a set of staging entries: replays operations to live tables, creates commit record, enqueues GitHub sync.
+Auth: **admin or manager** only. Approves a set of staging entries: replays operations to live tables, creates commit record, enqueues GitHub sync.
 
 **Body:**
 ```json
@@ -612,6 +752,9 @@ Approve a set of staging entries: replays operations to live tables, creates com
   "author_id": "uuid"
 }
 ```
+- `staging_ids` must not be empty (`422` if empty).
+- All replay operations run before errors are checked (partial failure is possible — no rollback).
+- Staging entries are marked `merged` (not `approved`) to satisfy the DB check constraint.
 
 **Response `201`:**
 ```json
@@ -625,6 +768,7 @@ Approve a set of staging entries: replays operations to live tables, creates com
   "replayed": 3
 }
 ```
+**Errors:** `403` insufficient role, `422` empty `staging_ids`, `500` replay failure (detail includes which operations failed and which applied without rollback).
 
 ---
 
@@ -637,7 +781,7 @@ Upload a file for AI extraction, staging, and preview.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `file` | File | ✅ | CSV, Excel (.xlsx), PDF, or TSV. Max 10 MB. |
+| `file` | File | Yes | CSV, Excel (.xlsx), PDF, or TSV. Max 10 MB. |
 | `hint` | string | — | Operation hint: `inventory \| events \| haccp \| menu \| log` |
 | `month` | int | — | Target month (1–12). Defaults to current month. |
 | `year` | int | — | Target year. Defaults to current year. |
@@ -716,25 +860,30 @@ All errors return `{ "detail": "message string" }`.
 |---|---|
 | `400` | Bad request / validation failure / duplicate username or email |
 | `401` | Missing, invalid, or expired token |
-| `403` | Insufficient role (admin-only endpoint accessed by non-admin) |
+| `403` | Insufficient role (admin/manager-only endpoint) |
 | `404` | Resource not found |
 | `413` | File too large (10 MB limit on upload) |
-| `422` | Unprocessable — extraction failed or entity_type invalid |
+| `422` | Unprocessable — extraction failed, entity_type invalid, or empty staging_ids |
 | `500` | Server error or database error |
 
 ---
 
-## Operation Types (staging & dispatch)
+## Operation Types (staging dispatch registry)
 
-| Operation | Entity Type | Description |
-|---|---|---|
-| `inventory_save` | `inventory` | Upsert inventory items + monthly counts |
-| `menu_save` | `menu` | Save meal slots for a day-of-week |
-| `event_create` | `event` | Create a new event |
-| `haccp_save` | `compliance` | Record HACCP temperature check |
-| `daily_log` | `ops` | Record daily operations log |
-| `user_create` | `user` | Create user profile |
-| `user_update` | `user` | Update user profile |
+These are the valid `operation` values. The dispatch registry in `backend/staging/dispatch.py` maps each to a handler function.
+
+| Operation | Entity Type | Dispatch Function | Description |
+|---|---|---|---|
+| `inventory_save` | `inventory` | `dispatch_inventory_save` | Upsert items + monthly `on_hand` for a full period |
+| `inventory_week_update` | `inventory` | `dispatch_inventory_week` | Write a single weekly column (`w{1-4}_{received\|issued}`) without touching `on_hand` |
+| `item_update` | `inventory` | `dispatch_item_update` | Edit item metadata: desc, category, price, **par**, unit, active, SKU rename |
+| `item_delete` | `inventory` | `dispatch_item_delete` | Soft delete (default) or hard delete (`hard: true` in payload) by SKU |
+| `menu_save` | `menu` | `dispatch_menu_save` | Replace all meal slots for a day-of-week in the active menu cycle |
+| `event_create` | `event` | `dispatch_event_create` | Insert event; idempotent on re-commit via `staging_entry_id` |
+| `haccp_save` | `compliance` | `dispatch_haccp_save` | Insert HACCP log; idempotent on re-commit via `staging_entry_id` |
+| `daily_log_save` | `ops` | `dispatch_daily_log_save` | Insert daily operations log; idempotent on re-commit |
+| `user_create` | `user` | `dispatch_user_create` | Create user profile (no `password` column — auth is Supabase Auth or PIN) |
+| `user_update` | `user` | `dispatch_user_update` | Update user profile fields by `user_id` |
 
 ---
 
@@ -747,17 +896,17 @@ Key tables the API reads/writes:
 | Table | Used by |
 |---|---|
 | `user_profiles` | auth, users |
-| `inventory_items` | inventory (item catalog) |
-| `monthly_inventory` | inventory (period counts) |
+| `inventory_items` | inventory (item catalog + global `par_level`) |
+| `monthly_inventory` | inventory (period counts, 0-indexed month) |
 | `inventory_categories` | inventory, data |
-| `live_inventory` | inventory/reorders, dashboard (view over `barcodes`) |
+| `live_inventory` | reorders view (joined from barcodes) |
 | `menu_entries`, `menu_cycles` | menu |
 | `events` | events |
 | `haccp_logs` | logs/haccp |
 | `daily_operations_logs` | logs/daily |
 | `staging_entries` | sourcectrl/staging |
 | `commits`, `commit_changes` | sourcectrl/commits |
-| `github_sync_queue` | commit flow |
+| `github_sync_queue` | commit flow (operations: `push_inventory`, `push_archive_snapshot`, `push_invoice`, `push_menu`, `push_items_catalog`) |
 | `invoices`, `invoice_items`, `vendors` | data/invoices |
 | `monthly_snapshots` | data/archives |
 | `opening_checklist_items` | data/opening-checklist |

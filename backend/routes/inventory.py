@@ -45,6 +45,8 @@ class InventoryItem(BaseModel):
     w2i: Optional[int] = None
     w3i: Optional[int] = None
     w4i: Optional[int] = None
+    # Computed: on_hand (opening) + received - issued = actual ending stock.
+    running_total: Optional[int] = None
 
 
 class InventorySnapshot(BaseModel):
@@ -143,6 +145,15 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
         inv_item = row.get("inventory_items") or {}
         cat = inv_item.get("inventory_categories") or {}
         oh = max(0, int(_to_float(row.get("on_hand"))))
+        w1r = int(_to_float(row.get("w1_received")))
+        w2r = int(_to_float(row.get("w2_received")))
+        w3r = int(_to_float(row.get("w3_received")))
+        w4r = int(_to_float(row.get("w4_received")))
+        w1i = int(_to_float(row.get("w1_issued")))
+        w2i = int(_to_float(row.get("w2_issued")))
+        w3i = int(_to_float(row.get("w3_issued")))
+        w4i = int(_to_float(row.get("w4_issued")))
+        running_total = max(0, oh + w1r + w2r + w3r + w4r - w1i - w2i - w3i - w4i)
         items.append(
             InventoryItem(
                 sku=inv_item.get("sku") or "",
@@ -152,14 +163,9 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
                 category=cat.get("name") or "",
                 price=_to_float(row.get("unit_price")),
                 unit=inv_item.get("unit") or "each",
-                w1r=int(_to_float(row.get("w1_received"))),
-                w2r=int(_to_float(row.get("w2_received"))),
-                w3r=int(_to_float(row.get("w3_received"))),
-                w4r=int(_to_float(row.get("w4_received"))),
-                w1i=int(_to_float(row.get("w1_issued"))),
-                w2i=int(_to_float(row.get("w2_issued"))),
-                w3i=int(_to_float(row.get("w3_issued"))),
-                w4i=int(_to_float(row.get("w4_issued"))),
+                w1r=w1r, w2r=w2r, w3r=w3r, w4r=w4r,
+                w1i=w1i, w2i=w2i, w3i=w3i, w4i=w4i,
+                running_total=running_total,
             )
         )
     return items
@@ -306,6 +312,12 @@ async def save_inventory(
     db_month = month - 1  # Convert 1-indexed → 0-indexed for DB
 
     try:
+        # Reject writes to published periods (BUG-D guard).
+        status_r = supabase_service.table("month_status").select("status").eq("month", db_month).eq("year", year).limit(1).execute()
+        status_row = (status_r.data or [None])[0]
+        if status_row and status_row.get("status") == "published":
+            raise HTTPException(status_code=403, detail=f"Period {month}/{year} is published and cannot be modified")
+
         # Pre-fetch category name -> id mapping + the New Items review bucket.
         cat_result = supabase_service.table("inventory_categories").select("id, name").execute()
         category_map = {}
@@ -328,7 +340,7 @@ async def save_inventory(
                 category_id=cat_id,
                 fallback_category_id=new_items_cat_id,
                 price=item.price,
-                par=item.par,
+                par=None,  # par is item-level; use dispatch_item_update for par changes
                 unit=item.unit or None,
             )
             if not inv_item_id:

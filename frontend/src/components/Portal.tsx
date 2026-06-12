@@ -1112,7 +1112,7 @@ function InventoryView({
             await api.stageChange(
                 "inventory_save",
                 "inventory",
-                sku,
+                `${sku}-${period[0] + 1}-${period[1]}`,
                 payload,
                 `Inventory update · ${row.desc}`,
             );
@@ -1184,7 +1184,7 @@ function InventoryView({
                     ops.push(api.stageChange(
                         "inventory_week_update",
                         "inventory",
-                        `W${compactWeek}-${compactDir}`,
+                        `W${compactWeek}-${compactDir}-${month1}-${yr}`,
                         { month: month1, year: yr, week: compactWeek, direction: compactDir, review_new: true, items: wkItems },
                         `W${compactWeek} ${compactDir} · ${wkItems.length} item${wkItems.length !== 1 ? "s" : ""}`,
                     ));
@@ -1193,7 +1193,7 @@ function InventoryView({
                     ops.push(api.stageChange(
                         "inventory_save",
                         "inventory",
-                        "batch-compact",
+                        `batch-compact-${month1}-${yr}`,
                         { month: month1, year: yr, notes: `On-hand update · ${MONTHS[period[0]]} ${yr}`, items: monthItems },
                         `On-hand update · ${monthItems.length} item${monthItems.length !== 1 ? "s" : ""}`,
                     ));
@@ -1222,7 +1222,7 @@ function InventoryView({
                 await api.stageChange(
                     "inventory_save",
                     "inventory",
-                    "batch-compact",
+                    `batch-compact-${month1}-${yr}`,
                     { month: month1, year: yr, notes: `Inventory update · ${MONTHS[period[0]]} ${yr}`, items },
                     `Inventory update · ${n} item${n !== 1 ? "s" : ""}`,
                 );

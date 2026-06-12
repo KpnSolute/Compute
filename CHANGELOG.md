@@ -16,6 +16,50 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v2.5.5] — 2026-06-12 — Backend: BUG-B par isolation + BUG-D published-month guard + running_total
+
+**Claude:** Three surgical backend fixes closing cross-period data contamination. All ruff-clean; no schema changes required.
+
+**BUG-B — par_level global contamination (dispatch.py + inventory.py)**
+- `dispatch_inventory_save` was calling `resolve_and_write_item(par=item.get("par"), ...)`, which writes `inventory_items.par_level` globally — every per-period inventory save was potentially mutating the shared par for ALL months.
+- `dispatch_inventory_week` had the same issue.
+- `save_inventory` in `inventory.py` also passed `par=item.par` to the resolver.
+- Fix: all three now pass `par=None`. Par changes must go through `dispatch_item_update` (operation `item_update`) which is the correct item-level write path.
+
+**BUG-D — no published-month guard (dispatch.py + inventory.py)**
+- Neither `dispatch_inventory_save` nor `dispatch_inventory_week` nor the direct `POST /api/inventory` endpoint checked `month_status.status` before writing. A published (closed) month could be silently overwritten.
+- Fix: added `_is_month_published(sup, db_month, year)` helper in `dispatch.py`; both dispatch functions now return `{"applied": 0, "error": "...is published..."}` early. `save_inventory` queries `month_status` and raises `403` if `status == "published"`.
+- Live status confirmed: month=5/2026 (June) = `open`; month=4/2026 (May) = `published` — guard is live and correct.
+
+**running_total field added**
+- `InventoryItem` now includes `running_total: Optional[int] = None` — computed as `max(0, on_hand + sum(received) − sum(issued))` in `_flatten_rows`. This is the ending balance (actual current stock). `onHand` remains the opening balance. Frontend can read `running_total` directly instead of recomputing.
+
+**Push:** pending
+
+---
+
+## [v2.5.4] — 2026-06-11 — DB: fix BUG-C — perform_rollover no longer zeroes weekly data on re-run
+
+**Claude (Database Track):** Applied migration `fix_perform_rollover_preserve_weekly_on_conflict` to Supabase project `mgvyylvmkxhhataavqjz`.
+
+**Bug fixed:** `perform_rollover` (SECURITY DEFINER) had a destructive `ON CONFLICT DO UPDATE SET` that unconditionally zeroed all 8 weekly columns (`w1_received`–`w4_issued`) on any second invocation. If the function was called again after weekly transactions had already been entered for the new month, all that data was silently and irreversibly wiped.
+
+**Change (only the ON CONFLICT clause was modified — all other logic is identical):**
+- `on_hand` and `unit_price` still update from `EXCLUDED` (the new carry-forward value). No change.
+- The 8 weekly columns now use a guarded CASE WHEN: sum all 8 existing weekly values; if the total is 0 (no transactions yet), set to 0 (safe to reset); if the total is non-zero (real data exists), preserve the existing row's value and only update the opening balance.
+- This makes re-running rollover idempotent and non-destructive.
+
+**month_status audit (no changes made):**
+- month=5, year=2026 (June): `open` — correct, this is the active month.
+- month=4, year=2026 (May): `published` — correct, closed after the May→June rollover.
+- No missing rows; no action required.
+
+**Verification:** Read back live `pg_get_functiondef` — CASE WHEN guards confirmed present in all 8 weekly column assignments.
+
+**Push:** pending (DB-only migration; no application code change)
+
+---
+
 ## [v2.5.3] — 2026-06-11 — FE: inventory input no longer snaps back after staging
 
 **Claude:** Chrome DevTools live test confirmed the root cause: after `stageInventoryRow` (and `stageCompactChanges`) succeeded, the code deleted `draft[sku]`, causing the displayed value to fall back to `r.onHand` (old DB value). Staging routes through Source Control queue — not a direct DB write — so `r.onHand` remains stale until a commit + reload cycle. Result: ON HAND / PAR inputs visibly snapped back to the pre-edit value ~1200ms after clicking Stage.

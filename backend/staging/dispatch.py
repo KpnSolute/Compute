@@ -23,6 +23,16 @@ def _client():
     return _svc
 
 
+def _is_month_published(sup, db_month: int, year: int) -> bool:
+    """Return True if this period is published/closed — writes should be rejected."""
+    try:
+        r = sup.table('month_status').select('status').eq('month', db_month).eq('year', year).limit(1).execute()
+        row = (r.data or [None])[0]
+        return bool(row and row.get('status') == 'published')
+    except Exception:
+        return False
+
+
 def dispatch_inventory_save(payload: dict) -> dict:
     month = payload.get("month") or datetime.now().month  # 1-indexed from staging
     year = payload.get("year") or datetime.now().year
@@ -33,6 +43,9 @@ def dispatch_inventory_save(payload: dict) -> dict:
 
     db_month = max(0, month - 1)  # Convert 1→0 indexed for monthly_inventory
     sup = _client()
+    if _is_month_published(sup, db_month, year):
+        return {'applied': 0, 'error': f'Period {month}/{year} is published and cannot be modified'}
+
     cat_r = sup.table("inventory_categories").select("id,name").execute()
     cat_map = {r["name"]: r["id"] for r in (cat_r.data or [])}
     new_items_cat_id = get_new_items_category_id(sup)
@@ -52,7 +65,7 @@ def dispatch_inventory_save(payload: dict) -> dict:
             category_id=cat_id,
             fallback_category_id=new_items_cat_id,
             price=item.get("price"),
-            par=item.get("par"),
+            par=None,  # par is item-level; use dispatch_item_update for par changes
             unit=item.get("unit") or None,
             force_review_category=review_new,
         )
@@ -182,6 +195,9 @@ def dispatch_inventory_week(payload: dict) -> dict:
     db_month = max(0, month - 1)
     col = f"w{week}_{direction}"
     sup = _client()
+    if _is_month_published(sup, db_month, year):
+        return {'applied': 0, 'error': f'Period {month}/{year} is published and cannot be modified'}
+
     cat_r = sup.table("inventory_categories").select("id,name").execute()
     cat_map = {r["name"]: r["id"] for r in (cat_r.data or [])}
     new_items_cat_id = get_new_items_category_id(sup)
@@ -197,7 +213,7 @@ def dispatch_inventory_week(payload: dict) -> dict:
             category_id=cat_id,
             fallback_category_id=new_items_cat_id,
             price=item.get("price"),
-            par=item.get("par"),
+            par=None,  # par is item-level; use dispatch_item_update for par changes
             unit=item.get("unit") or None,
             force_review_category=review_new,
         )
