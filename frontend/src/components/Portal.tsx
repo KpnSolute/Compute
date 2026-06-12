@@ -468,6 +468,49 @@ function StatusBar({
     );
 }
 
+function WinCard({
+    title,
+    link,
+    onLink,
+    children,
+    dots = false,
+    defaultOpen = true,
+    className = "",
+    style,
+}: {
+    title: string;
+    link?: string;
+    onLink?: () => void;
+    children: React.ReactNode;
+    dots?: boolean;
+    defaultOpen?: boolean;
+    className?: string;
+    style?: React.CSSProperties;
+}) {
+    const [open, setOpen] = useState(defaultOpen);
+    return (
+        <div className={"card" + (!open ? " win-collapsed" : "") + (className ? " " + className : "")} style={style}>
+            <div className="card-head">
+                {dots && (
+                    <div className="win-dots">
+                        <span className="win-dot red" />
+                        <span className="win-dot yellow" />
+                        <span className="win-dot green" />
+                    </div>
+                )}
+                <button className="win-collapse" onClick={() => setOpen((v) => !v)} aria-label="Toggle panel">
+                    {I.chevL({ style: { transform: open ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform .15s" } })}
+                </button>
+                <h3 style={{ flex: 1, color: "var(--ink)", fontWeight: 700 }}>{title}</h3>
+                {link && onLink && (
+                    <span className="ch-link" onClick={onLink}>{link}</span>
+                )}
+            </div>
+            {open && <div className="card-body">{children}</div>}
+        </div>
+    );
+}
+
 function Loading({ label = "Loading live data…" }) {
     return (
         <div className="load-wrap">
@@ -786,46 +829,16 @@ function Dashboard({
                         gap: 16,
                     }}
                 >
-                    <div className="card">
-                        <div className="card-head">
-                            <h3>
-                                Today’s menu ·{" "}
-                                {DOW_FULL[new Date().getDay()]}
-                            </h3>
-                            <span
-                                className="ch-link"
-                                onClick={() => go("menu")}
-                                style={{ cursor: "pointer" }}
-                            >
-                                Full menu →
-                            </span>
-                        </div>
-                        <div
-                            className="card-body"
-                            style={{
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: 11,
-                            }}
-                        >
+                    <WinCard
+                        title={`Today’s menu · ${DOW_FULL[new Date().getDay()]}`}
+                        link="Full menu →"
+                        onLink={() => go("menu")}
+                    >
+                        <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
                             {menuLoading ? (
-                                <div
-                                    style={{
-                                        fontSize: 12,
-                                        color: "var(--faint)",
-                                    }}
-                                >
-                                    Loading menu…
-                                </div>
+                                <div style={{ fontSize: 12, color: "var(--faint)" }}>Loading menu…</div>
                             ) : menuMeals.length === 0 ? (
-                                <div
-                                    style={{
-                                        fontSize: 12,
-                                        color: "var(--faint)",
-                                    }}
-                                >
-                                    No menu for today.
-                                </div>
+                                <div style={{ fontSize: 12, color: "var(--faint)" }}>No menu for today.</div>
                             ) : (
                                 menuMeals.map((meal) => (
                                     <div key={meal} className="dash-meal">
@@ -833,100 +846,52 @@ function Dashboard({
                                         <div className="dm-items">
                                             {meal === "Snack"
                                                 ? menuData[meal].join(" · ")
-                                                : menuData[meal]
-                                                      .map((it: any) =>
-                                                          typeof it === "string"
-                                                              ? it
-                                                              : it.item,
-                                                      )
-                                                      .join(" · ")}
+                                                : menuData[meal].map((it: any) => typeof it === "string" ? it : it.item).join(" · ")}
                                         </div>
                                     </div>
                                 ))
                             )}
                         </div>
-                    </div>
+                    </WinCard>
 
-                    <div className="card">
-                        <div className="card-head">
-                            <h3>Inventory value by category</h3>
-                            <span
-                                className="ch-link"
-                                onClick={() => go("inventory")}
-                                style={{ cursor: "pointer" }}
-                            >
-                                Live
-                            </span>
-                        </div>
-                        <div className="card-body flush">
+                    <WinCard title="Inventory value by category" link="Live →" onLink={() => go("inventory")}>
+                        <div className="card-body flush" style={{ margin: "-16px -17px" }}>
                             {catRows.map((c: any) => (
                                 <div className="cat-row" key={c.name}>
-                                    <span
-                                        className="cat-dot"
-                                        style={{ background: c.color }}
-                                    ></span>
+                                    <span className="cat-dot" style={{ background: c.color }} />
                                     <span className="cat-nm">{c.name}</span>
                                     <span className="cat-bar">
-                                        <span
-                                            className="cat-fill"
-                                            style={{
-                                                width: c.pct + "%",
-                                                background: c.color,
-                                            }}
-                                        ></span>
+                                        <span className="cat-fill" style={{ width: c.pct + "%", background: c.color }} />
                                     </span>
                                     <span className="cat-val">{c.val}</span>
                                 </div>
                             ))}
                         </div>
-                    </div>
+                    </WinCard>
 
-                    <div className="card">
-                        <div className="card-head">
-                            <h3>Inventory alerts</h3>
+                    <WinCard title="Inventory alerts">
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: reorderList.length ? 10 : 0 }}>
                             <span className="viol-pill" style={{ margin: 0 }}>
-                                {I.alert({ style: { width: 13, height: 13 } })}{" "}
-                                {reorderList.length} below par
+                                {I.alert({ style: { width: 13, height: 13 } })} {reorderList.length} below par
                             </span>
                         </div>
-                        <div className="card-body">
-                            {reorderList.length === 0 ? (
-                                <div
-                                    style={{
-                                        fontSize: 12,
-                                        color: "var(--faint)",
-                                    }}
-                                >
-                                    All items at or above par level.
-                                </div>
-                            ) : (
-                                <div className="alert-chips">
-                                    {reorderList
-                                        .slice(0, 12)
-                                        .map((r: any, i: number) => (
-                                            <span
-                                                className="alert-chip"
-                                                key={i}
-                                            >
-                                                {r.desc}
-                                                <b>
-                                                    {r.onHand || 0}/{r.par}
-                                                </b>
-                                            </span>
-                                        ))}
-                                    {reorderList.length > 12 && (
-                                        <span
-                                            className="alert-more"
-                                            onClick={() => go("inventory")}
-                                        >
-                                            +{reorderList.length - 12} more
-                                            →
-                                        </span>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    </div>
+                        {reorderList.length === 0 ? (
+                            <div style={{ fontSize: 12, color: "var(--faint)" }}>All items at or above par level.</div>
+                        ) : (
+                            <div className="alert-chips">
+                                {reorderList.slice(0, 12).map((r: any, i: number) => (
+                                    <span className="alert-chip" key={i}>
+                                        {r.desc}<b>{r.onHand || 0}/{r.par}</b>
+                                    </span>
+                                ))}
+                                {reorderList.length > 12 && (
+                                    <span className="alert-more" onClick={() => go("inventory")}>
+                                        +{reorderList.length - 12} more →
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                    </WinCard>
                 </div>
 
                 <div
@@ -936,179 +901,62 @@ function Dashboard({
                         gap: 16,
                     }}
                 >
-                    <div className="card">
-                        <div className="card-head">
-                            <h3>Meal log · today</h3>
-                            <span
-                                className="ch-link"
-                                onClick={() => go("mballot")}
-                                style={{ cursor: "pointer" }}
-                            >
-                                Full log →
-                            </span>
+                    <WinCard title="Meal log · today" link="Full log →" onLink={() => go("mballot")}>
+                        <div className="dash-meal-counts">
+                            {(["Breakfast", "Lunch", "Dinner", "Tickets"] as const).map((l) => (
+                                <div className="dmc" key={l}>
+                                    <span className="dmc-n">{mlTotals[l[0] as keyof typeof mlTotals] ?? 0}</span>
+                                    <span className="dmc-l">{l}</span>
+                                </div>
+                            ))}
                         </div>
-                        <div className="card-body">
-                            <div className="dash-meal-counts">
-                                {[
-                                    ["Breakfast", mlTotals.B],
-                                    ["Lunch", mlTotals.L],
-                                    ["Dinner", mlTotals.D],
-                                    ["Tickets", mlTotals.T],
-                                ].map(([l, n]) => (
-                                    <div className="dmc" key={l as string}>
-                                        <span className="dmc-n">
-                                            {n as number}
-                                        </span>
-                                        <span className="dmc-l">
-                                            {l as string}
-                                        </span>
-                                    </div>
-                                ))}
+                    </WinCard>
+
+                    <WinCard title={`Monthly inventory · ${MONTHS[period[0]]}`} link="Manage →" onLink={() => go("moninv")}>
+                        <div className="mi-mini">
+                            <div className="mim" style={{ background: "#EEF2F8" }}>
+                                <span className="mim-l" style={{ color: "#1B3A6B" }}>Opening</span>
+                                <span className="mim-v">{fmtMoney(miSum.open)}</span>
+                            </div>
+                            <div className="mim" style={{ background: "#F0FDF4" }}>
+                                <span className="mim-l" style={{ color: "#166534" }}>Received</span>
+                                <span className="mim-v" style={{ color: "#166534" }}>{fmtMoney(miSum.recv)}</span>
+                            </div>
+                            <div className="mim" style={{ background: "#EFF5FE" }}>
+                                <span className="mim-l" style={{ color: "#1660C8" }}>Closing</span>
+                                <span className="mim-v" style={{ color: "#1660C8" }}>{fmtMoney(miSum.close)}</span>
                             </div>
                         </div>
-                    </div>
+                    </WinCard>
 
-                    <div className="card">
-                        <div className="card-head">
-                            <h3>Monthly inventory · {MONTHS[period[0]]}</h3>
-                            <span
-                                className="ch-link"
-                                onClick={() => go("moninv")}
-                                style={{ cursor: "pointer" }}
-                            >
-                                Manage →
-                            </span>
-                        </div>
-                        <div className="card-body">
-                            <div className="mi-mini">
-                                <div
-                                    className="mim"
-                                    style={{ background: "#EEF2F8" }}
-                                >
-                                    <span
-                                        className="mim-l"
-                                        style={{ color: "#1B3A6B" }}
-                                    >
-                                        Opening
-                                    </span>
-                                    <span className="mim-v">
-                                        {fmtMoney(miSum.open)}
-                                    </span>
-                                </div>
-                                <div
-                                    className="mim"
-                                    style={{ background: "#F0FDF4" }}
-                                >
-                                    <span
-                                        className="mim-l"
-                                        style={{ color: "#166534" }}
-                                    >
-                                        Received
-                                    </span>
-                                    <span
-                                        className="mim-v"
-                                        style={{ color: "#166534" }}
-                                    >
-                                        {fmtMoney(miSum.recv)}
-                                    </span>
-                                </div>
-                                <div
-                                    className="mim"
-                                    style={{ background: "#EFF5FE" }}
-                                >
-                                    <span
-                                        className="mim-l"
-                                        style={{ color: "#1660C8" }}
-                                    >
-                                        Closing
-                                    </span>
-                                    <span
-                                        className="mim-v"
-                                        style={{ color: "#1660C8" }}
-                                    >
-                                        {fmtMoney(miSum.close)}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="card">
-                        <div className="card-head">
-                            <h3>Upcoming events</h3>
-                            <span
-                                className="ch-link"
-                                onClick={() => go("events")}
-                                style={{ cursor: "pointer" }}
-                            >
-                                Calendar →
-                            </span>
-                        </div>
-                        <div className="card-body flush">
+                    <WinCard title="Upcoming events" link="Calendar →" onLink={() => go("events")}>
+                        <div className="card-body flush" style={{ margin: "-16px -17px" }}>
                             {eventsLoading ? (
-                                <div
-                                    style={{
-                                        padding: 12,
-                                        fontSize: 12,
-                                        color: "var(--faint)",
-                                    }}
-                                >
-                                    Loading events…
-                                </div>
+                                <div style={{ padding: 12, fontSize: 12, color: "var(--faint)" }}>Loading events…</div>
                             ) : upcoming.slice(0, 4).length === 0 ? (
-                                <div
-                                    style={{
-                                        padding: 12,
-                                        fontSize: 12,
-                                        color: "var(--faint)",
-                                    }}
-                                >
-                                    No upcoming events.
-                                </div>
+                                <div style={{ padding: 12, fontSize: 12, color: "var(--faint)" }}>No upcoming events.</div>
                             ) : (
                                 upcoming.slice(0, 4).map((e: any) => (
-                                    <div
-                                        className="up-ev"
-                                        key={e.id}
-                                        onClick={() => go("events")}
-                                    >
-                                        <span
-                                            className="up-dot"
-                                            style={{ background: "#64748B" }}
-                                        ></span>
-                                        <span className="up-title">
-                                            {e.title}
-                                        </span>
-                                        <span className="up-date">
-                                            {fmtShort(e.date)}
-                                        </span>
+                                    <div className="up-ev" key={e.id} onClick={() => go("events")}>
+                                        <span className="up-dot" style={{ background: "#64748B" }} />
+                                        <span className="up-title">{e.title}</span>
+                                        <span className="up-date">{fmtShort(e.date)}</span>
                                     </div>
                                 ))
                             )}
                         </div>
-                    </div>
+                    </WinCard>
 
-                    <div className="card">
-                        <div className="card-head">
-                            <h3>Quick actions</h3>
+                    <WinCard title="Quick actions">
+                        <div className="qa-grid">
+                            {QUICK.map((q) => (
+                                <button className="qa-btn" key={q.to} onClick={() => go(q.to)}>
+                                    {I[q.icon]({ style: { width: 15, height: 15 } })}
+                                    <span>{q.label}</span>
+                                </button>
+                            ))}
                         </div>
-                        <div className="card-body">
-                            <div className="qa-grid">
-                                {QUICK.map((q) => (
-                                    <button
-                                        className="qa-btn"
-                                        key={q.to}
-                                        onClick={() => go(q.to)}
-                                    >
-                                        {I[q.icon]({
-                                            style: { width: 15, height: 15 },
-                                        })}
-                                        <span>{q.label}</span>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
+                    </WinCard>
                 </div>
             </div>
         </div>
