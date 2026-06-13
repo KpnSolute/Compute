@@ -1092,7 +1092,9 @@ function InventoryView({
     // Invoice mode selectors: which week (1-4) and direction this staging batch
     // represents. 0 = whole-month save (inventory_save). When week>0, the batch
     // is routed as inventory_week_update for that specific column only.
-    const [compactWeek, setCompactWeek] = useState<0 | 1 | 2 | 3 | 4>(0);
+    const [compactWeek, setCompactWeek] = useState<0 | 1 | 2 | 3 | 4>(
+        () => Math.min(4, Math.ceil(new Date().getDate() / 7)) as 1 | 2 | 3 | 4
+    );
     const [compactDir, setCompactDir] = useState<"received" | "issued">("received");
     const setWeeklyField = (sku: string, field: WeeklyField, value: string) => {
         const num = Number.isFinite(parseFloat(value))
@@ -1645,6 +1647,26 @@ function InventoryView({
                             ))}
                         </select>
                     </div>
+                    {/* ── Week selector — visible in all 3 modes ── */}
+                    <div style={{ padding: "2px 16px 8px", borderBottom: "1px solid var(--line)" }}>
+                        <div className="tab-bar" style={{ marginBottom: 0 }}>
+                            {([
+                                { val: 0 as const, label: "All weeks" },
+                                { val: 1 as const, label: "Week 1" },
+                                { val: 2 as const, label: "Week 2" },
+                                { val: 3 as const, label: "Week 3" },
+                                { val: 4 as const, label: "Week 4" },
+                            ] as const).map(({ val, label }) => (
+                                <button
+                                    key={val}
+                                    className={"tab-btn" + (compactWeek === val ? " active" : "")}
+                                    onClick={() => setCompactWeek(val)}
+                                >
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
                     {viewMode === "regular" && (
                     <div className="card-body flush tbl-wrap">
                         <table className="data">
@@ -2137,19 +2159,9 @@ function InventoryView({
                                                     : "Invoice mode — pick week & direction, enter quantities, stage"}
                                             </span>
                                             <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                                                <select
-                                                    className="tb-select"
-                                                    value={compactWeek}
-                                                    onChange={(e) => setCompactWeek(+e.target.value as 0|1|2|3|4)}
-                                                    style={{ fontSize: 12 }}
-                                                    title="Which week's invoice is this?"
-                                                >
-                                                    <option value={0}>Month save</option>
-                                                    <option value={1}>W1 Invoice</option>
-                                                    <option value={2}>W2 Invoice</option>
-                                                    <option value={3}>W3 Invoice</option>
-                                                    <option value={4}>W4 Invoice</option>
-                                                </select>
+                                                <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink)" }}>
+                                                    {compactWeek === 0 ? "Month save" : `W${compactWeek} Invoice`}
+                                                </span>
                                                 {compactWeek > 0 && (
                                                     <select
                                                         className="tb-select"
@@ -2270,30 +2282,23 @@ function InventoryView({
                                                                 <th className="r">
                                                                     Par
                                                                 </th>
-                                                                <th className="r">
-                                                                    W1↓
-                                                                </th>
-                                                                <th className="r">
-                                                                    W2↓
-                                                                </th>
-                                                                <th className="r">
-                                                                    W3↓
-                                                                </th>
-                                                                <th className="r">
-                                                                    W4↓
-                                                                </th>
-                                                                <th className="r wk-rcv">
-                                                                    W1↑
-                                                                </th>
-                                                                <th className="r wk-rcv">
-                                                                    W2↑
-                                                                </th>
-                                                                <th className="r wk-rcv">
-                                                                    W3↑
-                                                                </th>
-                                                                <th className="r wk-rcv">
-                                                                    W4↑
-                                                                </th>
+                                                                {compactWeek === 0 ? (
+                                                                    <>
+                                                                        <th className="r">W1↓</th>
+                                                                        <th className="r">W2↓</th>
+                                                                        <th className="r">W3↓</th>
+                                                                        <th className="r">W4↓</th>
+                                                                        <th className="r wk-rcv">W1↑</th>
+                                                                        <th className="r wk-rcv">W2↑</th>
+                                                                        <th className="r wk-rcv">W3↑</th>
+                                                                        <th className="r wk-rcv">W4↑</th>
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <th className="r">W{compactWeek}↓ Issued</th>
+                                                                        <th className="r wk-rcv">W{compactWeek}↑ Received</th>
+                                                                    </>
+                                                                )}
                                                                 <th className="r">
                                                                     Total $
                                                                 </th>
@@ -2430,89 +2435,44 @@ function InventoryView({
                                                                                     par
                                                                                 )}
                                                                             </td>
-                                                                            {ISSUED.map(
-                                                                                (
-                                                                                    k,
-                                                                                ) => (
-                                                                                    <td
-                                                                                        className="r num"
-                                                                                        key={
-                                                                                            k
-                                                                                        }
-                                                                                    >
+                                                                            {compactWeek === 0 ? (
+                                                                                <>
+                                                                                    {ISSUED.map((k) => (
+                                                                                        <td className="r num" key={k}>
+                                                                                            {canStage ? (
+                                                                                                <input className="cinp" type="number" min={0}
+                                                                                                    value={wk(r, k)}
+                                                                                                    onChange={(e) => setWeeklyField(sku, k, e.target.value)} />
+                                                                                            ) : wk(r, k)}
+                                                                                        </td>
+                                                                                    ))}
+                                                                                    {RECEIVED.map((k) => (
+                                                                                        <td className="r num wk-rcv" key={k}>
+                                                                                            {canStage ? (
+                                                                                                <input className="cinp wk-rcv-inp" type="number" min={0}
+                                                                                                    value={wk(r, k)}
+                                                                                                    onChange={(e) => setWeeklyField(sku, k, e.target.value)} />
+                                                                                            ) : wk(r, k)}
+                                                                                        </td>
+                                                                                    ))}
+                                                                                </>
+                                                                            ) : (
+                                                                                <>
+                                                                                    <td className="r num">
                                                                                         {canStage ? (
-                                                                                            <input
-                                                                                                className="cinp"
-                                                                                                type="number"
-                                                                                                min={
-                                                                                                    0
-                                                                                                }
-                                                                                                value={wk(
-                                                                                                    r,
-                                                                                                    k,
-                                                                                                )}
-                                                                                                onChange={(
-                                                                                                    e,
-                                                                                                ) =>
-                                                                                                    setWeeklyField(
-                                                                                                        sku,
-                                                                                                        k,
-                                                                                                        e
-                                                                                                            .target
-                                                                                                            .value,
-                                                                                                    )
-                                                                                                }
-                                                                                            />
-                                                                                        ) : (
-                                                                                            wk(
-                                                                                                r,
-                                                                                                k,
-                                                                                            )
-                                                                                        )}
+                                                                                            <input className="cinp" type="number" min={0}
+                                                                                                value={wk(r, ISSUED[compactWeek - 1])}
+                                                                                                onChange={(e) => setWeeklyField(sku, ISSUED[compactWeek - 1], e.target.value)} />
+                                                                                        ) : wk(r, ISSUED[compactWeek - 1])}
                                                                                     </td>
-                                                                                ),
-                                                                            )}
-                                                                            {RECEIVED.map(
-                                                                                (
-                                                                                    k,
-                                                                                ) => (
-                                                                                    <td
-                                                                                        className="r num wk-rcv"
-                                                                                        key={
-                                                                                            k
-                                                                                        }
-                                                                                    >
+                                                                                    <td className="r num wk-rcv">
                                                                                         {canStage ? (
-                                                                                            <input
-                                                                                                className="cinp wk-rcv-inp"
-                                                                                                type="number"
-                                                                                                min={
-                                                                                                    0
-                                                                                                }
-                                                                                                value={wk(
-                                                                                                    r,
-                                                                                                    k,
-                                                                                                )}
-                                                                                                onChange={(
-                                                                                                    e,
-                                                                                                ) =>
-                                                                                                    setWeeklyField(
-                                                                                                        sku,
-                                                                                                        k,
-                                                                                                        e
-                                                                                                            .target
-                                                                                                            .value,
-                                                                                                    )
-                                                                                                }
-                                                                                            />
-                                                                                        ) : (
-                                                                                            wk(
-                                                                                                r,
-                                                                                                k,
-                                                                                            )
-                                                                                        )}
+                                                                                            <input className="cinp wk-rcv-inp" type="number" min={0}
+                                                                                                value={wk(r, RECEIVED[compactWeek - 1])}
+                                                                                                onChange={(e) => setWeeklyField(sku, RECEIVED[compactWeek - 1], e.target.value)} />
+                                                                                        ) : wk(r, RECEIVED[compactWeek - 1])}
                                                                                     </td>
-                                                                                ),
+                                                                                </>
                                                                             )}
                                                                             <td
                                                                                 className="r num"
@@ -2558,7 +2518,7 @@ function InventoryView({
                                                                 </td>
                                                                 <td
                                                                     className="r num"
-                                                                    colSpan={9}
+                                                                    colSpan={compactWeek === 0 ? 9 : 3}
                                                                     style={{
                                                                         fontWeight: 700,
                                                                     }}
