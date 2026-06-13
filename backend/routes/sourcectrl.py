@@ -247,27 +247,29 @@ async def submit_staging(
             status_code=422, detail=f"entity_type must be one of {sorted(ENTITY_TYPES)}"
         )
     try:
-        # Reject staging to a published period before the entry ever enters the queue.
-        if body.operation in ('inventory_save', 'inventory_week_update') and body.full_payload:
-            inv_month = (body.full_payload or {}).get('month')
-            inv_year = (body.full_payload or {}).get('year')
-            if inv_month and inv_year:
-                db_month = max(0, int(inv_month) - 1)
-                ms_r = (
-                    _client()
-                    .table('month_status')
-                    .select('status')
-                    .eq('month', db_month)
-                    .eq('year', int(inv_year))
-                    .limit(1)
-                    .execute()
-                )
-                ms_row = (ms_r.data or [None])[0]
-                if ms_row and ms_row.get('status') == 'published':
-                    raise HTTPException(
-                        status_code=403,
-                        detail=f'Period {inv_month}/{inv_year} is published and cannot be modified.',
+        # Reject staging to a published period — unless the caller is admin/manager.
+        caller_role = (auth_user.get("role") or "").lower()
+        if caller_role not in ("admin", "manager", "sudo"):
+            if body.operation in ('inventory_save', 'inventory_week_update') and body.full_payload:
+                inv_month = (body.full_payload or {}).get('month')
+                inv_year = (body.full_payload or {}).get('year')
+                if inv_month and inv_year:
+                    db_month = max(0, int(inv_month) - 1)
+                    ms_r = (
+                        _client()
+                        .table('month_status')
+                        .select('status')
+                        .eq('month', db_month)
+                        .eq('year', int(inv_year))
+                        .limit(1)
+                        .execute()
                     )
+                    ms_row = (ms_r.data or [None])[0]
+                    if ms_row and ms_row.get('status') == 'published':
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f'Period {inv_month}/{inv_year} is published and cannot be modified.',
+                        )
 
         # Dedup: if this submitter already has a pending entry for the same
         # entity_id + field_name, update it rather than stacking duplicates.
@@ -344,12 +346,16 @@ async def approve_commit(
         # 2 — replay all operations before checking errors (P1.4). Inject
         # _staging_entry_id so insert-type dispatches (event_create, haccp_save,
         # daily_log_save) can skip on retry instead of duplicating rows.
+        is_manager = auth_user.get("role") in ("admin", "manager", "sudo")
         replay_results = []
         for entry in entries:
             op = entry.get("operation")
             fp = entry.get("full_payload")
             if op and fp:
-                result = replay(op, {**fp, "_staging_entry_id": entry["entry_id"]})
+                extra = {"_staging_entry_id": entry["entry_id"]}
+                if is_manager:
+                    extra["_override_published"] = True
+                result = replay(op, {**fp, **extra})
                 replay_results.append(
                     {"entry_id": entry["entry_id"], "operation": op, "result": result}
                 )

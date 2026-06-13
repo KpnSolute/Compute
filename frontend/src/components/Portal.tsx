@@ -786,9 +786,15 @@ function Dashboard({
                 <div className="banner warn">
                     {I.alert()}
                     <span>Couldn’t load live data: {invState.error}</span>
-                    <span className="bx" onClick={onSync}>
-                        Retry
-                    </span>
+                    {/token|authorization|expired/i.test(invState.error) ? (
+                        <span className="bx" onClick={() => { realLogout(); (window as any).__logout?.(); }}>
+                            Sign out
+                        </span>
+                    ) : (
+                        <span className="bx" onClick={onSync}>
+                            Retry
+                        </span>
+                    )}
                 </div>
             )}
 
@@ -1563,9 +1569,15 @@ function InventoryView({
                 <div className="banner warn">
                     {I.alert()}
                     <span>Couldn’t load live data: {invState.error}</span>
-                    <span className="bx" onClick={onSync}>
-                        Retry
-                    </span>
+                    {/token|authorization|expired/i.test(invState.error) ? (
+                        <span className="bx" onClick={() => { realLogout(); (window as any).__logout?.(); }}>
+                            Sign out
+                        </span>
+                    ) : (
+                        <span className="bx" onClick={onSync}>
+                            Retry
+                        </span>
+                    )}
                 </div>
             )}
 

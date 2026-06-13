@@ -312,11 +312,13 @@ async def save_inventory(
     db_month = month - 1  # Convert 1-indexed → 0-indexed for DB
 
     try:
-        # Reject writes to published periods (BUG-D guard).
-        status_r = supabase_service.table("month_status").select("status").eq("month", db_month).eq("year", year).limit(1).execute()
-        status_row = (status_r.data or [None])[0]
-        if status_row and status_row.get("status") == "published":
-            raise HTTPException(status_code=403, detail=f"Period {month}/{year} is published and cannot be modified")
+        # Reject writes to published periods unless the caller is admin/manager.
+        user_role = (auth_user.get("role") or "").lower()
+        if user_role not in ("admin", "manager", "sudo"):
+            status_r = supabase_service.table("month_status").select("status").eq("month", db_month).eq("year", year).limit(1).execute()
+            status_row = (status_r.data or [None])[0]
+            if status_row and status_row.get("status") == "published":
+                raise HTTPException(status_code=403, detail=f"Period {month}/{year} is published and cannot be modified")
 
         # Pre-fetch category name -> id mapping + the New Items review bucket.
         cat_result = supabase_service.table("inventory_categories").select("id, name").execute()
