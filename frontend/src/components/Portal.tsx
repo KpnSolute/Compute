@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { I, KpnMark } from "../lib/icons";
 import {
     type User,
@@ -1015,8 +1015,18 @@ function InventoryView({
     const [_stagingBusy, setStagingBusy] = useState<Record<string, boolean>>({});
     const [viewMode, setViewMode] = useState<
         "regular" | "grouped" | "compact"
-    >("regular");
+    >("grouped");
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+    const savedCollapsedRef = useRef<Record<string, boolean>>({});
+    const handlePrint = () => {
+        if (viewMode !== "grouped") setViewMode("grouped");
+        savedCollapsedRef.current = { ...collapsed };
+        setCollapsed({});
+        setTimeout(() => {
+            window.print();
+            setCollapsed(savedCollapsedRef.current);
+        }, 80);
+    };
     const toggleCat = (c: string) =>
         setCollapsed((p) => ({ ...p, [c]: !p[c] }));
 
@@ -1515,8 +1525,11 @@ function InventoryView({
                             Compact
                         </button>
                     </div>
-                    <button className="btn">{I.scan()} Scan</button>
-                    <button className="btn" onClick={onSync}>
+                    <button className="btn no-print" onClick={handlePrint}>
+                        {I.printer({})} Print
+                    </button>
+                    <button className="btn no-print">{I.scan()} Scan</button>
+                    <button className="btn no-print" onClick={onSync}>
                         {I.refresh()} Refresh
                     </button>
                     {canStage && (
@@ -1885,7 +1898,7 @@ function InventoryView({
                                                                     Value
                                                                 </th>
                                                                 {canStage && (
-                                                                    <th className="r">
+                                                                    <th className="r no-print">
                                                                         SourceCtrl
                                                                     </th>
                                                                 )}
@@ -2051,7 +2064,7 @@ function InventoryView({
                                                                                 )}
                                                                             </td>
                                                                             {canStage && (
-                                                                                <td className="r">
+                                                                                <td className="r no-print">
                                                                                     <button
                                                                                         className="btn"
                                                                                         disabled={!sku}
@@ -2068,6 +2081,19 @@ function InventoryView({
                                                                 },
                                                             )}
                                                         </tbody>
+                                                        <tfoot>
+                                                            <tr className="inv-cat-total">
+                                                                <td colSpan={4} />
+                                                                <td className="r num" style={{ fontWeight: 700, color: "var(--muted)", fontSize: 11 }}>
+                                                                    Total
+                                                                </td>
+                                                                <td />
+                                                                <td className="r num" style={{ fontWeight: 700 }}>
+                                                                    {fmtMoneyFull(catVal)}
+                                                                </td>
+                                                                {canStage && <td className="no-print" />}
+                                                            </tr>
+                                                        </tfoot>
                                                     </table>
                                                 </div>
                                             )}

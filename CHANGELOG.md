@@ -16,6 +16,24 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v3.1.1] — 2026-06-13 — Monthly Inventory: grouped-by-default + print support
+
+**Claude:** `InventoryView` in `Portal.tsx` now defaults to `"grouped"` view so items are always organized by category. Added a **Print** button that expands all category sections, switches to grouped view, then calls `window.print()` (restoring collapse state after). Added `<tfoot>` category-total rows in the grouped table. `SourceCtrl` column tagged `no-print` so it's suppressed on paper. `@media print` block added to `index.css`: hides topbar, sidebar, activity-bar, status-bar, action toolbar, card-head filter row; sets body/table font to 9-10px; removes card shadows and border-radius; forces `cat-sec-head` backgrounds to light grey; adds `page-break-inside: avoid` per category section. `useRef` added to React import. Build: clean (tsc + vite ✓).
+
+**Push:** pending — 2026-06-13
+
+---
+
+## [v3.1.0] — 2026-06-13 — Monthly Inventory Save now persists to Supabase
+
+**Claude:** `MonthlyInventory.handleSave()` in `Operations.tsx` was only calling `api.stageChange()` — queuing a staging entry for Source Control — but never calling `api.saveInventory()`. The dispatch runs only on SC commit, so clicking Save left `monthly_inventory` in Supabase untouched for any period (current or past).
+
+**Fix:** Added `api.saveInventory({ items, metadata: { month, year }, notes })` before the stageChange call. The direct write hits `POST /api/inventory` which upserts into `monthly_inventory` immediately. The stageChange is kept for the SC audit trail. `metadata.month`/`metadata.year` match the backend's `meta.get("month")` read path — the previous payload had `month`/`year` at the top level which the backend ignored.
+
+**Verified:** `tsc --noEmit` clean. No new files. Push pending.
+
+---
+
 ## [v3.0.9] — 2026-06-13 — Desktop nav always-visible + breadcrumbs + calendar month
 
 **Claude (mjcc-ui):** Full desktop audit (1440×900) of all 21 views via chrome-devtools MCP. Three issues found and fixed.

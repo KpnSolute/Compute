@@ -1791,3 +1791,25 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
 [data-theme="dark"] .sc-commit-msg{background:var(--surface);border-color:var(--line);color:var(--ink)}
 [data-theme="dark"] .sc-confirm{background:var(--surface-2);border-color:var(--line)}
 [data-theme="dark"] .tb-sc-btn{border-color:var(--line);color:var(--muted)}
+
+/* ════════════════════════════════════════════════════════════
+   Print styles — Monthly Inventory report
+   ════════════════════════════════════════════════════════════ */
+@media print {
+  .activity-bar,.topbar,.sidebar,.sidebar-overlay,.status-bar { display:none !important }
+  .portal { display:block !important }
+  .main { grid-column:1/-1 !important; grid-row:1/-1 !important; padding:6px 0 !important; overflow:visible !important; background:white !important }
+  .page-head .ph-actions,.view-toggle,.card-head,.banner,.no-print { display:none !important }
+  .page-head { border-bottom:1px solid #ccc; padding-bottom:6px; margin-bottom:8px }
+  .page-head h2 { font-size:15px !important }
+  .card { box-shadow:none !important; border:none !important; border-radius:0 !important }
+  .cat-sec { page-break-inside:avoid; break-inside:avoid; margin-bottom:6px }
+  .cat-sec-head { background:#f2f4f7 !important; pointer-events:none; border-radius:0 !important }
+  .csh-arr { display:none !important }
+  .tbl-wrap { overflow:visible !important }
+  body { font-size:10px; background:white }
+  table.data td,table.data th { font-size:9px !important; padding:3px 5px !important }
+  .inv-cat-total td { border-top:1px solid #ccc; background:#f9f9f9 }
+  .pill { display:none !important }
+  .sheet-inp { border:none !important; background:transparent !important; box-shadow:none !important; padding:0 !important; width:auto !important }
+}
