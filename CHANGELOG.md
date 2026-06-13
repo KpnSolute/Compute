@@ -16,6 +16,30 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v3.0.9] — 2026-06-13 — Desktop nav always-visible + breadcrumbs + calendar month
+
+**Claude (mjcc-ui):** Full desktop audit (1440×900) of all 21 views via chrome-devtools MCP. Three issues found and fixed.
+
+**Fix 1 — Desktop sidebar permanently visible (CRITICAL UX):**
+- The sidebar was an overlay requiring the Explorer button to be clicked before any navigation was possible. Users couldn't find the nav.
+- Root cause: `.portal` was a 2-column grid (48px + 1fr); `.sidebar` was `position:absolute; transform:translateX(-220px)` — off-screen by default.
+- Fix: `@media(min-width:1024px)` adds a 3-column grid `48px 220px 1fr`, moves sidebar into grid flow (`position:relative; transform:none!important; grid-column:2`), moves `.main` to `grid-column:3`. Sidebar is permanently visible; clicking nav items no longer closes it.
+
+**Fix 2 — Breadcrumb "Portal" on 9 pages:**
+- 9 pages showed "Portal" as the topbar subtitle: HACCP & Logs, Daily Operations, Inspection Sheet, Snack Bar, Food Request, Barcodes & Scan, 28-Day Menu, My Usage, Automation.
+- Root cause: `VIEW_LABELS` in Portal.tsx was a hand-maintained map missing those 9 nav keys.
+- Fix: Replace static map with `Object.fromEntries(NAV.flatMap(g => g.items.map(i => [i.key, i.label])))` — derived from the NAV constant (same pattern as ROUTE_MIN). Any future nav items auto-inherit their label.
+
+**Fix 3 — Events calendar hardcoded to May 2026:**
+- Calendar always opened on May 2026 regardless of current date.
+- Root cause: `useState(() => new Date(2026, 4, 1))` — literal month hardcoded.
+- Fix: `useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); })` — opens on actual current month. Verified: June 2026 with 8 live events visible.
+
+**Verified:** `tsc -b + vite build clean`. Tested on localhost:5174 with Jeremiah login — sidebar visible on load, nav items navigate without closing sidebar, all breadcrumbs correct, events calendar shows June 2026.
+**Push:** bdd9fcd — pushed to main → Render deploy triggered.
+
+---
+
 ## [v3.0.8] — 2026-06-12 — Comprehensive mobile overflow sweep
 
 **Claude (mjcc-ui):** Full iPhone 14 (390×844) sweep of all 20+ nav views. Six mobile layout bugs identified and fixed.
