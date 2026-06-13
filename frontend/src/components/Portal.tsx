@@ -80,7 +80,7 @@ const initials = (u: User) =>
     ((u.display_name?.[0] || "") + (u.last_name?.[0] || "")).toUpperCase() ||
     (u.username || "?").slice(0, 2).toUpperCase();
 
-function useInventory(): [any, () => Promise<void>] {
+function useInventory(period: [number, number]): [any, () => Promise<void>] {
     const [state, setState] = useState({
         loading: false,
         inv: null as any,
@@ -88,16 +88,17 @@ function useInventory(): [any, () => Promise<void>] {
         syncedAt: null as string | null,
         error: null as string | null,
     });
+    const [m, y] = period;
     const load = useCallback(async () => {
         setState((s) => ({ ...s, loading: true, error: null }));
-        const res = await fetchInventory();
+        const res = await fetchInventory(m + 1, y); // 1-indexed API
         if (res.ok)
             setState({
                 loading: false,
                 inv: res.inv,
                 syncedBy: (res as any).syncedBy ?? null,
-                syncedAt: res.syncedAt ?? null,
-                error: res.inv ? null : "empty",
+                syncedAt: (res as any).syncedAt ?? null,
+                error: res.inv && Object.keys(res.inv as object).length > 0 ? null : "empty",
             });
         else
             setState({
@@ -105,9 +106,9 @@ function useInventory(): [any, () => Promise<void>] {
                 inv: null,
                 syncedBy: null,
                 syncedAt: null,
-                error: res.error,
+                error: (res as any).error ?? 'Load failed',
             });
-    }, []);
+    }, [m, y]);
     useEffect(() => {
         load();
     }, [load]);
@@ -1133,9 +1134,10 @@ function InventoryView({
 
     // Emit draft state to SC panel whenever draft changes
     useEffect(() => {
+        const flatRows = invToList(invState.inv || {});
         window.dispatchEvent(new CustomEvent("mjcc:draft-changed", {
             detail: Object.entries(draft).map(([sku, vals]) => {
-                const row = (invState.inv || []).find((r: any) => String(r.sku) === sku);
+                const row = flatRows.find((r: any) => String(r.sku) === sku);
                 return { sku, desc: row?.desc ?? sku, onHand: vals.onHand, par: vals.par };
             }),
         }));
@@ -1319,7 +1321,7 @@ function InventoryView({
         const handleStageDraft = (e: Event) => {
             const sku = (e as CustomEvent<{sku: string}>).detail?.sku;
             if (!sku) return;
-            const row = (invState.inv || []).find((r: any) => String(r.sku) === sku);
+            const row = invToList(invState.inv || {}).find((r: any) => String(r.sku) === sku);
             if (row) void stageInventoryRow({ ...row, ...(draft[sku] || {}) });
         };
         const handleDiscardDraft = (e: Event) => {
@@ -3812,7 +3814,7 @@ export function Portal({
     ]);
     const [explorerOpen, setExplorerOpen] = useState(false);
     const [scPanelOpen, setScPanelOpen] = useState(false);
-    const [invState, reloadInv] = useInventory();
+    const [invState, reloadInv] = useInventory(period);
     const [stagedCount, setStagedCount] = useState(0);
     const [periodPublished, setPeriodPublished] = useState<boolean | null>(null);
 

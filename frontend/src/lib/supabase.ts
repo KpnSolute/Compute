@@ -364,10 +364,10 @@ function groupByCategory(items: any[]) {
   return dict;
 }
 
-export async function fetchInventory() {
+export async function fetchInventory(month?: number, year?: number) {
   try {
     const { api } = await import('./api');
-    const data = await api.getInventory();
+    const data = await api.getInventory(month, year);
     return {
       ok: true,
       inv: groupByCategory(data.items),
@@ -375,7 +375,10 @@ export async function fetchInventory() {
       metadata: data.metadata
     };
   } catch (e: any) {
-    return { ok: false, error: e.message };
+    if ((e as any)?.status === 404) {
+      return { ok: true as const, inv: {} as Record<string, any[]>, syncedAt: null, metadata: {} };
+    }
+    return { ok: false as const, error: e?.message || 'Load failed' };
   }
 }
 

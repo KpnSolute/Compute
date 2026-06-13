@@ -26,3 +26,5 @@ Thumbs.db
 
 # TestSprite QA output (generated artifacts, not source)
 testsprite_tests/
+
+testsprite_tests\tmp\config.json

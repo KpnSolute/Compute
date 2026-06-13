@@ -16,6 +16,28 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v3.0.7] — 2026-06-12 — Mobile nav fixed + desktop badge bleed fixed
+
+**Claude (mjcc-ui):** Full chrome-devtools UI audit across desktop and mobile revealed two bugs; both fixed and verified locally.
+
+**Bug 1 — Desktop sidebar badge bleed (HIGH):**
+- The `.nb` badge (showing "147" below-par count) on the Inventory nav item was leaking ~23px into the viewport at `x=-8` to `x=23`, visible against the left edge of the screen.
+- Root cause: `.activity-bar` had `z-index:20`; `.sidebar` has `z-index:50`. The closed sidebar's right edge sits at `x=48px` (overlapping the icon rail), so the badge rendered above the activity-bar.
+- Fix: `index.css` `.activity-bar` z-index raised from `20` → `60`. Activity-bar now covers any sidebar content bleeding into the icon-rail zone.
+
+**Bug 2 — Mobile hamburger nav drawer broken (CRITICAL):**
+- Tapping the hamburger added `explorer-open` to `.portal` but the sidebar stayed invisible.
+- Root cause: `@media(max-width:768px)` block set `.sidebar{display:none}` (line 1080), then re-declared `.sidebar{position:fixed;…}` without restoring `display`. The `explorer-open` rule only set `transform`, never `display`.
+- Fix: Changed `.sidebar{display:none}` → `.sidebar{display:flex}` in the 768px block. Sidebar is now a visible flex container hidden off-screen by `transform:translateX(-100%)`; `explorer-open` slides it in correctly.
+
+**Also fixed — Portal.tsx TS error:**
+- `useInventory()` called without required `period:[number,number]` arg (line 3817). Fixed to `useInventory(period)`. Pre-existing error that blocked `npm run build`.
+
+**Verified:** `tsc --noEmit` clean, `npm run build ✓ built in 4.29s`. Chrome DevTools: desktop — no badge bleed; mobile — drawer opens, all nav items accessible, tapping item navigates and closes drawer.
+**Push:** pending
+
+---
+
 ## [v3.0.6] — 2026-06-12 — GPU-smooth sidebar + SC panel inside page
 
 **Claude (mjcc-ui):** Resolved two UX issues reported by user ("choppy", "source control panel should be inside the page under the main headbar").
