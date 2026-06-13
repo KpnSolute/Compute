@@ -14,22 +14,9 @@ const ROUTE_MIN: Record<string, number> = Object.fromEntries(
     NAV.flatMap((g) => g.items.map((i) => [i.key, i.min || 0])),
 ) as Record<string, number>;
 
-const VIEW_LABELS: Record<string, string> = {
-    dashboard:  'Dashboard',
-    inventory:  'Inventory',
-    moninv:     'Monthly Inventory',
-    archives:   'Archives',
-    events:     'Events',
-    mballot:    'Meal Log',
-    compliance: 'Compliance',
-    dataentry:  'Data Entry',
-    sourcectrl: 'Source Control',
-    reports:    'Reports',
-    settings:   'Settings',
-    forms:      'Forms',
-    templates:  'Templates',
-    users:      'Users',
-};
+const VIEW_LABELS: Record<string, string> = Object.fromEntries(
+    NAV.flatMap((g) => g.items.map((i) => [i.key, i.label])),
+);
 import {
     realLogout,
     loadLog,

@@ -62,7 +62,7 @@ export function EventsCalendar({ user }: { user: User }) {
   const canEdit = lvl >= 20;
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [cur, setCur] = useState(() => new Date(2026, 4, 1));
+  const [cur, setCur] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const [cat, setCat] = useState('all');
   const [selDay, setSelDay] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
