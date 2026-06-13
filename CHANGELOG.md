@@ -16,6 +16,40 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v3.0.8] — 2026-06-12 — Comprehensive mobile overflow sweep
+
+**Claude (mjcc-ui):** Full iPhone 14 (390×844) sweep of all 20+ nav views. Six mobile layout bugs identified and fixed.
+
+**Bug 1 — Snack Bar card overflow (Operations):**
+- The Operating Hours `<table>` inside `.grid-2` column 2 had no `min-width:0`, triggering CSS Grid's `min-width:auto` default — the `1fr` column expanded to 562px, overflowing the 354px viewport.
+- Fix: `.grid-2>*{min-width:0}` in `@media(max-width:768px)`.
+
+**Bug 2 — Inventory toolbar buttons off-screen:**
+- `.ph-actions` div was 755px wide (`scrollWidth`) in a 354px viewport with `overflow:visible`. Buttons Save/Stage/Push/Add Item unreachable by touch.
+- Fix: `.ph-actions{flex-wrap:wrap;gap:6px}` — buttons wrap to next line on mobile.
+
+**Bug 3 — HACCP tab bar clipped:**
+- `.tab-bar` used `display:flex` with no scroll or wrap — tabs overflowed and "Machine Te..." was truncated with no way to scroll to it.
+- Fix: `.tab-bar{overflow-x:auto;-webkit-overflow-scrolling:touch}` + `.tab-btn{white-space:nowrap;flex-shrink:0}` — tabs scroll horizontally.
+
+**Bug 4 — Events calendar FRI/SAT hidden:**
+- `.cal-ev{white-space:nowrap}` forced event chip text to stay inline — a chip like "Memorial Day" is 65px wide, making each grid column 65px+. With 7 columns, minimum cal-grid width = 455px, overflowing 390px by 65px and hiding the last column.
+- Fix: `.cal-cell{min-width:0}` + `.cal-ev{min-width:0}` — grid cells now respect `1fr`, chips ellipsize via existing `overflow:hidden;text-overflow:ellipsis`.
+
+**Bug 5 — Dashboard 5th stat card orphaned:**
+- `.stat-grid.kpi5` forces 2 columns on mobile → 5th card sits alone in a half-width cell.
+- Fix: `.stat-grid.kpi5>.stat-card:last-child{grid-column:1/-1}` — last lone card spans full width.
+
+**Bug 6 — AgentBubble FAB covers bottom content:**
+- FAB at `position:fixed;bottom:24;right:24` covered bottom-right content on Daily Ops, Inspection, Dashboard category list.
+- Fix 1: `.main{padding:14px 12px 80px}` in 768px block — content scrolls past FAB.
+- Fix 2: `AgentBubble.tsx` — open panel width clamped to `Math.min(380, window.innerWidth - 16)` so the 380px chat panel doesn't overflow left edge on 390px phones.
+
+**Verified:** `tsc -b && vite build ✓ built in 3.23s`. All changes in `@media(max-width:768px)` block only; zero effect on desktop.
+**Push:** pending
+
+---
+
 ## [v3.0.7] — 2026-06-12 — Mobile nav fixed + desktop badge bleed fixed
 
 **Claude (mjcc-ui):** Full chrome-devtools UI audit across desktop and mobile revealed two bugs; both fixed and verified locally.

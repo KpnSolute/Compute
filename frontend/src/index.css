@@ -1106,11 +1106,14 @@ table.data.logtbl td{padding:6px 10px}
   .stat-card{min-width:0;padding:11px 12px}
   .stat-card .sc-val{font-size:18px}
   .stat-card .sc-lbl{font-size:9.5px}
+  .stat-grid.kpi5>.stat-card:last-child{grid-column:1/-1}
 
   .banner{padding:9px 11px;font-size:11px;margin-bottom:8px}
   .page-head{margin-bottom:12px}
   .page-head h2{font-size:18px}
+  .ph-actions{flex-wrap:wrap;gap:6px}
   .grid-2{gap:10px}
+  .grid-2>*{min-width:0}
   .card-body{padding:10px 12px}
   .dash-meal .dm-items{font-size:10.5px}
   .cat-row{padding:6px 10px}
@@ -1118,7 +1121,7 @@ table.data.logtbl td{padding:6px 10px}
   .dmc-n{font-size:16px}
   .qa-btn{font-size:11px;min-height:42px}
 
-  .main{padding:14px 12px}
+  .main{padding:14px 12px 80px}
   .stat-grid.kpi6{grid-template-columns:repeat(3,1fr)}
   .stat-grid.kpi6 .sc-val{font-size:17px}
 
@@ -1126,8 +1129,11 @@ table.data.logtbl td{padding:6px 10px}
   .card-head{padding:10px 12px}
   .card-head h3{font-size:12px}
   .table-wrap{overflow-x:auto}
+  .tab-bar{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .tab-btn{white-space:nowrap;flex-shrink:0}
   .dash-meal-counts{grid-template-columns:repeat(2,1fr);gap:5px}
-  .cal-cell{min-height:60px}
+  .cal-cell{min-height:60px;min-width:0}
+  .cal-ev{min-width:0}
 
   .modal{max-width:94vw}
   .overlay{padding:12px}

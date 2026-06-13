@@ -210,7 +210,8 @@ export function AgentBubble({ user }: { user: User }) {
     if (userLevel < minLevel) return null;
 
     // ── sizing ────────────────────────────────────────────────────────────────
-    const W  = isOpen ? 380 : nearby ? 62 : 52;
+    const maxW = typeof window !== 'undefined' ? window.innerWidth - 16 : 380;
+    const W  = isOpen ? Math.min(380, maxW) : nearby ? 62 : 52;
     const H  = isOpen ? 520 : nearby ? 62 : 52;
     const BR = isOpen ? 18  : '50%';
 
