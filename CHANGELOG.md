@@ -16,6 +16,25 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v3.2.0] — 2026-06-13 — Master Month Editor: full audit/edit + week selectors + group mode
+
+**Claude (mjcc-ui + mjcc-api):** Full rewrite of `MonthlyInventory` in `Operations.tsx` + new backend PATCH route + api.ts method.
+
+**Backend — `PATCH /api/inventory/items/{sku}`** (inventory.py): New endpoint to directly update `par_level` and/or `unit` on `inventory_items`. par is intentionally bypassed in the bulk POST route to prevent accidental zeroing — this is the explicit manager override. Requires manager+ role.
+
+**Frontend — api.ts:** Added `updateInventoryItem(sku, { par?, unit? })` → PATCH /api/inventory/items/{sku}.
+
+**Frontend — Operations.tsx MonthlyInventory rewrite:**
+- **Week selector**: All | W1 | W2 | W3 | W4 tabs. All = read-only monthly totals for Rcvd/Issued. W1-W4 = that week's columns are fully editable inputs.
+- **View mode**: List (flat) | By Category. Group mode renders category headers + per-category subtotals (opening $, rcvd count, issued count, closing $).
+- **Editable columns**: Opening (on_hand), PAR, Unit (text), Price. PAR patches `inventory_items.par_level` only for changed rows. All others go through `saveInventory()`.
+- **cellN / cellT helpers**: Replaced old `cell()` with typed numeric and text input helpers.
+- **Save**: writes monthly_inventory directly, patches par-changed items, stages SC audit trail. Shows "Saving…" state.
+
+**Verified:** tsc clean, vite build clean. Push pending.
+
+---
+
 ## [v3.1.1] — 2026-06-13 — Monthly Inventory: grouped-by-default + print support
 
 **Claude:** `InventoryView` in `Portal.tsx` now defaults to `"grouped"` view so items are always organized by category. Added a **Print** button that expands all category sections, switches to grouped view, then calls `window.print()` (restoring collapse state after). Added `<tfoot>` category-total rows in the grouped table. `SourceCtrl` column tagged `no-print` so it's suppressed on paper. `@media print` block added to `index.css`: hides topbar, sidebar, activity-bar, status-bar, action toolbar, card-head filter row; sets body/table font to 9-10px; removes card shadows and border-radius; forces `cat-sec-head` backgrounds to light grey; adds `page-break-inside: avoid` per category section. `useRef` added to React import. Build: clean (tsc + vite ✓).

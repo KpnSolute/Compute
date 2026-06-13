@@ -158,6 +158,13 @@ export const api = {
     return req('/api/inventory', { method: 'POST', body: JSON.stringify(body) });
   },
 
+  async updateInventoryItem(sku: string, body: { par?: number; unit?: string }): Promise<any> {
+    return req(`/api/inventory/items/${encodeURIComponent(sku)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  },
+
   async getInventoryHistory(limit?: number): Promise<any[]> {
     const q = limit ? `?limit=${limit}` : '';
     return req(`/api/inventory/history${q}`);

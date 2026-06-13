@@ -550,6 +550,42 @@ async def get_reorders(auth_user: dict = Depends(_get_auth_user)):
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
+class ItemMetaUpdate(BaseModel):
+    par: Optional[int] = Field(None, ge=0)
+    unit: Optional[str] = None
+
+
+@router.patch("/items/{sku}")
+async def update_item_meta(
+    sku: str,
+    body: ItemMetaUpdate,
+    auth_user: dict = Depends(_get_auth_user),
+):
+    """Update par_level and/or unit on inventory_items for a given SKU.
+    par is intentionally bypassed in POST /api/inventory to prevent accidental
+    zeroing during bulk saves — this endpoint is the explicit manager override.
+    """
+    role = (auth_user.get("role") or "").lower()
+    if role not in ("admin", "manager", "sudo"):
+        raise HTTPException(status_code=403, detail="Manager access required.")
+
+    res = supabase_service.table("inventory_items").select("id").eq("sku", sku).limit(1).execute()
+    row = (res.data or [None])[0]
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Item not found: {sku}")
+
+    fields: dict = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    if body.par is not None:
+        fields["par_level"] = body.par
+    if body.unit:
+        fields["unit"] = body.unit
+
+    if len(fields) > 1:
+        supabase_service.table("inventory_items").update(fields).eq("id", row["id"]).execute()
+
+    return {"sku": sku, "updated": [k for k in fields if k != "updated_at"]}
+
+
 _MONTHS = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
