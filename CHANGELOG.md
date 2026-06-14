@@ -16,6 +16,26 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v3.2.1] — 2026-06-14 — May 2026 reconciliation sync + MJC- SKU display
+
+**Claude:** Verification pass after user reconciled May 2026 `monthly_inventory` + `monthly_snapshots` directly in Supabase. No backend data changes made — all Supabase writes were done by user out-of-band.
+
+**API verification (all pass):**
+- `GET /api/inventory?month=6&year=2026` (DB month=5 = May data): 246 items, opening $7,672.49, wk1r $20,392.01, wk2r $5,200.10, wk3r $2,066.95, wk4r $151.00 (back-calc artifact, stays frozen in May), 180 items with issued quantities, current_value $9,725.22.
+- `monthly_snapshots month=5`: grand_total $7,672.49, item_count 246 ✓
+- `period_status.needs_rollover=false` ✓
+- `perform_rollover` SQL RPC already uses `GREATEST(0, on_hand+w1r+w2r+w3r+w4r-w1i-w2i-w3i-w4i)` for June starting balance — wk4 artifact handled correctly ✓
+
+**Indexing reminder (do not fix):** `monthly_inventory` and `monthly_snapshots` are 1-indexed (May=5). `month_status` is 0-indexed (May=4, June=5). The backend `/api/inventory?month=M` queries DB `month=M-1`. So "June 2026" in the UI = May data in DB month=5. This offset is load-bearing — the guard trigger cross-matches indexes allowing May writes while June was open.
+
+**Total value decision:** Website displays $9,725.22 (computed from reconciled monthly_inventory). The PDF-reported $8,850.67 covered 333 items; 87 items without real SKUs are not in monthly_inventory and therefore not in the site total. The difference is documented here and in the reconciliation brief, not papered over.
+
+**Frontend — MJC- SKU display (Portal.tsx):** 20 May 2026 rows reference `inventory_items` with `MJC-`-prefixed placeholder SKUs (items without real vendor SKUs yet). All three inventory table views (regular, grouped, compact/weekly) now render a `pill warn` badge "PENDING SKU" instead of the raw `MJC-XXXXXXXX` string. Description column is unchanged and still shows the human-readable item name. Items are included in all totals and reorder calculations unchanged.
+
+**Push:** pending — 2026-06-14
+
+---
+
 ## [v3.2.0] — 2026-06-13 — Master Month Editor: full audit/edit + week selectors + group mode
 
 **Claude (mjcc-ui + mjcc-api):** Full rewrite of `MonthlyInventory` in `Operations.tsx` + new backend PATCH route + api.ts method.

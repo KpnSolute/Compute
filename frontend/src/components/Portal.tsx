@@ -1701,7 +1701,9 @@ function InventoryView({
                                                     color: "var(--muted)",
                                                 }}
                                             >
-                                                {r.sku || "—"}
+                                                {String(r.sku || "").startsWith("MJC-")
+                                                    ? <span className="pill warn" style={{ fontSize: 10 }}>PENDING SKU</span>
+                                                    : (r.sku || "—")}
                                             </td>
                                             <td style={{ fontWeight: 600 }}>
                                                 {r.desc}
@@ -1971,8 +1973,9 @@ function InventoryView({
                                                                                     color: "var(--muted)",
                                                                                 }}
                                                                             >
-                                                                                {r.sku ||
-                                                                                    "—"}
+                                                                                {String(r.sku || "").startsWith("MJC-")
+                                                                                    ? <span className="pill warn" style={{ fontSize: 10 }}>PENDING SKU</span>
+                                                                                    : (r.sku || "—")}
                                                                             </td>
                                                                             <td
                                                                                 style={{
@@ -2365,8 +2368,9 @@ function InventoryView({
                                                                                     color: "var(--muted)",
                                                                                 }}
                                                                             >
-                                                                                {r.sku ||
-                                                                                    "—"}
+                                                                                {String(r.sku || "").startsWith("MJC-")
+                                                                                    ? <span className="pill warn" style={{ fontSize: 10 }}>PENDING SKU</span>
+                                                                                    : (r.sku || "—")}
                                                                             </td>
                                                                             <td className="r num">
                                                                                 {canStage ? (
