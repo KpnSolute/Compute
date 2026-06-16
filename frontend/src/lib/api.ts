@@ -174,6 +174,30 @@ export const api = {
     return req('/api/inventory/reorders');
   },
 
+  async getInventoryItems(params?: { sku?: string; sku_pending?: boolean; category_id?: string; limit?: number }): Promise<any[]> {
+    const p = new URLSearchParams();
+    if (params?.sku) p.set('sku', params.sku);
+    if (params?.sku_pending !== undefined) p.set('sku_pending', String(params.sku_pending));
+    if (params?.category_id) p.set('category_id', params.category_id);
+    if (params?.limit !== undefined) p.set('limit', String(params.limit));
+    const qs = p.toString();
+    return req(`/api/inventory/items${qs ? '?' + qs : ''}`);
+  },
+
+  async mergeInventoryItems(keepId: string, removeId: string): Promise<any> {
+    return req('/api/inventory/merge', {
+      method: 'POST',
+      body: JSON.stringify({ keep_id: keepId, remove_id: removeId }),
+    });
+  },
+
+  async adminPatchInventoryItem(sku: string, body: { par?: number; unit?: string; desc?: string; category?: string; price?: number; active?: boolean; new_sku?: string }): Promise<any> {
+    return req(`/api/inventory/items/${encodeURIComponent(sku)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  },
+
   // Period / month rollover
   async getPeriodStatus(): Promise<{
     current_month: number; current_year: number;

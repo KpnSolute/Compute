@@ -16,6 +16,38 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v3.3.0] — 2026-06-16 — Inventory week-5, admin item editor, SKU triage & merge
+
+**Claude (Senior Dev Manager):** Full MJCC Inventory feature pass — DB already migrated, code-only. Build: ✅ tsc + vite clean. Ruff: ✅ all pass.
+
+**Backend changes (no schema writes):**
+- `backend/periods.py` (new): `to_db_month`, `to_ui_month`, `days_in_month`, `weeks_in_month`, `week_of_day`, `MAX_WEEKS=5`.
+- `backend/inventory_identity.py`: `NEW_ITEMS_CATEGORY` → "Uncategorized" (was "New Items").
+- `backend/staging/dispatch.py`: added w5r/w5i column pairs; week range now 1–5; `dispatch_item_update` catches SKU unique-constraint violations → returns `{applied:0, error:"sku_conflict", ...}`; repoints `get_new_items_category_id` to Uncategorized.
+- `backend/routes/inventory.py`: `InventoryItem` model gains `id`, `sku_pending`, w5r/w5i, optional `onHand`; `_JOIN_SELECT` adds `inventory_items.id` + w5 columns; `_flatten_rows` populates them; GET metadata includes `weeks_in_period` + `over_issued_count`; save loop handles w5, skips on_hand write when None; new `GET /api/inventory/items` (sku/sku_pending/category_id filters); new `POST /api/inventory/merge` (admin-only, calls `admin_merge_items` RPC); `PATCH /api/inventory/items/{sku}` extended with desc/category/price/active/new_sku, returns 409 on SKU collision.
+- `backend/routes/sourcectrl.py`: `approve_commit` atomicity fix — partitions results into applied/failed; only creates commit for applied subset; failed entries left pending with review_note; returns `{...commit, applied, failed[]}`.
+
+**Frontend changes:**
+- `frontend/src/lib/api.ts`: added `getInventoryItems`, `mergeInventoryItems`, `adminPatchInventoryItem`.
+- `frontend/src/lib/supabase.ts`: `iTotal` now includes w5r/w5i.
+- `frontend/src/components/Operations.tsx`: `maxWeeks` from `metadata.weeks_in_period`; w5r/w5i in row mapping + totals; dynamic `WK_LABELS`.
+- `frontend/src/components/Portal.tsx`:
+  - `ISSUED`/`RECEIVED` arrays include w5i/w5r; `WeeklyField` type updated.
+  - `maxWeeks` from `metadata.weeks_in_period ?? 4`; `compactWeek` type `0|1|2|3|4|5`.
+  - Week selector tab bar is dynamic (1–maxWeeks tabs).
+  - Compact view headers dynamic (no hardcoded W1-W4); tfoot colSpan dynamic `maxWeeks*2+1`.
+  - Compact view tbody already uses `ISSUED.map`/`RECEIVED.map` — W5 cells handled.
+  - `rows` mapping adds `id`, `unit`, `active`, `sku_pending`.
+  - `editForm` gains `sku`, `unit`, `active`; `openEdit` populates them.
+  - `submitEditItem`: admin (lvl≥40) fields `new_sku`/`unit`/`active` included in payload; SKU rename triggers `getInventoryItems` pre-check → merge dialog on conflict.
+  - `triageFilter` state + "Needs SKU" / "Uncategorized" admin filter buttons in card-head; `filtered` respects filter.
+  - Merge dialog: shows conflict info, calls `mergeInventoryItems(keepId, removeId)` on confirm.
+  - Edit modal: admin-gated (lvl≥40) SKU rename, unit, and active fields added.
+
+**Push:** pending — not yet pushed
+
+---
+
 ## [v3.2.1] — 2026-06-14 — May 2026 reconciliation sync + MJC- SKU display
 
 **Claude:** Verification pass after user reconciled May 2026 `monthly_inventory` + `monthly_snapshots` directly in Supabase. No backend data changes made — all Supabase writes were done by user out-of-band.

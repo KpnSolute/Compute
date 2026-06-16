@@ -25,7 +25,7 @@ Rules:
 import uuid
 from datetime import datetime, timezone
 
-NEW_ITEMS_CATEGORY = "New Items"
+NEW_ITEMS_CATEGORY = "Uncategorized"
 
 
 def gen_sku() -> str:

@@ -258,7 +258,8 @@ export function MonthlyInventory({
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [q, setQ] = useState('');
   const [viewMode, setViewMode] = useState<'flat' | 'group'>('flat');
-  const [week, setWeek] = useState(0); // 0 = All, 1–4 = W1–W4
+  const [week, setWeek] = useState(0); // 0 = All, 1–5 = W1–W5
+  const [maxWeeks, setMaxWeeks] = useState(4); // from API metadata.weeks_in_period
 
   useEffect(() => {
     let alive = true;
@@ -267,6 +268,7 @@ export function MonthlyInventory({
     async function load() {
       try {
         const inv = await api.getInventory(m + 1, y);
+        const wip = inv.metadata?.weeks_in_period ?? 4;
         const flat = (inv.items || []).map((it: any) => ({
           id: it.sku || String(Math.random()),
           cat: it.category || it.cat || '',
@@ -275,10 +277,10 @@ export function MonthlyInventory({
           par: it.par || 0,
           unit: it.unit || 'each',
           opening: it.onHand || 0,
-          w1r: it.w1r || 0, w2r: it.w2r || 0, w3r: it.w3r || 0, w4r: it.w4r || 0,
-          w1i: it.w1i || 0, w2i: it.w2i || 0, w3i: it.w3i || 0, w4i: it.w4i || 0,
+          w1r: it.w1r || 0, w2r: it.w2r || 0, w3r: it.w3r || 0, w4r: it.w4r || 0, w5r: it.w5r || 0,
+          w1i: it.w1i || 0, w2i: it.w2i || 0, w3i: it.w3i || 0, w4i: it.w4i || 0, w5i: it.w5i || 0,
         }));
-        if (alive) { setRows(flat); setInitRows(flat); }
+        if (alive) { setRows(flat); setInitRows(flat); setMaxWeeks(wip); }
         try {
           const ivs = await api.getInvoices(m + 1, y);
           if (alive) setInvoices(ivs || []);
@@ -301,8 +303,8 @@ export function MonthlyInventory({
     setSaved(false);
   }
 
-  const totalRcv = (r: any) => (r.w1r || 0) + (r.w2r || 0) + (r.w3r || 0) + (r.w4r || 0);
-  const totalIss = (r: any) => (r.w1i || 0) + (r.w2i || 0) + (r.w3i || 0) + (r.w4i || 0);
+  const totalRcv = (r: any) => (r.w1r || 0) + (r.w2r || 0) + (r.w3r || 0) + (r.w4r || 0) + (r.w5r || 0);
+  const totalIss = (r: any) => (r.w1i || 0) + (r.w2i || 0) + (r.w3i || 0) + (r.w4i || 0) + (r.w5i || 0);
   const closing = (r: any) => Math.max(0, (r.opening || 0) + totalRcv(r) - totalIss(r));
 
   // Week-scoped accessors
@@ -338,7 +340,7 @@ export function MonthlyInventory({
     { lbl: 'Closing value', val: sum.close, tint: '#1E73E8', bg: '#EFF5FE' },
   ];
 
-  const WK_LABELS = ['All', 'Week 1', 'Week 2', 'Week 3', 'Week 4'];
+  const WK_LABELS = ['All', ...Array.from({ length: maxWeeks }, (_, i) => `Week ${i + 1}`)];
   const rcvColLabel = week === 0 ? 'Rcvd (total)' : `W${week} Received`;
   const issColLabel = week === 0 ? 'Issued (total)' : `W${week} Issued`;
 
@@ -350,8 +352,8 @@ export function MonthlyInventory({
         sku: r.id, desc: r.item,
         onHand: r.opening,
         par: r.par, price: r.price, category: r.cat, unit: r.unit,
-        w1r: r.w1r, w2r: r.w2r, w3r: r.w3r, w4r: r.w4r,
-        w1i: r.w1i, w2i: r.w2i, w3i: r.w3i, w4i: r.w4i,
+        w1r: r.w1r, w2r: r.w2r, w3r: r.w3r, w4r: r.w4r, w5r: r.w5r,
+        w1i: r.w1i, w2i: r.w2i, w3i: r.w3i, w4i: r.w4i, w5i: r.w5i,
       }));
 
       // Direct write: monthly_inventory (on_hand + weekly cols + price + unit)
@@ -370,7 +372,7 @@ export function MonthlyInventory({
       }
 
       // Source Control audit trail
-      await api.stageChange('inventory_save', 'inventory', 'batch',
+      await api.stageChange('inventory_save', 'inventory', `batch-moninv-${m + 1}-${y}`,
         { items, month: m + 1, year: y, notes },
         `Monthly inventory — ${notes}`,
       );

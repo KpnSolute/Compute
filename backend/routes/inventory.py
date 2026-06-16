@@ -7,6 +7,8 @@ Uses normalized tables: inventory_items, inventory_categories, monthly_inventory
 Endpoints:
 - GET /api/inventory - Get inventory snapshot (specific month/year or latest)
 - POST /api/inventory - Save inventory snapshot
+- GET /api/inventory/items - List/lookup inventory items (with sku_pending/category filters)
+- POST /api/inventory/merge - Merge two duplicate items (admin only)
 - GET /api/inventory/history - Get past snapshots
 - GET /api/inventory/reorders - Get low-stock items
 """
@@ -21,6 +23,7 @@ from backend.inventory_identity import (
     get_new_items_category_id,
     resolve_and_write_item,
 )
+from backend.periods import weeks_in_month
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +31,10 @@ router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 
 
 class InventoryItem(BaseModel):
+    id: Optional[str] = None
     sku: str
     desc: str
-    onHand: int = Field(0, ge=0)
+    onHand: Optional[int] = Field(None, ge=0)
     # Optional so a save that does not include par does NOT zero the shared
     # inventory_items.par_level (which would corrupt par across every period).
     par: Optional[int] = Field(None, ge=0)
@@ -41,12 +45,15 @@ class InventoryItem(BaseModel):
     w2r: Optional[int] = None
     w3r: Optional[int] = None
     w4r: Optional[int] = None
+    w5r: Optional[int] = None
     w1i: Optional[int] = None
     w2i: Optional[int] = None
     w3i: Optional[int] = None
     w4i: Optional[int] = None
+    w5i: Optional[int] = None
     # Computed: on_hand (opening) + received - issued = actual ending stock.
     running_total: Optional[int] = None
+    sku_pending: Optional[bool] = None
 
 
 class InventorySnapshot(BaseModel):
@@ -149,13 +156,19 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
         w2r = int(_to_float(row.get("w2_received")))
         w3r = int(_to_float(row.get("w3_received")))
         w4r = int(_to_float(row.get("w4_received")))
+        w5r = int(_to_float(row.get("w5_received")))
         w1i = int(_to_float(row.get("w1_issued")))
         w2i = int(_to_float(row.get("w2_issued")))
         w3i = int(_to_float(row.get("w3_issued")))
         w4i = int(_to_float(row.get("w4_issued")))
-        running_total = max(0, oh + w1r + w2r + w3r + w4r - w1i - w2i - w3i - w4i)
+        w5i = int(_to_float(row.get("w5_issued")))
+        running_total = max(
+            0,
+            oh + w1r + w2r + w3r + w4r + w5r - w1i - w2i - w3i - w4i - w5i,
+        )
         items.append(
             InventoryItem(
+                id=inv_item.get("id"),
                 sku=inv_item.get("sku") or "",
                 desc=inv_item.get("description") or "",
                 onHand=oh,
@@ -163,9 +176,10 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
                 category=cat.get("name") or "",
                 price=_to_float(row.get("unit_price")),
                 unit=inv_item.get("unit") or "each",
-                w1r=w1r, w2r=w2r, w3r=w3r, w4r=w4r,
-                w1i=w1i, w2i=w2i, w3i=w3i, w4i=w4i,
+                w1r=w1r, w2r=w2r, w3r=w3r, w4r=w4r, w5r=w5r,
+                w1i=w1i, w2i=w2i, w3i=w3i, w4i=w4i, w5i=w5i,
                 running_total=running_total,
+                sku_pending=bool(inv_item.get("sku_pending")),
             )
         )
     return items
@@ -181,10 +195,10 @@ def _serialize_dt(dt) -> str:
 
 _JOIN_SELECT = (
     "id, month, year, on_hand, "
-    "w1_received, w2_received, w3_received, w4_received, "
-    "w1_issued, w2_issued, w3_issued, w4_issued, "
+    "w1_received, w2_received, w3_received, w4_received, w5_received, "
+    "w1_issued, w2_issued, w3_issued, w4_issued, w5_issued, "
     "unit_price, created_at, "
-    "inventory_items!inner(sku, description, par_level, unit, "
+    "inventory_items!inner(id, sku, description, par_level, unit, sku_pending, "
     "  inventory_categories!inner(name)"
     ")"
 )
@@ -250,10 +264,33 @@ async def get_inventory(
         period_id = f"{year}-{month:02d}"
         created_at = _serialize_dt(result.data[0].get("created_at"))
 
+        over_issued_count = sum(
+            1 for row in result.data
+            if (
+                int(_to_float(row.get("w1_received"))) +
+                int(_to_float(row.get("w2_received"))) +
+                int(_to_float(row.get("w3_received"))) +
+                int(_to_float(row.get("w4_received"))) +
+                int(_to_float(row.get("w5_received")))
+            ) < (
+                int(_to_float(row.get("w1_issued"))) +
+                int(_to_float(row.get("w2_issued"))) +
+                int(_to_float(row.get("w3_issued"))) +
+                int(_to_float(row.get("w4_issued"))) +
+                int(_to_float(row.get("w5_issued")))
+            )
+        )
+
         return InventoryResponse(
             id=period_id,
             items=items,
-            metadata={"month": month, "year": year, "period": period_id},
+            metadata={
+                "month": month,
+                "year": year,
+                "period": period_id,
+                "weeks_in_period": weeks_in_month(month, year),
+                "over_issued_count": over_issued_count,
+            },
             notes="",
             created_at=created_at or datetime.now(timezone.utc).isoformat(),
         )
@@ -263,6 +300,88 @@ async def get_inventory(
     except Exception as e:
         logger.exception("Error in get_inventory")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@router.get("/items")
+async def list_inventory_items(
+    sku: Optional[str] = Query(None),
+    sku_pending: Optional[bool] = Query(None),
+    category_id: Optional[str] = Query(None),
+    limit: int = Query(200, ge=1, le=2000),
+    auth_user: dict = Depends(_get_auth_user),
+):
+    """List inventory_items with optional filters.
+
+    Supports:
+    - sku: exact SKU lookup (returns 0 or 1 item)
+    - sku_pending=true: all placeholder MJC- items needing a real SKU
+    - category_id: items in a specific category
+    """
+    try:
+        q = supabase_service.table("inventory_items").select(
+            "id, sku, description, category_id, unit_price, par_level, unit, active, sku_pending, "
+            "inventory_categories(name)"
+        )
+        if sku:
+            q = q.eq("sku", sku)
+        if sku_pending is not None:
+            q = q.eq("sku_pending", sku_pending)
+        if category_id:
+            q = q.eq("category_id", category_id)
+        q = q.limit(limit)
+        result = q.execute()
+        items = []
+        for row in result.data or []:
+            cat_join = row.get("inventory_categories") or {}
+            if isinstance(cat_join, list):
+                cat_join = cat_join[0] if cat_join else {}
+            items.append({
+                "id": row["id"],
+                "sku": row["sku"],
+                "description": row["description"],
+                "category_id": row.get("category_id"),
+                "category": cat_join.get("name") or "",
+                "unit_price": row.get("unit_price"),
+                "par_level": row.get("par_level"),
+                "unit": row.get("unit"),
+                "active": row.get("active"),
+                "sku_pending": row.get("sku_pending"),
+            })
+        return items
+    except Exception as e:
+        logger.exception("Error in list_inventory_items")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+class MergeBody(BaseModel):
+    keep_id: str
+    remove_id: str
+
+
+@router.post("/merge")
+async def merge_inventory_items(
+    body: MergeBody,
+    auth_user: dict = Depends(_get_auth_user),
+):
+    """Merge two duplicate inventory items (admin only).
+
+    Calls admin_merge_items(p_keep, p_remove) via service-role client.
+    Moves all references (monthly_inventory, weekly_counts, qr_codes,
+    inventory_transactions, item_barcodes, reorder_alerts) from p_remove to
+    p_keep, then deletes p_remove. Returns the RPC jsonb result.
+    """
+    role = (auth_user.get("role") or "").lower()
+    if role not in ("admin", "sudo"):
+        raise HTTPException(status_code=403, detail="Admin access required.")
+    try:
+        result = supabase_service.rpc(
+            "admin_merge_items",
+            {"p_keep": body.keep_id, "p_remove": body.remove_id},
+        ).execute()
+        return result.data
+    except Exception as e:
+        logger.exception("Error in merge_inventory_items")
+        raise HTTPException(status_code=500, detail=f"Merge failed: {str(e)}")
 
 
 @router.post("", response_model=InventoryResponse, status_code=201)
@@ -291,9 +410,7 @@ async def save_inventory(
         raise HTTPException(status_code=400, detail="Items list cannot be empty")
 
     for item in payload.items:
-        # Guard before comparing: item.par is Optional, so `item.par < 0` on a
-        # None par would raise TypeError → 500 (v1.8.5 latent bug).
-        if item.onHand < 0 or (item.par is not None and item.par < 0):
+        if (item.onHand is not None and item.onHand < 0) or (item.par is not None and item.par < 0):
             raise HTTPException(
                 status_code=400, detail="onHand and par must be non-negative"
             )
@@ -320,7 +437,7 @@ async def save_inventory(
             if status_row and status_row.get("status") == "published":
                 raise HTTPException(status_code=403, detail=f"Period {month}/{year} is published and cannot be modified")
 
-        # Pre-fetch category name -> id mapping + the New Items review bucket.
+        # Pre-fetch category name -> id mapping + the Uncategorized triage bucket.
         cat_result = supabase_service.table("inventory_categories").select("id, name").execute()
         category_map = {}
         for c in cat_result.data or []:
@@ -330,9 +447,9 @@ async def save_inventory(
         created_at = datetime.now(timezone.utc).isoformat()
 
         for item in payload.items:
-            # Identity resolved by SKU only (sku is now NOT NULL + UNIQUE). An
+            # Identity resolved by SKU only (sku is NOT NULL + UNIQUE). An
             # unknown/blank category resolves to None so a brand-new item lands
-            # in "New Items" for manager review instead of failing or guessing.
+            # in "Uncategorized" for manager review instead of failing or guessing.
             cat_id = category_map.get(item.category)
 
             inv_item_id, _sku, _created = resolve_and_write_item(
@@ -349,21 +466,25 @@ async def save_inventory(
                 continue
 
             # Upsert monthly_inventory by item_id + month + year (DB stores 0-indexed month).
-            # Weekly columns are only written when explicitly provided — omitting them
-            # preserves existing W1-W4 data instead of zeroing it on every save (P0.2).
+            # Weekly columns and on_hand are only written when explicitly provided — omitting them
+            # preserves existing data instead of zeroing it on every save (P0.2).
             monthly_fields = {
                 "item_id": inv_item_id,
                 "month": db_month,
                 "year": year,
-                "on_hand": item.onHand,
             }
+            # Only write on_hand when explicitly provided in the payload.
+            if item.onHand is not None:
+                monthly_fields["on_hand"] = item.onHand
             if item.price is not None:
                 monthly_fields["unit_price"] = item.price
             for src, col in [
                 ("w1r", "w1_received"), ("w2r", "w2_received"),
                 ("w3r", "w3_received"), ("w4r", "w4_received"),
+                ("w5r", "w5_received"),
                 ("w1i", "w1_issued"),   ("w2i", "w2_issued"),
                 ("w3i", "w3_issued"),   ("w4i", "w4_issued"),
+                ("w5i", "w5_issued"),
             ]:
                 val = getattr(item, src)
                 if val is not None:
@@ -389,7 +510,12 @@ async def save_inventory(
         return InventoryResponse(
             id=period_id,
             items=items,
-            metadata={"month": month, "year": year, "period": period_id},
+            metadata={
+                "month": month,
+                "year": year,
+                "period": period_id,
+                "weeks_in_period": weeks_in_month(month, year),
+            },
             notes=payload.notes,
             created_at=created_at,
         )
@@ -467,7 +593,12 @@ async def get_inventory_history(
                 InventoryResponse(
                     id=period_id,
                     items=items,
-                    metadata={"month": m, "year": y, "period": period_id},
+                    metadata={
+                        "month": m,
+                        "year": y,
+                        "period": period_id,
+                        "weeks_in_period": weeks_in_month(m, y),
+                    },
                     notes="",
                     created_at=created_at or "",
                 )
@@ -531,8 +662,6 @@ async def get_reorders(auth_user: dict = Depends(_get_auth_user)):
             if par > 0 and on_hand < par:
                 low_items.append(
                     LowStockItem(
-                        # `.get(k, "")` still returns None when the column exists but is null,
-                        # which fails LowStockItem's str fields → 500. Coalesce with `or ""`.
                         sku=inv_item.get("sku") or "",
                         desc=inv_item.get("description") or "",
                         category=cat.get("name") or "",
@@ -553,6 +682,11 @@ async def get_reorders(auth_user: dict = Depends(_get_auth_user)):
 class ItemMetaUpdate(BaseModel):
     par: Optional[int] = Field(None, ge=0)
     unit: Optional[str] = None
+    desc: Optional[str] = None
+    category: Optional[str] = None
+    price: Optional[float] = Field(None, ge=0)
+    active: Optional[bool] = None
+    new_sku: Optional[str] = None
 
 
 @router.patch("/items/{sku}")
@@ -561,9 +695,13 @@ async def update_item_meta(
     body: ItemMetaUpdate,
     auth_user: dict = Depends(_get_auth_user),
 ):
-    """Update par_level and/or unit on inventory_items for a given SKU.
-    par is intentionally bypassed in POST /api/inventory to prevent accidental
-    zeroing during bulk saves — this endpoint is the explicit manager override.
+    """Update par_level, unit, description, category, price, active, or SKU on
+    inventory_items for a given SKU. par is intentionally bypassed in
+    POST /api/inventory to prevent accidental zeroing during bulk saves — this
+    endpoint is the explicit manager/admin override.
+
+    When new_sku is provided and is already owned by another item, returns 409
+    with the conflicting item's details so the UI can offer a merge.
     """
     role = (auth_user.get("role") or "").lower()
     if role not in ("admin", "manager", "sudo"):
@@ -579,11 +717,40 @@ async def update_item_meta(
         fields["par_level"] = body.par
     if body.unit:
         fields["unit"] = body.unit
+    if body.desc is not None:
+        fields["description"] = body.desc
+    if body.price is not None:
+        fields["unit_price"] = body.price
+    if body.active is not None:
+        fields["active"] = body.active
+
+    new_sku = (body.new_sku or "").strip()
+    if new_sku and new_sku != sku:
+        # Check for SKU conflict before writing
+        conflict_r = supabase_service.table("inventory_items").select("id,sku,description").eq("sku", new_sku).limit(1).execute()
+        conflict_row = (conflict_r.data or [None])[0]
+        if conflict_row:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": f"SKU '{new_sku}' is already used by another item.",
+                    "conflict_id": conflict_row["id"],
+                    "conflict_sku": conflict_row["sku"],
+                    "conflict_desc": conflict_row["description"],
+                },
+            )
+        fields["sku"] = new_sku
+
+    if body.category:
+        cat_r = supabase_service.table("inventory_categories").select("id").eq("name", body.category).limit(1).execute()
+        cat_row = (cat_r.data or [None])[0]
+        if cat_row:
+            fields["category_id"] = cat_row["id"]
 
     if len(fields) > 1:
         supabase_service.table("inventory_items").update(fields).eq("id", row["id"]).execute()
 
-    return {"sku": sku, "updated": [k for k in fields if k != "updated_at"]}
+    return {"sku": new_sku or sku, "updated": [k for k in fields if k != "updated_at"]}
 
 
 _MONTHS = [

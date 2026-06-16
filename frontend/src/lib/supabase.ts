@@ -429,8 +429,8 @@ export function catColor(c: string) {
   return CCOLOR[c] || '#1E73E8';
 }
 export function iTotal(it: any) {
-  const rcv = (it.w1r || 0) + (it.w2r || 0) + (it.w3r || 0) + (it.w4r || 0);
-  const iss = (it.w1i || 0) + (it.w2i || 0) + (it.w3i || 0) + (it.w4i || 0);
+  const rcv = (it.w1r || 0) + (it.w2r || 0) + (it.w3r || 0) + (it.w4r || 0) + (it.w5r || 0);
+  const iss = (it.w1i || 0) + (it.w2i || 0) + (it.w3i || 0) + (it.w4i || 0) + (it.w5i || 0);
   return Math.max(0, (it.onHand || 0) + rcv - iss) * (it.price || 0);
 }
 export function invToList(inv: any) {

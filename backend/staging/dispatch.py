@@ -89,8 +89,10 @@ def dispatch_inventory_save(payload: dict) -> dict:
         for src, col in [
             ("w1r", "w1_received"), ("w2r", "w2_received"),
             ("w3r", "w3_received"), ("w4r", "w4_received"),
+            ("w5r", "w5_received"),
             ("w1i", "w1_issued"),   ("w2i", "w2_issued"),
             ("w3i", "w3_issued"),   ("w4i", "w4_issued"),
+            ("w5i", "w5_issued"),
         ]:
             if src in item:
                 monthly_fields[col] = item[src]
@@ -146,7 +148,23 @@ def dispatch_item_update(payload: dict) -> dict:
     if new_sku and new_sku != sku:
         fields["sku"] = new_sku
 
-    sup.table("inventory_items").update(fields).eq("id", row["id"]).execute()
+    try:
+        sup.table("inventory_items").update(fields).eq("id", row["id"]).execute()
+    except Exception as exc:
+        err_str = str(exc)
+        if new_sku and new_sku != sku and (
+            "23505" in err_str or "unique" in err_str.lower() or "duplicate" in err_str.lower()
+        ):
+            conflict_r = sup.table("inventory_items").select("id,sku,description").eq("sku", new_sku).limit(1).execute()
+            conflict_row = (conflict_r.data or [None])[0] or {}
+            return {
+                "applied": 0,
+                "error": "sku_conflict",
+                "conflict_sku": new_sku,
+                "conflict_item_id": conflict_row.get("id"),
+                "conflict_desc": conflict_row.get("description"),
+            }
+        raise
     return {"applied": 1, "sku": new_sku or sku, "fields": list(fields.keys())}
 
 
@@ -185,8 +203,8 @@ def dispatch_inventory_week(payload: dict) -> dict:
     week = int(payload.get("week") or 0)
     direction = (payload.get("direction") or "received").lower()
     items = payload.get("items", [])
-    if week not in (1, 2, 3, 4):
-        return {"applied": 0, "error": f"Invalid week {week} (expected 1-4)"}
+    if week not in (1, 2, 3, 4, 5):
+        return {"applied": 0, "error": f"Invalid week {week} (expected 1-5)"}
     if direction not in ("received", "issued"):
         return {"applied": 0, "error": f"Invalid direction {direction}"}
     if not items:

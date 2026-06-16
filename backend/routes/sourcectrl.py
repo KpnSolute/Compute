@@ -360,20 +360,24 @@ async def approve_commit(
                     {"entry_id": entry["entry_id"], "operation": op, "result": result}
                 )
 
-        replay_errors = [r for r in replay_results if r["result"].get("error")]
-        if replay_errors:
-            applied_ids = [
-                r["entry_id"] for r in replay_results if not r["result"].get("error")
-            ]
+        # 3 — partition results into applied vs failed
+        applied_results = [r for r in replay_results if not r["result"].get("error")]
+        failed_results = [r for r in replay_results if r["result"].get("error")]
+
+        if not applied_results and failed_results:
+            # Nothing succeeded — leave all entries pending
             detail = "; ".join(
-                f"{r['operation']}: {r['result']['error']}" for r in replay_errors
+                f"{r['operation']}: {r['result']['error']}" for r in failed_results
             )
             raise HTTPException(
                 status_code=500,
-                detail=f"Replay failed: {detail}. Applied entries (no rollback): {applied_ids or 'none'}.",
+                detail=f"All replay operations failed (no commit created): {detail}",
             )
 
-        # 3 — create commit row
+        applied_entry_ids = [r["entry_id"] for r in applied_results]
+        applied_entries = [e for e in entries if e["entry_id"] in set(applied_entry_ids)]
+
+        # 4 — create commit row for the APPLIED subset
         commit_r = (
             _client()
             .table("commits")
@@ -395,9 +399,9 @@ async def approve_commit(
         commit = commit_r.data[0]
         commit_id = commit["commit_id"]
 
-        # 4 — insert commit_changes for each staging entry
+        # 5 — insert commit_changes for applied entries only
         changes = []
-        for entry in entries:
+        for entry in applied_entries:
             changes.append(
                 {
                     "commit_id": commit_id,
@@ -413,19 +417,27 @@ async def approve_commit(
         if changes:
             _client().table("commit_changes").insert(changes).execute()
 
-        # 5 — mark staging entries merged. NOTE: staging_entries_status_check only
-        # permits ('pending','merged','rejected') — writing 'approved' here raised
-        # 23514 and 500'd EVERY commit after the data already applied (latent prod
-        # bug: 76 commits exist but all staging rows stuck 'pending'). Use 'merged'.
-        _client().table("staging_entries").update(
-            {
-                "status": "merged",
-                "reviewed_by": author_id,
-                "reviewed_at": now,
-            }
-        ).in_("entry_id", body.staging_ids).execute()
+        # 6 — mark applied staging entries merged; leave failed entries pending
+        # with a review_note so they can be retried.
+        if applied_entry_ids:
+            _client().table("staging_entries").update(
+                {
+                    "status": "merged",
+                    "reviewed_by": author_id,
+                    "reviewed_at": now,
+                }
+            ).in_("entry_id", applied_entry_ids).execute()
 
-        # 6 — enqueue github sync. NOTE: github_sync_queue_operation_check permits
+        if failed_results:
+            for r in failed_results:
+                err_msg = r["result"].get("error", "Replay error")
+                _client().table("staging_entries").update(
+                    {
+                        "review_note": f"Replay error (left pending for retry): {err_msg}",
+                    }
+                ).eq("entry_id", r["entry_id"]).execute()
+
+        # 7 — enqueue github sync. NOTE: github_sync_queue_operation_check permits
         # ('push_inventory','push_archive_snapshot','push_invoice','push_menu',
         # 'push_items_catalog'). 'push_snapshot' was invalid → 23514 → the final
         # 500 in the commit flow (after status fix). Use 'push_archive_snapshot'.
@@ -442,10 +454,16 @@ async def approve_commit(
             }
         ).execute()
 
+        failed_summary = [
+            {"entry_id": r["entry_id"], "operation": r["operation"], "error": r["result"].get("error")}
+            for r in failed_results
+        ]
         return {
             **commit,
             "change_count": len(changes),
-            "replayed": len(replay_results),
+            "replayed": len(applied_results),
+            "applied": len(applied_results),
+            "failed": failed_summary,
         }
     except HTTPException:
         raise

@@ -71,6 +71,7 @@ function useInventory(period: [number, number]): [any, () => Promise<void>] {
     const [state, setState] = useState({
         loading: false,
         inv: null as any,
+        metadata: null as any,
         syncedBy: null as string | null,
         syncedAt: null as string | null,
         error: null as string | null,
@@ -83,6 +84,7 @@ function useInventory(period: [number, number]): [any, () => Promise<void>] {
             setState({
                 loading: false,
                 inv: res.inv,
+                metadata: (res as any).metadata ?? null,
                 syncedBy: (res as any).syncedBy ?? null,
                 syncedAt: (res as any).syncedAt ?? null,
                 error: res.inv && Object.keys(res.inv as object).length > 0 ? null : "empty",
@@ -91,6 +93,7 @@ function useInventory(period: [number, number]): [any, () => Promise<void>] {
             setState({
                 loading: false,
                 inv: null,
+                metadata: null,
                 syncedBy: null,
                 syncedAt: null,
                 error: (res as any).error ?? 'Load failed',
@@ -1052,8 +1055,17 @@ function InventoryView({
         category: "",
         price: "",
         par: "",
+        sku: "",
+        unit: "",
+        active: true,
     });
     const [editBusy, setEditBusy] = useState(false);
+    const [triageFilter, setTriageFilter] = useState<'needs_sku' | 'uncategorized' | null>(null);
+    const [mergeDialog, setMergeDialog] = useState<{
+        keepId: string; removeId: string;
+        keepSku: string; removeSku: string; removeDesc: string;
+    } | null>(null);
+    const [mergeBusy, setMergeBusy] = useState(false);
     const openEdit = (row: any) => {
         setEditTarget(row);
         setEditForm({
@@ -1061,6 +1073,9 @@ function InventoryView({
             category: row.cat || "",
             price: String(row.price ?? ""),
             par: String(row.par ?? ""),
+            sku: row.sku || "",
+            unit: row.unit || "",
+            active: row.active !== false,
         });
     };
 
@@ -1082,18 +1097,19 @@ function InventoryView({
     // template's compact sheet. Edits live in local `wkDraft` and are persisted
     // via the "Stage weekly changes" batch action (stageCompactChanges), which
     // routes through Source Control like the Monthly Inventory view.
-    const ISSUED = ["w1i", "w2i", "w3i", "w4i"] as const; // pulled ↓
-    const RECEIVED = ["w1r", "w2r", "w3r", "w4r"] as const; // delivered ↑
+    const ISSUED = ["w1i", "w2i", "w3i", "w4i", "w5i"] as const; // pulled ↓
+    const RECEIVED = ["w1r", "w2r", "w3r", "w4r", "w5r"] as const; // delivered ↑
     type WeeklyField = (typeof ISSUED)[number] | (typeof RECEIVED)[number];
     const [wkDraft, setWkDraft] = useState<
         Record<string, Partial<Record<WeeklyField, number>>>
     >({});
 
-    // Invoice mode selectors: which week (1-4) and direction this staging batch
+    // Invoice mode selectors: which week (1-5) and direction this staging batch
     // represents. 0 = whole-month save (inventory_save). When week>0, the batch
     // is routed as inventory_week_update for that specific column only.
-    const [compactWeek, setCompactWeek] = useState<0 | 1 | 2 | 3 | 4>(
-        () => Math.min(4, Math.ceil(new Date().getDate() / 7)) as 1 | 2 | 3 | 4
+    const maxWeeks = (invState.metadata?.weeks_in_period as number) ?? 4;
+    const [compactWeek, setCompactWeek] = useState<0 | 1 | 2 | 3 | 4 | 5>(
+        () => Math.min(5, Math.ceil(new Date().getDate() / 7)) as 1 | 2 | 3 | 4 | 5
     );
     const [compactDir, setCompactDir] = useState<"received" | "issued">("received");
     const setWeeklyField = (sku: string, field: WeeklyField, value: string) => {
@@ -1282,7 +1298,7 @@ function InventoryView({
                         par: d?.par ?? r.par,
                     };
                     // Spread only explicitly-edited weekly fields
-                    for (const k of ["w1r","w2r","w3r","w4r","w1i","w2i","w3i","w4i"] as WeeklyField[]) {
+                    for (const k of ["w1r","w2r","w3r","w4r","w5r","w1i","w2i","w3i","w4i","w5i"] as WeeklyField[]) {
                         if (k in w) base[k] = w[k];
                     }
                     return base;
@@ -1407,8 +1423,31 @@ function InventoryView({
         if (price !== null) payload.price = price;
         const par = numOrNull(editForm.par);
         if (par !== null) payload.par = par;
+
+        if (lvl >= 40) {
+            const newSku = editForm.sku.trim().toUpperCase();
+            if (newSku && newSku !== sku) payload.new_sku = newSku;
+            if (editForm.unit.trim()) payload.unit = editForm.unit.trim();
+            payload.active = editForm.active;
+        }
+
         setEditBusy(true);
         try {
+            // Admin SKU rename: pre-check for conflicts before staging
+            if (payload.new_sku) {
+                const existing = await api.getInventoryItems({ sku: payload.new_sku });
+                const conflict = existing.find((x: any) => x.id !== editTarget.id);
+                if (conflict) {
+                    setMergeDialog({
+                        keepId: editTarget.id,
+                        removeId: conflict.id,
+                        keepSku: sku,
+                        removeSku: payload.new_sku,
+                        removeDesc: conflict.description || conflict.desc || payload.new_sku,
+                    });
+                    return;
+                }
+            }
             await api.stageChange(
                 "item_update",
                 "inventory",
@@ -1452,20 +1491,26 @@ function InventoryView({
     let rows: any[], cats: string[];
     if (live) {
         rows = invToList(invState.inv).map((it: any) => ({
+            id: it.id,
             sku: it.sku,
             desc: it.desc,
             cat: it.cat,
             price: it.price || 0,
             onHand: it.onHand || 0,
             par: it.par || 0,
+            unit: it.unit || "",
+            active: it.active !== false,
             w1i: it.w1i || 0,
             w2i: it.w2i || 0,
             w3i: it.w3i || 0,
             w4i: it.w4i || 0,
+            w5i: it.w5i || 0,
             w1r: it.w1r || 0,
             w2r: it.w2r || 0,
             w3r: it.w3r || 0,
             w4r: it.w4r || 0,
+            w5r: it.w5r || 0,
+            sku_pending: it.sku_pending ?? String(it.sku || "").startsWith("MJC-"),
             status:
                 (it.onHand || 0) < (it.par || 0) && (it.par || 0) > 0
                     ? "low"
@@ -1487,7 +1532,10 @@ function InventoryView({
             (!cat || r.cat === cat) &&
             (!q ||
                 (r.desc || "").toLowerCase().includes(q.toLowerCase()) ||
-                String(r.sku || "").includes(q)),
+                String(r.sku || "").includes(q)) &&
+            (!triageFilter ||
+                (triageFilter === 'needs_sku' ? r.sku_pending :
+                 triageFilter === 'uncategorized' ? r.cat === 'Uncategorized' : true)),
     );
 
     return (
@@ -1646,17 +1694,43 @@ function InventoryView({
                                 </option>
                             ))}
                         </select>
+                        {lvl >= 40 && (
+                            <div style={{ display: "flex", gap: 4 }}>
+                                <button
+                                    className={"btn" + (triageFilter === "needs_sku" ? " primary" : "")}
+                                    style={{ fontSize: 11, padding: "5px 8px" }}
+                                    onClick={() => setTriageFilter(triageFilter === "needs_sku" ? null : "needs_sku")}
+                                    title="Show items with placeholder MJC- SKUs"
+                                >
+                                    Needs SKU
+                                    {triageFilter !== "needs_sku" && rows.filter((r: any) => r.sku_pending).length > 0 && (
+                                        <span className="sc-badge-count">{rows.filter((r: any) => r.sku_pending).length}</span>
+                                    )}
+                                </button>
+                                <button
+                                    className={"btn" + (triageFilter === "uncategorized" ? " primary" : "")}
+                                    style={{ fontSize: 11, padding: "5px 8px" }}
+                                    onClick={() => setTriageFilter(triageFilter === "uncategorized" ? null : "uncategorized")}
+                                    title="Show uncategorized items"
+                                >
+                                    Uncategorized
+                                    {triageFilter !== "uncategorized" && rows.filter((r: any) => r.cat === "Uncategorized").length > 0 && (
+                                        <span className="sc-badge-count">{rows.filter((r: any) => r.cat === "Uncategorized").length}</span>
+                                    )}
+                                </button>
+                            </div>
+                        )}
                     </div>
                     {/* ── Week selector — visible in all 3 modes ── */}
                     <div style={{ padding: "2px 16px 8px", borderBottom: "1px solid var(--line)" }}>
                         <div className="tab-bar" style={{ marginBottom: 0 }}>
-                            {([
-                                { val: 0 as const, label: "All weeks" },
-                                { val: 1 as const, label: "Week 1" },
-                                { val: 2 as const, label: "Week 2" },
-                                { val: 3 as const, label: "Week 3" },
-                                { val: 4 as const, label: "Week 4" },
-                            ] as const).map(({ val, label }) => (
+                            {[
+                                { val: 0 as 0|1|2|3|4|5, label: "All weeks" },
+                                ...Array.from({ length: maxWeeks }, (_, i) => ({
+                                    val: (i + 1) as 0|1|2|3|4|5,
+                                    label: `Week ${i + 1}`,
+                                })),
+                            ].map(({ val, label }) => (
                                 <button
                                     key={val}
                                     className={"tab-btn" + (compactWeek === val ? " active" : "")}
@@ -2287,14 +2361,12 @@ function InventoryView({
                                                                 </th>
                                                                 {compactWeek === 0 ? (
                                                                     <>
-                                                                        <th className="r">W1↓</th>
-                                                                        <th className="r">W2↓</th>
-                                                                        <th className="r">W3↓</th>
-                                                                        <th className="r">W4↓</th>
-                                                                        <th className="r wk-rcv">W1↑</th>
-                                                                        <th className="r wk-rcv">W2↑</th>
-                                                                        <th className="r wk-rcv">W3↑</th>
-                                                                        <th className="r wk-rcv">W4↑</th>
+                                                                        {Array.from({ length: maxWeeks }, (_, i) => (
+                                                                            <th key={`i${i}`} className="r">W{i+1}↓</th>
+                                                                        ))}
+                                                                        {Array.from({ length: maxWeeks }, (_, i) => (
+                                                                            <th key={`r${i}`} className="r wk-rcv">W{i+1}↑</th>
+                                                                        ))}
                                                                     </>
                                                                 ) : (
                                                                     <>
@@ -2522,7 +2594,7 @@ function InventoryView({
                                                                 </td>
                                                                 <td
                                                                     className="r num"
-                                                                    colSpan={compactWeek === 0 ? 9 : 3}
+                                                                    colSpan={compactWeek === 0 ? maxWeeks * 2 + 1 : 3}
                                                                     style={{
                                                                         fontWeight: 700,
                                                                     }}
@@ -2700,6 +2772,57 @@ function InventoryView({
                     </div>
                 </div>
             )}
+            {mergeDialog && (
+                <div className="overlay" onClick={() => !mergeBusy && setMergeDialog(null)}>
+                    <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
+                        <div className="modal-head">
+                            <div>
+                                <h3>Merge items?</h3>
+                                <div className="sub">
+                                    SKU <span className="mono">{mergeDialog.removeSku}</span> belongs to another item
+                                </div>
+                            </div>
+                            <button className="modal-x" onClick={() => setMergeDialog(null)} disabled={mergeBusy}>
+                                {I.x()}
+                            </button>
+                        </div>
+                        <div className="modal-body">
+                            <p style={{ marginBottom: 0, lineHeight: 1.6 }}>
+                                <b>{mergeDialog.removeDesc}</b> already uses SKU{" "}
+                                <span className="mono">{mergeDialog.removeSku}</span>.
+                                Merging will consolidate it into{" "}
+                                <span className="mono">{mergeDialog.keepSku}</span> and
+                                remove the duplicate. This action cannot be undone.
+                            </p>
+                        </div>
+                        <div className="modal-foot">
+                            <button className="btn" onClick={() => setMergeDialog(null)} disabled={mergeBusy}>
+                                Cancel
+                            </button>
+                            <button
+                                className="btn primary"
+                                disabled={mergeBusy}
+                                onClick={async () => {
+                                    setMergeBusy(true);
+                                    try {
+                                        await api.mergeInventoryItems(mergeDialog.keepId, mergeDialog.removeId);
+                                        toast(`Merged ${mergeDialog.removeDesc} → ${mergeDialog.keepSku}`);
+                                        setMergeDialog(null);
+                                        setEditTarget(null);
+                                        onSync();
+                                    } catch (e: any) {
+                                        toast(`Merge failed: ${e?.message || "Unknown error"}`);
+                                    } finally {
+                                        setMergeBusy(false);
+                                    }
+                                }}
+                            >
+                                {mergeBusy ? "Merging…" : "Merge items"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             {canStage && editTarget && (
                 <div
                     className="overlay"
@@ -2793,6 +2916,55 @@ function InventoryView({
                                     />
                                 </div>
                             </div>
+                            {lvl >= 40 && (
+                                <>
+                                    <div className="grid-2" style={{ gap: 12 }}>
+                                        <div className="field">
+                                            <label>SKU (rename)</label>
+                                            <input
+                                                className="ipt mono"
+                                                value={editForm.sku}
+                                                onChange={(e) =>
+                                                    setEditForm((p) => ({
+                                                        ...p,
+                                                        sku: e.target.value.toUpperCase(),
+                                                    }))
+                                                }
+                                                placeholder={editTarget.sku}
+                                            />
+                                        </div>
+                                        <div className="field">
+                                            <label>Unit</label>
+                                            <input
+                                                className="ipt"
+                                                value={editForm.unit}
+                                                onChange={(e) =>
+                                                    setEditForm((p) => ({
+                                                        ...p,
+                                                        unit: e.target.value,
+                                                    }))
+                                                }
+                                                placeholder="e.g. case, ea"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="field">
+                                        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={editForm.active}
+                                                onChange={(e) =>
+                                                    setEditForm((p) => ({
+                                                        ...p,
+                                                        active: e.target.checked,
+                                                    }))
+                                                }
+                                            />
+                                            Item is active
+                                        </label>
+                                    </div>
+                                </>
+                            )}
                         </div>
                         <div className="modal-foot">
                             <button
