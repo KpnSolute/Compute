@@ -2,6 +2,48 @@
 
 This is the **central development memory and discussion board** for development on MJCC. **READ THIS BEFORE MAKING ANY CHANGE.** All thoughts, decisions, and changes go HERE — no new `.md` files are permitted (see `AGENTS.md` §0).
 
+---
+
+## [v3.4.0] — 2026-06-16 — Source Control: Pull Request Flow + Reachable Views
+
+**Agent:** Claude (Senior Development Manager)
+**Scope:** Code only. No DB changes — schema/RPCs already migrated.
+**Build:** `tsc --noEmit` ✓ · `npm run build` ✓ · `ruff check backend/routes/sourcectrl.py` ✓
+
+### What Changed
+
+**`backend/routes/sourcectrl.py` — full rewrite**
+- Extracted `_apply_entries(entries, author_id, message, source, pr_id=None) → dict` from `approve_commit`. Both direct commits and PR merges call this; no duplicated replay logic.
+- `approve_commit` (POST /api/commits) now calls `_apply_entries(..., source="dashboard")` — backward compatible.
+- `get_commits`: added `pull_request_id` to SELECT; enriches with `pr_number`/`pr_title` via second query to `pull_requests`.
+- `get_staging`: added `pull_request_id` to SELECT string.
+- New `POST /api/pulls` (`open_pull_request`): any auth user (lvl ≥ 10); auto-defaults to all caller's own pending unlinked entries if `entry_ids` omitted; calls `sc_open_pull_request` RPC.
+- New `GET /api/pulls` (`list_pull_requests`): role-scoped exactly like `get_staging`; `status='all'` bypasses filter; enriches with `author_name`, `submitter_role`, `entry_count`.
+- New `GET /api/pulls/{pr_id}` (`get_pull_request`): staff restricted to own PRs; returns `{pr, entries, commit}`.
+- New `POST /api/pulls/{pr_id}/merge` (`merge_pull_request`): admin/manager/sudo only; calls `_apply_entries(..., source='pull_request', pr_id=pr_id)`; then `sc_finalize_merge`; returns `{...result, pr}`.
+- New `POST /api/pulls/{pr_id}/close` (`close_pull_request`): admin/manager/sudo OR PR's own author; calls `sc_close_pull_request` RPC.
+
+**`frontend/src/lib/api.ts` — targeted edits**
+- `Commit` interface: added `pull_request_id?`, `pr_number?`, `pr_title?`.
+- `StagingEntry` interface: added `pull_request_id?`.
+- Five new methods: `openPull`, `getPulls`, `getPull`, `mergePull`, `closePull`.
+
+**`frontend/src/components/SourceControl.tsx` — complete rewrite**
+- **Fixed unreachable views bug**: Added a toolbar strip (History `I.clock`, PRs `I.inbox`, AI `I.flame`) so all three sub-views are now reachable via button click. Previously `setShowHistory(true)` / `setShowAI(true)` were never called.
+- **New `showPRs` sub-view**: Back-chevron header (same pattern as `showHistory`). Staff (lvl < 30): submit-for-review form (title + Submit button) + "My Requests" list with status pills (open/merged/closed/draft). Admin/manager (lvl ≥ 30): all open PRs, expandable diffs via `getPull`, Merge + Close buttons. Staff never sees Merge.
+- Commit log: shows `#pr_number` pill when commit has `pull_request_id`.
+- Staff footer: "Submit N changes for review →" shortcut link to PR sub-view.
+- "In review" label on staged entries that belong to an open PR.
+- AI sub-view (`showAI`) properly accessible via toolbar.
+
+### Guardrails Confirmed
+- No DB changes; no new tables/columns/functions/enums.
+- `staging → (PR) → replay → live + github_sync_queue` flow intact.
+- `_apply_entries` shared — no duplication.
+- Preserved enum values: `commits.status ∈ {merged,reverted}`, `staging_entries.status ∈ {pending,merged,rejected}`, `github_sync_queue.operation ∈ {push_inventory,push_archive_snapshot,push_invoice,push_menu,push_items_catalog}`.
+- Staff cannot access Merge control anywhere in UI.
+- Per-user scoping for `GET /api/pulls` mirrors `get_staging` exactly.
+
 > **Architecture note (2026-06-07):** The project now runs under a **unified single-agent parallel-track architecture**. The former multi-agent roster (Gemini, OpenCode, Grok, Copilot) is **DEPRECATED** — those were role labels, largely authored by the one operating agent (see `AGENTS.md` I-9 "phantom agents"). Work is now executed by a single orchestrating agent that spawns internal parallel execution tracks (e.g. a Runtime track on chrome-devtools + a Database track on Supabase) within one context. Historical entries below keep their original agent attributions and are **append-only** — they are NOT rewritten (`AGENTS.md` §8.4, I-6).
 
 **Format (newest on top):**

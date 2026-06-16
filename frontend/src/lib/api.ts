@@ -65,6 +65,9 @@ export interface Commit {
   github_sha?: string | null;
   github_synced_at?: string | null;
   change_count: number;
+  pull_request_id?: string | null;
+  pr_number?: number | null;
+  pr_title?: string | null;
 }
 
 export interface StagingEntry {
@@ -85,6 +88,7 @@ export interface StagingEntry {
   expires_at?: string | null;
   operation?: string;
   full_payload?: Record<string, unknown>;
+  pull_request_id?: string | null;
 }
 
 export type EntityType = 'inventory' | 'menu' | 'user' | 'compliance' | 'event' | 'ops';
@@ -373,6 +377,31 @@ export const api = {
   async rejectStaging(id: string, reviewNote?: string): Promise<void> {
     const qs = reviewNote ? `?review_note=${encodeURIComponent(reviewNote)}` : '';
     return req(`/api/staging/${id}${qs}`, { method: 'DELETE' });
+  },
+
+  // Pull Requests
+  async openPull(body: { title: string; description?: string; entry_ids?: string[] }): Promise<any> {
+    return req('/api/pulls', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  async getPulls(status = 'open', limit = 50, offset = 0): Promise<any[]> {
+    const p = new URLSearchParams({ status, limit: String(limit), offset: String(offset) });
+    return req(`/api/pulls?${p.toString()}`);
+  },
+
+  async getPull(prId: string): Promise<any> {
+    return req(`/api/pulls/${encodeURIComponent(prId)}`);
+  },
+
+  async mergePull(prId: string): Promise<any> {
+    return req(`/api/pulls/${encodeURIComponent(prId)}/merge`, { method: 'POST' });
+  },
+
+  async closePull(prId: string, note?: string): Promise<any> {
+    return req(`/api/pulls/${encodeURIComponent(prId)}/close`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note ?? null }),
+    });
   },
 
   // Data Entry

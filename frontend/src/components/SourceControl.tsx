@@ -68,6 +68,19 @@ function stagedSummary(entry: StagingEntry): string {
     return entry.new_value_text || entry.field_name || "";
 }
 
+function prStatusPill(status: string) {
+    const map: Record<string, string> = { merged: "ok", draft: "warn", closed: "" };
+    const cls = map[status] ?? "info";
+    return (
+        <span
+            className={"pill " + cls}
+            style={{ fontSize: 9, padding: "1px 6px", textTransform: "capitalize" }}
+        >
+            {status}
+        </span>
+    );
+}
+
 // ── shared hook ─────────────────────────────────────────────────────────────
 function useSCData(isOpen: boolean) {
     const [staged, setStaged] = useState<StagingEntry[]>([]);
@@ -132,7 +145,7 @@ function SCChangesView({
     loadData: () => void;
 }) {
     const lvl = ROLE_LEVEL[user.role] || 0;
-    const isStaff = lvl < 20;
+    const canReview = lvl >= 30; // manager, admin, sudo
     const canCommit = lvl >= 30;
 
     const [draftChanges, setDraftChanges] = useState<DraftChange[]>([]);
@@ -141,11 +154,26 @@ function SCChangesView({
     const [commitMsg, setCommitMsg] = useState("");
     const [busy, setBusy] = useState(false);
     const [confirm, setConfirm] = useState<StagingEntry[] | null>(null);
+
+    // Sub-view toggles (fixed: buttons now exist to open each one)
     const [showHistory, setShowHistory] = useState(false);
     const [showAI, setShowAI] = useState(false);
+    const [showPRs, setShowPRs] = useState(false);
+
+    // AI state
     const [aiPrompt, setAiPrompt] = useState("");
     const [aiRunning, setAiRunning] = useState(false);
     const [aiResult, setAiResult] = useState<string | null>(null);
+
+    // PR state
+    const [pulls, setPulls] = useState<any[]>([]);
+    const [pullsLoading, setPullsLoading] = useState(false);
+    const [prTitle, setPrTitle] = useState("");
+    const [prBusy, setPrBusy] = useState(false);
+    const [expandedPR, setExpandedPR] = useState<string | null>(null);
+    const [prDetail, setPrDetail] = useState<Record<string, any>>({});
+    const [prDetailLoading, setPrDetailLoading] = useState<string | null>(null);
+    const [prActionBusy, setPrActionBusy] = useState<string | null>(null);
 
     // receive draft state from InventoryView via custom event
     useEffect(() => {
@@ -156,10 +184,83 @@ function SCChangesView({
         return () => window.removeEventListener("mjcc:draft-changed", h);
     }, []);
 
-    const visibleStaged = isStaff
+    const visibleStaged = !canReview
         ? staged.filter((s) => s.submitted_by === user.id || s.submitter_name === user.display_name)
         : staged;
 
+    // Unlinked = pending and not yet attached to any PR
+    const unlinkedStaged = visibleStaged.filter((e) => !(e as any).pull_request_id);
+
+    // ── PR helpers ────────────────────────────────────────────────────────────
+    const loadPRs = useCallback(async () => {
+        setPullsLoading(true);
+        try {
+            // Admin/manager: open PRs from all users. Staff: all their own PRs.
+            const results = await api.getPulls(canReview ? "open" : "all");
+            setPulls(results);
+        } catch { /* silent */ }
+        setPullsLoading(false);
+    }, [canReview]);
+
+    const doOpenPR = async () => {
+        const title = prTitle.trim();
+        if (!title) return;
+        if (!unlinkedStaged.length) { t("No unsubmitted staged entries."); return; }
+        setPrBusy(true);
+        try {
+            await api.openPull({ title, entry_ids: unlinkedStaged.map((e) => e.entry_id) });
+            t("Request submitted for review!");
+            setPrTitle("");
+            await loadData();
+            await loadPRs();
+        } catch (err: any) {
+            t(`Failed: ${err?.message || "Unknown error"}`);
+        }
+        setPrBusy(false);
+    };
+
+    const toggleExpandPR = async (pr_id: string) => {
+        if (expandedPR === pr_id) { setExpandedPR(null); return; }
+        setExpandedPR(pr_id);
+        if (!prDetail[pr_id]) {
+            setPrDetailLoading(pr_id);
+            try {
+                const detail = await api.getPull(pr_id);
+                setPrDetail((prev) => ({ ...prev, [pr_id]: detail }));
+            } catch { /* silent */ }
+            setPrDetailLoading(null);
+        }
+    };
+
+    const doMergePR = async (pr_id: string) => {
+        setPrActionBusy(pr_id);
+        try {
+            await api.mergePull(pr_id);
+            t("Pull request merged!");
+            window.dispatchEvent(new CustomEvent("mjcc:committed"));
+            await loadData();
+            await loadPRs();
+            setExpandedPR(null);
+        } catch (err: any) {
+            t(`Merge failed: ${err?.message || "Unknown error"}`);
+        }
+        setPrActionBusy(null);
+    };
+
+    const doClosePR = async (pr_id: string) => {
+        setPrActionBusy(pr_id);
+        try {
+            await api.closePull(pr_id);
+            t("Request closed.");
+            await loadPRs();
+            if (expandedPR === pr_id) setExpandedPR(null);
+        } catch (err: any) {
+            t(`Close failed: ${err?.message || "Unknown error"}`);
+        }
+        setPrActionBusy(null);
+    };
+
+    // ── commit helpers ─────────────────────────────────────────────────────────
     async function doCommit(entries: StagingEntry[]) {
         setConfirm(null);
         setBusy(true);
@@ -216,6 +317,7 @@ function SCChangesView({
     function stageDraft(sku: string) { window.dispatchEvent(new CustomEvent("mjcc:stage-draft-item", { detail: { sku } })); }
     function discardDraft(sku: string) { window.dispatchEvent(new CustomEvent("mjcc:discard-draft-item", { detail: { sku } })); }
 
+    // ── sub-view: COMMIT LOG ──────────────────────────────────────────────────
     if (showHistory) return (
         <div className="sc-body">
             <div className="sc-vsc-section-head" style={{ cursor: "pointer" }} onClick={() => setShowHistory(false)}>
@@ -241,6 +343,11 @@ function SCChangesView({
                                     {ROLE_LABEL[(c as any).submitter_role as keyof typeof ROLE_LABEL] || (c as any).submitter_role}
                                 </span>
                             )}
+                            {c.pr_number != null && (
+                                <span className="pill info" style={{ padding: "0 5px", fontSize: 9 }}>
+                                    #{c.pr_number}
+                                </span>
+                            )}
                             <span style={{ marginLeft: "auto", opacity: 0.6 }}>
                                 {relTime((c as any).github_synced_at || c.merged_at || c.created_at)}
                             </span>
@@ -255,6 +362,7 @@ function SCChangesView({
         </div>
     );
 
+    // ── sub-view: AI ASSISTANT ────────────────────────────────────────────────
     if (showAI) return (
         <div className="sc-body">
             <div className="sc-vsc-section-head" style={{ cursor: "pointer" }} onClick={() => setShowAI(false)}>
@@ -282,11 +390,188 @@ function SCChangesView({
         </div>
     );
 
+    // ── sub-view: PULL REQUESTS ───────────────────────────────────────────────
+    if (showPRs) {
+        const openCount = pulls.filter((p) => p.status === "open").length;
+        return (
+            <div className="sc-body" style={{ overflowY: "auto" }}>
+                <div className="sc-vsc-section-head" style={{ cursor: "pointer" }} onClick={() => setShowPRs(false)}>
+                    <span className="sc-vsc-chevron">‹</span>
+                    <span className="sc-section-label">
+                        {canReview ? "PULL REQUESTS" : "MY REQUESTS"}
+                    </span>
+                    {openCount > 0 && (
+                        <span className="sc-section-count">{openCount} open</span>
+                    )}
+                    <div style={{ flex: 1 }} />
+                    <button className="sc-icon-btn" title="Refresh" onClick={loadPRs} disabled={pullsLoading}>
+                        {I.refresh({ style: { width: 13, height: 13 } })}
+                    </button>
+                </div>
+
+                {/* Staff: Submit for Review form */}
+                {!canReview && (
+                    <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--line)" }}>
+                        {unlinkedStaged.length > 0 ? (
+                            <>
+                                <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 8 }}>
+                                    Submit your {unlinkedStaged.length} staged change{unlinkedStaged.length !== 1 ? "s" : ""} for manager review.
+                                </div>
+                                <input
+                                    className="ipt"
+                                    style={{ width: "100%", marginBottom: 8, fontSize: 12 }}
+                                    placeholder="Request title…"
+                                    value={prTitle}
+                                    onChange={(e) => setPrTitle(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === "Enter") doOpenPR(); }}
+                                />
+                                <button
+                                    className="btn primary"
+                                    style={{ width: "100%", justifyContent: "center" }}
+                                    disabled={prBusy || !prTitle.trim()}
+                                    onClick={doOpenPR}
+                                >
+                                    {prBusy ? "Submitting…" : `${I.inbox({ style: { width: 13, height: 13 } })} Submit for Review`}
+                                </button>
+                            </>
+                        ) : (
+                            <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                                No unsubmitted staged changes. Stage inventory or data edits first.
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {pullsLoading && (
+                    <div className="sc-loading">
+                        <div className="spinner" style={{ width: 14, height: 14 }} />
+                        <span>Loading…</span>
+                    </div>
+                )}
+
+                {!pullsLoading && pulls.length === 0 && (
+                    <div className="sc-empty">
+                        <div className="sc-empty-icon">{I.inbox({ style: { width: 24, height: 24 } })}</div>
+                        <div className="sc-empty-title">
+                            {canReview ? "No open pull requests" : "No requests yet"}
+                        </div>
+                        {!canReview && (
+                            <div className="sc-empty-sub">Stage changes and submit them for review.</div>
+                        )}
+                    </div>
+                )}
+
+                {pulls.map((pr) => {
+                    const isExpanded = expandedPR === pr.pr_id;
+                    const detail = prDetail[pr.pr_id];
+                    const isBusy = prActionBusy === pr.pr_id;
+                    const isDetailLoading = prDetailLoading === pr.pr_id;
+                    const canClose = canReview || pr.author_id === user.id;
+
+                    return (
+                        <div key={pr.pr_id} style={{ borderBottom: "1px solid var(--line)" }}>
+                            <div
+                                className="sc-vsc-section-head"
+                                style={{ cursor: "pointer", alignItems: "flex-start", padding: "8px 12px" }}
+                                onClick={() => toggleExpandPR(pr.pr_id)}
+                            >
+                                <span className="sc-vsc-chevron" style={{ marginTop: 2 }}>
+                                    {isExpanded ? "▾" : "▸"}
+                                </span>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: 12, fontWeight: 600 }}>
+                                        #{pr.pr_number} {pr.title}
+                                    </div>
+                                    <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 2 }}>
+                                        {canReview && pr.author_name ? `${pr.author_name} · ` : ""}
+                                        {pr.entry_count} change{pr.entry_count !== 1 ? "s" : ""} · {relTime(pr.created_at)}
+                                    </div>
+                                </div>
+                                {prStatusPill(pr.status)}
+                            </div>
+
+                            {isExpanded && (
+                                <div style={{ padding: "4px 12px 10px 28px", background: "rgba(0,0,0,0.02)" }}>
+                                    {isDetailLoading && (
+                                        <div className="sc-loading" style={{ padding: "4px 0" }}>
+                                            <div className="spinner" style={{ width: 12, height: 12 }} />
+                                            <span>Loading diff…</span>
+                                        </div>
+                                    )}
+                                    {detail?.entries?.map((e: StagingEntry) => {
+                                        const op = (e as any).operation || e.change_type;
+                                        const kind = OP_KIND[op] ?? "M";
+                                        return (
+                                            <div key={e.entry_id} className="sc-vsc-file-row" style={{ paddingLeft: 0 }}>
+                                                <span className="sc-vsc-file-icon">
+                                                    {I.database({ style: { width: 12, height: 12, opacity: 0.5 } })}
+                                                </span>
+                                                <div className="sc-vsc-file-info">
+                                                    <span className="sc-vsc-file-name">{OP_LABEL[op] || op}</span>
+                                                    <span className="sc-vsc-file-path">{stagedSummary(e)}</span>
+                                                </div>
+                                                <span className={`sc-vsc-badge sc-vsc-badge-${kind.toLowerCase()}`}>{kind}</span>
+                                            </div>
+                                        );
+                                    })}
+                                    {pr.status === "open" && (
+                                        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                                            {canReview && (
+                                                <button
+                                                    className="btn primary"
+                                                    style={{ fontSize: 11, padding: "4px 10px" }}
+                                                    disabled={isBusy}
+                                                    onClick={(e) => { e.stopPropagation(); doMergePR(pr.pr_id); }}
+                                                >
+                                                    {isBusy ? "Merging…" : <>{I.check({ style: { width: 11, height: 11 } })}&nbsp;Merge</>}
+                                                </button>
+                                            )}
+                                            {canClose && (
+                                                <button
+                                                    className="btn"
+                                                    style={{ fontSize: 11, padding: "4px 10px", color: "var(--red)", borderColor: "var(--red)" }}
+                                                    disabled={isBusy}
+                                                    onClick={(e) => { e.stopPropagation(); doClosePR(pr.pr_id); }}
+                                                >
+                                                    {isBusy ? "Closing…" : "Close"}
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    }
+
+    // ── main view ─────────────────────────────────────────────────────────────
     return (
         <div className="sc-body" style={{ overflowY: "auto" }}>
             {loading && <div className="sc-loading"><div className="spinner" style={{ width: 16, height: 16 }} /><span>Loading…</span></div>}
 
-            {/* Commit message + button — VSCode position: above sections */}
+            {/* Toolbar: opens the three sub-views (fix for previously unreachable History + AI views) */}
+            <div style={{ display: "flex", gap: 2, padding: "5px 8px", borderBottom: "1px solid var(--line)" }}>
+                <button className="sc-icon-btn" title="Commit History" onClick={() => setShowHistory(true)}>
+                    {I.clock({ style: { width: 14, height: 14 } })}
+                </button>
+                <button
+                    className="sc-icon-btn"
+                    title={canReview ? "Pull Requests" : "My Requests"}
+                    onClick={() => { setShowPRs(true); loadPRs(); }}
+                >
+                    {I.inbox({ style: { width: 14, height: 14 } })}
+                </button>
+                {canReview && (
+                    <button className="sc-icon-btn" title="AI Assistant" onClick={() => setShowAI(true)}>
+                        {I.flame({ style: { width: 14, height: 14 } })}
+                    </button>
+                )}
+            </div>
+
+            {/* Commit message + button — admin/manager only */}
             {canCommit && (
                 <div className="sc-vsc-commit-area">
                     <textarea className="sc-commit-msg" placeholder="Commit message (Ctrl+Enter)…" rows={2}
@@ -349,7 +634,7 @@ function SCChangesView({
                 <div className="sc-vsc-section">
                     <div className="sc-vsc-section-head" onClick={() => setStagedOpen((v) => !v)}>
                         <span className="sc-vsc-chevron">{stagedOpen ? "▾" : "▸"}</span>
-                        <span className="sc-section-label">{isStaff ? "MY SUBMISSIONS" : "STAGED CHANGES"}</span>
+                        <span className="sc-section-label">{!canReview ? "MY SUBMISSIONS" : "STAGED CHANGES"}</span>
                         {visibleStaged.length > 0 && <span className="sc-section-count">{visibleStaged.length}</span>}
                     </div>
 
@@ -366,6 +651,7 @@ function SCChangesView({
                         const kind = OP_KIND[op] ?? "M";
                         const label = OP_LABEL[op] || op;
                         const summary = stagedSummary(ch);
+                        const inPR = !!(ch as any).pull_request_id;
                         return (
                             <div key={ch.entry_id} className="sc-vsc-file-row">
                                 <span className="sc-vsc-file-icon">
@@ -375,6 +661,7 @@ function SCChangesView({
                                     <span className="sc-vsc-file-name">{label}</span>
                                     <span className="sc-vsc-file-path">
                                         {summary}{summary ? " · " : ""}{ch.submitter_name || ""}{ch.created_at ? " · " + relTime(ch.created_at) : ""}
+                                        {inPR && <span style={{ color: "var(--blue, #2563EB)", marginLeft: 4 }}>· in review</span>}
                                     </span>
                                 </div>
                                 <span className={"sc-vsc-badge sc-vsc-badge-" + kind.toLowerCase()}>{kind}</span>
@@ -390,7 +677,7 @@ function SCChangesView({
                                             </button>
                                         </>
                                     ) : (
-                                        <span className="sc-pending-badge">Pending</span>
+                                        <span className="sc-pending-badge">{inPR ? "In review" : "Pending"}</span>
                                     )}
                                 </div>
                             </div>
@@ -399,7 +686,14 @@ function SCChangesView({
                 </div>
             )}
 
-            {isStaff && (
+            {/* Staff footer: Submit for Review shortcut */}
+            {!canReview && unlinkedStaged.length > 0 && (
+                <div className="sc-staff-note" style={{ cursor: "pointer" }} onClick={() => { setShowPRs(true); loadPRs(); }}>
+                    {I.inbox({ style: { width: 12, height: 12 } })}
+                    <span>Submit {unlinkedStaged.length} change{unlinkedStaged.length !== 1 ? "s" : ""} for review →</span>
+                </div>
+            )}
+            {!canReview && unlinkedStaged.length === 0 && (
                 <div className="sc-staff-note">
                     {I.user({ style: { width: 12, height: 12 } })}
                     <span>Your changes are pending manager review.</span>
@@ -441,8 +735,8 @@ export function SourceControlPanel({
     useEffect(() => { onCountChange?.(staged.length); }, [staged.length, onCountChange]);
 
     const lvl = ROLE_LEVEL[user.role] || 0;
-    const isStaff = lvl < 20;
-    const visibleStaged = isStaff
+    const canReview = lvl >= 30;
+    const visibleStaged = !canReview
         ? staged.filter((s) => s.submitted_by === user.id || s.submitter_name === user.display_name)
         : staged;
     const lastCommit = commits[0];
