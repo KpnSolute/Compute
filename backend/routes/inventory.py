@@ -267,6 +267,7 @@ async def get_inventory(
         over_issued_count = sum(
             1 for row in result.data
             if (
+                max(0, int(_to_float(row.get("on_hand")))) +
                 int(_to_float(row.get("w1_received"))) +
                 int(_to_float(row.get("w2_received"))) +
                 int(_to_float(row.get("w3_received"))) +
