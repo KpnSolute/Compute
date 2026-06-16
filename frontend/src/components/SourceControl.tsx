@@ -431,7 +431,7 @@ function SCChangesView({
                                     disabled={prBusy || !prTitle.trim()}
                                     onClick={doOpenPR}
                                 >
-                                    {prBusy ? "Submitting…" : `${I.inbox({ style: { width: 13, height: 13 } })} Submit for Review`}
+                                    {prBusy ? "Submitting…" : <>{I.inbox({ style: { width: 13, height: 13 } })} Submit for Review</>}
                                 </button>
                             </>
                         ) : (
@@ -552,21 +552,25 @@ function SCChangesView({
         <div className="sc-body" style={{ overflowY: "auto" }}>
             {loading && <div className="sc-loading"><div className="spinner" style={{ width: 16, height: 16 }} /><span>Loading…</span></div>}
 
-            {/* Toolbar: opens the three sub-views (fix for previously unreachable History + AI views) */}
-            <div style={{ display: "flex", gap: 2, padding: "5px 8px", borderBottom: "1px solid var(--line)" }}>
-                <button className="sc-icon-btn" title="Commit History" onClick={() => setShowHistory(true)}>
-                    {I.clock({ style: { width: 14, height: 14 } })}
+            {/* Toolbar: labeled nav buttons for all three sub-views */}
+            <div style={{ display: "flex", gap: 4, padding: "5px 8px 4px", borderBottom: "1px solid var(--line)", flexWrap: "wrap" }}>
+                <button
+                    className="sc-nav-btn"
+                    title="Commit History"
+                    onClick={() => setShowHistory(true)}
+                >
+                    {I.clock({ style: { width: 13, height: 13 } })} History
                 </button>
                 <button
-                    className="sc-icon-btn"
+                    className="sc-nav-btn"
                     title={canReview ? "Pull Requests" : "My Requests"}
                     onClick={() => { setShowPRs(true); loadPRs(); }}
                 >
-                    {I.inbox({ style: { width: 14, height: 14 } })}
+                    {I.inbox({ style: { width: 13, height: 13 } })} {canReview ? "Pull Requests" : "My Requests"}
                 </button>
                 {canReview && (
-                    <button className="sc-icon-btn" title="AI Assistant" onClick={() => setShowAI(true)}>
-                        {I.flame({ style: { width: 14, height: 14 } })}
+                    <button className="sc-nav-btn" title="AI Assistant" onClick={() => setShowAI(true)}>
+                        {I.flame({ style: { width: 13, height: 13 } })} AI
                     </button>
                 )}
             </div>
