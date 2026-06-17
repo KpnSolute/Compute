@@ -178,10 +178,11 @@ export const api = {
     return req('/api/inventory/reorders');
   },
 
-  async getInventoryItems(params?: { sku?: string; sku_pending?: boolean; category_id?: string; limit?: number }): Promise<any[]> {
+  async getInventoryItems(params?: { sku?: string; sku_pending?: boolean; needs_attention?: boolean; category_id?: string; limit?: number }): Promise<any[]> {
     const p = new URLSearchParams();
     if (params?.sku) p.set('sku', params.sku);
     if (params?.sku_pending !== undefined) p.set('sku_pending', String(params.sku_pending));
+    if (params?.needs_attention !== undefined) p.set('needs_attention', String(params.needs_attention));
     if (params?.category_id) p.set('category_id', params.category_id);
     if (params?.limit !== undefined) p.set('limit', String(params.limit));
     const qs = p.toString();
@@ -518,6 +519,25 @@ export const api = {
   },
   async runAutomation(prompt: string): Promise<{ response: string; tool_calls: any[] }> {
     return req('/api/agent/chat', { method: 'POST', body: JSON.stringify({ message: prompt }) });
+  },
+
+  // SKU Review Queue (manager+)
+  async getSKUReview(status = 'pending', limit = 100): Promise<any[]> {
+    const p = new URLSearchParams({ status, limit: String(limit) });
+    return req(`/api/sku-review?${p.toString()}`);
+  },
+
+  async resolveSKU(rowId: string, body: {
+    resolution: 'new_item' | 'alias_existing' | 'override_existing';
+    item_id?: string;
+    new_sku?: string;
+    new_desc?: string;
+    new_category?: string;
+  }): Promise<any> {
+    return req(`/api/sku-review/${encodeURIComponent(rowId)}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
   },
 
 };

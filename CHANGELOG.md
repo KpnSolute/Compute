@@ -4,6 +4,42 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v3.5.0] — 2026-06-16 — Unified Triage, Compact Staging Both Directions, SKU Resolution Pipeline
+
+**Agent:** Claude (Senior Development Manager)
+**Scope:** Code only. DB already migrated — no schema changes.
+**Build:** `tsc --noEmit` ✓ · `npm run build` ✓ (1.97s) · `ruff check` ✓ all backend files
+
+### What Changed
+
+**Part A — Compact week staging: both directions independently**
+- `stageCompactChanges` week > 0 branch now stages received (`w{n}r`) and issued (`w{n}i`) as two separate `inventory_week_update` ops with correct `direction` field each.
+- `compactDir` state removed — direction is auto-detected from which week fields have edits.
+- Stage bar label updated: "W{n} — both directions staged".
+
+**Part B — Unified `needs_attention` triage flag**
+- `inventory.py`: Added `needs_attention: Optional[bool]` to `InventoryItem` model, `_JOIN_SELECT`, `_flatten_rows`, and `list_inventory_items` (query param filter + response field).
+- `Portal.tsx`: Row mapping uses `needs_attention` from API (fallbacks: `sku_pending`, then MJC- check). `triageFilter` is now a boolean. Filter expression: `(!triageFilter || r.needs_attention === true)`. Two separate triage buttons collapsed into single "Uncategorized (N)" button with `attnCount` badge.
+
+**Part C — SKU resolution pipeline on import**
+- `data_entry.py`: Added `_resolve_and_queue_items(ops, source_ref, vendor_id)` — calls `resolve_invoice_sku` RPC for each item. `match_type in (direct, alias)` → keep; `none` → insert to `sku_review_queue` and drop. 422 if all items queue'd.
+- `backend/routes/sku_review.py` (NEW FILE): `GET /api/sku-review` (manager+), `POST /api/sku-review/{id}/resolve` with three resolution modes: `new_item` (creates row, SKU-uniqueness check), `alias_existing` (calls `sku_add_alias` RPC), `override_existing` (conflict-checks, updates canonical SKU). All modes call `sku_review_resolve` RPC; fallback to direct update.
+- `main.py`: registered `sku_review_router`.
+- `api.ts`: `needs_attention?` param on `getInventoryItems`; new `getSKUReview()` and `resolveSKU()` methods.
+
+**Part D — Consistent `needs_attention` indicators everywhere**
+- Compact SKU column: `needs_attention` drives the "Uncategorized" warn pill (both instances, replace_all).
+- Regular/grouped view SKU cell: replaced old `startsWith("MJC-")` check with `r.needs_attention`-driven pill (always shows SKU text + badge alongside, not instead of, the value).
+
+**Pending / not in scope:**
+- SKU Review Queue frontend UI (API + `api.ts` wired, no component yet).
+
+### Guardrails Confirmed
+- No DB changes; `needs_attention` is a read-only generated column, never written from code.
+- `VITE_API_BASE` → prod Render URL, not reverted.
+
+---
+
 ## [v3.4.0] — 2026-06-16 — Source Control: Pull Request Flow + Reachable Views
 
 **Agent:** Claude (Senior Development Manager)

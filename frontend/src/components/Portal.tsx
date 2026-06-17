@@ -1060,7 +1060,7 @@ function InventoryView({
         active: true,
     });
     const [editBusy, setEditBusy] = useState(false);
-    const [triageFilter, setTriageFilter] = useState<'needs_sku' | 'uncategorized' | null>(null);
+    const [triageFilter, setTriageFilter] = useState(false);
     const [mergeDialog, setMergeDialog] = useState<{
         keepId: string; removeId: string;
         keepSku: string; removeSku: string; removeDesc: string;
@@ -1111,7 +1111,7 @@ function InventoryView({
     const [compactWeek, setCompactWeek] = useState<0 | 1 | 2 | 3 | 4 | 5>(
         () => Math.min(5, Math.ceil(new Date().getDate() / 7)) as 1 | 2 | 3 | 4 | 5
     );
-    const [compactDir, setCompactDir] = useState<"received" | "issued">("received");
+    // compactDir removed — both issued AND received are staged when they have edits.
     const setWeeklyField = (sku: string, field: WeeklyField, value: string) => {
         const num = Number.isFinite(parseFloat(value))
             ? Math.max(0, parseFloat(value))
@@ -1253,49 +1253,66 @@ function InventoryView({
         setStagingBusy((prev) => ({ ...prev, __compact__: true }));
         try {
             if (compactWeek > 0) {
-                // Invoice mode: stage as inventory_week_update for the chosen week+direction.
-                // Only the single selected column is written; other weeks are untouched.
-                const colKey = `w${compactWeek}${compactDir === "received" ? "r" : "i"}` as WeeklyField;
-                const wkItems = dirty
-                    .filter((r: any) => wkDraft[String(r.sku || "")] !== undefined)
+                // Invoice mode: stage BOTH directions independently when they have edits.
+                // Each direction that has any edits gets its own inventory_week_update op.
+                const rcvKey = `w${compactWeek}r` as WeeklyField;
+                const issKey = `w${compactWeek}i` as WeeklyField;
+
+                const rcvItems = dirty
+                    .filter((r: any) => wkDraft[String(r.sku || "")]?.[rcvKey] !== undefined)
                     .map((r: any) => {
                         const sku = String(r.sku);
-                        const qty = wkDraft[sku]?.[colKey] ?? (r[colKey] ?? 0);
-                        return { sku, desc: r.desc, category: r.cat, price: draft[sku]?.price ?? r.price, par: draft[sku]?.par ?? r.par, qty };
+                        return { sku, desc: r.desc, category: r.cat, price: draft[sku]?.price ?? r.price, par: draft[sku]?.par ?? r.par, qty: wkDraft[sku]![rcvKey]! };
                     });
-                // Rows with on_hand/par edits need an inventory_save regardless of
-                // whether they also have wkDraft entries — both changes are staged independently.
+
+                const issItems = dirty
+                    .filter((r: any) => wkDraft[String(r.sku || "")]?.[issKey] !== undefined)
+                    .map((r: any) => {
+                        const sku = String(r.sku);
+                        return { sku, desc: r.desc, category: r.cat, price: draft[sku]?.price ?? r.price, par: draft[sku]?.par ?? r.par, qty: wkDraft[sku]![issKey]! };
+                    });
+
+                // Rows with on_hand/par/price edits stage as inventory_save.
                 const monthItems = dirty
-                    .filter((r: any) => {
-                        const sku = String(r.sku || "");
-                        return Boolean(draft[sku]);
-                    })
+                    .filter((r: any) => Boolean(draft[String(r.sku || "")]))
                     .map((r: any) => {
                         const sku = String(r.sku);
                         const d = draft[sku];
                         return { sku, desc: r.desc, category: r.cat, price: d?.price ?? r.price, onHand: d?.onHand ?? r.onHand, par: d?.par ?? r.par };
                     });
+
                 const ops: Promise<any>[] = [];
-                if (wkItems.length) {
+                if (rcvItems.length) {
                     ops.push(api.stageChange(
-                        "inventory_week_update",
-                        "inventory",
-                        `W${compactWeek}-${compactDir}-${month1}-${yr}`,
-                        { month: month1, year: yr, week: compactWeek, direction: compactDir, review_new: true, items: wkItems },
-                        `W${compactWeek} ${compactDir} · ${wkItems.length} item${wkItems.length !== 1 ? "s" : ""}`,
+                        "inventory_week_update", "inventory",
+                        `W${compactWeek}-received-${month1}-${yr}`,
+                        { month: month1, year: yr, week: compactWeek, direction: "received", review_new: true, items: rcvItems },
+                        `W${compactWeek} received · ${rcvItems.length} item${rcvItems.length !== 1 ? "s" : ""}`,
+                    ));
+                }
+                if (issItems.length) {
+                    ops.push(api.stageChange(
+                        "inventory_week_update", "inventory",
+                        `W${compactWeek}-issued-${month1}-${yr}`,
+                        { month: month1, year: yr, week: compactWeek, direction: "issued", review_new: true, items: issItems },
+                        `W${compactWeek} issued · ${issItems.length} item${issItems.length !== 1 ? "s" : ""}`,
                     ));
                 }
                 if (monthItems.length) {
                     ops.push(api.stageChange(
-                        "inventory_save",
-                        "inventory",
+                        "inventory_save", "inventory",
                         `batch-compact-${month1}-${yr}`,
                         { month: month1, year: yr, notes: `On-hand update · ${MONTHS[period[0]]} ${yr}`, items: monthItems },
                         `On-hand update · ${monthItems.length} item${monthItems.length !== 1 ? "s" : ""}`,
                     ));
                 }
                 await Promise.all(ops);
-                toast(`Staged W${compactWeek} ${compactDir} invoice · ${n} item${n !== 1 ? "s" : ""}`);
+                const parts = [
+                    rcvItems.length ? `${rcvItems.length} received` : "",
+                    issItems.length ? `${issItems.length} issued` : "",
+                    monthItems.length ? `${monthItems.length} on-hand` : "",
+                ].filter(Boolean).join(" · ");
+                toast(`Staged W${compactWeek} — ${parts || n + " item" + (n !== 1 ? "s" : "")}`);
                 openSC?.();
             } else {
                 // Whole-month save: on_hand/par + any explicitly-edited weekly columns.
@@ -1523,6 +1540,7 @@ function InventoryView({
             w4r: it.w4r || 0,
             w5r: it.w5r || 0,
             sku_pending: it.sku_pending ?? String(it.sku || "").startsWith("MJC-"),
+            needs_attention: it.needs_attention ?? it.sku_pending ?? String(it.sku || "").startsWith("MJC-"),
             status:
                 (it.onHand || 0) < (it.par || 0) && (it.par || 0) > 0
                     ? "low"
@@ -1545,9 +1563,7 @@ function InventoryView({
             (!q ||
                 (r.desc || "").toLowerCase().includes(q.toLowerCase()) ||
                 String(r.sku || "").includes(q)) &&
-            (!triageFilter ||
-                (triageFilter === 'needs_sku' ? r.sku_pending :
-                 triageFilter === 'uncategorized' ? r.cat === 'Uncategorized' : true)),
+            (!triageFilter || r.needs_attention === true),
     );
 
     return (
@@ -1708,28 +1724,22 @@ function InventoryView({
                         </select>
                         {lvl >= 40 && (
                             <div style={{ display: "flex", gap: 4 }}>
-                                <button
-                                    className={"btn" + (triageFilter === "needs_sku" ? " primary" : "")}
-                                    style={{ fontSize: 11, padding: "5px 8px" }}
-                                    onClick={() => setTriageFilter(triageFilter === "needs_sku" ? null : "needs_sku")}
-                                    title="Show items with placeholder MJC- SKUs"
-                                >
-                                    Needs SKU
-                                    {triageFilter !== "needs_sku" && rows.filter((r: any) => r.sku_pending).length > 0 && (
-                                        <span className="sc-badge-count">{rows.filter((r: any) => r.sku_pending).length}</span>
-                                    )}
-                                </button>
-                                <button
-                                    className={"btn" + (triageFilter === "uncategorized" ? " primary" : "")}
-                                    style={{ fontSize: 11, padding: "5px 8px" }}
-                                    onClick={() => setTriageFilter(triageFilter === "uncategorized" ? null : "uncategorized")}
-                                    title="Show uncategorized items"
-                                >
-                                    Uncategorized
-                                    {triageFilter !== "uncategorized" && rows.filter((r: any) => r.cat === "Uncategorized").length > 0 && (
-                                        <span className="sc-badge-count">{rows.filter((r: any) => r.cat === "Uncategorized").length}</span>
-                                    )}
-                                </button>
+                                {(() => {
+                                    const attnCount = rows.filter((r: any) => r.needs_attention).length;
+                                    return (
+                                        <button
+                                            className={"btn" + (triageFilter ? " primary" : "")}
+                                            style={{ fontSize: 11, padding: "5px 8px" }}
+                                            onClick={() => setTriageFilter(!triageFilter)}
+                                            title="Show items needing attention — placeholder SKU or no real category"
+                                        >
+                                            Uncategorized
+                                            {!triageFilter && attnCount > 0 && (
+                                                <span className="sc-badge-count">{attnCount}</span>
+                                            )}
+                                        </button>
+                                    );
+                                })()}
                             </div>
                         )}
                     </div>
@@ -1787,9 +1797,12 @@ function InventoryView({
                                                     color: "var(--muted)",
                                                 }}
                                             >
-                                                {String(r.sku || "").startsWith("MJC-")
-                                                    ? <span className="pill warn" style={{ fontSize: 10 }}>PENDING SKU</span>
-                                                    : (r.sku || "—")}
+                                                <span style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+                                                    {r.sku || "—"}
+                                                    {r.needs_attention && (
+                                                        <span className="pill warn" style={{ fontSize: 9 }}>Uncategorized</span>
+                                                    )}
+                                                </span>
                                             </td>
                                             <td style={{ fontWeight: 600 }}>
                                                 {r.desc}
@@ -2059,9 +2072,12 @@ function InventoryView({
                                                                                     color: "var(--muted)",
                                                                                 }}
                                                                             >
-                                                                                {String(r.sku || "").startsWith("MJC-")
-                                                                                    ? <span className="pill warn" style={{ fontSize: 10 }}>PENDING SKU</span>
-                                                                                    : (r.sku || "—")}
+                                                                                <span style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+                                                                                    {r.sku || "—"}
+                                                                                    {r.needs_attention && (
+                                                                                        <span className="pill warn" style={{ fontSize: 9 }}>Uncategorized</span>
+                                                                                    )}
+                                                                                </span>
                                                                             </td>
                                                                             <td
                                                                                 style={{
@@ -2245,24 +2261,13 @@ function InventoryView({
                                             <span style={{ fontSize: 12, color: "var(--faint)" }}>
                                                 {dirtyCount
                                                     ? `${dirtyCount} item${dirtyCount === 1 ? "" : "s"} edited`
-                                                    : "Invoice mode — pick week & direction, enter quantities, stage"}
+                                                    : compactWeek > 0
+                                                        ? "Enter received ↑ and/or issued ↓ quantities, then stage"
+                                                        : "Enter on-hand quantities, then stage"}
                                             </span>
-                                            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                                                <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink)" }}>
-                                                    {compactWeek === 0 ? "Month save" : `W${compactWeek} Invoice`}
-                                                </span>
-                                                {compactWeek > 0 && (
-                                                    <select
-                                                        className="tb-select"
-                                                        value={compactDir}
-                                                        onChange={(e) => setCompactDir(e.target.value as "received" | "issued")}
-                                                        style={{ fontSize: 12 }}
-                                                    >
-                                                        <option value="received">Received ↑</option>
-                                                        <option value="issued">Issued ↓</option>
-                                                    </select>
-                                                )}
-                                            </div>
+                                            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink)" }}>
+                                                {compactWeek === 0 ? "Month save" : `W${compactWeek} — both directions staged`}
+                                            </span>
                                         </div>
                                     );
                                 })()}
@@ -2453,9 +2458,12 @@ function InventoryView({
                                                                                     color: "var(--muted)",
                                                                                 }}
                                                                             >
-                                                                                {String(r.sku || "").startsWith("MJC-")
-                                                                                    ? <span className="pill warn" style={{ fontSize: 10 }}>PENDING SKU</span>
-                                                                                    : (r.sku || "—")}
+                                                                                <span style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+                                                                                    {r.sku || "—"}
+                                                                                    {r.needs_attention && (
+                                                                                        <span className="pill warn" style={{ fontSize: 9 }}>Uncategorized</span>
+                                                                                    )}
+                                                                                </span>
                                                                             </td>
                                                                             <td className="r num">
                                                                                 {canStage ? (

@@ -54,6 +54,7 @@ class InventoryItem(BaseModel):
     # Computed: on_hand (opening) + received - issued = actual ending stock.
     running_total: Optional[int] = None
     sku_pending: Optional[bool] = None
+    needs_attention: Optional[bool] = None
 
 
 class InventorySnapshot(BaseModel):
@@ -180,6 +181,7 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
                 w1i=w1i, w2i=w2i, w3i=w3i, w4i=w4i, w5i=w5i,
                 running_total=running_total,
                 sku_pending=bool(inv_item.get("sku_pending")),
+                needs_attention=bool(inv_item.get("needs_attention")),
             )
         )
     return items
@@ -198,7 +200,7 @@ _JOIN_SELECT = (
     "w1_received, w2_received, w3_received, w4_received, w5_received, "
     "w1_issued, w2_issued, w3_issued, w4_issued, w5_issued, "
     "unit_price, created_at, "
-    "inventory_items!inner(id, sku, description, par_level, unit, sku_pending, "
+    "inventory_items!inner(id, sku, description, par_level, unit, sku_pending, needs_attention, "
     "  inventory_categories!inner(name)"
     ")"
 )
@@ -307,6 +309,7 @@ async def get_inventory(
 async def list_inventory_items(
     sku: Optional[str] = Query(None),
     sku_pending: Optional[bool] = Query(None),
+    needs_attention: Optional[bool] = Query(None),
     category_id: Optional[str] = Query(None),
     limit: int = Query(200, ge=1, le=2000),
     auth_user: dict = Depends(_get_auth_user),
@@ -316,17 +319,20 @@ async def list_inventory_items(
     Supports:
     - sku: exact SKU lookup (returns 0 or 1 item)
     - sku_pending=true: all placeholder MJC- items needing a real SKU
+    - needs_attention=true: items with placeholder SKU OR no real category (unified triage flag)
     - category_id: items in a specific category
     """
     try:
         q = supabase_service.table("inventory_items").select(
-            "id, sku, description, category_id, unit_price, par_level, unit, active, sku_pending, "
+            "id, sku, description, category_id, unit_price, par_level, unit, active, sku_pending, needs_attention, "
             "inventory_categories(name)"
         )
         if sku:
             q = q.eq("sku", sku)
         if sku_pending is not None:
             q = q.eq("sku_pending", sku_pending)
+        if needs_attention is not None:
+            q = q.eq("needs_attention", needs_attention)
         if category_id:
             q = q.eq("category_id", category_id)
         q = q.limit(limit)
@@ -347,6 +353,7 @@ async def list_inventory_items(
                 "unit": row.get("unit"),
                 "active": row.get("active"),
                 "sku_pending": row.get("sku_pending"),
+                "needs_attention": row.get("needs_attention"),
             })
         return items
     except Exception as e:

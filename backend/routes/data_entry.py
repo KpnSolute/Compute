@@ -312,6 +312,75 @@ async def _get_auth_user(authorization: str = Header("")) -> dict:
     return user
 
 
+# ── SKU resolution pass (before staging) ─────────────────────────────────────
+
+
+def _resolve_and_queue_items(
+    ops: list[dict],
+    source_ref: str,
+    vendor_id: str | None = None,
+) -> list[dict]:
+    """Resolve every parsed SKU via resolve_invoice_sku RPC.
+
+    - direct / alias → keep the item in the op (it maps to a known inventory_items row).
+    - none (unknown) → insert a sku_review_queue row for manager triage; DROP the item
+      from the staging op so no silent MJC- duplicate is created.
+
+    Returns the filtered ops list (ops with no remaining items are dropped entirely).
+    """
+    svc = _client()
+    resolved_ops: list[dict] = []
+    for op in ops:
+        if op.get('operation') not in ('inventory_save', 'inventory_week_update'):
+            resolved_ops.append(op)
+            continue
+
+        items_in = op['payload'].get('items', [])
+        items_kept: list[dict] = []
+
+        for item in items_in:
+            sku = (item.get('sku') or '').strip()
+            if not sku:
+                items_kept.append(item)
+                continue
+
+            match_type = 'none'
+            try:
+                rpc_result = svc.rpc(
+                    'resolve_invoice_sku',
+                    {'p_sku': sku, 'p_vendor': vendor_id},
+                ).execute()
+                data = rpc_result.data
+                if isinstance(data, list):
+                    data = data[0] if data else {}
+                match_type = (data or {}).get('match_type', 'none')
+            except Exception:
+                pass  # network/rpc error — treat as unknown and queue
+
+            if match_type in ('direct', 'alias'):
+                items_kept.append(item)
+            else:
+                # Queue for manager review; do not stage as a new item.
+                try:
+                    svc.table('sku_review_queue').insert({
+                        'parsed_sku': sku,
+                        'parsed_description': item.get('desc') or item.get('description') or '',
+                        'vendor_id': vendor_id,
+                        'source_ref': source_ref,
+                        'qty': float(item.get('qty') or item.get('onHand') or 0),
+                        'unit_price': float(item.get('price') or 0),
+                        'status': 'pending',
+                    }).execute()
+                except Exception:
+                    pass  # Don't block the import if queue insert fails
+
+        if items_kept:
+            resolved_ops.append({**op, 'payload': {**op['payload'], 'items': items_kept}})
+        # ops with zero remaining items are silently dropped (all items queued)
+
+    return resolved_ops
+
+
 # ── routes ────────────────────────────────────────────────────────────────────
 
 
@@ -369,6 +438,15 @@ async def upload_file(
     if not ops:
         raise HTTPException(
             status_code=422, detail="No data could be extracted from this file."
+        )
+
+    # Resolve SKUs: unknown ones go to sku_review_queue, not staging.
+    ops = _resolve_and_queue_items(ops, file.filename or "upload")
+
+    if not ops:
+        raise HTTPException(
+            status_code=422,
+            detail="All parsed items have unknown SKUs and were queued for manager review (GET /api/sku-review).",
         )
 
     batch_id = str(uuid.uuid4())
