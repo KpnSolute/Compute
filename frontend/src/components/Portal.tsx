@@ -1008,7 +1008,7 @@ function InventoryView({
     const [q, setQ] = useState("");
     const [cat, setCat] = useState("");
     const [draft, setDraft] = useState<
-        Record<string, { onHand: number; par: number }>
+        Record<string, { onHand: number; par: number; price?: number }>
     >({});
     // Holds the last-staged values per SKU so inputs keep showing the staged
     // value after draft is cleared (staging queues via SC, not direct DB write).
@@ -1153,6 +1153,18 @@ function InventoryView({
         });
     };
 
+    const setPriceField = (sku: string, value: string, priceFallback: number) => {
+        const parsed = parseFloat(value);
+        const num = Number.isFinite(parsed) ? Math.max(0, parsed) : priceFallback;
+        setDraft((prev) => {
+            const cur = prev[sku];
+            return {
+                ...prev,
+                [sku]: { onHand: cur?.onHand ?? 0, par: cur?.par ?? 0, price: num },
+            };
+        });
+    };
+
     // Emit draft state to SC panel whenever draft changes
     useEffect(() => {
         const flatRows = invToList(invState.inv || {});
@@ -1249,7 +1261,7 @@ function InventoryView({
                     .map((r: any) => {
                         const sku = String(r.sku);
                         const qty = wkDraft[sku]?.[colKey] ?? (r[colKey] ?? 0);
-                        return { sku, desc: r.desc, category: r.cat, price: r.price, par: r.par, qty };
+                        return { sku, desc: r.desc, category: r.cat, price: draft[sku]?.price ?? r.price, par: draft[sku]?.par ?? r.par, qty };
                     });
                 // Rows with on_hand/par edits need an inventory_save regardless of
                 // whether they also have wkDraft entries — both changes are staged independently.
@@ -1261,7 +1273,7 @@ function InventoryView({
                     .map((r: any) => {
                         const sku = String(r.sku);
                         const d = draft[sku];
-                        return { sku, desc: r.desc, category: r.cat, price: r.price, onHand: d?.onHand ?? r.onHand, par: d?.par ?? r.par };
+                        return { sku, desc: r.desc, category: r.cat, price: d?.price ?? r.price, onHand: d?.onHand ?? r.onHand, par: d?.par ?? r.par };
                     });
                 const ops: Promise<any>[] = [];
                 if (wkItems.length) {
@@ -1293,7 +1305,7 @@ function InventoryView({
                     const d = draft[sku];
                     const w = wkDraft[sku] || {};
                     const base: any = {
-                        sku, desc: r.desc, category: r.cat, price: r.price,
+                        sku, desc: r.desc, category: r.cat, price: d?.price ?? r.price,
                         onHand: d?.onHand ?? r.onHand,
                         par: d?.par ?? r.par,
                     };
@@ -2269,6 +2281,7 @@ function InventoryView({
                                     const rowTotal = (r: any) => {
                                         const sku = String(r.sku || "");
                                         const oh = draft[sku]?.onHand ?? stagedValues[sku]?.onHand ?? r.onHand;
+                                        const price = draft[sku]?.price ?? r.price ?? 0;
                                         const rcv = RECEIVED.reduce(
                                             (a, k) => a + wk(r, k),
                                             0,
@@ -2279,7 +2292,7 @@ function InventoryView({
                                         );
                                         return (
                                             Math.max(0, oh + rcv - iss) *
-                                            (r.price || 0)
+                                            price
                                         );
                                     };
                                     const catVal = items.reduce(
@@ -2474,12 +2487,17 @@ function InventoryView({
                                                                                 )}
                                                                             </td>
                                                                             <td className="r num">
-                                                                                $
-                                                                                {(
-                                                                                    r.price ||
-                                                                                    0
-                                                                                ).toFixed(
-                                                                                    2,
+                                                                                {canEditPar ? (
+                                                                                    <input
+                                                                                        className="cinp"
+                                                                                        type="number"
+                                                                                        min={0}
+                                                                                        step="0.01"
+                                                                                        value={(draft[sku]?.price ?? r.price ?? 0).toFixed(2)}
+                                                                                        onChange={(e) => setPriceField(sku, e.target.value, r.price ?? 0)}
+                                                                                    />
+                                                                                ) : (
+                                                                                    `$${(r.price || 0).toFixed(2)}`
                                                                                 )}
                                                                             </td>
                                                                             <td className="r num">
