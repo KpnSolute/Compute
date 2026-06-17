@@ -4,6 +4,70 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v3.6.0] — 2026-06-16 — SKU Review: staging-first writes, queue UI, shared auth
+
+**Agent:** Claude (Senior Development Manager)
+**Scope:** Code only. No DB changes — all referenced objects (RPCs, tables, columns) already exist.
+**Build:** `tsc --noEmit` ✓ · `npm run build` ✓ (1.85s) · `ruff check` ✓ all backend files
+
+### DELTA 1 (P0) — SKU-review resolutions now go through staging → commit
+
+**`backend/staging/dispatch.py`**
+- Added `dispatch_item_create(payload)` — inserts one `inventory_items` row from
+  `{sku, description, category, unit_price, par_level, unit, active}`. Resolves category
+  name → id; falls back to Uncategorized id `448c13cf-...` when absent. Catches unique-
+  constraint (23505/unique/duplicate) → returns `{applied:0,error:"sku_conflict",...}`.
+- Registered as `"item_create"` in REGISTRY.
+
+**`backend/routes/sku_review.py`** (full rewrite)
+- `new_item`: pre-conflict check → insert `item_create` staging entry → `_apply_entries`
+  → commit created, github_sync_queue row inserted, staging entry marked merged. Reads back
+  item_id after commit for `sku_review_resolve`.
+- `override_existing`: loads item's current canonical SKU → pre-conflict check → insert
+  `item_update` staging entry → `_apply_entries` → commit + github sync.
+- `alias_existing`: unchanged — `sku_add_alias` RPC is metadata-only, correctly direct.
+- Added helper `_insert_staging(auth_user_id, operation, entity_id, payload, queue_id)`.
+- Verification: `grep "table('inventory_items').insert|table('inventory_items').update" sku_review.py` → no output.
+
+### DELTA 2 — SKU Review queue UI on SC surface
+
+**`frontend/src/components/SourceControl.tsx`**
+- "SKU Review" nav button added to toolbar (canReview / lvl ≥ 30 only).
+- `showSKUReview` sub-view: back header with count + refresh; per-row expandable cards
+  showing `parsed_sku`, `parsed_description`, qty, unit_price.
+- Three action tabs per row: **New item** (SKU/desc/category inputs → Create & Commit),
+  **Alias existing** (item picker → Link Alias), **Override existing SKU** (item picker +
+  new canonical SKU input → Override & Commit).
+- Item picker: loads up to 300 items lazily (once per session), filters client-side by
+  SKU/description with dropdown.
+- Conflict (409) banner with "Link as alias" shortcut.
+- After resolve: `mjcc:committed` event dispatched → commit log + staging refresh.
+- Added `item_create` to `OP_LABEL` / `OP_KIND` maps (badge "A").
+
+### DELTA 3 — Shared auth module
+
+**`backend/routes/_deps.py`** (new file)
+- `ROLE_LEVEL`, `_get_auth_user` (JWT + pin_), `_require_admin_or_manager`,
+  `_require_manager` (alias). Single source of truth for role checks.
+
+**`backend/routes/sourcectrl.py`**
+- Removed local `_get_auth_user` + `_require_admin_or_manager` definitions.
+- Imports both from `backend.routes._deps`.
+- Unused `Header` import removed; `jwt_validator` import removed.
+
+**`frontend/src/lib/api.ts`**
+- `ApiError` now stores `detail: any` (the raw `json.detail` value) alongside the
+  stringified `message`. Enables structured 409 conflict payloads in the UI without
+  re-parsing the stringified object.
+
+### Guardrails Confirmed
+- No DB changes. `needs_attention` is still read-only; no schema writes.
+- `VITE_API_BASE` → prod Render URL, not reverted.
+- `sku_review.py` has zero `table('inventory_items').insert/.update` calls.
+- `sku_review.py` has zero local `_get_auth_user` / `ROLE_LEVEL` definitions.
+
+---
+
 ## [v3.5.0] — 2026-06-16 — Unified Triage, Compact Staging Both Directions, SKU Resolution Pipeline
 
 **Agent:** Claude (Senior Development Manager)

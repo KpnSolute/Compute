@@ -393,9 +393,58 @@ def dispatch_user_update(payload: dict) -> dict:
     return {"applied": 1, "user": r.data[0] if r.data else None}
 
 
+_UNCATEGORIZED_ID = '448c13cf-e5c0-404f-bf32-f299d411c944'
+
+
+def dispatch_item_create(payload: dict) -> dict:
+    """Insert a new inventory_items row. Resolves category name → id; falls back to
+    Uncategorized when absent. Returns {"applied":1,"item_id":<uuid>} on success or
+    {"applied":0,"error":"sku_conflict",...} on a unique-constraint violation."""
+    sup = _client()
+    sku = (payload.get('sku') or '').strip()
+    if not sku:
+        return {'applied': 0, 'error': 'Missing sku'}
+
+    desc = (payload.get('description') or sku).strip()
+    cat_id = None
+    if payload.get('category'):
+        cat_r = sup.table('inventory_categories').select('id').eq('name', payload['category']).limit(1).execute()
+        if cat_r.data:
+            cat_id = cat_r.data[0]['id']
+    if cat_id is None:
+        cat_id = _UNCATEGORIZED_ID
+
+    try:
+        ins = sup.table('inventory_items').insert({
+            'sku': sku,
+            'description': desc,
+            'category_id': cat_id,
+            'unit_price': payload.get('unit_price') or 0,
+            'par_level': payload.get('par_level') or 0,
+            'unit': payload.get('unit') or 'each',
+            'active': bool(payload.get('active', True)),
+        }).execute()
+        new_item = ins.data[0] if ins.data else {}
+        return {'applied': 1, 'item_id': new_item.get('id'), 'sku': sku}
+    except Exception as exc:
+        err_str = str(exc)
+        if '23505' in err_str or 'unique' in err_str.lower() or 'duplicate' in err_str.lower():
+            conflict_r = sup.table('inventory_items').select('id,sku,description').eq('sku', sku).limit(1).execute()
+            conflict_row = (conflict_r.data or [None])[0] or {}
+            return {
+                'applied': 0,
+                'error': 'sku_conflict',
+                'conflict_sku': sku,
+                'conflict_item_id': conflict_row.get('id'),
+                'conflict_desc': conflict_row.get('description'),
+            }
+        raise
+
+
 REGISTRY = {
     "inventory_save": dispatch_inventory_save,
     "inventory_week_update": dispatch_inventory_week,
+    "item_create": dispatch_item_create,
     "item_update": dispatch_item_update,
     "item_delete": dispatch_item_delete,
     "menu_save": dispatch_menu_save,

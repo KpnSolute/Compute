@@ -1,13 +1,13 @@
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from supabase import create_client
 from dotenv import load_dotenv
 from typing import Optional
 from backend.staging.dispatch import replay
-from backend.routes import jwt_validator
+from backend.routes._deps import _get_auth_user, _require_admin_or_manager
 
 load_dotenv(Path(__file__).resolve().parents[2] / '.env')
 
@@ -60,60 +60,6 @@ class OpenPRBody(BaseModel):
 
 class ClosePRBody(BaseModel):
     note: Optional[str] = None
-
-
-# ── auth helpers ─────────────────────────────────────────────────────────────
-
-
-def _get_auth_user(authorization: str = Header('')) -> dict:
-    """Resolve caller from Bearer token (JWT or pin_). Raises 401 if missing or invalid."""
-    token = (authorization or '').replace('Bearer ', '').strip()
-    if not token:
-        raise HTTPException(status_code=401, detail='Missing authorization token')
-    if token.startswith('pin_'):
-        user_id = token[4:]
-        try:
-            r = (
-                _client()
-                .table('user_profiles')
-                .select('id,role,active')
-                .eq('id', user_id)
-                .eq('active', True)
-                .limit(1)
-                .execute()
-            )
-        except Exception:
-            raise HTTPException(status_code=401, detail='Invalid session')
-        if not r.data:
-            raise HTTPException(status_code=401, detail='Invalid session')
-        return r.data[0]
-    claims = jwt_validator.verify_token(token)
-    if not claims:
-        raise HTTPException(status_code=401, detail='Invalid or expired token')
-    user_id = claims.get('sub')
-    if not user_id:
-        raise HTTPException(status_code=401, detail='Token missing user ID')
-    try:
-        r = (
-            _client()
-            .table('user_profiles')
-            .select('id,role,active')
-            .eq('id', user_id)
-            .eq('active', True)
-            .limit(1)
-            .execute()
-        )
-    except Exception:
-        raise HTTPException(status_code=401, detail='User not found or inactive')
-    if not r.data:
-        raise HTTPException(status_code=401, detail='User not found or inactive')
-    return r.data[0]
-
-
-def _require_admin_or_manager(auth_user: dict = Depends(_get_auth_user)) -> dict:
-    if auth_user.get('role') not in ('admin', 'manager', 'sudo'):
-        raise HTTPException(status_code=403, detail='Admin or manager role required')
-    return auth_user
 
 
 # ── core replay→commit helper ─────────────────────────────────────────────────

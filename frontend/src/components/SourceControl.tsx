@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { I } from "../lib/icons";
 import { type User, ROLE_LEVEL, ROLE_LABEL } from "../lib/constants";
 import { api, type Commit, type StagingEntry } from "../lib/api";
@@ -8,6 +8,7 @@ const t = (msg: string) => (window as any).toast?.(msg);
 const OP_LABEL: Record<string, string> = {
     inventory_save: "Inventory",
     inventory_week_update: "Weekly invoice",
+    item_create: "New item",
     item_update: "Item edit",
     item_delete: "Item delete",
     menu_save: "Menu",
@@ -21,6 +22,7 @@ const OP_LABEL: Record<string, string> = {
 const OP_KIND: Record<string, "M" | "A" | "D"> = {
     inventory_save: "M",
     inventory_week_update: "M",
+    item_create: "A",
     item_update: "M",
     item_delete: "D",
     menu_save: "M",
@@ -175,6 +177,23 @@ function SCChangesView({
     const [prDetailLoading, setPrDetailLoading] = useState<string | null>(null);
     const [prActionBusy, setPrActionBusy] = useState<string | null>(null);
 
+    // SKU Review state
+    const [showSKUReview, setShowSKUReview] = useState(false);
+    const [skuRows, setSkuRows] = useState<any[]>([]);
+    const [skuLoading, setSkuLoading] = useState(false);
+    const [skuExpandedId, setSkuExpandedId] = useState<string | null>(null);
+    const [skuResolution, setSkuResolution] = useState<'new_item' | 'alias_existing' | 'override_existing' | null>(null);
+    const [skuNewSku, setSkuNewSku] = useState('');
+    const [skuNewDesc, setSkuNewDesc] = useState('');
+    const [skuNewCategory, setSkuNewCategory] = useState('');
+    const [skuItemSearch, setSkuItemSearch] = useState('');
+    const [skuSelectedItem, setSkuSelectedItem] = useState<any>(null);
+    const [skuOverrideSku, setSkuOverrideSku] = useState('');
+    const [skuConflict, setSkuConflict] = useState<any>(null);
+    const [skuBusy, setSkuBusy] = useState(false);
+    const [allItems, setAllItems] = useState<any[]>([]);
+    const [allItemsLoaded, setAllItemsLoaded] = useState(false);
+
     // receive draft state from InventoryView via custom event
     useEffect(() => {
         const h = (e: Event) => {
@@ -195,12 +214,77 @@ function SCChangesView({
     const loadPRs = useCallback(async () => {
         setPullsLoading(true);
         try {
-            // Admin/manager: open PRs from all users. Staff: all their own PRs.
             const results = await api.getPulls(canReview ? "open" : "all");
             setPulls(results);
         } catch { /* silent */ }
         setPullsLoading(false);
     }, [canReview]);
+
+    const loadSKUReview = useCallback(async () => {
+        setSkuLoading(true);
+        try {
+            const rows = await api.getSKUReview('pending', 100);
+            setSkuRows(rows);
+        } catch { /* silent */ }
+        setSkuLoading(false);
+    }, []);
+
+    const loadAllItems = useCallback(async () => {
+        if (allItemsLoaded) return;
+        try {
+            const items = await api.getInventoryItems({ limit: 300 });
+            setAllItems(items);
+            setAllItemsLoaded(true);
+        } catch { /* silent */ }
+    }, [allItemsLoaded]);
+
+    const openSkuAction = (rowId: string, row: any, res: typeof skuResolution) => {
+        setSkuExpandedId(rowId);
+        setSkuResolution(res);
+        setSkuConflict(null);
+        if (res === 'new_item') {
+            setSkuNewSku(row.parsed_sku || '');
+            setSkuNewDesc(row.parsed_description || '');
+            setSkuNewCategory('');
+        } else {
+            setSkuItemSearch('');
+            setSkuSelectedItem(null);
+            setSkuOverrideSku(row.parsed_sku || '');
+            loadAllItems();
+        }
+    };
+
+    const doSKUResolve = async (rowId: string) => {
+        setSkuBusy(true);
+        setSkuConflict(null);
+        try {
+            const body: Parameters<typeof api.resolveSKU>[1] = { resolution: skuResolution! };
+            if (skuResolution === 'new_item') {
+                body.new_sku = skuNewSku;
+                body.new_desc = skuNewDesc;
+                if (skuNewCategory) body.new_category = skuNewCategory;
+            } else if (skuResolution === 'alias_existing') {
+                body.item_id = skuSelectedItem?.id;
+            } else {
+                body.item_id = skuSelectedItem?.id;
+                body.new_sku = skuOverrideSku;
+            }
+            await api.resolveSKU(rowId, body);
+            t(`Resolved as ${(skuResolution || '').replace(/_/g, ' ')}`);
+            setSkuExpandedId(null);
+            setSkuResolution(null);
+            window.dispatchEvent(new CustomEvent("mjcc:committed"));
+            await Promise.all([loadSKUReview(), loadData()]);
+        } catch (err: any) {
+            const detail = (err as any).detail;
+            if ((err as any).status === 409 && detail && typeof detail === 'object' && detail.error === 'sku_conflict') {
+                setSkuConflict(detail);
+            } else {
+                t(`Failed: ${(err as any).message || 'Unknown error'}`);
+            }
+        }
+        setSkuBusy(false);
+    };
 
     const doOpenPR = async () => {
         const title = prTitle.trim();
@@ -547,6 +631,199 @@ function SCChangesView({
         );
     }
 
+    // Computed before any conditional returns (rules of hooks)
+    const skuFilteredItems = useMemo(() => {
+        if (!skuItemSearch.trim()) return allItems.slice(0, 8);
+        const q = skuItemSearch.toLowerCase();
+        return allItems
+            .filter((it: any) =>
+                String(it.sku || '').toLowerCase().includes(q) ||
+                String(it.desc || '').toLowerCase().includes(q)
+            )
+            .slice(0, 8);
+    }, [allItems, skuItemSearch]);
+
+    // ── sub-view: SKU REVIEW QUEUE ───────────────────────────────────────────
+    if (showSKUReview && canReview) {
+        return (
+            <div className="sc-body" style={{ overflowY: "auto" }}>
+                <div className="sc-vsc-section-head" style={{ cursor: "pointer" }} onClick={() => setShowSKUReview(false)}>
+                    <span className="sc-vsc-chevron">‹</span>
+                    <span className="sc-section-label">SKU REVIEW QUEUE</span>
+                    {skuRows.length > 0 && <span className="sc-section-count">{skuRows.length} pending</span>}
+                    <div style={{ flex: 1 }} />
+                    <button className="sc-icon-btn" title="Refresh" onClick={loadSKUReview} disabled={skuLoading}>
+                        {I.refresh({ style: { width: 13, height: 13 } })}
+                    </button>
+                </div>
+
+                {skuLoading && (
+                    <div className="sc-loading">
+                        <div className="spinner" style={{ width: 14, height: 14 }} />
+                        <span>Loading…</span>
+                    </div>
+                )}
+
+                {!skuLoading && skuRows.length === 0 && (
+                    <div className="sc-empty">
+                        <div className="sc-empty-icon">{I.check({ style: { width: 24, height: 24 } })}</div>
+                        <div className="sc-empty-title">Queue is clear</div>
+                        <div className="sc-empty-sub">All imported SKUs resolved.</div>
+                    </div>
+                )}
+
+                {skuRows.map((row: any) => {
+                    const isExpanded = skuExpandedId === row.id;
+                    return (
+                        <div key={row.id} style={{ borderBottom: "1px solid var(--line)" }}>
+                            {/* Row header */}
+                            <div
+                                className="sc-vsc-section-head"
+                                style={{ cursor: "pointer", alignItems: "flex-start", padding: "8px 12px" }}
+                                onClick={() => setSkuExpandedId(isExpanded ? null : row.id)}
+                            >
+                                <span className="sc-vsc-chevron" style={{ marginTop: 2 }}>
+                                    {isExpanded ? "▾" : "▸"}
+                                </span>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: 12, fontWeight: 600, display: "flex", gap: 6, alignItems: "center" }}>
+                                        <span className="mono">{row.parsed_sku}</span>
+                                        <span className="pill warn" style={{ fontSize: 9 }}>unknown</span>
+                                    </div>
+                                    <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 2 }}>
+                                        {row.parsed_description || "—"}
+                                        {row.qty != null ? ` · qty ${row.qty}` : ""}
+                                        {row.unit_price != null ? ` · $${Number(row.unit_price).toFixed(2)}` : ""}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Expanded form */}
+                            {isExpanded && (
+                                <div style={{ padding: "6px 12px 12px 28px", background: "rgba(0,0,0,0.02)" }}>
+                                    {/* Conflict banner */}
+                                    {skuConflict && skuExpandedId === row.id && (
+                                        <div style={{ background: "rgba(220,38,38,0.08)", border: "1px solid var(--red,#dc2626)", borderRadius: 6, padding: "8px 10px", marginBottom: 8, fontSize: 11.5 }}>
+                                            <strong>SKU conflict:</strong> &ldquo;{skuConflict.conflict_sku}&rdquo; already belongs to{" "}
+                                            <em>{skuConflict.conflict_desc}</em>.
+                                            <div style={{ marginTop: 6, display: "flex", gap: 6 }}>
+                                                <button
+                                                    className="btn"
+                                                    style={{ fontSize: 11, padding: "3px 8px" }}
+                                                    onClick={() => {
+                                                        setSkuConflict(null);
+                                                        setSkuResolution('alias_existing');
+                                                        setSkuSelectedItem(allItems.find((it: any) => it.id === skuConflict.conflict_id) || { id: skuConflict.conflict_id, sku: skuConflict.conflict_sku, desc: skuConflict.conflict_desc });
+                                                        loadAllItems();
+                                                    }}
+                                                >
+                                                    {I.check({ style: { width: 10, height: 10 } })} Link as alias
+                                                </button>
+                                                <button className="btn" style={{ fontSize: 11, padding: "3px 8px" }} onClick={() => setSkuConflict(null)}>
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Action selector */}
+                                    <div style={{ display: "flex", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
+                                        {(["new_item", "alias_existing", "override_existing"] as const).map((res) => (
+                                            <button
+                                                key={res}
+                                                className={"sc-nav-btn" + (skuResolution === res && skuExpandedId === row.id ? " active" : "")}
+                                                onClick={() => openSkuAction(row.id, row, res)}
+                                                style={{ fontSize: 11 }}
+                                            >
+                                                {res === "new_item" && <>{I.plus({ style: { width: 11, height: 11 } })} New item</>}
+                                                {res === "alias_existing" && <>{I.check({ style: { width: 11, height: 11 } })} Alias existing</>}
+                                                {res === "override_existing" && <>{I.edit({ style: { width: 11, height: 11 } })} Override SKU</>}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    {/* New item form */}
+                                    {skuResolution === 'new_item' && skuExpandedId === row.id && (
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                            <input className="ipt" placeholder="SKU" value={skuNewSku} onChange={(e) => setSkuNewSku(e.target.value)} style={{ fontSize: 12 }} />
+                                            <input className="ipt" placeholder="Description" value={skuNewDesc} onChange={(e) => setSkuNewDesc(e.target.value)} style={{ fontSize: 12 }} />
+                                            <input className="ipt" placeholder="Category (leave blank → Uncategorized)" value={skuNewCategory} onChange={(e) => setSkuNewCategory(e.target.value)} style={{ fontSize: 12 }} />
+                                            <button
+                                                className="btn primary"
+                                                style={{ fontSize: 11, padding: "4px 10px", alignSelf: "flex-start" }}
+                                                disabled={skuBusy || !skuNewSku.trim()}
+                                                onClick={() => doSKUResolve(row.id)}
+                                            >
+                                                {skuBusy ? "Creating…" : <>{I.plus({ style: { width: 11, height: 11 } })} Create &amp; Commit</>}
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* Alias / Override form (shared item picker) */}
+                                    {(skuResolution === 'alias_existing' || skuResolution === 'override_existing') && skuExpandedId === row.id && (
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                            <div style={{ position: "relative" }}>
+                                                <input
+                                                    className="ipt"
+                                                    placeholder="Search existing item by SKU or description…"
+                                                    value={skuSelectedItem ? `${skuSelectedItem.sku} — ${skuSelectedItem.desc || skuSelectedItem.description || ''}` : skuItemSearch}
+                                                    onChange={(e) => { setSkuItemSearch(e.target.value); setSkuSelectedItem(null); }}
+                                                    style={{ fontSize: 12, width: "100%" }}
+                                                />
+                                                {!skuSelectedItem && skuItemSearch && (
+                                                    <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 6, zIndex: 10, maxHeight: 160, overflowY: "auto", boxShadow: "0 4px 12px rgba(0,0,0,0.12)" }}>
+                                                        {skuFilteredItems.length === 0 && (
+                                                            <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--muted)" }}>No items found</div>
+                                                        )}
+                                                        {skuFilteredItems.map((it: any) => (
+                                                            <div
+                                                                key={it.id}
+                                                                style={{ padding: "6px 10px", cursor: "pointer", fontSize: 11.5 }}
+                                                                onMouseDown={(e) => { e.preventDefault(); setSkuSelectedItem(it); setSkuItemSearch(''); }}
+                                                            >
+                                                                <span className="mono" style={{ fontSize: 10.5, color: "var(--muted)", marginRight: 6 }}>{it.sku}</span>
+                                                                {it.desc || it.description}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            {skuSelectedItem && (
+                                                <div style={{ fontSize: 11, color: "var(--muted)", display: "flex", alignItems: "center", gap: 6 }}>
+                                                    {I.check({ style: { width: 11, height: 11, color: "var(--ok, #16a34a)" } })}
+                                                    Selected: <strong>{skuSelectedItem.sku}</strong> — {skuSelectedItem.desc || skuSelectedItem.description}
+                                                    <button className="sc-icon-btn" style={{ marginLeft: 4 }} onClick={() => { setSkuSelectedItem(null); setSkuItemSearch(''); }}>
+                                                        {I.x({ style: { width: 10, height: 10 } })}
+                                                    </button>
+                                                </div>
+                                            )}
+                                            {skuResolution === 'override_existing' && (
+                                                <input className="ipt" placeholder="New canonical SKU" value={skuOverrideSku} onChange={(e) => setSkuOverrideSku(e.target.value)} style={{ fontSize: 12 }} />
+                                            )}
+                                            <button
+                                                className="btn primary"
+                                                style={{ fontSize: 11, padding: "4px 10px", alignSelf: "flex-start" }}
+                                                disabled={skuBusy || !skuSelectedItem || (skuResolution === 'override_existing' && !skuOverrideSku.trim())}
+                                                onClick={() => doSKUResolve(row.id)}
+                                            >
+                                                {skuBusy
+                                                    ? "Saving…"
+                                                    : skuResolution === 'alias_existing'
+                                                        ? <>{I.check({ style: { width: 11, height: 11 } })} Link Alias</>
+                                                        : <>{I.edit({ style: { width: 11, height: 11 } })} Override &amp; Commit</>
+                                                }
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    }
+
     // ── main view ─────────────────────────────────────────────────────────────
     return (
         <div className="sc-body" style={{ overflowY: "auto" }}>
@@ -571,6 +848,11 @@ function SCChangesView({
                 {canReview && (
                     <button className="sc-nav-btn" title="AI Assistant" onClick={() => setShowAI(true)}>
                         {I.flame({ style: { width: 13, height: 13 } })} AI
+                    </button>
+                )}
+                {canReview && (
+                    <button className="sc-nav-btn" title="SKU Review Queue" onClick={() => { setShowSKUReview(true); loadSKUReview(); }}>
+                        {I.archive({ style: { width: 13, height: 13 } })} SKU Review
                     </button>
                 )}
             </div>

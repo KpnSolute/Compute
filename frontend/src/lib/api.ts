@@ -8,9 +8,11 @@ const BASE = envBase || 'https://mjcc-managements.onrender.com';
 
 class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
-    super(message);
+  detail: any;
+  constructor(status: number, body: any) {
+    super(typeof body === 'string' ? body : JSON.stringify(body));
     this.status = status;
+    this.detail = body;
     this.name = 'ApiError';
   }
 }

@@ -3,74 +3,42 @@ SKU Review Queue API — manager triage for unknown import SKUs.
 
 GET  /api/sku-review              — list queue (manager+)
 POST /api/sku-review/{id}/resolve — resolve a row (new_item / alias_existing / override_existing)
+
+Resolution strategy:
+  new_item          — creates item via item_create staging op → commit (commit log + github sync)
+  alias_existing    — writes alias directly via sku_add_alias RPC (metadata-only, no inventory change)
+  override_existing — renames canonical SKU via item_update staging op → commit
 """
 
 import logging
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Query, Depends, Header
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
-from backend.routes import supabase_service, jwt_validator
+from backend.routes import supabase_service
+from backend.routes._deps import _require_manager
+from backend.routes.sourcectrl import _apply_entries
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/api/sku-review', tags=['sku-review'])
 
-ROLE_LEVEL = {'staff': 10, 'assistant': 20, 'manager': 30, 'admin': 40, 'sudo': 50}
-
-
-async def _get_auth_user(authorization: str = Header('')) -> dict:
-    token = authorization.replace('Bearer ', '').strip()
-    if not token:
-        raise HTTPException(status_code=401, detail='Missing authorization token')
-
-    if token.startswith('pin_'):
-        user_id = token.replace('pin_', '')
-        try:
-            result = supabase_service.table('user_profiles').select('*').eq('id', user_id).single().execute()
-            user = result.data if result.data else None
-        except Exception:
-            user = None
-    else:
-        claims = jwt_validator.verify_token(token)
-        if not claims:
-            raise HTTPException(status_code=401, detail='Invalid or expired token')
-        user_id = claims.get('sub')
-        if not user_id:
-            raise HTTPException(status_code=401, detail='Token missing user ID')
-        try:
-            result = supabase_service.table('user_profiles').select('*').eq('id', user_id).single().execute()
-            user = result.data if result.data else None
-        except Exception:
-            user = None
-
-    if not user or not user.get('active'):
-        raise HTTPException(status_code=401, detail='User not found or inactive')
-    return user
-
-
-def _require_manager(user: dict) -> None:
-    lvl = ROLE_LEVEL.get((user.get('role') or '').lower(), 0)
-    if lvl < 30:
-        raise HTTPException(status_code=403, detail='Manager access required.')
-
 
 class ResolveBody(BaseModel):
-    resolution: str                  # 'new_item' | 'alias_existing' | 'override_existing'
-    item_id: Optional[str] = None    # existing item (alias_existing / override_existing)
-    new_sku: Optional[str] = None    # canonical SKU for new_item / override_existing
-    new_desc: Optional[str] = None   # description for new_item
-    new_category: Optional[str] = None  # category name for new_item
+    resolution: str                    # 'new_item' | 'alias_existing' | 'override_existing'
+    item_id: Optional[str] = None      # existing item (alias_existing / override_existing)
+    new_sku: Optional[str] = None      # canonical SKU for new_item / override_existing
+    new_desc: Optional[str] = None     # description for new_item
+    new_category: Optional[str] = None # category name for new_item
 
 
 @router.get('')
 async def list_sku_review(
     status: str = Query('pending'),
     limit: int = Query(100, ge=1, le=500),
-    auth_user: dict = Depends(_get_auth_user),
+    auth_user: dict = Depends(_require_manager),
 ):
     """List SKU review queue rows. Default: pending only. Pass status=all for everything."""
-    _require_manager(auth_user)
     try:
         q = supabase_service.table('sku_review_queue').select(
             'id, parsed_sku, parsed_description, vendor_id, source_ref, '
@@ -86,31 +54,45 @@ async def list_sku_review(
         raise HTTPException(status_code=500, detail=f'Database error: {str(e)}')
 
 
+def _insert_staging(auth_user_id: str, operation: str, entity_id: str, payload: dict, queue_id: str, **extra_meta) -> dict:
+    """Insert a staging_entries row for immediate commit via _apply_entries."""
+    meta = {'queue_id': queue_id, **extra_meta}
+    row = {
+        'entity_type': 'inventory',
+        'entity_id': entity_id,
+        'field_name': operation,
+        'new_value_text': entity_id,
+        'change_type': 'create' if operation == 'item_create' else 'update',
+        'metadata': meta,
+        'status': 'pending',
+        'submitted_by': auth_user_id,
+        'source': 'sku_review',
+        'operation': operation,
+        'full_payload': payload,
+    }
+    r = supabase_service.table('staging_entries').insert(row).execute()
+    if not r.data:
+        raise HTTPException(status_code=500, detail='Failed to create staging entry')
+    return r.data[0]
+
+
 @router.post('/{row_id}/resolve')
 async def resolve_sku(
     row_id: str,
     body: ResolveBody,
-    auth_user: dict = Depends(_get_auth_user),
+    auth_user: dict = Depends(_require_manager),
 ):
     """Resolve a sku_review_queue row.
 
-    resolution='new_item':
-        Stage creation of a new inventory_items row with the parsed SKU via
-        sku_review_resolve. Frontend should commit that staging entry separately.
-
-    resolution='alias_existing':
-        The parsed SKU is a vendor alias for item_id. Calls sku_add_alias then
-        sku_review_resolve. Future imports of that SKU auto-resolve.
-
-    resolution='override_existing':
-        Replace item_id's canonical SKU with the parsed SKU. Checks for conflicts
-        (409 if the new SKU already belongs to a different item). Then calls
-        sku_review_resolve.
+    new_item          → item_create staging op → commit (appears in commit log + github sync)
+    alias_existing    → sku_add_alias RPC (metadata alias, no inventory write needed)
+    override_existing → item_update staging op with new_sku → commit
     """
-    _require_manager(auth_user)
-
     if body.resolution not in ('new_item', 'alias_existing', 'override_existing'):
-        raise HTTPException(status_code=422, detail="resolution must be 'new_item', 'alias_existing', or 'override_existing'")
+        raise HTTPException(
+            status_code=422,
+            detail="resolution must be 'new_item', 'alias_existing', or 'override_existing'",
+        )
 
     # Load the queue row
     try:
@@ -127,47 +109,44 @@ async def resolve_sku(
     resolved_item_id: Optional[str] = None
     now = datetime.now(timezone.utc).isoformat()
 
+    # ── new_item: create via staging → commit ─────────────────────────────────
     if body.resolution == 'new_item':
-        # Mint a new inventory_items row with the parsed SKU.
         sku = (body.new_sku or parsed_sku).strip()
         desc = (body.new_desc or row.get('parsed_description') or sku).strip()
+        category = (body.new_category or '').strip()
 
-        # Check SKU uniqueness before writing.
-        conflict = supabase_service.table('inventory_items').select('id, sku, description').eq('sku', sku).limit(1).execute()
-        if conflict.data:
-            c = conflict.data[0]
+        # Pre-flight conflict check so we return a structured 409 (not a 500 from _apply_entries)
+        conflict_r = supabase_service.table('inventory_items').select('id,sku,description').eq('sku', sku).limit(1).execute()
+        if conflict_r.data:
+            c = conflict_r.data[0]
             raise HTTPException(status_code=409, detail={
+                'error': 'sku_conflict',
                 'message': f"SKU '{sku}' already exists.",
                 'conflict_id': c['id'],
                 'conflict_sku': c['sku'],
                 'conflict_desc': c['description'],
             })
 
-        # Resolve category
-        cat_id = None
-        if body.new_category:
-            cat_res = supabase_service.table('inventory_categories').select('id').eq('name', body.new_category).limit(1).execute()
-            if cat_res.data:
-                cat_id = cat_res.data[0]['id']
+        payload = {
+            'sku': sku,
+            'description': desc,
+            'category': category,
+            'unit_price': row.get('unit_price') or 0,
+            'par_level': 0,
+            'unit': 'each',
+            'active': True,
+        }
+        entry = _insert_staging(auth_user['id'], 'item_create', sku, payload, row_id)
+        _apply_entries([entry], author_id=auth_user['id'], message=f'SKU review: new item {sku}', source='sku_review')
 
-        try:
-            ins = supabase_service.table('inventory_items').insert({
-                'sku': sku,
-                'description': desc,
-                'category_id': cat_id,
-                'unit_price': row.get('unit_price') or 0,
-                'par_level': 0,
-                'unit': 'each',
-                'active': True,
-            }).execute()
-            resolved_item_id = ins.data[0]['id'] if ins.data else None
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f'Failed to create item: {str(e)}')
+        # Read back the created item_id
+        new_item_r = supabase_service.table('inventory_items').select('id').eq('sku', sku).limit(1).execute()
+        resolved_item_id = new_item_r.data[0]['id'] if new_item_r.data else None
 
+    # ── alias_existing: metadata-only write via RPC (no inventory change) ─────
     elif body.resolution == 'alias_existing':
         if not body.item_id:
             raise HTTPException(status_code=422, detail='item_id required for alias_existing')
-        # Call the sku_add_alias RPC which writes to item_barcodes and enforces uniqueness.
         try:
             alias_res = supabase_service.rpc('sku_add_alias', {
                 'p_item': body.item_id,
@@ -185,32 +164,57 @@ async def resolve_sku(
             raise HTTPException(status_code=500, detail=f'sku_add_alias failed: {str(e)}')
         resolved_item_id = body.item_id
 
+    # ── override_existing: rename canonical SKU via staging → commit ──────────
     elif body.resolution == 'override_existing':
         if not body.item_id:
             raise HTTPException(status_code=422, detail='item_id required for override_existing')
         new_sku = (body.new_sku or parsed_sku).strip()
 
-        # Collision check: another item already owns this canonical SKU?
-        conflict = supabase_service.table('inventory_items').select('id, sku, description').eq('sku', new_sku).neq('id', body.item_id).limit(1).execute()
-        if conflict.data:
-            c = conflict.data[0]
-            raise HTTPException(status_code=409, detail={
-                'message': f"SKU '{new_sku}' is already the canonical SKU of another item.",
-                'conflict_id': c['id'],
-                'conflict_sku': c['sku'],
-                'conflict_desc': c['description'],
-            })
+        # Fetch the item's current canonical SKU (needed as the identifier for item_update)
+        item_r = supabase_service.table('inventory_items').select('id,sku,description').eq('id', body.item_id).limit(1).execute()
+        item = (item_r.data or [None])[0]
+        if not item:
+            raise HTTPException(status_code=404, detail='Item not found')
+        current_sku = item['sku']
 
-        try:
-            supabase_service.table('inventory_items').update({
-                'sku': new_sku,
-                'updated_at': now,
-            }).eq('id', body.item_id).execute()
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f'SKU override failed: {str(e)}')
+        # Pre-flight conflict check
+        if new_sku != current_sku:
+            conflict_r = (
+                supabase_service.table('inventory_items')
+                .select('id,sku,description')
+                .eq('sku', new_sku)
+                .neq('id', body.item_id)
+                .limit(1)
+                .execute()
+            )
+            if conflict_r.data:
+                c = conflict_r.data[0]
+                raise HTTPException(status_code=409, detail={
+                    'error': 'sku_conflict',
+                    'message': f"SKU '{new_sku}' is already the canonical SKU of another item.",
+                    'conflict_id': c['id'],
+                    'conflict_sku': c['sku'],
+                    'conflict_desc': c['description'],
+                })
+
+        entry = _insert_staging(
+            auth_user['id'], 'item_update', current_sku,
+            {'sku': current_sku, 'new_sku': new_sku},
+            row_id,
+        )
+        entry['old_value_text'] = current_sku
+        entry['new_value_text'] = new_sku
+        entry['field_name'] = 'sku'
+        entry['change_type'] = 'update'
+        _apply_entries(
+            [entry],
+            author_id=auth_user['id'],
+            message=f'SKU review: rename {current_sku} → {new_sku}',
+            source='sku_review',
+        )
         resolved_item_id = body.item_id
 
-    # Mark the queue row resolved via RPC.
+    # ── mark queue row resolved ────────────────────────────────────────────────
     try:
         supabase_service.rpc('sku_review_resolve', {
             'p_id': row_id,
@@ -219,8 +223,7 @@ async def resolve_sku(
             'p_by': auth_user['id'],
         }).execute()
     except Exception as e:
-        logger.warning('sku_review_resolve RPC failed (row may be marked manually): %s', e)
-        # Fallback: mark resolved directly
+        logger.warning('sku_review_resolve RPC failed (marking directly): %s', e)
         supabase_service.table('sku_review_queue').update({
             'status': 'resolved',
             'resolution': body.resolution,
