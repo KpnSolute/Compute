@@ -570,3 +570,108 @@ def invoice_items_to_ops(
             })
 
     return ops
+
+
+# ── Vision-based invoice extraction ──────────────────────────────────────────
+
+_VISION_PROMPT = """You are an invoice data extraction engine for a food service cafeteria.
+Extract ALL line items from this invoice image. Return ONLY valid JSON with this schema:
+{
+  "vendor": "vendor name or null",
+  "invoice_number": "... or null",
+  "invoice_date": "MM/DD/YYYY or null",
+  "subtotal": 123.45,
+  "items": [
+    {
+      "sku": "item/product code",
+      "description": "product name",
+      "qty_shipped": 1,
+      "unit": "CS",
+      "unit_price": 12.34,
+      "ext_price": 12.34
+    }
+  ]
+}
+Rules:
+- sku: vendor item number or product code; use a description slug if none visible
+- qty_shipped: numeric quantity delivered (not ordered); use 1 if not shown
+- unit_price × qty_shipped must equal ext_price (fix rounding if needed)
+- Include EVERY line item
+- Return ONLY the JSON object, no explanation."""
+
+
+def extract_invoice_vision(
+    images: list[bytes],
+    meta: dict,
+    cfg: dict,
+    *,
+    called_by: str | None = None,
+) -> dict:
+    """Extract invoice line items from image(s) using AI vision.
+
+    Returns {'meta': {...}, 'items': [...], 'reconciled': bool, 'computed_total': float}.
+    Items have the same field shape as parse_invoice_bytes_pdf/image.
+    """
+    from backend.ai import engine as ai_engine
+
+    raw_text = ai_engine.complete_vision(
+        _VISION_PROMPT,
+        images,
+        cfg,
+        operation='invoice_vision',
+        called_by=called_by,
+    )
+
+    try:
+        data = ai_engine.extract_json(raw_text)
+    except Exception:
+        return {'meta': meta, 'items': [], 'reconciled': False, 'computed_total': 0.0}
+
+    if not isinstance(data, dict):
+        return {'meta': meta, 'items': [], 'reconciled': False, 'computed_total': 0.0}
+
+    parsed_meta = {
+        **meta,
+        'vendor_name':     data.get('vendor'),
+        'invoice_number':  data.get('invoice_number'),
+        'invoice_date':    data.get('invoice_date'),
+        'subtotal':        data.get('subtotal'),
+    }
+
+    items = []
+    for it in data.get('items') or []:
+        sku        = str(it.get('sku') or '').strip()
+        desc       = str(it.get('description') or sku).strip()
+        qty        = float(it.get('qty_shipped') or 1)
+        unit_price = float(it.get('unit_price') or 0)
+        ext_price  = float(it.get('ext_price') or (qty * unit_price))
+        items.append({
+            'category':    '',
+            'sku':         sku,
+            'description': desc,
+            'label':       desc,
+            'pack_size':   '',
+            'unit':        str(it.get('unit') or 'each'),
+            'qty_ordered': qty,
+            'qty_shipped': qty,
+            'qty_adj':     0,
+            'unit_price':  round(unit_price, 4),
+            'ext_price':   round(ext_price, 2),
+            'weight_lbs':  0,
+            'raw':         str(it),
+        })
+
+    subtotal       = float(parsed_meta.get('subtotal') or 0)
+    computed_total = round(sum(it['ext_price'] for it in items), 2)
+    reconciled = (
+        subtotal > 0
+        and computed_total > 0
+        and abs(computed_total - subtotal) / max(subtotal, 0.01) < 0.02
+    )
+
+    return {
+        'meta':           parsed_meta,
+        'items':          items,
+        'reconciled':     reconciled,
+        'computed_total': computed_total,
+    }

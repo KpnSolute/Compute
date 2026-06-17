@@ -14,6 +14,17 @@ const ROUTE_MIN: Record<string, number> = Object.fromEntries(
     NAV.flatMap((g) => g.items.map((i) => [i.key, i.min || 0])),
 ) as Record<string, number>;
 
+// Compact-table cell handlers — module-level so they're not recreated per render
+const cinpFocus = (e: React.FocusEvent<HTMLInputElement>) => e.currentTarget.select();
+const cinpKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        const all = Array.from(document.querySelectorAll<HTMLInputElement>('.cinp:not([disabled])'));
+        const idx = all.indexOf(e.currentTarget);
+        if (idx >= 0 && idx < all.length - 1) all[idx + 1].focus();
+    }
+};
+
 const VIEW_LABELS: Record<string, string> = Object.fromEntries(
     NAV.flatMap((g) => g.items.map((i) => [i.key, i.label])),
 );
@@ -2465,7 +2476,7 @@ function InventoryView({
                                                                                     )}
                                                                                 </span>
                                                                             </td>
-                                                                            <td className="r num">
+                                                                            <td className="r num" data-label="On hand">
                                                                                 {canStage ? (
                                                                                     <input
                                                                                         className="cinp"
@@ -2476,6 +2487,8 @@ function InventoryView({
                                                                                         value={
                                                                                             oh
                                                                                         }
+                                                                                        onFocus={cinpFocus}
+                                                                                        onKeyDown={cinpKeyDown}
                                                                                         onChange={(
                                                                                             e,
                                                                                         ) =>
@@ -2494,7 +2507,7 @@ function InventoryView({
                                                                                     oh
                                                                                 )}
                                                                             </td>
-                                                                            <td className="r num">
+                                                                            <td className="r num" data-label="Price ($)">
                                                                                 {canEditPar ? (
                                                                                     <input
                                                                                         className="cinp"
@@ -2502,13 +2515,15 @@ function InventoryView({
                                                                                         min={0}
                                                                                         step="0.01"
                                                                                         value={(draft[sku]?.price ?? r.price ?? 0).toFixed(2)}
+                                                                                        onFocus={cinpFocus}
+                                                                                        onKeyDown={cinpKeyDown}
                                                                                         onChange={(e) => setPriceField(sku, e.target.value, r.price ?? 0)}
                                                                                     />
                                                                                 ) : (
                                                                                     `$${(r.price || 0).toFixed(2)}`
                                                                                 )}
                                                                             </td>
-                                                                            <td className="r num">
+                                                                            <td className="r num" data-label="Par">
                                                                                 {canEditPar ? (
                                                                                     <input
                                                                                         className="cinp"
@@ -2519,6 +2534,8 @@ function InventoryView({
                                                                                         value={
                                                                                             par
                                                                                         }
+                                                                                        onFocus={cinpFocus}
+                                                                                        onKeyDown={cinpKeyDown}
                                                                                         onChange={(
                                                                                             e,
                                                                                         ) =>
@@ -2540,19 +2557,23 @@ function InventoryView({
                                                                             {compactWeek === 0 ? (
                                                                                 <>
                                                                                     {ISSUED.map((k) => (
-                                                                                        <td className="r num" key={k}>
+                                                                                        <td className="r num" key={k} data-label={`W${k[1]}↓`}>
                                                                                             {canStage ? (
                                                                                                 <input className="cinp" type="number" min={0}
                                                                                                     value={wk(r, k)}
+                                                                                                    onFocus={cinpFocus}
+                                                                                                    onKeyDown={cinpKeyDown}
                                                                                                     onChange={(e) => setWeeklyField(sku, k, e.target.value)} />
                                                                                             ) : wk(r, k)}
                                                                                         </td>
                                                                                     ))}
                                                                                     {RECEIVED.map((k) => (
-                                                                                        <td className="r num wk-rcv" key={k}>
+                                                                                        <td className="r num wk-rcv" key={k} data-label={`W${k[1]}↑`}>
                                                                                             {canStage ? (
                                                                                                 <input className="cinp wk-rcv-inp" type="number" min={0}
                                                                                                     value={wk(r, k)}
+                                                                                                    onFocus={cinpFocus}
+                                                                                                    onKeyDown={cinpKeyDown}
                                                                                                     onChange={(e) => setWeeklyField(sku, k, e.target.value)} />
                                                                                             ) : wk(r, k)}
                                                                                         </td>
@@ -2560,17 +2581,21 @@ function InventoryView({
                                                                                 </>
                                                                             ) : (
                                                                                 <>
-                                                                                    <td className="r num">
+                                                                                    <td className="r num" data-label={`W${compactWeek}↓ Issued`}>
                                                                                         {canStage ? (
                                                                                             <input className="cinp" type="number" min={0}
                                                                                                 value={wk(r, ISSUED[compactWeek - 1])}
+                                                                                                onFocus={cinpFocus}
+                                                                                                onKeyDown={cinpKeyDown}
                                                                                                 onChange={(e) => setWeeklyField(sku, ISSUED[compactWeek - 1], e.target.value)} />
                                                                                         ) : wk(r, ISSUED[compactWeek - 1])}
                                                                                     </td>
-                                                                                    <td className="r num wk-rcv">
+                                                                                    <td className="r num wk-rcv" data-label={`W${compactWeek}↑ Rcvd`}>
                                                                                         {canStage ? (
                                                                                             <input className="cinp wk-rcv-inp" type="number" min={0}
                                                                                                 value={wk(r, RECEIVED[compactWeek - 1])}
+                                                                                                onFocus={cinpFocus}
+                                                                                                onKeyDown={cinpKeyDown}
                                                                                                 onChange={(e) => setWeeklyField(sku, RECEIVED[compactWeek - 1], e.target.value)} />
                                                                                         ) : wk(r, RECEIVED[compactWeek - 1])}
                                                                                     </td>
@@ -2578,6 +2603,7 @@ function InventoryView({
                                                                             )}
                                                                             <td
                                                                                 className="r num"
+                                                                                data-label="Total $"
                                                                                 style={{
                                                                                     fontWeight: 700,
                                                                                 }}

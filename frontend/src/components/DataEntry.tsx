@@ -616,6 +616,7 @@ function AIStackSettings({ isSudo }: { isSudo: boolean }) {
     const [providers, setProviders] = useState<string[]>([]);
     const [saving, setSaving]   = useState(false);
     const [saved, setSaved]     = useState(false);
+    const [visionModels, setVisionModels] = useState<string[]>([]);
 
     useEffect(() => {
         let alive = true;
@@ -629,6 +630,7 @@ function AIStackSettings({ isSudo }: { isSudo: boolean }) {
                 setModel(cur.model || '');
                 setOllamaUrl(cur.ollama_url || '');
                 setProviders(cfg?.supported_providers || []);
+                setVisionModels(cfg?.vision_models || []);
                 const models: Record<string, string[]> = {
                     groq:      cfg?.groq_models      || [],
                     anthropic: cfg?.anthropic_models || [],
@@ -671,6 +673,9 @@ function AIStackSettings({ isSudo }: { isSudo: boolean }) {
         }
     };
 
+    const isVision = visionModels.includes(model) ||
+        (LOCAL_PROVIDERS.has(provider)); // local providers may support vision via operator config
+
     return (
         <WinCard title="AI stack settings" style={{ marginTop: 14 }} defaultOpen={true}>
             {loading && <div style={{ color: 'var(--muted)', fontSize: 12 }}>Loading…</div>}
@@ -688,17 +693,38 @@ function AIStackSettings({ isSudo }: { isSudo: boolean }) {
                     </div>
 
                     <div>
-                        <label style={LBL}>Model</label>
+                        <label style={LBL}>
+                            Model
+                            {visionModels.includes(model) && (
+                                <span style={{
+                                    marginLeft: 6, fontSize: 10, fontWeight: 800,
+                                    background: '#eff5fe', color: '#1e3a8a',
+                                    padding: '2px 7px', borderRadius: 5, border: '1px solid #bfdbfe',
+                                }}>✦ Vision</span>
+                            )}
+                        </label>
                         {modelOptions.length > 0 ? (
                             <select className="tb-select" value={model} onChange={e => { setModel(e.target.value); setSaved(false); }}
                                 style={{ minWidth: 240 }}>
-                                {modelOptions.map(m => <option key={m} value={m}>{m}</option>)}
+                                {modelOptions.map(m => (
+                                    <option key={m} value={m}>
+                                        {visionModels.includes(m) ? `✦ ${m}` : m}
+                                    </option>
+                                ))}
                             </select>
                         ) : (
                             <input className="tb-select" value={model} onChange={e => { setModel(e.target.value); setSaved(false); }}
                                 placeholder="e.g. llama-3.3-70b-versatile" style={{ minWidth: 240 }} />
                         )}
                     </div>
+
+                    {!isVision && !LOCAL_PROVIDERS.has(provider) && (
+                        <div style={{ alignSelf: 'flex-end', fontSize: 11, color: 'var(--amber-ink)',
+                            background: 'var(--amber-bg)', padding: '6px 10px', borderRadius: 7,
+                            border: '1px solid var(--amber-ink)', maxWidth: 260 }}>
+                            Image invoices require a vision-capable model (✦ Vision badge).
+                        </div>
+                    )}
 
                     {LOCAL_PROVIDERS.has(provider) && (
                         <div>

@@ -147,7 +147,6 @@ def _extract_ops(
     kind, data = file_parser.detect_and_parse(filename, content)
 
     # Deterministic invoice parser short-circuit: no AI needed for structured invoices.
-    # Both PDF invoices and image receipts arrive here as 'invoice_items'.
     if kind == 'invoice_items':
         parsed = data  # {'meta': {...}, 'items': [...]}
         categories = ctx.get_categories()
@@ -159,6 +158,56 @@ def _extract_ops(
             week,
             direction,
             categories,
+        )
+
+    # Image bundles (ZIP-of-images, single images that OCR couldn't parse) — try vision, then OCR
+    if kind == 'invoice_images':
+        img_data = data  # {'images': [bytes, ...], 'meta': {...}}
+        images   = img_data.get('images', [])
+        img_meta = img_data.get('meta', {})
+        provider = ai_config.get('provider', '')
+        model    = ai_config.get('model', '')
+
+        if ai_engine.is_vision_capable(provider, model, ai_config):
+            try:
+                parsed = invoice_parser.extract_invoice_vision(
+                    images, img_meta, ai_config, called_by=called_by
+                )
+                if parsed.get('items'):
+                    categories = ctx.get_categories()
+                    return invoice_parser.invoice_items_to_ops(
+                        parsed['items'], parsed.get('meta', {}),
+                        month, year, week, direction, categories,
+                    )
+            except Exception:
+                pass  # fall through to OCR degradation
+
+        # OCR degradation: run each image through the OCR cascade
+        for img_bytes in images[:10]:
+            try:
+                ocr_parsed = invoice_parser.parse_invoice_bytes_image(img_bytes, 'image.jpg')
+                if ocr_parsed.get('items'):
+                    categories = ctx.get_categories()
+                    return invoice_parser.invoice_items_to_ops(
+                        ocr_parsed['items'], ocr_parsed.get('meta', {}),
+                        month, year, week, direction, categories,
+                    )
+            except Exception:
+                pass
+
+        # Both paths failed — raise a helpful, actionable message
+        if not ai_engine.is_vision_capable(provider, model, ai_config):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"This file contains images but the configured model '{model}' does not support vision. "
+                    "Select a vision-capable model (e.g. Llama 4, Claude, GPT-4o, Pixtral) "
+                    "in Data Entry → AI stack settings."
+                ),
+            )
+        raise HTTPException(
+            status_code=422,
+            detail='Could not extract data from this image file — vision extraction and OCR both failed.',
         )
 
     rows = data if kind == "rows" else None
@@ -545,15 +594,19 @@ class AISettingsBody(BaseModel):
 
 @router.get("/settings")
 async def get_settings(auth_user: dict = Depends(_get_auth_user)):
-    """Get current AI stack configuration."""
+    """Get current AI stack configuration including per-provider model lists and vision flags."""
     config = ctx.get_ai_config()
     return {
         "current": config,
-        "supported_providers": ai_engine.SUPPORTED_PROVIDERS,
+        "supported_providers": list(ai_engine.SUPPORTED_PROVIDERS),
         "groq_models": ai_engine.GROQ_MODELS,
         "anthropic_models": ai_engine.ANTHROPIC_MODELS,
         "openai_models": ai_engine.OPENAI_MODELS,
+        "mistral_models": ai_engine.MISTRAL_MODELS,
         "ollama_models": ai_engine.OLLAMA_MODELS,
+        "lm_studio_models": ai_engine.LM_STUDIO_MODELS,
+        "vision_models": list(ai_engine.VISION_MODELS),
+        "ai_enabled": True,
     }
 
 

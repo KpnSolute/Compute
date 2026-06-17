@@ -4,6 +4,47 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v3.7.0] — 2026-06-17 — Responsive inventory layout + model-agnostic AI vision
+
+**Agent:** Claude (Senior Development Manager)
+**Scope:** Code only. No DB changes.
+**Build:** `npm run build` ✓ · `ruff check` ✓ all modified backend files
+
+### PART 1 — Inventory editing responsive layout (tomorrow's blocker)
+
+**`frontend/src/index.css`**
+- `.sheet-sec{overflow:hidden}` → `overflow:visible` — fixes horizontal table clip on all viewports.
+- New `@media(max-width:820px)` block for `table.data.compact`: each `tbody tr` reflows to a 2-column card grid (flex columns, labeled with `data-label::before`). `.cinp` inputs get `min-height:44px`, `font-size:16px`, full-width for touch targets. Description and SKU span the full card top; Total $ spans the full bottom.
+
+**`frontend/src/components/Portal.tsx`**
+- Module-level `cinpFocus` (select-all on focus) and `cinpKeyDown` (Enter → advance to next `.cinp`) helpers — defined once, referenced by all compact-table inputs.
+- `data-label="On hand|Price ($)|Par|W{n}↓|W{n}↑|W{w}↓ Issued|W{w}↑ Rcvd|Total $"` added to each compact-table `td` cell.
+- `onFocus={cinpFocus}` + `onKeyDown={cinpKeyDown}` added to all 7 `.cinp` inputs in the compact view.
+
+### PART 2 — Model-agnostic AI invoice parsing (vision layer)
+
+**`backend/ai/engine.py`**
+- `GROQ_MODELS`: added Llama-4 Scout + Maverick (vision capable).
+- `MISTRAL_MODELS`: added `pixtral-large-2411` + `pixtral-12b-2409`.
+- `VISION_MODELS: frozenset[str]` — known vision-capable model IDs across all providers.
+- `is_vision_capable(provider, model, cfg) -> bool` — checks VISION_MODELS + ollama/lm_studio `cfg.vision` flag.
+- `complete_vision(prompt, images, cfg, *, operation, called_by) -> str` — per-provider image formatting (Anthropic base64 blocks, Ollama `images` list, OpenAI-compatible `image_url` data URIs). Logs to `ai_usage_logs` like `complete()`.
+
+**`backend/ai/parser.py`**
+- `detect_and_parse` rewritten with magic-byte content sniffing (`%PDF`, `PK\x03\x04`, `\xff\xd8`, `\x89PNG`) so ZIP-of-images saved as `.pdf` no longer crashes pdfplumber. New `invoice_images` kind for image bundles. `parse_pdf` fallback guarded in try/except.
+
+**`backend/ai/invoice_parser.py`**
+- `extract_invoice_vision(images, meta, cfg, *, called_by) -> dict` — calls `engine.complete_vision` with a structured JSON extraction prompt. Returns `{meta, items, reconciled, computed_total}`. Items have the same field shape as `parse_invoice_bytes_*`. Reconciliation check: `|Σext_price − subtotal| / subtotal < 2%`.
+
+**`backend/routes/data_entry.py`**
+- `_extract_ops`: handles new `invoice_images` kind — tries vision path if capable, then OCR degradation per image, then raises `422` with an actionable message naming the model and pointing to settings.
+- `GET /api/data-entry/settings`: now returns `mistral_models`, `lm_studio_models`, `vision_models` (list of vision-capable model IDs), and `ai_enabled: True`.
+
+**`frontend/src/components/DataEntry.tsx`**
+- `AIStackSettings`: loads `vision_models` from settings; shows `✦ Vision` badge on the model label when selected model is vision-capable; model dropdown prefixes vision-capable options with `✦`; shows amber inline warning when model is NOT vision-capable for image invoice parsing.
+
+---
+
 ## [v3.6.0] — 2026-06-16 — SKU Review: staging-first writes, queue UI, shared auth
 
 **Agent:** Claude (Senior Development Manager)

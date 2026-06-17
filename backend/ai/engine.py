@@ -143,6 +143,8 @@ GROQ_MODELS = [
     'llama3-70b-8192',
     'gemma2-9b-it',
     'qwen-qwq-32b',
+    'meta-llama/llama-4-scout-17b-16e-instruct',
+    'meta-llama/llama-4-maverick-17b-128e-instruct',
 ]
 ANTHROPIC_MODELS = [
     'claude-sonnet-4-20250514',
@@ -156,9 +158,42 @@ MISTRAL_MODELS = [
     'mistral-large-latest',
     'open-mistral-7b',
     'open-mixtral-8x7b',
+    'pixtral-large-2411',
+    'pixtral-12b-2409',
 ]
 OLLAMA_MODELS  = ['llama3.2:3b', 'llama3.1:8b', 'mistral:7b', 'mixtral:8x7b', 'phi3:mini']
 LM_STUDIO_MODELS = ['local-model']   # user fills in whatever is loaded
+
+# ── vision-capable model IDs (cross-provider) ─────────────────────────────────
+VISION_MODELS: frozenset[str] = frozenset({
+    # Groq — Llama 4 family
+    'meta-llama/llama-4-scout-17b-16e-instruct',
+    'meta-llama/llama-4-maverick-17b-128e-instruct',
+    # Anthropic — all current models support vision
+    'claude-sonnet-4-20250514',
+    'claude-haiku-4-5-20251001',
+    'claude-opus-4-6',
+    # OpenAI
+    'gpt-4o',
+    'gpt-4o-mini',
+    'gpt-4-turbo',
+    # Mistral — pixtral family
+    'pixtral-large-2411',
+    'pixtral-12b-2409',
+})
+
+
+# ── capability helpers ────────────────────────────────────────────────────────
+
+
+def is_vision_capable(provider: str, model: str, cfg: dict | None = None) -> bool:
+    """True if the provider+model combination accepts image content."""
+    if model in VISION_MODELS:
+        return True
+    # Ollama / LM Studio: operator sets vision=true in config when their local model supports it
+    if provider in ('ollama', 'lm_studio') and (cfg or {}).get('vision'):
+        return True
+    return False
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -292,6 +327,128 @@ def complete(
 
         else:
             raise ValueError(f'Unknown AI provider: {provider!r}. Must be one of {SUPPORTED_PROVIDERS}')
+
+    except Exception as exc:
+        success = False
+        error_msg = str(exc)[:500]
+        raise
+
+    finally:
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        _log_usage(
+            provider=provider,
+            model=model,
+            tokens_in=usage.get('tokens_in', 0),
+            tokens_out=usage.get('tokens_out', 0),
+            duration_ms=duration_ms,
+            operation=operation,
+            called_by=called_by,
+            success=success,
+            error_msg=error_msg,
+        )
+
+    return text
+
+
+def complete_vision(
+    prompt: str,
+    images: list[bytes],
+    config: dict | None = None,
+    *,
+    operation: str | None = None,
+    called_by: str | None = None,
+) -> str:
+    """Send a prompt + images to the configured provider and return the response text.
+
+    images — list of raw image bytes (JPEG or PNG recommended).
+    Raises RuntimeError if the configured model does not support vision.
+
+    Provider image formats:
+      anthropic   — base64 source blocks in content list
+      ollama      — images list in message object
+      everything else (groq, openai, mistral, lm_studio) — OpenAI image_url content parts
+    """
+    import base64
+
+    cfg = config or {}
+    provider = cfg.get('provider') or os.getenv('AI_PROVIDER', 'groq')
+    model    = cfg.get('model')    or os.getenv('GROQ_MODEL', 'llama-3.3-70b-versatile')
+
+    if not is_vision_capable(provider, model, cfg):
+        raise RuntimeError(
+            f"Model '{model}' on provider '{provider}' does not support vision. "
+            "Select a vision-capable model in Data Entry → AI stack settings."
+        )
+
+    t0 = time.monotonic()
+    text: str = ''
+    usage: dict = {'tokens_in': 0, 'tokens_out': 0}
+    success = True
+    error_msg: str | None = None
+
+    def _media_type(b: bytes) -> str:
+        if b[:4] == b'\x89PNG':
+            return 'image/png'
+        if b[:4] == b'GIF8':
+            return 'image/gif'
+        return 'image/jpeg'
+
+    try:
+        if provider == 'anthropic':
+            blocks: list[dict] = []
+            for img in images:
+                b64 = base64.b64encode(img).decode()
+                blocks.append({'type': 'image', 'source': {'type': 'base64', 'media_type': _media_type(img), 'data': b64}})
+            blocks.append({'type': 'text', 'text': prompt})
+            messages = [{'role': 'user', 'content': blocks}]
+            db_key, _ = _get_db_row('anthropic')
+            api_key = db_key or os.getenv('ANTHROPIC_API_KEY', '')
+            if not api_key:
+                raise RuntimeError('ANTHROPIC_API_KEY not set')
+            text, usage = _anthropic_complete(messages, model, api_key)
+
+        elif provider == 'ollama':
+            b64_imgs = [base64.b64encode(img).decode() for img in images]
+            messages = [{'role': 'user', 'content': prompt, 'images': b64_imgs}]
+            _, db_url = _get_db_row('ollama')
+            base_url = db_url or cfg.get('ollama_url') or os.getenv('OLLAMA_URL', 'http://localhost:11434')
+            text, usage = _ollama_complete(messages, model, base_url)
+
+        else:
+            # OpenAI-compatible: groq, openai, mistral, lm_studio
+            content_parts: list[dict] = []
+            for img in images:
+                b64 = base64.b64encode(img).decode()
+                content_parts.append({'type': 'image_url', 'image_url': {'url': f'data:{_media_type(img)};base64,{b64}'}})
+            content_parts.append({'type': 'text', 'text': prompt})
+            messages = [{'role': 'user', 'content': content_parts}]
+
+            if provider == 'groq':
+                db_key, _ = _get_db_row('groq')
+                api_key = db_key or os.getenv('GROQ_API_KEY', '')
+                if not api_key:
+                    raise RuntimeError('GROQ_API_KEY not set')
+                text, usage = _groq_complete(messages, model, api_key)
+            elif provider == 'openai':
+                db_key, db_url = _get_db_row('openai')
+                api_key = db_key or os.getenv('OPENAI_API_KEY', '')
+                if not api_key:
+                    raise RuntimeError('OPENAI_API_KEY not set')
+                text, usage = _openai_complete(messages, model, api_key, db_url)
+            elif provider == 'mistral':
+                db_key, _ = _get_db_row('mistral')
+                api_key = db_key or os.getenv('MISTRAL_API_KEY', '')
+                if not api_key:
+                    raise RuntimeError('MISTRAL_API_KEY not set')
+                text, usage = _mistral_complete(messages, model, api_key)
+            elif provider == 'lm_studio':
+                _, db_url = _get_db_row('lm_studio')
+                base_url = db_url or cfg.get('lm_studio_url') or os.getenv('LM_STUDIO_URL', 'http://localhost:1234')
+                db_key2, _ = _get_db_row('lm_studio')
+                api_key = db_key2 or os.getenv('LM_STUDIO_API_KEY', 'lm-studio')
+                text, usage = _openai_complete(messages, model, api_key, base_url)
+            else:
+                raise ValueError(f'Vision dispatch not implemented for provider: {provider!r}')
 
     except Exception as exc:
         success = False
