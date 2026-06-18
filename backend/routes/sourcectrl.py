@@ -311,6 +311,26 @@ async def get_staging(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get('/staging/mine')
+async def get_my_staging(auth_user: dict = Depends(_get_auth_user)):
+    """Return the current user's pending staging entries (not yet linked to a PR)."""
+    try:
+        r = (
+            _client()
+            .table('staging_entries')
+            .select('entry_id,operation,entity_type,entity_id,metadata,created_at,pull_request_id')
+            .eq('submitted_by', auth_user['id'])
+            .eq('status', 'pending')
+            .is_('pull_request_id', 'null')
+            .order('created_at', desc=True)
+            .execute()
+        )
+        entries = r.data or []
+        return {'count': len(entries), 'entries': entries}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post('/staging', status_code=201)
 async def submit_staging(
     body: SubmitStagingBody, auth_user: dict = Depends(_get_auth_user)
@@ -323,8 +343,23 @@ async def submit_staging(
         caller_role = (auth_user.get('role') or '').lower()
         if caller_role not in ('admin', 'manager', 'sudo'):
             if body.operation in ('inventory_save', 'inventory_week_update') and body.full_payload:
-                inv_month = (body.full_payload or {}).get('month')
-                inv_year = (body.full_payload or {}).get('year')
+                fp = body.full_payload or {}
+                # Staff cannot stage issued quantities — manager-only field
+                if body.operation == 'inventory_week_update' and fp.get('direction') == 'issued':
+                    raise HTTPException(
+                        status_code=403,
+                        detail='Only managers can stage issued (pullout) quantities.',
+                    )
+                # Check for inventory_save payloads containing any issued field
+                if body.operation == 'inventory_save':
+                    for item in fp.get('items', []):
+                        if any(k in item for k in ('w1i', 'w2i', 'w3i', 'w4i', 'w5i')):
+                            raise HTTPException(
+                                status_code=403,
+                                detail='Only managers can stage issued (pullout) quantities.',
+                            )
+                inv_month = fp.get('month')
+                inv_year = fp.get('year')
                 if inv_month and inv_year:
                     db_month = max(0, int(inv_month) - 1)
                     ms_r = (

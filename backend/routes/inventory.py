@@ -903,3 +903,76 @@ async def rollover_period(
     except Exception as e:
         logger.exception("Error in rollover_period")
         raise HTTPException(status_code=500, detail=f"Rollover failed: {str(e)}")
+
+
+# ── Week-status endpoints ──────────────────────────────────────────────────────
+
+class WeekStatusRequest(BaseModel):
+    month: int   # 1-indexed
+    year: int
+    week: int    # 1–5
+    status: str  # open | locked | published
+
+
+@router.get("/week-status")
+async def get_week_status(
+    month: int = Query(...),
+    year: int = Query(...),
+    auth_user: dict = Depends(_get_auth_user),
+):
+    """Return week_status rows for the given period (1-indexed month).
+    Weeks with no row in the DB are returned as {status:'open'}.
+    """
+    from backend.periods import weeks_in_month
+    db_month = month - 1
+    try:
+        r = (
+            supabase_service.table("week_status")
+            .select("week,status,locked_by,locked_at")
+            .eq("month", db_month)
+            .eq("year", year)
+            .execute()
+        )
+        db_rows = {row["week"]: row for row in (r.data or [])}
+        num_weeks = weeks_in_month(month, year)
+        result = []
+        for w in range(1, num_weeks + 1):
+            if w in db_rows:
+                result.append({"week": w, **db_rows[w]})
+            else:
+                result.append({"week": w, "status": "open", "locked_by": None, "locked_at": None})
+        return result
+    except Exception as e:
+        logger.exception("Error in get_week_status")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/week-status")
+async def set_week_status(
+    body: WeekStatusRequest,
+    auth_user: dict = Depends(_get_auth_user),
+):
+    """Lock, unlock, or publish a specific week. Requires manager+."""
+    role = (auth_user.get("role") or "").lower()
+    if role not in ("admin", "manager", "sudo"):
+        raise HTTPException(status_code=403, detail="Manager access required to change week status.")
+    if body.status not in ("open", "locked", "published"):
+        raise HTTPException(status_code=422, detail="status must be open, locked, or published.")
+    if body.week not in (1, 2, 3, 4, 5):
+        raise HTTPException(status_code=422, detail="week must be 1–5.")
+    db_month = body.month - 1
+    try:
+        supabase_service.rpc(
+            "set_week_status",
+            {
+                "p_month": db_month,
+                "p_year": body.year,
+                "p_week": body.week,
+                "p_status": body.status,
+                "p_by": auth_user["id"],
+            },
+        ).execute()
+        return {"ok": True, "month": body.month, "year": body.year, "week": body.week, "status": body.status}
+    except Exception as e:
+        logger.exception("Error in set_week_status")
+        raise HTTPException(status_code=500, detail=str(e))

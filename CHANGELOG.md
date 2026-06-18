@@ -4,6 +4,68 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v3.8.0] — 2026-06-17 — Week logic, issuance control, KPI accuracy, week locking, staff draft persistence
+
+**Agent:** Claude (Senior Development Manager)
+**Scope:** Code only. No DB changes — all referenced DB objects (`week_status`, `set_week_status` RPC, `guard_locked_week_writes` trigger) already exist.
+**Build:** `npm run build` ✓ (2.69s) · `ruff check` ✓ all modified backend files
+
+### RC-1 — KPI Set A (Dashboard mini-cards)
+**`frontend/src/components/Portal.tsx`**
+- `monRows.received`: added `+(it.w5r||0)` — was missing week 5 received.
+- `miSum` reducer: added `iss` accumulator (`r.issued * r.price`).
+- Dashboard WinCard: added 4th "Issued" mini-card (#FEF3C7 amber, between Received and Closing).
+- KPI Set B (Operations.tsx `SUM_CARDS`) was already correct — no change needed.
+
+### RC-2 — Week 5 tab visibility
+**`frontend/src/components/Portal.tsx`**
+- Replaced the static week tab bar with an IIFE that computes `visibleWeeks`. Week 5 is hidden unless: `weekHasData(5)` is true OR the current date is in week 5 of the selected period. Prevents confusing empty future-week tabs.
+
+### RC-3 — Week locking (new)
+**`backend/routes/inventory.py`** — Two new endpoints:
+- `GET /api/inventory/week-status?month=&year=` → fills in `status:'open'` for weeks with no row.
+- `POST /api/inventory/week-status` body `{month,year,week,status}` — manager+ only; calls `set_week_status(p_month, p_year, p_week, p_status, p_by)` RPC.
+
+**`frontend/src/lib/api.ts`** — Added `getWeekStatus()` and `setWeekStatus()`.
+
+**`frontend/src/components/Portal.tsx`**
+- `weekLockStatus` state + `reloadWeekStatus` callback (fetches on period change).
+- Week tab labels show 🔒 (locked) or ✓ (published) suffix.
+- Manager toolbar: 🔒 Lock Week N / 🔓 Unlock Week N button appears next to week tabs when a specific week is selected (not shown for published weeks).
+- Issued cells (`w{n}i`) and received cells (`w{n}r`) in compact view: read-only when the week is locked/published for all users.
+
+### RC-4 — Staff draft persistence banner (new)
+**`backend/routes/sourcectrl.py`** — Added `GET /api/staging/mine` → `{count, entries}` of the current user's pending unlinked staging entries.
+
+**`frontend/src/lib/api.ts`** — Added `getMyStagingEntries()`.
+
+**`frontend/src/components/Portal.tsx`**
+- `pendingDraftsCount` state: fetches on mount and on `mjcc:staging-changed` / `mjcc:committed` events.
+- Amber banner shown when `pendingDraftsCount > 0 && lvl < 30`: "You have N staged changes — Submit for Review when ready." with "Open Source Control" link.
+
+### RC-5 — Issuance is manager-only
+**`backend/routes/sourcectrl.py`** — `POST /api/staging` now rejects with HTTP 403 if caller role < manager AND:
+- Operation is `inventory_week_update` with `direction:'issued'`.
+- Operation is `inventory_save` and any item payload contains `w{n}i` fields.
+
+**`frontend/src/components/Portal.tsx`**
+- Compact view issued cells (`ISSUED` array, `w{n}i`): shown as read-only `<span title="Manager only">` for `lvl < 30` users. Received cells remain editable for all staff.
+- `stageCompactChanges`: issued staging op is skipped entirely when `lvl < 30` (defense-in-depth; backend also rejects).
+
+### FIX 6 — Month rollover button
+**`frontend/src/components/Portal.tsx`**
+- "Publish Month →" button added to week tab toolbar (manager+, lvl ≥ 30).
+- Confirmation modal: "Publish [Month YYYY] and create [Next Month] opening balance — cannot be undone."
+- On confirm: calls `api.performRollover(...)`, toasts result, calls `onSync()` to reload state.
+
+### Guardrails Confirmed
+- No DB changes. `week_status` table, `set_week_status` RPC, and `guard_locked_week_writes` trigger all pre-exist.
+- `VITE_API_BASE` → prod Render URL, not reverted.
+- Staging-first everywhere. Issuance lock is front+back.
+- Compact staging: `stageCompactChanges` strips issued ops for non-managers client-side; backend rejects server-side.
+
+---
+
 ## [v3.7.0] — 2026-06-17 — Responsive inventory layout + model-agnostic AI vision
 
 **Agent:** Claude (Senior Development Manager)

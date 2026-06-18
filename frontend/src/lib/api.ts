@@ -224,6 +224,18 @@ export const api = {
     return req('/api/inventory/rollover', { method: 'POST', body: JSON.stringify({ message: message ?? null }) });
   },
 
+  async getWeekStatus(month: number, year: number): Promise<Array<{ week: number; status: string; locked_by: string | null; locked_at: string | null }>> {
+    return req(`/api/inventory/week-status?month=${month}&year=${year}`);
+  },
+
+  async setWeekStatus(month: number, year: number, week: number, status: string): Promise<{ ok: boolean }> {
+    return req('/api/inventory/week-status', { method: 'POST', body: JSON.stringify({ month, year, week, status }) });
+  },
+
+  async getMyStagingEntries(): Promise<{ count: number; entries: any[] }> {
+    return req('/api/staging/mine');
+  },
+
   // Menu
   async getMenu(day: string): Promise<any> {
     return req(`/api/menu/${encodeURIComponent(day)}`);

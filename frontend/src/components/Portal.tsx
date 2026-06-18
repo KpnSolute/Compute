@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+﻿import { useState, useEffect, useCallback, useRef } from "react";
 import { I, KpnMark } from "../lib/icons";
 import {
     type User,
@@ -641,17 +641,18 @@ function Dashboard({
     const monRows = invToList(live || {}).map((it: any) => ({
         price: it.price || 0,
         opening: it.onHand || 0,
-        received: (it.w1r || 0) + (it.w2r || 0) + (it.w3r || 0) + (it.w4r || 0),
-        issued: (it.w1i || 0) + (it.w2i || 0) + (it.w3i || 0) + (it.w4i || 0),
+        received: (it.w1r || 0) + (it.w2r || 0) + (it.w3r || 0) + (it.w4r || 0) + (it.w5r || 0),
+        issued: (it.w1i || 0) + (it.w2i || 0) + (it.w3i || 0) + (it.w4i || 0) + (it.w5i || 0),
     }));
     const miSum = monRows.reduce(
         (a: any, r: any) => {
             a.open += r.opening * r.price;
             a.recv += r.received * r.price;
+            a.iss  += r.issued * r.price;
             a.close += Math.max(0, r.opening + r.received - r.issued) * r.price;
             return a;
         },
-        { open: 0, recv: 0, close: 0 },
+        { open: 0, recv: 0, iss: 0, close: 0 },
     );
 
     const menuMeals = [
@@ -799,7 +800,7 @@ function Dashboard({
             {invState.error && invState.error !== "empty" && (
                 <div className="banner warn">
                     {I.alert()}
-                    <span>Couldn’t load live data: {invState.error}</span>
+                    <span>Couldn't load live data: {invState.error}</span>
                     {/token|authorization|expired/i.test(invState.error) ? (
                         <span className="bx" onClick={() => { realLogout(); (window as any).__logout?.(); }}>
                             Sign out
@@ -865,7 +866,7 @@ function Dashboard({
                     }}
                 >
                     <WinCard
-                        title={`Today’s menu · ${DOW_FULL[new Date().getDay()]}`}
+                        title={`Today's menu · ${DOW_FULL[new Date().getDay()]}`}
                         link="Full menu →"
                         onLink={() => go("menu")}
                     >
@@ -956,6 +957,10 @@ function Dashboard({
                             <div className="mim" style={{ background: "#F0FDF4" }}>
                                 <span className="mim-l" style={{ color: "#166534" }}>Received</span>
                                 <span className="mim-v" style={{ color: "#166534" }}>{fmtMoney(miSum.recv)}</span>
+                            </div>
+                            <div className="mim" style={{ background: "#FEF3C7" }}>
+                                <span className="mim-l" style={{ color: "#92400E" }}>Issued</span>
+                                <span className="mim-v" style={{ color: "#92400E" }}>{fmtMoney(miSum.iss)}</span>
                             </div>
                             <div className="mim" style={{ background: "#EFF5FE" }}>
                                 <span className="mim-l" style={{ color: "#1660C8" }}>Closing</span>
@@ -1077,6 +1082,57 @@ function InventoryView({
         keepSku: string; removeSku: string; removeDesc: string;
     } | null>(null);
     const [mergeBusy, setMergeBusy] = useState(false);
+
+    // Week lock status: keyed by week number (1-5), value = 'open'|'locked'|'published'
+    const [weekLockStatus, setWeekLockStatus] = useState<Record<number, string>>({});
+    const [weekLockBusy, setWeekLockBusy] = useState(false);
+    const reloadWeekStatus = useCallback(() => {
+        api.getWeekStatus(period[0] + 1, period[1])
+            .then((rows) => {
+                const map: Record<number, string> = {};
+                rows.forEach((r) => { map[r.week] = r.status; });
+                setWeekLockStatus(map);
+            })
+            .catch(() => {});
+    }, [period[0], period[1]]);
+    useEffect(() => { reloadWeekStatus(); }, [reloadWeekStatus]);
+
+    // Pending drafts banner: count of the current user's unsubmitted staging entries
+    const [pendingDraftsCount, setPendingDraftsCount] = useState(0);
+    useEffect(() => {
+        api.getMyStagingEntries()
+            .then(({ count }) => setPendingDraftsCount(count))
+            .catch(() => {});
+        const handler = () => {
+            api.getMyStagingEntries()
+                .then(({ count }) => setPendingDraftsCount(count))
+                .catch(() => {});
+        };
+        window.addEventListener('mjcc:staging-changed', handler);
+        window.addEventListener('mjcc:committed', handler);
+        return () => {
+            window.removeEventListener('mjcc:staging-changed', handler);
+            window.removeEventListener('mjcc:committed', handler);
+        };
+    }, [period[0], period[1]]);
+
+    // Rollover modal
+    const [showRollover, setShowRollover] = useState(false);
+    const [rolloverBusy, setRolloverBusy] = useState(false);
+    const doRollover = async () => {
+        setRolloverBusy(true);
+        try {
+            await api.performRollover(`Published ${MONTHS[period[0]]} ${period[1]} and rolled forward`);
+            toast(`${MONTHS[period[0]]} published — next period created.`);
+            setShowRollover(false);
+            onSync();
+        } catch (e: any) {
+            toast(`Rollover failed: ${e?.message || 'Unknown error'}`);
+        } finally {
+            setRolloverBusy(false);
+        }
+    };
+
     const openEdit = (row: any) => {
         setEditTarget(row);
         setEditForm({
@@ -1301,7 +1357,7 @@ function InventoryView({
                         `W${compactWeek} received · ${rcvItems.length} item${rcvItems.length !== 1 ? "s" : ""}`,
                     ));
                 }
-                if (issItems.length) {
+                if (issItems.length && lvl >= 30) {
                     ops.push(api.stageChange(
                         "inventory_week_update", "inventory",
                         `W${compactWeek}-issued-${month1}-${yr}`,
@@ -1670,7 +1726,7 @@ function InventoryView({
             {invState.error && invState.error !== "empty" && (
                 <div className="banner warn">
                     {I.alert()}
-                    <span>Couldn’t load live data: {invState.error}</span>
+                    <span>Couldn't load live data: {invState.error}</span>
                     {/token|authorization|expired/i.test(invState.error) ? (
                         <span className="bx" onClick={() => { realLogout(); (window as any).__logout?.(); }}>
                             Sign out
@@ -1680,6 +1736,44 @@ function InventoryView({
                             Retry
                         </span>
                     )}
+                </div>
+            )}
+
+            {pendingDraftsCount > 0 && lvl < 30 && (
+                <div className="banner warn" style={{ background: '#FEF3C7', borderColor: '#D97706', color: '#92400E' }}>
+                    {I.alert()}
+                    <span>
+                        You have <strong>{pendingDraftsCount}</strong> staged change{pendingDraftsCount !== 1 ? 's' : ''} — submit for review when ready.
+                    </span>
+                    <span className="bx" onClick={() => openSC?.()}>
+                        Open Source Control
+                    </span>
+                </div>
+            )}
+
+            {/* Rollover confirmation modal */}
+            {showRollover && (
+                <div className="modal-backdrop" onClick={() => !rolloverBusy && setShowRollover(false)}>
+                    <div className="modal-box" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+                        <div className="modal-head">
+                            <span>Publish Month &amp; Roll Forward</span>
+                            <button className="modal-close" onClick={() => setShowRollover(false)} disabled={rolloverBusy}>✕</button>
+                        </div>
+                        <div className="modal-body" style={{ padding: '16px 20px' }}>
+                            <p style={{ margin: '0 0 12px', lineHeight: 1.5 }}>
+                                This will <strong>publish {MONTHS[period[0]]} {period[1]}</strong> and create the opening balance for {MONTHS[(period[0] + 1) % 12]} {period[0] === 11 ? period[1] + 1 : period[1]}.
+                            </p>
+                            <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12 }}>
+                                This cannot be undone. All weekly data for this period will be locked permanently.
+                            </p>
+                        </div>
+                        <div className="modal-foot" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 20px' }}>
+                            <button className="btn" onClick={() => setShowRollover(false)} disabled={rolloverBusy}>Cancel</button>
+                            <button className="btn primary" onClick={doRollover} disabled={rolloverBusy}>
+                                {rolloverBusy ? 'Publishing…' : 'Confirm Publish'}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -1755,25 +1849,80 @@ function InventoryView({
                         )}
                     </div>
                     {/* ── Week selector — visible in all 3 modes ── */}
-                    <div style={{ padding: "2px 16px 8px", borderBottom: "1px solid var(--line)" }}>
-                        <div className="tab-bar" style={{ marginBottom: 0 }}>
-                            {[
-                                { val: 0 as 0|1|2|3|4|5, label: "All weeks" },
-                                ...Array.from({ length: maxWeeks }, (_, i) => ({
-                                    val: (i + 1) as 0|1|2|3|4|5,
-                                    label: `Week ${i + 1}`,
-                                })),
-                            ].map(({ val, label }) => (
-                                <button
-                                    key={val}
-                                    className={"tab-btn" + (compactWeek === val ? " active" : "")}
-                                    onClick={() => setCompactWeek(val)}
-                                >
-                                    {label}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
+                    {(() => {
+                        // Determine which week tabs to render.
+                        // Week 5 is only shown when it has data OR the current date is in week 5 of this period.
+                        const todayWeek = Math.min(5, Math.ceil(new Date().getDate() / 7));
+                        const isCurPeriod = period[0] === new Date().getMonth() && period[1] === new Date().getFullYear();
+                        const flatInv = invToList(invState.inv || {});
+                        const weekHasData = (w: number) => flatInv.some((r: any) => (r[`w${w}r`] || 0) > 0 || (r[`w${w}i`] || 0) > 0);
+                        const visibleWeeks = Array.from({ length: maxWeeks }, (_, i) => i + 1).filter(
+                            (w) => w < 5 || weekHasData(w) || (isCurPeriod && todayWeek >= w)
+                        );
+                        const lockIcon = (w: number) => {
+                            const s = weekLockStatus[w];
+                            return s === 'locked' ? ' 🔒' : s === 'published' ? ' ✓' : '';
+                        };
+                        return (
+                            <div style={{ padding: "2px 16px 8px", borderBottom: "1px solid var(--line)" }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                    <div className="tab-bar" style={{ marginBottom: 0, flex: 1 }}>
+                                        {[
+                                            { val: 0 as 0|1|2|3|4|5, label: "All weeks" },
+                                            ...visibleWeeks.map((w) => ({
+                                                val: w as 0|1|2|3|4|5,
+                                                label: `Week ${w}${lockIcon(w)}`,
+                                            })),
+                                        ].map(({ val, label }) => (
+                                            <button
+                                                key={val}
+                                                className={"tab-btn" + (compactWeek === val ? " active" : "")}
+                                                onClick={() => setCompactWeek(val)}
+                                            >
+                                                {label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {lvl >= 30 && compactWeek > 0 && (() => {
+                                        const ws = weekLockStatus[compactWeek] || 'open';
+                                        if (ws === 'published') return null;
+                                        return (
+                                            <button
+                                                className="btn"
+                                                style={{ fontSize: 11, padding: '4px 10px', whiteSpace: 'nowrap' }}
+                                                disabled={weekLockBusy}
+                                                onClick={async () => {
+                                                    setWeekLockBusy(true);
+                                                    try {
+                                                        const newStatus = ws === 'locked' ? 'open' : 'locked';
+                                                        await api.setWeekStatus(period[0] + 1, period[1], compactWeek, newStatus);
+                                                        reloadWeekStatus();
+                                                        toast(`Week ${compactWeek} ${newStatus === 'locked' ? 'locked' : 'unlocked'}.`);
+                                                    } catch (e: any) {
+                                                        toast(`Failed: ${e?.message || 'Error'}`);
+                                                    } finally {
+                                                        setWeekLockBusy(false);
+                                                    }
+                                                }}
+                                            >
+                                                {ws === 'locked' ? '🔓 Unlock Week' : '🔒 Lock Week'} {compactWeek}
+                                            </button>
+                                        );
+                                    })()}
+                                    {lvl >= 30 && (
+                                        <button
+                                            className="btn"
+                                            style={{ fontSize: 11, padding: '4px 10px', whiteSpace: 'nowrap' }}
+                                            onClick={() => setShowRollover(true)}
+                                            title="Publish this month and create the next period"
+                                        >
+                                            Publish Month →
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })()}
                     {viewMode === "regular" && (
                     <div className="card-body flush tbl-wrap">
                         <table className="data">
@@ -2556,49 +2705,76 @@ function InventoryView({
                                                                             </td>
                                                                             {compactWeek === 0 ? (
                                                                                 <>
-                                                                                    {ISSUED.map((k) => (
-                                                                                        <td className="r num" key={k} data-label={`W${k[1]}↓`}>
-                                                                                            {canStage ? (
-                                                                                                <input className="cinp" type="number" min={0}
-                                                                                                    value={wk(r, k)}
-                                                                                                    onFocus={cinpFocus}
-                                                                                                    onKeyDown={cinpKeyDown}
-                                                                                                    onChange={(e) => setWeeklyField(sku, k, e.target.value)} />
-                                                                                            ) : wk(r, k)}
-                                                                                        </td>
-                                                                                    ))}
-                                                                                    {RECEIVED.map((k) => (
-                                                                                        <td className="r num wk-rcv" key={k} data-label={`W${k[1]}↑`}>
-                                                                                            {canStage ? (
-                                                                                                <input className="cinp wk-rcv-inp" type="number" min={0}
-                                                                                                    value={wk(r, k)}
-                                                                                                    onFocus={cinpFocus}
-                                                                                                    onKeyDown={cinpKeyDown}
-                                                                                                    onChange={(e) => setWeeklyField(sku, k, e.target.value)} />
-                                                                                            ) : wk(r, k)}
-                                                                                        </td>
-                                                                                    ))}
+                                                                                    {ISSUED.map((k) => {
+                                                                                        const wNum = parseInt(k[1]);
+                                                                                        const locked = (weekLockStatus[wNum] || 'open') !== 'open';
+                                                                                        const canEditIssued = canStage && lvl >= 30 && !locked;
+                                                                                        return (
+                                                                                            <td className="r num" key={k} data-label={`W${k[1]}↓`}>
+                                                                                                {canEditIssued ? (
+                                                                                                    <input className="cinp" type="number" min={0}
+                                                                                                        value={wk(r, k)}
+                                                                                                        onFocus={cinpFocus}
+                                                                                                        onKeyDown={cinpKeyDown}
+                                                                                                        onChange={(e) => setWeeklyField(sku, k, e.target.value)} />
+                                                                                                ) : (
+                                                                                                    <span title={lvl < 30 ? 'Manager only' : locked ? 'Week locked' : undefined}>
+                                                                                                        {wk(r, k)}
+                                                                                                    </span>
+                                                                                                )}
+                                                                                            </td>
+                                                                                        );
+                                                                                    })}
+                                                                                    {RECEIVED.map((k) => {
+                                                                                        const wNum = parseInt(k[1]);
+                                                                                        const locked = (weekLockStatus[wNum] || 'open') !== 'open';
+                                                                                        const canEditRcv = canStage && !locked;
+                                                                                        return (
+                                                                                            <td className="r num wk-rcv" key={k} data-label={`W${k[1]}↑`}>
+                                                                                                {canEditRcv ? (
+                                                                                                    <input className="cinp wk-rcv-inp" type="number" min={0}
+                                                                                                        value={wk(r, k)}
+                                                                                                        onFocus={cinpFocus}
+                                                                                                        onKeyDown={cinpKeyDown}
+                                                                                                        onChange={(e) => setWeeklyField(sku, k, e.target.value)} />
+                                                                                                ) : wk(r, k)}
+                                                                                            </td>
+                                                                                        );
+                                                                                    })}
                                                                                 </>
                                                                             ) : (
                                                                                 <>
-                                                                                    <td className="r num" data-label={`W${compactWeek}↓ Issued`}>
-                                                                                        {canStage ? (
-                                                                                            <input className="cinp" type="number" min={0}
-                                                                                                value={wk(r, ISSUED[compactWeek - 1])}
-                                                                                                onFocus={cinpFocus}
-                                                                                                onKeyDown={cinpKeyDown}
-                                                                                                onChange={(e) => setWeeklyField(sku, ISSUED[compactWeek - 1], e.target.value)} />
-                                                                                        ) : wk(r, ISSUED[compactWeek - 1])}
-                                                                                    </td>
-                                                                                    <td className="r num wk-rcv" data-label={`W${compactWeek}↑ Rcvd`}>
-                                                                                        {canStage ? (
-                                                                                            <input className="cinp wk-rcv-inp" type="number" min={0}
-                                                                                                value={wk(r, RECEIVED[compactWeek - 1])}
-                                                                                                onFocus={cinpFocus}
-                                                                                                onKeyDown={cinpKeyDown}
-                                                                                                onChange={(e) => setWeeklyField(sku, RECEIVED[compactWeek - 1], e.target.value)} />
-                                                                                        ) : wk(r, RECEIVED[compactWeek - 1])}
-                                                                                    </td>
+                                                                                    {(() => {
+                                                                                        const weekLocked = (weekLockStatus[compactWeek] || 'open') !== 'open';
+                                                                                        const canEditIssued = canStage && lvl >= 30 && !weekLocked;
+                                                                                        const canEditRcv = canStage && !weekLocked;
+                                                                                        return (
+                                                                                            <>
+                                                                                                <td className="r num" data-label={`W${compactWeek}↓ Issued`}>
+                                                                                                    {canEditIssued ? (
+                                                                                                        <input className="cinp" type="number" min={0}
+                                                                                                            value={wk(r, ISSUED[compactWeek - 1])}
+                                                                                                            onFocus={cinpFocus}
+                                                                                                            onKeyDown={cinpKeyDown}
+                                                                                                            onChange={(e) => setWeeklyField(sku, ISSUED[compactWeek - 1], e.target.value)} />
+                                                                                                    ) : (
+                                                                                                        <span title={lvl < 30 ? 'Manager only' : weekLocked ? 'Week locked' : undefined}>
+                                                                                                            {wk(r, ISSUED[compactWeek - 1])}
+                                                                                                        </span>
+                                                                                                    )}
+                                                                                                </td>
+                                                                                                <td className="r num wk-rcv" data-label={`W${compactWeek}↑ Rcvd`}>
+                                                                                                    {canEditRcv ? (
+                                                                                                        <input className="cinp wk-rcv-inp" type="number" min={0}
+                                                                                                            value={wk(r, RECEIVED[compactWeek - 1])}
+                                                                                                            onFocus={cinpFocus}
+                                                                                                            onKeyDown={cinpKeyDown}
+                                                                                                            onChange={(e) => setWeeklyField(sku, RECEIVED[compactWeek - 1], e.target.value)} />
+                                                                                                    ) : wk(r, RECEIVED[compactWeek - 1])}
+                                                                                                </td>
+                                                                                            </>
+                                                                                        );
+                                                                                    })()}
                                                                                 </>
                                                                             )}
                                                                             <td
@@ -3403,7 +3579,7 @@ function UsersView({ user: currentUser }: { user: User }) {
             {state.error && (
                 <div className="banner warn">
                     {I.alert()}
-                    <span>Couldn’t load users: {state.error}</span>
+                    <span>Couldn't load users: {state.error}</span>
                 </div>
             )}
 
