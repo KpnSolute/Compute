@@ -9,12 +9,12 @@ PUT  /api/data-entry/settings — update AI stack config
 import uuid
 import os
 from datetime import datetime, timezone
+from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header, Depends
 from pydantic import BaseModel
 
 from backend.routes import jwt_validator
 from supabase import create_client
-from typing import Optional
 
 from backend.ai import engine as ai_engine
 from backend.ai import invoice_parser
@@ -385,17 +385,18 @@ def _resolve_and_queue_items(
     ops: list[dict],
     source_ref: str,
     vendor_id: str | None = None,
-) -> list[dict]:
+) -> tuple[list[dict], int]:
     """Resolve every parsed SKU via resolve_invoice_sku RPC.
 
     - direct / alias → keep the item in the op (it maps to a known inventory_items row).
     - none (unknown) → insert a sku_review_queue row for manager triage; DROP the item
       from the staging op so no silent MJC- duplicate is created.
 
-    Returns the filtered ops list (ops with no remaining items are dropped entirely).
+    Returns (filtered_ops, queued_count).
     """
     svc = _client()
     resolved_ops: list[dict] = []
+    queued_count = 0
     for op in ops:
         if op.get("operation") not in ("inventory_save", "inventory_week_update"):
             resolved_ops.append(op)
@@ -441,6 +442,7 @@ def _resolve_and_queue_items(
                             "status": "pending",
                         }
                     ).execute()
+                    queued_count += 1
                 except Exception:
                     pass  # Don't block the import if queue insert fails
 
@@ -450,7 +452,104 @@ def _resolve_and_queue_items(
             )
         # ops with zero remaining items are silently dropped (all items queued)
 
-    return resolved_ops
+    return resolved_ops, queued_count
+
+
+# ── invoice record helpers ────────────────────────────────────────────────────
+
+
+def _upsert_invoice_record(
+    meta: dict,
+    month: int,
+    year: int,
+    week: int,
+    submitter_id: str,
+) -> tuple[Optional[str], bool]:
+    """Insert an invoices row from parsed meta.  Returns (invoice_id, already_existed).
+
+    invoice_number is the idempotency key.  If a row with the same invoice_number
+    already exists we return its id without inserting (idempotent re-upload guard).
+    Returns (None, False) when invoice_number is absent (non-US Foods uploads).
+    """
+    svc = _client()
+    inv_num = (meta.get("invoice_number") or "").strip()
+    if not inv_num:
+        return None, False
+
+    # Idempotency check
+    try:
+        existing = (
+            svc.table("invoices")
+            .select("id")
+            .eq("invoice_number", inv_num)
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            return existing.data[0]["id"], True
+    except Exception:
+        pass
+
+    # Parse invoice_date — accept MM/DD/YYYY or YYYY-MM-DD
+    inv_date_raw = (meta.get("invoice_date") or "").strip()
+    inv_date: Optional[str] = None
+    if inv_date_raw:
+        try:
+            from datetime import datetime as _dt
+
+            for fmt in ("%m/%d/%Y", "%Y-%m-%d", "%m/%d/%y"):
+                try:
+                    inv_date = _dt.strptime(inv_date_raw, fmt).date().isoformat()
+                    break
+                except ValueError:
+                    continue
+        except Exception:
+            pass
+    if not inv_date:
+        inv_date = _now()[:10]  # fallback to today
+
+    def _to_dec(v: Any) -> Optional[float]:
+        try:
+            return float(str(v).replace(",", "")) if v is not None else None
+        except (ValueError, TypeError):
+            return None
+
+    row: dict = {
+        "invoice_number": inv_num,
+        "invoice_date": inv_date,
+        "month": month,
+        "year": year,
+        "week_number": week or None,
+        "status": "pending",
+        "applied_by": submitter_id,
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    for field, key in [
+        ("subtotal", "subtotal"),
+        ("vizient_discount", "vizient_discount"),
+        ("fuel_surcharge", "fuel_surcharge"),
+        ("net_total", "net_total"),
+        ("account_number", "account_number"),
+        ("order_number", "order_number"),
+        ("route_number", "route"),
+        ("stop_number", "stop"),
+    ]:
+        val = meta.get(key)
+        if val is not None:
+            row[field] = (
+                _to_dec(val)
+                if field
+                in ("subtotal", "vizient_discount", "fuel_surcharge", "net_total")
+                else str(val)
+            )
+
+    try:
+        r = svc.table("invoices").insert(row).execute()
+        invoice_id = r.data[0]["id"] if r.data else None
+        return invoice_id, False
+    except Exception:
+        return None, False
 
 
 # ── routes ────────────────────────────────────────────────────────────────────
@@ -512,13 +611,60 @@ async def upload_file(
             status_code=422, detail="No data could be extracted from this file."
         )
 
+    # Create / deduplicate invoice record before staging
+    parsed_meta: dict = {}
+    for op in ops:
+        if op.get("operation") in ("inventory_save", "inventory_week_update"):
+            parsed_meta = op.get("payload", {}).get("_invoice_meta") or {}
+            break
+    # invoice_parser stores meta in the ops payload when kind==invoice_items
+    # Also check the first op's full_payload for any meta the parser attached
+    invoice_id: Optional[str] = None
+    invoice_existed = False
+    if not parsed_meta:
+        # Attempt to pull meta from the file_parser result stored on the first invoice op
+        for op in ops:
+            fp = op.get("full_payload") or op.get("payload") or {}
+            if fp.get("invoice_number"):
+                parsed_meta = fp
+                break
+    if parsed_meta or any(
+        op.get("operation") in ("inventory_save", "inventory_week_update") for op in ops
+    ):
+        # Re-parse meta from file to get invoice_number/dates for the record
+        try:
+            from backend.ai import parser as file_parser
+
+            kind, fdata = file_parser.detect_and_parse(
+                file.filename or "upload", content
+            )
+            if kind == "invoice_items":
+                parsed_meta = fdata.get("meta", {})
+        except Exception:
+            pass
+        invoice_id, invoice_existed = _upsert_invoice_record(
+            parsed_meta, month, year, week, auth_user["id"]
+        )
+        if invoice_existed and invoice_id:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "duplicate_invoice",
+                    "message": f"Invoice {parsed_meta.get('invoice_number')} has already been imported.",
+                    "invoice_id": invoice_id,
+                },
+            )
+
     # Resolve SKUs: unknown ones go to sku_review_queue, not staging.
-    ops = _resolve_and_queue_items(ops, file.filename or "upload")
+    ops, sku_queued = _resolve_and_queue_items(ops, file.filename or "upload")
 
     if not ops:
         raise HTTPException(
             status_code=422,
-            detail="All parsed items have unknown SKUs and were queued for manager review (GET /api/sku-review).",
+            detail=(
+                f"All {sku_queued} parsed item(s) have unknown SKUs and were queued for "
+                "manager review (GET /api/sku-review)."
+            ),
         )
 
     batch_id = str(uuid.uuid4())
@@ -537,6 +683,7 @@ async def upload_file(
     resp: dict = {
         "batch_id": batch_id,
         "staged_count": len(staged),
+        "sku_queued": sku_queued,
         "operations": op_counts,
         "file": file.filename,
         "month": month,
@@ -545,6 +692,8 @@ async def upload_file(
         "ai_model": ai_config.get("model", ""),
         "staging_ids": [s["entry_id"] for s in staged],
     }
+    if invoice_id:
+        resp["invoice_id"] = invoice_id
     if description:
         resp["description"] = description[:500]
     return resp
@@ -734,13 +883,13 @@ async def update_settings(
     return {"ok": True, "config": config}
 
 
-_ROLE_LEVELS = {'staff': 10, 'assistant': 20, 'manager': 30, 'admin': 40, 'sudo': 50}
+_ROLE_LEVELS = {"staff": 10, "assistant": 20, "manager": 30, "admin": 40, "sudo": 50}
 
 
 @router.get("/models")
 async def get_models(provider: str, auth_user: dict = Depends(_get_auth_user)):
     """Live model discovery for a provider. Falls back to static list on any error."""
-    if _ROLE_LEVELS.get(auth_user.get('role', ''), 0) < 30:
+    if _ROLE_LEVELS.get(auth_user.get("role", ""), 0) < 30:
         raise HTTPException(status_code=403, detail="Manager+ required")
 
     if provider not in ai_engine.SUPPORTED_PROVIDERS:
@@ -993,7 +1142,7 @@ async def delete_ai_key(key_id: str, auth_user: dict = Depends(_get_auth_user)):
 @router.post("/ai-stack")
 async def set_ai_stack(body: AIStackBody, auth_user: dict = Depends(_get_auth_user)):
     """Set the active AI stack (provider + key + model). Manager+ required."""
-    if _ROLE_LEVELS.get(auth_user.get('role', ''), 0) < 30:
+    if _ROLE_LEVELS.get(auth_user.get("role", ""), 0) < 30:
         raise HTTPException(status_code=403, detail="Manager+ required")
     if body.provider not in ai_engine.SUPPORTED_PROVIDERS:
         raise HTTPException(

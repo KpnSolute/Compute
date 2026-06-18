@@ -8,6 +8,8 @@ type Hint = '' | 'inventory' | 'events' | 'haccp' | 'menu' | 'log';
 interface UploadResult {
     batch_id: string;
     staged_count: number;
+    sku_queued?: number;
+    invoice_id?: string;
     operations: Record<string, number>;
     file: string;
     month: number;
@@ -539,6 +541,16 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                                     {Object.entries(result.operations).map(([op, count], i) => (
                                         <span key={i} className="pill ok">{op} x {count}</span>
                                     ))}
+                                    {(result.sku_queued ?? 0) > 0 && (
+                                        <span
+                                            className="pill warn"
+                                            title="Unknown vendor SKUs sent to manager review queue"
+                                            style={{ cursor: 'pointer' }}
+                                            onClick={() => onNavigate?.('sourcectrl')}
+                                        >
+                                            {result.sku_queued} SKU{result.sku_queued !== 1 ? 's' : ''} queued for review
+                                        </span>
+                                    )}
                                 </div>
                             </div>
                             <button
