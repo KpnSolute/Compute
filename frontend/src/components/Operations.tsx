@@ -575,7 +575,7 @@ export function MonthlyInventory({
             <div className="card-head">
               <h3>Invoice register — {MONTHS[m]} {y}</h3>
               <span className="ch-link">
-                {invoices.length} invoices · {fmtMoney(invoices.reduce((s: number, i: any) => s + i.total, 0))}
+                {invoices.length} invoices · {fmtMoney(invoices.reduce((s: number, i: any) => s + (i.net_total || i.total || 0), 0))}
               </span>
             </div>
             <div className="card-body flush tbl-wrap">
@@ -589,11 +589,11 @@ export function MonthlyInventory({
                 <tbody>
                   {invoices.map((iv: any) => (
                     <tr key={iv.id}>
-                      <td style={{ fontWeight: 700 }}>{iv.vendor}</td>
-                      <td className="num" style={{ color: 'var(--muted)' }}>{iv.number}</td>
-                      <td style={{ color: 'var(--muted)' }}>{new Date(iv.date + 'T12:00:00').toLocaleDateString()}</td>
-                      <td className="r num">{iv.items}</td>
-                      <td className="r num">{fmtMoneyFull(iv.total)}</td>
+                      <td style={{ fontWeight: 700 }}>{iv.vendor_name || iv.vendor || '—'}</td>
+                      <td className="num" style={{ color: 'var(--muted)' }}>{iv.invoice_number || iv.number || '—'}</td>
+                      <td style={{ color: 'var(--muted)' }}>{iv.invoice_date ? new Date(iv.invoice_date + 'T12:00:00').toLocaleDateString() : '—'}</td>
+                      <td className="r num">{iv.item_count ?? iv.items ?? '—'}</td>
+                      <td className="r num">{fmtMoneyFull(iv.net_total ?? iv.subtotal ?? iv.total ?? 0)}</td>
                     </tr>
                   ))}
                 </tbody>
