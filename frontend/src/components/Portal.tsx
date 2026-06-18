@@ -950,21 +950,21 @@ function Dashboard({
 
                     <WinCard title={`Monthly inventory · ${MONTHS[period[0]]}`} link="Manage →" onLink={() => go("moninv")}>
                         <div className="mi-mini">
-                            <div className="mim" style={{ background: "#EEF2F8" }}>
-                                <span className="mim-l" style={{ color: "#1B3A6B" }}>Opening</span>
+                            <div className="mim mim-opening">
+                                <span className="mim-l">Opening</span>
                                 <span className="mim-v">{fmtMoney(miSum.open)}</span>
                             </div>
-                            <div className="mim" style={{ background: "#F0FDF4" }}>
-                                <span className="mim-l" style={{ color: "#166534" }}>Received</span>
-                                <span className="mim-v" style={{ color: "#166534" }}>{fmtMoney(miSum.recv)}</span>
+                            <div className="mim mim-received">
+                                <span className="mim-l">Received</span>
+                                <span className="mim-v">{fmtMoney(miSum.recv)}</span>
                             </div>
-                            <div className="mim" style={{ background: "#FEF3C7" }}>
-                                <span className="mim-l" style={{ color: "#92400E" }}>Issued</span>
-                                <span className="mim-v" style={{ color: "#92400E" }}>{fmtMoney(miSum.iss)}</span>
+                            <div className="mim mim-issued">
+                                <span className="mim-l">Issued</span>
+                                <span className="mim-v">{fmtMoney(miSum.iss)}</span>
                             </div>
-                            <div className="mim" style={{ background: "#EFF5FE" }}>
-                                <span className="mim-l" style={{ color: "#1660C8" }}>Closing</span>
-                                <span className="mim-v" style={{ color: "#1660C8" }}>{fmtMoney(miSum.close)}</span>
+                            <div className="mim mim-closing">
+                                <span className="mim-l">Closing</span>
+                                <span className="mim-v">{fmtMoney(miSum.close)}</span>
                             </div>
                         </div>
                     </WinCard>
