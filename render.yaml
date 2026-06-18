@@ -1,0 +1,47 @@
+services:
+  # Backend — FastAPI on Docker
+  - type: web
+    name: MJCC-Managements-
+    env: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeploy: true
+    buildFilter:
+      paths:
+        - backend/**
+        - Dockerfile
+        - requirements.txt
+
+  # Frontend — React/Vite static site
+  - type: web
+    name: KpnCompute
+    env: static
+    buildCommand: cd frontend && npm ci && npm run build
+    staticPublishPath: ./frontend/dist
+    autoDeploy: true
+    buildFilter:
+      paths:
+        - frontend/**
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      # Vite-hashed assets are safe to cache indefinitely
+      - path: /assets/*
+        name: Cache-Control
+        value: "public, max-age=31536000, immutable"
+      # Entry point must always revalidate so new hashed asset names are fetched
+      - path: /index.html
+        name: Cache-Control
+        value: "no-cache, no-store, must-revalidate"
+      # Baseline security headers
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin

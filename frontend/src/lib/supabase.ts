@@ -116,14 +116,6 @@ export async function realLogin({
       return { ok: false, error: 'Staff accounts must use the Staff login.' };
     }
 
-    // P4 fix (per Claude v1.3.0 + Grok plan): subscribe to Supabase TOKEN_REFRESHED so we immediately re-call backendLogin with the new access_token.
-    // This keeps mjc_backend_token fresh and prevents the ~1h expiry 401 spam + uncaught ApiError the user saw on /api/inventory, /events, /menu (multiple components fire calls without central refresh).
-    db.auth.onAuthStateChange((event, session) => {
-      if (event === 'TOKEN_REFRESHED' && session?.access_token) {
-        backendLogin(session.access_token).catch(() => {});
-      }
-    });
-
     return { ok: true, user: { ..._publicUser(profile), access_token: authData.session.access_token } };
   } catch (e) {
     return { ok: false, error: 'Incorrect password. Please try again.' };
@@ -266,12 +258,40 @@ export async function backendPinLogin(username: string, pin: string): Promise<Ba
   }
 }
 
+let _logoutInProgress = false;
+
 export async function realLogout() {
+  _logoutInProgress = true;
   try {
     const db = getSupaClient();
     if (db) await db.auth.signOut();
-  } catch (e) {}
+  } catch (_e) {}
   clearBackendToken();
+  _logoutInProgress = false;
+}
+
+let _authRefreshInitialized = false;
+
+/**
+ * Register the Supabase onAuthStateChange listener once at app startup.
+ * TOKEN_REFRESHED keeps mjc_backend_token in sync with the refreshed JWT.
+ * SIGNED_OUT from an external source (e.g. Supabase dashboard) fires mjc:session-expired.
+ */
+export function initAuthRefresh() {
+  if (_authRefreshInitialized) return;
+  _authRefreshInitialized = true;
+  const db = getSupaClient();
+  if (!db) return;
+  db.auth.onAuthStateChange((event, session) => {
+    if (event === 'TOKEN_REFRESHED' && session?.access_token) {
+      backendLogin(session.access_token).catch(() => {});
+    }
+    if (event === 'SIGNED_OUT' && !_logoutInProgress) {
+      window.dispatchEvent(
+        new CustomEvent('mjc:session-expired', { detail: { reason: 'logout' } }),
+      );
+    }
+  });
 }
 
 export function _logKey(key: string) {

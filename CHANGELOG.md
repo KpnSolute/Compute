@@ -4,6 +4,50 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.0.0] — 2026-06-18 — Auth, session lifecycle & cache/deploy overhaul (P0 + P1)
+
+**Agent:** Claude (Senior Development Manager)
+**Build:** `tsc -b` clean · `vite build` ✓ (2.09s) · `ruff check backend/routes/auth.py` ✓
+**Push:** pending
+
+### P0.1 — Event name mismatch fixed
+`api.ts` was dispatching `mjcc:session-expired` (double-c) but `App.tsx` listened for `mjc:session-expired`. The listener never fired, leaving users stranded on a 401-spamming Portal. Standardized on `mjc:session-expired` everywhere. All dispatches now include `{ detail: { reason: 'unauthorized' | 'idle' | 'logout' } }`.
+
+### P0.2 — Centralized 30-minute idle timeout (`frontend/src/lib/session.ts` — new)
+- `startSessionWatch()` / `stopSessionWatch()` — exported API called from App.tsx.
+- Tracks `mousedown`, `keydown`, `click`, `scroll`, `touchstart`, `visibilitychange` activity; throttled writes to `mjc_last_activity` (localStorage, max once per 15 s).
+- Interval check every 30 s + on tab-visible: if `Date.now() - lastActivity > 30 min`, dispatch `mjc:session-expired` (`reason: 'idle'`).
+- Cross-tab sync via `storage` event: activity in any tab keeps all tabs alive; `mjc_backend_token` removal in another tab dispatches `mjc:session-expired` (`reason: 'logout'`) so all tabs return to Login together.
+
+### P0.3 — Unified session teardown (`App.tsx`)
+`handleLogout()` and the `mjc:session-expired` handler now both call a single `teardown(reason)` function that: (1) `stopSessionWatch()`, (2) `realLogout()` (signs out of Supabase + clears `mjc_backend_token`), (3) removes `kpn_session` and `mjc_last_activity`, (4) `setUser(null)`. Toast text depends on reason: idle → "Signed out after 30 minutes…", unauthorized → "Session expired…", logout → silent.
+
+### P0.4 — Boot hardening (`App.tsx`)
+`loadSession()` now checks `mjc_last_activity` against `IDLE_LIMIT_MS` before restoring a session — a past-idle session is expired immediately without mounting the Portal. After a session is restored, `api.getMe()` is called once on boot; a 401 triggers the central handler (no 401 spam, no stuck Portal).
+
+### P0.5 — Token-refresh bridge at module level (`supabase.ts`)
+- `initAuthRefresh()` — called once at app startup (not inside `realLogin`). Subscribes to `onAuthStateChange`; on `TOKEN_REFRESHED` calls `backendLogin()` so `mjc_backend_token` stays fresh past the 1-hour JWT wall. Guards against double-subscription with a module flag.
+- On `SIGNED_OUT` (external source — Supabase dashboard, revocation), dispatches `mjc:session-expired` (`reason: 'logout'`). Intentional logouts are guarded by `_logoutInProgress` flag in `realLogout()` so the external path doesn't trigger for normal logouts.
+- Removed the inline `onAuthStateChange` subscription that was inside `realLogin()`.
+
+### P0.6 — `render.yaml` Blueprint (new file)
+Captures both Render services:
+- `MJCC-Managements-` — Docker web service; `buildFilter.paths: backend/**, Dockerfile, requirements.txt`.
+- `KpnCompute` — static site; `buildCommand: cd frontend && npm ci && npm run build`; `buildFilter.paths: frontend/**` (so a `frontend/**`-only push triggers the static rebuild); SPA rewrite `/* → /index.html`; cache headers: `/assets/*` → `immutable`, `/index.html` → `no-cache, no-store`; security headers: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`.
+- **Action required:** push this file; Render will offer to sync the Blueprint. Service names match exactly (`KpnCompute`, `MJCC-Managements-`) so existing services should link, not duplicate — verify in Render dashboard.
+
+### P0.7 — Client-side "new version available" detection (`vite.config.ts`, `App.tsx`)
+- `vite.config.ts` now reads the git short SHA at build time (falls back to `Date.now().toString(36)`), exposes it as `__BUILD_ID__` via Vite `define`, and writes `dist/version.json` via `closeBundle` plugin hook.
+- `frontend/src/vite-env.d.ts` (new): `declare const __BUILD_ID__: string`.
+- `App.tsx`: on `visibilitychange` + every 10 min, fetches `/version.json?cache=no-store`. If `buildId` differs from `__BUILD_ID__`, shows a non-blocking bottom banner "A new version is available — Reload" with dismiss button. Never auto-reloads.
+
+### P1.1 — Staff PIN tokens get expiry + signature (`backend/routes/auth.py`)
+On successful PIN login, the backend now mints an HS256 JWT (signed with `SUPABASE_JWT_SECRET`, 12-hour `exp`, `sub` = user_id, `role` claim). The existing `jwt_validator.verify_token()` already handles HS256 with the same secret, so ALL backend route auth guards (`_deps.py`, `auth.me()`, etc.) validate the staff token without any changes to those files. Legacy `pin_` pseudo-token is issued as a fallback only if `SUPABASE_JWT_SECRET` is absent. The `pin_` branch in `_deps.py` is retained for transition safety (one-release overlap for any existing staff sessions).
+
+**Push:** pending
+
+---
+
 ## v3.10.0 — 2026-06-18
 
 ### Modal system — standardized + dark mode
@@ -19,6 +63,8 @@ This is the **central development memory and discussion board** for development 
 - Backend: new `GET /api/users/{id}/password` (sudo only) — returns account metadata (email, username, last sign-in). Note: Supabase does not store plaintext passwords; endpoint returns account info and a reset capability flag.
 - Frontend: Edit user modal for sudo users now shows "Change username" and "Set new password" fields below the Active account checkbox. Both are optional — leave blank to keep current values.
 - Frontend: `api.getUserPassword(id)` added to the API client.
+
+---
 
 ## [v3.9.2] — 2026-06-18 — Post-agent corrections: API path alignment + role guard fix
 

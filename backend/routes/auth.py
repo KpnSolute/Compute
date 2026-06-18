@@ -1,6 +1,8 @@
+import datetime
+import jwt as pyjwt
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel, ConfigDict
-from backend.routes import supabase_service, jwt_validator
+from backend.routes import supabase_service, jwt_validator, SUPABASE_JWT_SECRET
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -138,13 +140,24 @@ async def login(req: LoginRequest):
         if req.pin != user.get("pin", ""):
             raise HTTPException(status_code=401, detail="Invalid PIN")
 
-        # For PIN-based login, generate a simple token for session tracking
-        # In production, this should be a properly signed JWT
-        # For now, we'll use the user ID as a pseudo-token
-        pseudo_token = f"pin_{user['id']}"
+        # Mint a signed HS256 JWT (12-hour expiry) so staff tokens are validated
+        # by the same jwt_validator path as admin/manager tokens.
+        # Falls back to the legacy pin_ pseudo-token if SUPABASE_JWT_SECRET is absent.
+        if SUPABASE_JWT_SECRET:
+            now = datetime.datetime.now(datetime.timezone.utc)
+            payload = {
+                'sub': user['id'],
+                'role': user['role'],
+                'iat': int(now.timestamp()),
+                'exp': int((now + datetime.timedelta(hours=12)).timestamp()),
+            }
+            staff_token = pyjwt.encode(payload, SUPABASE_JWT_SECRET, algorithm='HS256')
+        else:
+            # Transition safety: legacy unsigned token accepted by _deps.py pin_ branch.
+            staff_token = f"pin_{user['id']}"
 
         return LoginResponse(
-            access_token=pseudo_token,
+            access_token=staff_token,
             user={
                 "id": user.get("id"),
                 "username": user.get("username"),
