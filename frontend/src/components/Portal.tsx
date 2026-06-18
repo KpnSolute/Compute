@@ -78,6 +78,8 @@ const initials = (u: User) =>
     ((u.display_name?.[0] || "") + (u.last_name?.[0] || "")).toUpperCase() ||
     (u.username || "?").slice(0, 2).toUpperCase();
 
+const AUTO_REFRESH_MS = 90_000; // re-fetch from DB every 90 s
+
 function useInventory(period: [number, number]): [any, () => Promise<void>] {
     const [state, setState] = useState({
         loading: false,
@@ -97,7 +99,7 @@ function useInventory(period: [number, number]): [any, () => Promise<void>] {
                 inv: res.inv,
                 metadata: (res as any).metadata ?? null,
                 syncedBy: (res as any).syncedBy ?? null,
-                syncedAt: (res as any).syncedAt ?? null,
+                syncedAt: new Date().toISOString(), // timestamp of this fetch, not row created_at
                 error: res.inv && Object.keys(res.inv as object).length > 0 ? null : "empty",
             });
         else
@@ -110,8 +112,11 @@ function useInventory(period: [number, number]): [any, () => Promise<void>] {
                 error: (res as any).error ?? 'Load failed',
             });
     }, [m, y]);
+    // Load on mount/period change + auto-refresh every 90 s
     useEffect(() => {
         load();
+        const timer = setInterval(load, AUTO_REFRESH_MS);
+        return () => clearInterval(timer);
     }, [load]);
     return [state, load];
 }
@@ -127,6 +132,9 @@ function Topbar({
     scCount,
     active,
     periodPublished,
+    apiStatus = 'live',
+    lastFetch,
+    onRefresh,
 }: {
     user: User;
     period: [number, number];
@@ -138,6 +146,9 @@ function Topbar({
     scCount?: number;
     active?: string;
     periodPublished?: boolean | null;
+    apiStatus?: 'live' | 'syncing' | 'error';
+    lastFetch?: string | null;
+    onRefresh?: () => void;
 }) {
     const [menu, setMenu] = useState(false);
     useEffect(() => {
@@ -177,8 +188,13 @@ function Topbar({
                 </div>
             </div>
             <div className="tb-right">
-                <span className="inv-badge">
-                    <span className="rt"></span>LIVE · API Connected
+                <span
+                    className={`inv-badge${apiStatus === 'error' ? ' err' : apiStatus === 'syncing' ? ' syncing' : ''}`}
+                    title={lastFetch ? `Last fetched: ${new Date(lastFetch).toLocaleTimeString()}` : 'Connecting…'}
+                    onClick={() => onRefresh?.()}
+                >
+                    <span className="rt"></span>
+                    {apiStatus === 'error' ? 'API Error' : apiStatus === 'syncing' ? 'Syncing…' : 'LIVE'}
                 </span>
                 <select
                     className="tb-select"
@@ -772,13 +788,7 @@ function Dashboard({
                             month: "long",
                             day: "numeric",
                         })}
-                        {live && invState.syncedAt && (
-                            <>
-                                {" "}
-                                · synced{" "}
-                                {new Date(invState.syncedAt).toLocaleString()}
-                            </>
-                        )}
+
                     </div>
                 </div>
                 <div className="ph-actions">
@@ -4204,6 +4214,8 @@ export function Portal({
     const [explorerOpen, setExplorerOpen] = useState(false);
     const [scPanelOpen, setScPanelOpen] = useState(false);
     const [invState, reloadInv] = useInventory(period);
+    const apiStatus = invState.loading ? 'syncing' : invState.error && invState.error !== 'empty' ? 'error' : 'live';
+    const lastFetch = invState.syncedAt;
     const [stagedCount, setStagedCount] = useState(0);
     const [periodPublished, setPeriodPublished] = useState<boolean | null>(null);
 
@@ -4329,6 +4341,9 @@ export function Portal({
                 scCount={stagedCount}
                 active={active}
                 periodPublished={periodPublished}
+                apiStatus={apiStatus}
+                lastFetch={lastFetch}
+                onRefresh={reloadInv}
             />
             <ActivityBar
                 user={user}
