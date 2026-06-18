@@ -245,7 +245,7 @@ def _extract_ops(
             )
 
         # one staging entry per item for row-level diff granularity
-        weekly = week in (1, 2, 3, 4)
+        weekly = week in (1, 2, 3, 4, 5)
         ops = []
         for item in result.get("items", []):
             if weekly:

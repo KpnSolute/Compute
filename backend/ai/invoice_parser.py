@@ -507,7 +507,7 @@ def invoice_items_to_ops(
     review_new=True.
     """
     live_cats = list(live_categories.keys()) if live_categories else None
-    weekly = week in (1, 2, 3, 4)
+    weekly = week in (1, 2, 3, 4, 5)
     invoice_ref = meta.get('invoice_number', '')
     ops: list[dict] = []
 

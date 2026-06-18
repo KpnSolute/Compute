@@ -101,7 +101,8 @@ def detect_and_parse(filename: str, content: bytes) -> tuple[str, list[dict] | s
         except Exception:
             pass
 
-    # PDFs: try deterministic invoice parser first, fall back to plain text
+    # PDFs: try deterministic invoice parser first, fall back to plain text,
+    # then convert to page images for vision AI if text extraction yields nothing.
     if is_pdf or ext == 'pdf':
         try:
             parsed = invoice_parser.parse_invoice_bytes_pdf(content, filename)
@@ -109,10 +110,27 @@ def detect_and_parse(filename: str, content: bytes) -> tuple[str, list[dict] | s
                 return 'invoice_items', parsed
         except Exception:
             pass
+        raw_text = ''
         try:
-            return 'text', parse_pdf(content)
+            raw_text = parse_pdf(content)
         except Exception:
-            return 'text', ''
+            pass
+        if raw_text.strip():
+            return 'text', raw_text
+        # All-image PDF (scanned / no native text) — render pages as PNG for vision AI.
+        try:
+            import pdfplumber as _plumber
+            page_images: list[bytes] = []
+            with _plumber.open(io.BytesIO(content)) as _pdf:
+                for _page in _pdf.pages[:10]:
+                    _buf = io.BytesIO()
+                    _page.to_image(resolution=150).save(_buf, format='PNG')
+                    page_images.append(_buf.getvalue())
+            if page_images:
+                return 'invoice_images', {'images': page_images, 'meta': {'filename': filename}}
+        except Exception:
+            pass
+        return 'text', ''
 
     # Single images: OCR path first, vision path as fallback signal
     if is_image:
