@@ -635,10 +635,13 @@ async def upload_file(
             if fp.get("invoice_number"):
                 parsed_meta = fp
                 break
+    reconciliation: dict = {}
     if parsed_meta or any(
         op.get("operation") in ("inventory_save", "inventory_week_update") for op in ops
     ):
-        # Re-parse meta from file to get invoice_number/dates for the record
+        # Re-parse to get invoice meta (number, dates) and reconciliation stats.
+        # reconcile_and_adjust() ran inside parse_invoice_bytes_pdf already, so
+        # meta['reconciliation'] is populated here at no extra cost.
         try:
             from backend.ai import parser as file_parser
 
@@ -647,15 +650,32 @@ async def upload_file(
             )
             if kind == "invoice_items":
                 parsed_meta = fdata.get("meta", {})
+                reconciliation = parsed_meta.get("reconciliation", {})
         except Exception:
             pass
+
+        # Gate: refuse to stage when totals are off by more than 5%
+        if reconciliation and reconciliation.get("net_total", 0) > 0:
+            delta_pct = reconciliation.get("delta_pct", 0)
+            if delta_pct > 5.0:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "reconciliation_failed",
+                        "message": (
+                            f"Invoice line items sum to ${reconciliation['computed_subtotal']:,.2f} "
+                            f"but the invoice total is ${reconciliation['net_total']:,.2f} "
+                            f"(delta {delta_pct:.1f}%). "
+                            "Fix the parse or re-upload a corrected file."
+                        ),
+                        "reconciliation": reconciliation,
+                    },
+                )
+
         invoice_id, invoice_is_pending_dup = _upsert_invoice_record(
             parsed_meta, month, year, week, auth_user["id"]
         )
         if invoice_is_pending_dup and invoice_id:
-            # Only block when a data-entry-created pending record exists (prevents
-            # double-staging the same in-flight batch).  Verified/applied invoices
-            # are re-importable — the upsert will overwrite w{N} values.
             raise HTTPException(
                 status_code=409,
                 detail={
@@ -708,6 +728,8 @@ async def upload_file(
     }
     if invoice_id:
         resp["invoice_id"] = invoice_id
+    if reconciliation:
+        resp["reconciliation"] = reconciliation
     if description:
         resp["description"] = description[:500]
     return resp

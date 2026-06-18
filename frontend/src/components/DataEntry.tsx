@@ -5,12 +5,27 @@ import { api } from '../lib/api';
 
 type Hint = '' | 'inventory' | 'events' | 'haccp' | 'menu' | 'log';
 
+interface ReconciliationStats {
+    computed_subtotal: number;
+    stated_subtotal: number;
+    vizient_discount: number;
+    fuel_surcharge: number;
+    net_total: number;
+    discount_factor: number;
+    adjusted_total: number;
+    delta: number;
+    delta_pct: number;
+    reconciled: boolean;
+    item_count: number;
+}
+
 interface UploadResult {
     batch_id: string;
     staged_count: number;
     sku_queued?: number;
     invoice_id?: string;
     is_reimport?: boolean;
+    reconciliation?: ReconciliationStats;
     operations: Record<string, number>;
     file: string;
     month: number;
@@ -558,6 +573,42 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                                         </span>
                                     )}
                                 </div>
+                                {result.reconciliation && (
+                                    <div style={{
+                                        marginTop: 10, padding: '9px 12px',
+                                        borderRadius: 8, fontSize: 12,
+                                        background: result.reconciliation.reconciled ? '#f0fdf4' : '#fff7ed',
+                                        border: `1px solid ${result.reconciliation.reconciled ? '#86efac' : '#fdba74'}`,
+                                        color: result.reconciliation.reconciled ? '#166534' : '#9a3412',
+                                    }}>
+                                        <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+                                            {result.reconciliation.reconciled
+                                                ? <>{I.checkCircle({ style: { width: 13, height: 13 } })} Invoice total reconciled</>
+                                                : <>{I.alert({ style: { width: 13, height: 13 } })} Total mismatch — review before merging</>
+                                            }
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11.5, opacity: 0.85 }}>
+                                            <span>Line items: <b>${result.reconciliation.computed_subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></span>
+                                            {result.reconciliation.vizient_discount > 0 && (
+                                                <span>Vizient: <b>−${result.reconciliation.vizient_discount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></span>
+                                            )}
+                                            {result.reconciliation.fuel_surcharge > 0 && (
+                                                <span>Fuel: <b>+${result.reconciliation.fuel_surcharge.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></span>
+                                            )}
+                                            <span style={{ fontWeight: 700 }}>
+                                                Invoice TOTAL: ${result.reconciliation.net_total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </span>
+                                            {!result.reconciliation.reconciled && (
+                                                <span style={{ color: '#dc2626', fontWeight: 700 }}>
+                                                    Δ ${result.reconciliation.delta.toFixed(2)} ({result.reconciliation.delta_pct.toFixed(2)}%)
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div style={{ marginTop: 4, fontSize: 11, opacity: 0.7 }}>
+                                            Stored prices adjusted by ×{result.reconciliation.discount_factor.toFixed(4)} — inventory value = ${result.reconciliation.adjusted_total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                             <button
                                 onClick={() => onNavigate?.('sourcectrl')}

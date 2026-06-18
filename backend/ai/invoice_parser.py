@@ -619,6 +619,81 @@ def _parse_text_pages(pages: list[str]) -> tuple[list[dict], dict]:
     return items, extra
 
 
+def reconcile_and_adjust(items: list[dict], meta: dict) -> tuple[list[dict], dict]:
+    """Distribute the invoice-level discount across line items so that
+    SUM(qty × adjusted_unit_price) == invoices.net_total exactly.
+
+    The Vizient GPO discount on US Foods invoices is a lump-sum reduction —
+    line items carry the pre-discount price.  This function applies a
+    proportional discount_factor so every item's stored price reflects what
+    the cafeteria actually paid.
+
+    Returns (adjusted_items, reconciliation_stats).
+    reconciliation_stats keys:
+        computed_subtotal  — sum of raw ext_price before adjustment
+        stated_subtotal    — subtotal field from invoice header (0 if absent)
+        vizient_discount   — discount amount from invoice header
+        fuel_surcharge     — surcharge amount from invoice header
+        net_total          — net_total from invoice header
+        discount_factor    — multiplier applied to every unit_price/ext_price
+        adjusted_total     — sum of ext_price after adjustment (should == net_total)
+        delta              — abs(adjusted_total - net_total)
+        delta_pct          — delta as % of net_total
+        reconciled         — True when delta_pct < 1.0
+        item_count         — number of items after adjustment
+    """
+
+    def _f(v: Any) -> float:
+        try:
+            return float(str(v).replace(",", "")) if v else 0.0
+        except (ValueError, TypeError):
+            return 0.0
+
+    computed_subtotal = round(sum(_f(i.get("ext_price", 0)) for i in items), 2)
+    stated_subtotal = _f(meta.get("subtotal"))
+    vizient = _f(meta.get("vizient_discount"))
+    fuel = _f(meta.get("fuel_surcharge"))
+    net_total = _f(meta.get("net_total") or meta.get("total_amount"))
+
+    # Derive net_total from components when the header omits it
+    if net_total <= 0 and stated_subtotal > 0:
+        net_total = round(stated_subtotal - vizient + fuel, 2)
+    if net_total <= 0 and computed_subtotal > 0 and vizient > 0:
+        net_total = round(computed_subtotal - vizient + fuel, 2)
+
+    # Discount factor: scale all prices so they sum to net_total
+    discount_factor = 1.0
+    if net_total > 0 and computed_subtotal > 0:
+        discount_factor = net_total / computed_subtotal
+
+    adjusted: list[dict] = []
+    for item in items:
+        raw_unit = _f(item.get("unit_price", 0))
+        raw_ext = _f(item.get("ext_price", 0))
+        adj_unit = round(raw_unit * discount_factor, 4)
+        adj_ext = round(raw_ext * discount_factor, 2)
+        adjusted.append({**item, "unit_price": adj_unit, "ext_price": adj_ext})
+
+    adjusted_total = round(sum(_f(i["ext_price"]) for i in adjusted), 2)
+    delta = round(abs(adjusted_total - net_total), 2) if net_total > 0 else 0.0
+    delta_pct = round(delta / net_total * 100, 3) if net_total > 0 else 0.0
+
+    stats: dict = {
+        "computed_subtotal": computed_subtotal,
+        "stated_subtotal": stated_subtotal,
+        "vizient_discount": vizient,
+        "fuel_surcharge": fuel,
+        "net_total": net_total,
+        "discount_factor": round(discount_factor, 6),
+        "adjusted_total": adjusted_total,
+        "delta": delta,
+        "delta_pct": delta_pct,
+        "reconciled": delta_pct < 1.0,
+        "item_count": len(adjusted),
+    }
+    return adjusted, stats
+
+
 # ── public API ────────────────────────────────────────────────────────────────
 
 
@@ -651,6 +726,10 @@ def parse_invoice_bytes_pdf(
     meta.update(extra)
     meta["source_file"] = filename
 
+    # Reconcile: apply Vizient discount proportionally so stored prices = what was paid
+    items, recon = reconcile_and_adjust(items, meta)
+    meta["reconciliation"] = recon
+
     return {"meta": meta, "items": items}
 
 
@@ -677,6 +756,9 @@ def parse_invoice_bytes_image(
     items, extra = _parse_text_pages(pages)
     meta.update(extra)
     meta["source_file"] = filename
+
+    items, recon = reconcile_and_adjust(items, meta)
+    meta["reconciliation"] = recon
 
     return {"meta": meta, "items": items}
 
