@@ -30,94 +30,76 @@ def get_vendors() -> dict[str, int]:
 
 
 def get_ai_config() -> dict:
-    """Load AI config. Priority: active api_keys row → app_settings → env vars."""
-    # 1. Check api_keys table for active provider
-    try:
-        r = _client().table('api_keys').select('provider,api_key,base_url').eq('is_active', True).limit(1).execute()
-        if r.data:
-            row = r.data[0]
-            active_provider = row['provider']
-            # Pull model from app_settings ai_config if available
-            model = None
-            try:
-                s = (
-                    _client()
-                    .table('app_settings')
-                    .select('setting_value')
-                    .eq('setting_key', 'ai_config')
-                    .limit(1)
-                    .execute()
-                )
-                if s.data:
-                    val = s.data[0]['setting_value']
-                    if isinstance(val, dict):
-                        model = val.get('model')
-            except Exception:
-                pass
-            result: dict = {'provider': active_provider}
-            if row.get('api_key'):
-                result['api_key'] = row['api_key']
-            if row.get('base_url'):
-                result['ollama_url'] = row['base_url']
-            if model:
-                result['model'] = model
-            return result
-    except Exception:
-        pass
-
-    # 2. Fall back to app_settings ai_config
+    """Load AI config from ai_stack_config joined to ai_provider_keys."""
     try:
         r = (
             _client()
-            .table('app_settings')
-            .select('setting_value')
-            .eq('setting_key', 'ai_config')
+            .table("ai_stack_config")
+            .select(
+                "provider, model, is_vision, ollama_url, vision_capable, "
+                "ai_provider_keys(api_key, base_url, model_override)"
+            )
+            .eq("name", "default")
             .limit(1)
             .execute()
         )
         if r.data:
-            val = r.data[0]['setting_value']
-            if isinstance(val, dict):
-                return val
+            row = r.data[0]
+            key_row = row.get("ai_provider_keys") or {}
+            model = key_row.get("model_override") or row.get("model") or ""
+            return {
+                "provider": row["provider"],
+                "model": model,
+                "api_key": key_row.get("api_key"),
+                "ollama_url": row.get("ollama_url") or key_row.get("base_url"),
+                "is_vision": row.get("vision_capable") or row.get("is_vision") or False,
+            }
     except Exception:
         pass
-
-    return {
-        'provider': os.getenv('AI_PROVIDER', 'groq'),
-        'model': os.getenv('GROQ_MODEL', 'llama-3.3-70b-versatile'),
-    }
+    return {"provider": "groq", "model": "llama-3.3-70b-versatile"}
 
 
 def save_ai_config(config: dict) -> None:
+    """Upsert ai_stack_config where name='default'."""
     from datetime import datetime, timezone
+
     now = datetime.now(timezone.utc).isoformat()
-    _client().table('app_settings').upsert(
-        {'setting_key': 'ai_config', 'setting_value': config, 'updated_at': now},
-        on_conflict='setting_key',
-    ).execute()
+    row: dict = {
+        "name": "default",
+        "provider": config.get("provider", "groq"),
+        "model": config.get("model", ""),
+        "updated_at": now,
+    }
+    if "key_id" in config:
+        row["key_id"] = config["key_id"]
+    if "vision_capable" in config:
+        row["vision_capable"] = config["vision_capable"]
+    if "ollama_url" in config:
+        row["ollama_url"] = config["ollama_url"]
+    _client().table("ai_stack_config").upsert(row, on_conflict="name").execute()
 
 
 # ── AI tools config ───────────────────────────────────────────────────────────
 
 DEFAULT_TOOLS: dict[str, bool] = {
-    'inventory':    True,
-    'events':       True,
-    'menu':         True,
-    'haccp':        True,
-    'daily_ops':    True,
-    'source_ctrl':  False,   # future capability
-    'reports':      False,   # future capability
-    'suggestions':  False,   # future capability
+    "inventory": True,
+    "events": True,
+    "menu": True,
+    "haccp": True,
+    "daily_ops": True,
+    "source_ctrl": False,  # future capability
+    "reports": False,  # future capability
+    "suggestions": False,  # future capability
 }
 
 # Map operation strings → tool key
 OPERATION_TO_TOOL: dict[str, str] = {
-    'inventory_save':        'inventory',
-    'inventory_week_update': 'inventory',
-    'event_create':          'events',
-    'menu_save':             'menu',
-    'haccp_save':            'haccp',
-    'daily_log_save':        'daily_ops',
+    "inventory_save": "inventory",
+    "inventory_week_update": "inventory",
+    "event_create": "events",
+    "menu_save": "menu",
+    "haccp_save": "haccp",
+    "daily_log_save": "daily_ops",
 }
 
 
@@ -126,14 +108,14 @@ def get_ai_tools_config() -> dict[str, bool]:
     try:
         r = (
             _client()
-            .table('app_settings')
-            .select('setting_value')
-            .eq('setting_key', 'ai_tools_config')
+            .table("app_settings")
+            .select("setting_value")
+            .eq("setting_key", "ai_tools_config")
             .limit(1)
             .execute()
         )
         if r.data:
-            stored = r.data[0]['setting_value']
+            stored = r.data[0]["setting_value"]
             if isinstance(stored, dict):
                 # Merge: stored values override defaults; new default keys appear as-is
                 return {**DEFAULT_TOOLS, **{k: bool(v) for k, v in stored.items()}}
@@ -144,10 +126,11 @@ def get_ai_tools_config() -> dict[str, bool]:
 
 def save_ai_tools_config(tools: dict[str, bool]) -> None:
     from datetime import datetime, timezone
+
     now = datetime.now(timezone.utc).isoformat()
-    _client().table('app_settings').upsert(
-        {'setting_key': 'ai_tools_config', 'setting_value': tools, 'updated_at': now},
-        on_conflict='setting_key',
+    _client().table("app_settings").upsert(
+        {"setting_key": "ai_tools_config", "setting_value": tools, "updated_at": now},
+        on_conflict="setting_key",
     ).execute()
 
 

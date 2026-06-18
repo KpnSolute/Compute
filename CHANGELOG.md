@@ -4,6 +4,91 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v3.9.2] — 2026-06-18 — Post-agent corrections: API path alignment + role guard fix
+
+**Agent:** Claude (Senior Development Manager)
+**Build:** `ruff check` ✓ · `npm run build` ✓
+
+### frontend/src/lib/api.ts — corrected 4 endpoint paths
+Frontend agent wrote `/api/ai-keys` and `/api/ai-stack` but the backend router prefix is `/api/data-entry`. Fixed:
+- `createAIKey` → `POST /api/data-entry/ai-keys`
+- `updateAIKeyById` → `PATCH /api/data-entry/ai-keys/{id}`
+- `deleteAIKey` → `DELETE /api/data-entry/ai-keys/{id}`
+- `setAIStack` → `POST /api/data-entry/ai-stack`
+- `getAIModels` was already correct at `/api/data-entry/models`
+
+### backend/routes/data_entry.py — fixed role guard for manager+ endpoints
+Backend agent used `auth_user.get("role_level", 0) < 30` but `user_profiles` has no `role_level` column — it stores `role` as a string. Added module-level `_ROLE_LEVELS` dict and replaced both guards with `_ROLE_LEVELS.get(auth_user.get('role', ''), 0) < 30`.
+
+---
+
+## [v3.9.1] — 2026-06-18 — AI Settings UI overhaul: named key management, live model picker, DataEntry status bar
+
+**Agent:** mjcc-ui (Claude)
+**Build:** `tsc -b` clean + `vite build` passing (2.45s) · zero curly quotes in edited files
+**Push:** pending
+
+### api.ts — 5 new methods added after `updateAIKey`
+- `getAIModels(provider)` — `GET /api/data-entry/models?provider=`
+- `createAIKey(body)` — `POST /api/ai-keys`
+- `updateAIKeyById(id, body)` — `PATCH /api/ai-keys/{id}`
+- `deleteAIKey(id)` — `DELETE /api/ai-keys/{id}`
+- `setAIStack(body)` — `POST /api/ai-stack`
+
+### Settings.tsx — `ProvidersTab` fully replaced
+Old implementation: static list of 6 hardcoded providers, radio-button activation, single model override input.
+New implementation:
+- Loads from `api.getDataEntrySettings()` which now returns `providers[]`, `keys[]`, `vision_models[]`, `current`
+- Active stack status banner (blue = configured, amber = unconfigured)
+- Per-provider card layout: named key list (label, is_active badge, has_key indicator, base_url, model_override), Edit/Delete/Set-active row actions, inline edit form per key (label, password, url, model_override), Add key form per provider
+- "Activate stack" section at bottom: provider -> key -> model selectors (model list from `getAIModels()`), vision badge auto-set from `vision_models` set, Activate button -> `setAIStack()`
+- Removed: radio-button provider UI, hardcoded provider order, model override text input, PDF banner
+
+### DataEntry.tsx — AI stack panel removed + status bar added
+- Removed render calls: `<AIStackSettings>`, `<AIKeysPanel>`, `<AIUsagePanel>` (moved to Settings)
+- Removed dead functions: `AIStackSettings`, `AIKeysPanel`, `AIUsagePanel`, `PROVIDER_LABELS`, `LOCAL_PROVIDERS` (~420 lines deleted)
+- Added `aiStatus` state: `{ provider, model, is_vision } | null`
+- Extended existing `getDataEntrySettings` useEffect to also set `aiStatus` (avoids double fetch)
+- Added AI status bar above Upload WinCard: accent-soft border when configured (shows provider + model + Vision flag), amber border when unconfigured; "Settings" label is non-functional text (Portal.tsx has no `mjcc:nav` listener)
+
+---
+
+## [v3.9.0] — 2026-06-18 — AI system overhaul: new DB tables, key CRUD, live model discovery
+
+**Agent:** mjcc-api
+**Scope:** Code only. DB tables `ai_providers`, `ai_provider_keys`, `ai_stack_config` already exist (migrated separately).
+**Build:** `ruff check` ✓ (all three files clean) · `ruff format` reformatted 3 files
+
+### backend/ai/context.py — `get_ai_config()` and `save_ai_config()` rewritten
+- `get_ai_config()` (was lines 32–88): dropped `api_keys` + `app_settings` dual-fallback. Now queries `ai_stack_config` joined to `ai_provider_keys` (select with FK expansion). Returns `{provider, model, api_key, ollama_url, is_vision}`. Hard fallback: `{provider:'groq', model:'llama-3.3-70b-versatile'}` with no `os.getenv` for AI config.
+- `save_ai_config()` (was lines 91–97): replaced `app_settings` upsert with `ai_stack_config` upsert on `name='default'`. Accepts `key_id`, `vision_capable`, `ollama_url` fields.
+- `os` import retained (still used by `_client()` for `SUPABASE_URL`/`SUPABASE_SERVICE_KEY`).
+
+### backend/ai/engine.py — `_get_db_row()` and all provider key reads
+- `_get_db_row()` (lines 201–216): now queries `ai_provider_keys` with `.eq('is_active', True)` instead of the old `api_keys` table.
+- `complete()` lines 277–278: removed `os.getenv('AI_PROVIDER', 'groq')` and `os.getenv('GROQ_MODEL', ...)` — now falls back to literal strings.
+- All provider blocks in `complete()` and `complete_vision()`: replaced `db_key or os.getenv('X_API_KEY', '')` with `db_key or cfg.get('api_key')`. Error messages changed from `'X_API_KEY not set'` to `'No API key configured for X — add one in Settings → AI.'`. All `os.getenv` URL defaults replaced with literal strings.
+- `os` import retained (used in `_get_db_row` and `_log_usage`).
+- Verified zero remaining `os.getenv` calls for any provider API key or URL.
+
+### backend/routes/data_entry.py — settings endpoint + 6 new endpoints
+- `GET /api/data-entry/settings` (lines 595–658): full rewrite. Now reads `ai_stack_config`, `ai_providers`, and `ai_provider_keys` directly. Returns `{current, providers, keys, vision_models, ai_enabled}`. Raw `api_key` values are never returned — only `has_key: bool`.
+- New Pydantic models added: `AIKeyCreateBody`, `AIKeyPatchBody`, `AIStackBody`.
+- `GET /api/data-entry/models?provider=<id>`: live model discovery via provider API (groq/openai/mistral live; anthropic static; ollama/lm_studio `/api/tags`). Falls back to static lists. Manager+ required.
+- `POST /api/data-entry/ai-keys`: create named key in `ai_provider_keys`. Sudo only.
+- `PATCH /api/data-entry/ai-keys/{key_id}`: update key by UUID; activating deactivates siblings. Sudo only.
+- `DELETE /api/data-entry/ai-keys/{key_id}`: delete key; returns 409 if it is the only active key for its provider. Sudo only.
+- `POST /api/data-entry/ai-stack`: upsert `ai_stack_config` (provider + key_id + model + vision_capable). Manager+ required.
+
+### API.md updated
+- Rewrote `GET /settings` response shape.
+- Added contract entries for `GET /models`, `POST /ai-keys`, `PATCH /ai-keys/{key_id}`, `DELETE /ai-keys/{key_id}`, `POST /ai-stack`.
+- Updated Live Database table list: `ai_providers`, `ai_provider_keys`, `ai_stack_config` added; `app_settings` scoped to AI tools config only.
+
+**Push:** pending
+
+---
+
 ## [v3.8.0] — 2026-06-17 — Week logic, issuance control, KPI accuracy, week locking, staff draft persistence
 
 **Agent:** Claude (Senior Development Manager)

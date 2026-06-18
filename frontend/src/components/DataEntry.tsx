@@ -89,11 +89,11 @@ function ThinkingDots() {
 // ── AI status banner ──────────────────────────────────────────────────────────
 
 const AI_STAGES = [
-    'Reading file structure…',
-    'Identifying data type…',
-    'Extracting fields with AI…',
-    'Mapping to MJCC schema…',
-    'Staging for review…',
+    'Reading file structure...',
+    'Identifying data type...',
+    'Extracting fields with AI...',
+    'Mapping to MJCC schema...',
+    'Staging for review...',
 ];
 
 function AIStatusBanner({ stage }: { stage: number }) {
@@ -127,14 +127,14 @@ function DiffRowPreview({ row }: { row: DiffRow }) {
                     row.status === 'new' ? 'pill ok' :
                     row.status === 'update' ? 'pill warn' : 'pill off'
                 }>
-                    {row.status || '—'}
+                    {row.status || '-'}
                 </span>
             </td>
             <td style={{ width: 110 }}>
-                <code style={{ fontSize: 11 }}>{sku || '—'}</code>
+                <code style={{ fontSize: 11 }}>{sku || '-'}</code>
             </td>
             <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: desc ? 'var(--ink)' : 'var(--faint)' }}>
-                {desc || '—'}
+                {desc || '-'}
             </td>
             <td>
                 {changes.length > 0 ? (
@@ -144,7 +144,7 @@ function DiffRowPreview({ row }: { row: DiffRow }) {
                             const av = row.after?.[field];
                             return (
                                 <span key={i} style={{ fontSize: 10.5, background: 'var(--amber-bg)', color: 'var(--amber-ink)', padding: '2px 7px', borderRadius: 5, fontWeight: 600 }}>
-                                    {field}{bv !== undefined && bv !== null ? ` ${bv} →` : ':'}{` ${av ?? '—'}`}
+                                    {field}{bv !== undefined && bv !== null ? ` ${bv} ->` : ':'}{` ${av ?? '-'}`}
                                 </span>
                             );
                         })}
@@ -152,7 +152,7 @@ function DiffRowPreview({ row }: { row: DiffRow }) {
                     </div>
                 ) : row.status === 'new' ? (
                     <span style={{ fontSize: 11, color: 'var(--muted)' }}>new entry</span>
-                ) : '—'}
+                ) : '-'}
             </td>
         </tr>
     );
@@ -214,7 +214,7 @@ function FileZone({
             <div style={{ flex: 1, minWidth: 0 }}>
                 {uploading ? (
                     <>
-                        <div style={{ fontWeight: 700, fontSize: 13, color: '#1e3a8a' }}>✦ MJCC AI is parsing…</div>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: '#1e3a8a' }}>✦ MJCC AI is parsing...</div>
                         <div style={{ fontSize: 11, color: '#3b82f6', marginTop: 2 }}>{file?.name}</div>
                     </>
                 ) : file ? (
@@ -272,12 +272,14 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
 
     const [aiEnabled, setAiEnabled]     = useState(true);
     const [aiCfgLoading, setAiCfgLoading] = useState(true);
+    const [aiStatus, setAiStatus]       = useState<{ provider: string; model: string; is_vision: boolean } | null>(null);
 
     const stageTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
     useEffect(() => {
         api.getDataEntrySettings().then(cfg => {
             setAiEnabled(cfg?.ai_enabled !== false);
+            if (cfg?.current?.provider) setAiStatus(cfg.current);
         }).catch(() => {}).finally(() => setAiCfgLoading(false));
     }, []);
 
@@ -363,6 +365,33 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                 )}
             </div>
 
+            {/* ── AI status bar ────────────────────────────── */}
+            <div style={{
+                display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12,
+                padding: '8px 14px', borderRadius: 10,
+                background: aiStatus ? 'var(--accent-soft)' : 'var(--amber-bg)',
+                border: `1px solid ${aiStatus ? 'var(--accent)' : 'var(--amber-ink)'}`,
+                fontSize: 12,
+            }}>
+                {aiStatus ? (
+                    <>
+                        <span style={{ color: '#3b82f6', fontSize: 14 }}>✶</span>
+                        <span style={{ fontWeight: 700 }}>
+                            {aiStatus.provider.charAt(0).toUpperCase() + aiStatus.provider.slice(1)}
+                            {' · '}
+                            {aiStatus.model}
+                            {aiStatus.is_vision && ' ✶ Vision'}
+                        </span>
+                    </>
+                ) : (
+                    <span style={{ color: 'var(--amber-ink)', fontWeight: 700 }}>
+                        No AI provider configured
+                    </span>
+                )}
+                <span style={{ flex: 1 }} />
+                <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 700, cursor: 'default' }}>Settings</span>
+            </div>
+
             {/* ── Upload card ─────────────────────────────────────────── */}
             <WinCard
                 title="Upload file"
@@ -431,10 +460,10 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                                 <div style={{ display: 'flex', gap: 4 }}>
                                     <button className={direction === 'received' ? 'btn primary' : 'btn'}
                                         style={{ padding: '6px 13px', fontSize: 12, fontWeight: 700, minHeight: 36 }}
-                                        onClick={() => setDirection('received')}>↓ Received</button>
+                                        onClick={() => setDirection('received')}>Down Received</button>
                                     <button className={direction === 'issued' ? 'btn accent' : 'btn'}
                                         style={{ padding: '6px 13px', fontSize: 12, fontWeight: 700, minHeight: 36 }}
-                                        onClick={() => setDirection('issued')}>↑ Issued</button>
+                                        onClick={() => setDirection('issued')}>Up Issued</button>
                                 </div>
                             </div>
                         )}
@@ -449,7 +478,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                             <textarea
                                 className={`sheet-inp txt${aiPrefs.effects ? ' ai-ring' : ''}`}
                                 value={description} rows={2} maxLength={500}
-                                placeholder="Describe what this upload contains…"
+                                placeholder="Describe what this upload contains..."
                                 style={{ width: '100%', resize: 'vertical', fontSize: 12.5 }}
                                 onChange={e => setDescription(e.target.value)}
                             />
@@ -469,7 +498,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                                 <span style={{ fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', maxWidth: 200, verticalAlign: 'bottom' }}>
                                     {file.name}
                                 </span>
-                                {' → '}{MONTHS[month]} {year}{week > 0 ? ` · W${week} ${direction}` : ''}
+                                {' -> '}{MONTHS[month]} {year}{week > 0 ? ` · W${week} ${direction}` : ''}
                                 {hint && ` · ${hint}`}
                             </>
                         ) : 'Select a file to upload'}
@@ -478,7 +507,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                         {result && <button className="btn" onClick={clearAll} style={{ fontSize: 12 }}>Upload another</button>}
                         <button className="btn primary" onClick={doUpload} disabled={!file || uploading} style={{ minWidth: 130, minHeight: 40 }}>
                             {I.inbox({ style: { width: 14, height: 14 } })}
-                            {uploading ? 'AI parsing…' : 'Upload & Parse'}
+                            {uploading ? 'AI parsing...' : 'Upload & Parse'}
                         </button>
                     </div>
                 </div>
@@ -504,11 +533,11 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                                 <div style={{ fontSize: 11.5, color: '#166534', marginTop: 4, opacity: 0.8 }}>
                                     {result.file} · {MONTHS[(result.month ?? 1) - 1] ?? result.month} {result.year}
                                     {result.ai_provider && ` · via ${result.ai_provider}`}
-                                    {' · '}batch {result.batch_id?.slice(0, 8)}…
+                                    {' · '}batch {result.batch_id?.slice(0, 8)}...
                                 </div>
                                 <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 8 }}>
                                     {Object.entries(result.operations).map(([op, count], i) => (
-                                        <span key={i} className="pill ok">{op} × {count}</span>
+                                        <span key={i} className="pill ok">{op} x {count}</span>
                                     ))}
                                 </div>
                             </div>
@@ -552,7 +581,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                     {previewLoading && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                             <span style={{ color: '#3b82f6', fontSize: 15 }}>✦</span>
-                            <span className="ph-sub">AI computing diff…</span>
+                            <span className="ph-sub">AI computing diff...</span>
                             <ThinkingDots />
                         </div>
                     )}
@@ -580,447 +609,6 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                 </WinCard>
             )}
 
-            {/* ── AI stack settings (manager+) ───────────────────────── */}
-            {lvl >= 30 && <AIStackSettings isSudo={isSudo} />}
-
-            {/* ── AI keys (sudo only) ────────────────────────────────── */}
-            {isSudo && <AIKeysPanel />}
-
-            {/* ── AI usage stats (sudo only) ─────────────────────────── */}
-            {isSudo && <AIUsagePanel />}
         </div>
-    );
-}
-
-// ── AI stack settings ─────────────────────────────────────────────────────────
-
-const PROVIDER_LABELS: Record<string, string> = {
-    groq:      'Groq',
-    anthropic: 'Anthropic (Claude)',
-    openai:    'OpenAI',
-    mistral:   'Mistral AI',
-    ollama:    'Ollama (local)',
-    lm_studio: 'LM Studio (local)',
-};
-
-const LOCAL_PROVIDERS = new Set(['ollama', 'lm_studio']);
-
-function AIStackSettings({ isSudo }: { isSudo: boolean }) {
-    const [loading, setLoading] = useState(true);
-    const [err, setErr]         = useState<string | null>(null);
-    const [provider, setProvider] = useState('');
-    const [model, setModel]       = useState('');
-    const [ollamaUrl, setOllamaUrl] = useState('');
-    const [modelOptions, setModelOptions] = useState<string[]>([]);
-    const [allModels, setAllModels] = useState<Record<string, string[]>>({});
-    const [providers, setProviders] = useState<string[]>([]);
-    const [saving, setSaving]   = useState(false);
-    const [saved, setSaved]     = useState(false);
-    const [visionModels, setVisionModels] = useState<string[]>([]);
-
-    useEffect(() => {
-        let alive = true;
-        (async () => {
-            setLoading(true); setErr(null);
-            try {
-                const cfg = await api.getDataEntrySettings();
-                if (!alive) return;
-                const cur = cfg?.current || {};
-                setProvider(cur.provider || '');
-                setModel(cur.model || '');
-                setOllamaUrl(cur.ollama_url || '');
-                setProviders(cfg?.supported_providers || []);
-                setVisionModels(cfg?.vision_models || []);
-                const models: Record<string, string[]> = {
-                    groq:      cfg?.groq_models      || [],
-                    anthropic: cfg?.anthropic_models || [],
-                    openai:    cfg?.openai_models    || [],
-                    mistral:   cfg?.mistral_models   || [],
-                    ollama:    cfg?.ollama_models    || [],
-                    lm_studio: cfg?.lm_studio_models || [],
-                };
-                setAllModels(models);
-                setModelOptions(models[cur.provider] || []);
-            } catch (e: any) {
-                if (alive) setErr(e?.message || 'Failed to load settings');
-            } finally {
-                if (alive) setLoading(false);
-            }
-        })();
-        return () => { alive = false; };
-    }, []);
-
-    // Update model options when provider changes
-    const handleProviderChange = (p: string) => {
-        setProvider(p);
-        const opts = allModels[p] || [];
-        setModelOptions(opts);
-        setModel(opts[0] || '');
-        setSaved(false);
-    };
-
-    const save = async () => {
-        setSaving(true); setErr(null); setSaved(false);
-        try {
-            const body: any = { provider, model };
-            if (LOCAL_PROVIDERS.has(provider) && ollamaUrl) body.ollama_url = ollamaUrl;
-            await api.updateDataEntrySettings(body);
-            setSaved(true);
-        } catch (e: any) {
-            setErr(e?.message || 'Failed to save');
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    const isVision = visionModels.includes(model) ||
-        (LOCAL_PROVIDERS.has(provider)); // local providers may support vision via operator config
-
-    return (
-        <WinCard title="AI stack settings" style={{ marginTop: 14 }} defaultOpen={true}>
-            {loading && <div style={{ color: 'var(--muted)', fontSize: 12 }}>Loading…</div>}
-            {err && <div className="banner warn" style={{ marginBottom: 10 }}>{I.alert()} <span>{err}</span></div>}
-            {!loading && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-end' }}>
-                    <div>
-                        <label style={LBL}>Provider</label>
-                        <select className="tb-select" value={provider} onChange={e => handleProviderChange(e.target.value)}
-                            style={{ minWidth: 160 }}>
-                            {providers.map(p => (
-                                <option key={p} value={p}>{PROVIDER_LABELS[p] || p}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div>
-                        <label style={LBL}>
-                            Model
-                            {visionModels.includes(model) && (
-                                <span style={{
-                                    marginLeft: 6, fontSize: 10, fontWeight: 800,
-                                    background: '#eff5fe', color: '#1e3a8a',
-                                    padding: '2px 7px', borderRadius: 5, border: '1px solid #bfdbfe',
-                                }}>✦ Vision</span>
-                            )}
-                        </label>
-                        {modelOptions.length > 0 ? (
-                            <select className="tb-select" value={model} onChange={e => { setModel(e.target.value); setSaved(false); }}
-                                style={{ minWidth: 240 }}>
-                                {modelOptions.map(m => (
-                                    <option key={m} value={m}>
-                                        {visionModels.includes(m) ? `✦ ${m}` : m}
-                                    </option>
-                                ))}
-                            </select>
-                        ) : (
-                            <input className="tb-select" value={model} onChange={e => { setModel(e.target.value); setSaved(false); }}
-                                placeholder="e.g. llama-3.3-70b-versatile" style={{ minWidth: 240 }} />
-                        )}
-                    </div>
-
-                    {!isVision && !LOCAL_PROVIDERS.has(provider) && (
-                        <div style={{ alignSelf: 'flex-end', fontSize: 11, color: 'var(--amber-ink)',
-                            background: 'var(--amber-bg)', padding: '6px 10px', borderRadius: 7,
-                            border: '1px solid var(--amber-ink)', maxWidth: 260 }}>
-                            Image invoices require a vision-capable model (✦ Vision badge).
-                        </div>
-                    )}
-
-                    {LOCAL_PROVIDERS.has(provider) && (
-                        <div>
-                            <label style={LBL}>Server URL</label>
-                            <input className="tb-select" value={ollamaUrl}
-                                onChange={e => { setOllamaUrl(e.target.value); setSaved(false); }}
-                                placeholder="http://localhost:11434" style={{ minWidth: 200 }} />
-                        </div>
-                    )}
-
-                    <button className="btn primary" onClick={save} disabled={saving} style={{ minHeight: 36 }}>
-                        {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save'}
-                    </button>
-
-                    {!isSudo && (
-                        <div style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }}>
-                            API keys are managed by a sudo administrator.
-                        </div>
-                    )}
-                </div>
-            )}
-        </WinCard>
-    );
-}
-
-// ── AI keys panel (sudo only) ─────────────────────────────────────────────────
-
-function AIKeysPanel() {
-    const [loading, setLoading] = useState(true);
-    const [err, setErr]         = useState<string | null>(null);
-    const [keys, setKeys]       = useState<any[]>([]);
-    const [editing, setEditing] = useState<Record<string, { key: string; url: string; active: boolean }>>({});
-    const [saveBusy, setSaveBusy] = useState<Record<string, boolean>>({});
-    const [saveOk, setSaveOk]   = useState<Record<string, boolean>>({});
-
-    const load = useCallback(() => {
-        setLoading(true); setErr(null);
-        api.getAIKeys()
-            .then(data => setKeys(data || []))
-            .catch(e => setErr(e?.message || 'Failed to load API keys'))
-            .finally(() => setLoading(false));
-    }, []);
-
-    useEffect(() => { load(); }, [load]);
-
-    const startEdit = (k: any) =>
-        setEditing(p => ({ ...p, [k.provider]: { key: '', url: k.base_url || '', active: k.is_active } }));
-    const cancelEdit = (provider: string) =>
-        setEditing(p => { const n = { ...p }; delete n[provider]; return n; });
-
-    const saveKey = async (provider: string) => {
-        const vals = editing[provider];
-        if (!vals) return;
-        setSaveBusy(p => ({ ...p, [provider]: true }));
-        setSaveOk(p => ({ ...p, [provider]: false }));
-        try {
-            const body: any = { is_active: vals.active };
-            if (vals.key) body.api_key = vals.key;
-            if (vals.url !== undefined) body.base_url = vals.url || null;
-            await api.updateAIKey(provider, body);
-            setSaveOk(p => ({ ...p, [provider]: true }));
-            cancelEdit(provider);
-            load();
-        } catch (e: any) {
-            setErr(e?.message || 'Save failed');
-        } finally {
-            setSaveBusy(p => ({ ...p, [provider]: false }));
-        }
-    };
-
-    return (
-        <WinCard title="API keys" defaultOpen={false} style={{ marginTop: 14 }}>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 12 }}>
-                Keys are stored encrypted in the database — never returned to the frontend. Only one provider can be active at a time.
-            </div>
-            {loading && <div style={{ color: 'var(--muted)', fontSize: 12 }}>Loading…</div>}
-            {err && <div className="banner warn" style={{ marginBottom: 10 }}>{I.alert()} <span>{err}</span></div>}
-            {!loading && (
-                <table className="data">
-                    <thead>
-                        <tr><th>Provider</th><th>Key</th><th style={{ width: 80 }}>Active</th><th></th></tr>
-                    </thead>
-                    <tbody>
-                        {keys.map(k => {
-                            const isEditing = !!editing[k.provider];
-                            const isLocal = LOCAL_PROVIDERS.has(k.provider);
-                            return (
-                                <tr key={k.provider}>
-                                    <td style={{ fontWeight: 700 }}>{PROVIDER_LABELS[k.provider] || k.provider}</td>
-                                    <td>
-                                        {isEditing ? (
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                                {!isLocal && (
-                                                    <input
-                                                        type="password"
-                                                        className="sheet-inp"
-                                                        placeholder="Paste new key (leave blank to keep existing)"
-                                                        value={editing[k.provider].key}
-                                                        onChange={e => setEditing(p => ({ ...p, [k.provider]: { ...p[k.provider], key: e.target.value } }))}
-                                                        style={{ minWidth: 260 }}
-                                                    />
-                                                )}
-                                                {(isLocal || k.provider === 'openai') && (
-                                                    <input
-                                                        className="sheet-inp"
-                                                        placeholder="Base URL (optional)"
-                                                        value={editing[k.provider].url}
-                                                        onChange={e => setEditing(p => ({ ...p, [k.provider]: { ...p[k.provider], url: e.target.value } }))}
-                                                        style={{ minWidth: 200 }}
-                                                    />
-                                                )}
-                                            </div>
-                                        ) : (
-                                            <span style={{ fontSize: 12 }}>
-                                                {k.has_key ? (
-                                                    <span style={{ color: 'var(--green)', fontWeight: 700 }}>● Key set</span>
-                                                ) : (
-                                                    <span style={{ color: 'var(--muted)' }}>○ No key</span>
-                                                )}
-                                                {k.base_url && <span style={{ marginLeft: 8, color: 'var(--faint)', fontFamily: 'monospace', fontSize: 10.5 }}>{k.base_url}</span>}
-                                            </span>
-                                        )}
-                                    </td>
-                                    <td>
-                                        {isEditing ? (
-                                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12 }}>
-                                                <input
-                                                    type="checkbox"
-                                                    checked={editing[k.provider].active}
-                                                    onChange={e => setEditing(p => ({ ...p, [k.provider]: { ...p[k.provider], active: e.target.checked } }))}
-                                                />
-                                                Active
-                                            </label>
-                                        ) : (
-                                            k.is_active ? (
-                                                <span className="pill ok" style={{ fontSize: 10 }}>Active</span>
-                                            ) : (
-                                                <span className="pill off" style={{ fontSize: 10 }}>Inactive</span>
-                                            )
-                                        )}
-                                    </td>
-                                    <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
-                                        {isEditing ? (
-                                            <>
-                                                <button className="btn primary" style={{ fontSize: 11, padding: '3px 10px', marginRight: 4 }}
-                                                    onClick={() => saveKey(k.provider)} disabled={saveBusy[k.provider]}>
-                                                    {saveBusy[k.provider] ? '…' : saveOk[k.provider] ? '✓' : 'Save'}
-                                                </button>
-                                                <button className="btn" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => cancelEdit(k.provider)}>
-                                                    Cancel
-                                                </button>
-                                            </>
-                                        ) : (
-                                            <button className="btn" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => startEdit(k)}>
-                                                {k.has_key ? 'Update key' : 'Set key'}
-                                            </button>
-                                        )}
-                                    </td>
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
-            )}
-        </WinCard>
-    );
-}
-
-// ── AI usage stats panel (sudo only) ─────────────────────────────────────────
-
-function AIUsagePanel() {
-    const [loading, setLoading] = useState(false);
-    const [err, setErr]         = useState<string | null>(null);
-    const [data, setData]       = useState<any>(null);
-    const [days, setDays]       = useState(30);
-
-    const load = useCallback(() => {
-        setLoading(true); setErr(null);
-        api.getAIUsage(days, 50)
-            .then(d => setData(d))
-            .catch(e => setErr(e?.message || 'Failed to load usage'))
-            .finally(() => setLoading(false));
-    }, [days]);
-
-    // Load when first opened (triggered by defaultOpen=false → lazy load on expand would need state;
-    // just load immediately but default collapsed)
-    useEffect(() => { load(); }, [load]);
-
-    const fmt = (n: number, dec = 0) => n.toLocaleString('en-US', { maximumFractionDigits: dec });
-    const fmtCost = (n: number) => n < 0.001 ? `<$0.001` : `$${n.toFixed(4)}`;
-
-    const summary = data?.summary || {};
-    const byProvider = data?.by_provider || {};
-    const recent: any[] = data?.recent || [];
-
-    return (
-        <WinCard title="AI usage" defaultOpen={false} style={{ marginTop: 14 }}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
-                <label style={{ ...LBL, marginBottom: 0 }}>Window</label>
-                {[7, 30, 90].map(d => (
-                    <button key={d} className={days === d ? 'btn primary' : 'btn'}
-                        style={{ fontSize: 11, padding: '3px 10px' }}
-                        onClick={() => setDays(d)}>
-                        {d}d
-                    </button>
-                ))}
-                <button className="btn" style={{ fontSize: 11, padding: '3px 10px' }} onClick={load} disabled={loading}>
-                    {loading ? '…' : 'Refresh'}
-                </button>
-            </div>
-
-            {err && <div className="banner warn" style={{ marginBottom: 10 }}>{I.alert()} <span>{err}</span></div>}
-
-            {loading && <div style={{ color: 'var(--muted)', fontSize: 12 }}>Loading…</div>}
-
-            {!loading && data && (
-                <>
-                    {/* Summary row */}
-                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-                        {[
-                            { label: 'Total calls', val: fmt(summary.total_calls) },
-                            { label: 'Success rate', val: summary.total_calls ? `${Math.round((summary.successful / summary.total_calls) * 100)}%` : '—' },
-                            { label: 'Total tokens', val: fmt(summary.total_tokens) },
-                            { label: 'Total cost', val: fmtCost(summary.cost_usd || 0) },
-                            { label: 'Avg latency', val: `${fmt(summary.avg_duration_ms)}ms` },
-                        ].map(s => (
-                            <div key={s.label} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 14px', minWidth: 100 }}>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 4 }}>{s.label}</div>
-                                <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--ink)' }}>{s.val}</div>
-                            </div>
-                        ))}
-                    </div>
-
-                    {/* Per-provider */}
-                    {Object.keys(byProvider).length > 0 && (
-                        <>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 8 }}>By provider</div>
-                            <table className="data" style={{ marginBottom: 16 }}>
-                                <thead><tr><th>Provider</th><th className="r">Calls</th><th className="r">Tokens in</th><th className="r">Tokens out</th><th className="r">Cost</th></tr></thead>
-                                <tbody>
-                                    {Object.entries(byProvider).map(([p, s]: [string, any]) => (
-                                        <tr key={p}>
-                                            <td style={{ fontWeight: 600 }}>{PROVIDER_LABELS[p] || p}</td>
-                                            <td className="r num">{fmt(s.calls)}</td>
-                                            <td className="r num">{fmt(s.tokens_in)}</td>
-                                            <td className="r num">{fmt(s.tokens_out)}</td>
-                                            <td className="r num">{fmtCost(s.cost_usd)}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </>
-                    )}
-
-                    {/* Recent calls */}
-                    {recent.length > 0 && (
-                        <>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 8 }}>Recent calls</div>
-                            <div className="tbl-wrap">
-                                <table className="data">
-                                    <thead><tr><th>Provider</th><th>Model</th><th>Operation</th><th className="r">Tokens</th><th className="r">Cost</th><th className="r">ms</th><th>Status</th><th>Time</th></tr></thead>
-                                    <tbody>
-                                        {recent.map((r: any) => (
-                                            <tr key={r.id}>
-                                                <td style={{ fontWeight: 600, fontSize: 11 }}>{PROVIDER_LABELS[r.provider] || r.provider}</td>
-                                                <td style={{ fontFamily: 'monospace', fontSize: 10.5, color: 'var(--muted)', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.model}</td>
-                                                <td style={{ fontSize: 11 }}>{r.operation || '—'}</td>
-                                                <td className="r num">{fmt((r.tokens_in || 0) + (r.tokens_out || 0))}</td>
-                                                <td className="r num">{fmtCost(r.cost_usd || 0)}</td>
-                                                <td className="r num">{fmt(r.duration_ms || 0)}</td>
-                                                <td>
-                                                    <span className={`pill ${r.success ? 'ok' : 'off'}`} style={{ fontSize: 10 }}>
-                                                        {r.success ? 'ok' : 'err'}
-                                                    </span>
-                                                    {!r.success && r.error_msg && (
-                                                        <span style={{ fontSize: 10, color: 'var(--red)', marginLeft: 4 }} title={r.error_msg}>⚠</span>
-                                                    )}
-                                                </td>
-                                                <td style={{ fontSize: 10.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                                                    {new Date(r.created_at).toLocaleString()}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </>
-                    )}
-
-                    {summary.total_calls === 0 && (
-                        <div style={{ textAlign: 'center', color: 'var(--faint)', fontSize: 12, padding: '20px 0' }}>
-                            No AI calls in the last {days} days.
-                        </div>
-                    )}
-                </>
-            )}
-        </WinCard>
     );
 }

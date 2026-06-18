@@ -481,6 +481,26 @@ export const api = {
     return req(`/api/data-entry/ai-keys/${encodeURIComponent(provider)}`, { method: 'PUT', body: JSON.stringify(body) });
   },
 
+  async getAIModels(provider: string): Promise<{ provider: string; models: Array<{ id: string; label: string; vision: boolean }> }> {
+    return req(`/api/data-entry/models?provider=${encodeURIComponent(provider)}`);
+  },
+
+  async createAIKey(body: { provider: string; label: string; api_key?: string; base_url?: string; model_override?: string; set_active?: boolean }): Promise<any> {
+    return req('/api/data-entry/ai-keys', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  async updateAIKeyById(id: string, body: { label?: string; api_key?: string; base_url?: string; model_override?: string; is_active?: boolean }): Promise<any> {
+    return req(`/api/data-entry/ai-keys/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) });
+  },
+
+  async deleteAIKey(id: string): Promise<void> {
+    return req(`/api/data-entry/ai-keys/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+
+  async setAIStack(body: { provider: string; key_id: string; model: string; vision_capable?: boolean }): Promise<any> {
+    return req('/api/data-entry/ai-stack', { method: 'POST', body: JSON.stringify(body) });
+  },
+
   // AI tool toggles (sudo only)
   async getAITools(): Promise<Record<string, boolean>> {
     return req('/api/data-entry/ai-tools');

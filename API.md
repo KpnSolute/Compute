@@ -826,29 +826,67 @@ Row-level diff for a staged batch — shows before/after against live DB for eac
 ---
 
 ### `GET /api/data-entry/settings`
-Current AI provider and model configuration from `app_settings`.
+Current AI stack configuration joined from `ai_stack_config` + `ai_provider_keys` + `ai_providers`.
 
 **Response `200`:**
 ```json
 {
-  "provider": "groq | ollama",
-  "model": "string"
+  "current": { "provider": "groq", "model": "string", "key_id": "uuid|null", "is_vision": false, "ollama_url": null },
+  "providers": [ { "provider": "groq", "label": "Groq", "description": "...", "has_key": true, "default_url": null, "sort_order": 1 } ],
+  "keys": [ { "id": "uuid", "provider": "groq", "label": "string", "is_active": true, "is_default": false, "has_key": true, "model_override": null, "base_url": null, "updated_at": "ISO" } ],
+  "vision_models": ["model-id"],
+  "ai_enabled": true
 }
 ```
 
 ---
 
 ### `PUT /api/data-entry/settings`
-Update AI provider/model config. Writes to `app_settings` table.
+Update AI provider/model config. Writes to `ai_stack_config` table. (Legacy; prefer `POST /api/data-entry/ai-stack`.)
 
-**Body:**
+**Body:** `{ "provider": "groq", "model": "string", "ollama_url": "string|null" }`  
+**Response `200`:** `{ "ok": true, "config": { "provider": "string", "model": "string" } }`
+
+---
+
+### `GET /api/data-entry/models?provider=<id>`
+Live model discovery for a provider. Falls back to static list. Manager+ required.
+
+**Response `200`:**
 ```json
-{
-  "provider": "groq | ollama",
-  "model": "string"
-}
+{ "provider": "groq", "models": [ { "id": "llama-3.3-70b-versatile", "label": "...", "vision": false } ] }
 ```
-**Response `200`:** `{ "provider": "string", "model": "string" }`
+
+---
+
+### `POST /api/data-entry/ai-keys`
+Create a named key entry in `ai_provider_keys`. Sudo only.
+
+**Body:** `{ "provider": "groq", "label": "string", "api_key": "...", "base_url": null, "model_override": null, "set_active": false, "notes": null }`  
+**Response `200`:** `{ "id": "uuid", "provider": "...", "label": "...", "is_active": false, "has_key": true, "updated_at": "ISO" }`
+
+---
+
+### `PATCH /api/data-entry/ai-keys/{key_id}`
+Update a key entry by UUID. Sudo only. Setting `is_active: true` deactivates sibling keys for the same provider.
+
+**Body:** `{ "label": null, "api_key": null, "base_url": null, "model_override": null, "is_active": null, "notes": null }`  
+**Response `200`:** `{ "id": "uuid", "is_active": bool, "has_key": bool, "updated_at": "ISO" }`
+
+---
+
+### `DELETE /api/data-entry/ai-keys/{key_id}`
+Delete a key entry. Sudo only. Returns `409` if it is the only active key for its provider.
+
+**Response `200`:** `{ "ok": true }`
+
+---
+
+### `POST /api/data-entry/ai-stack`
+Set the active AI stack (provider + key + model). Manager+ required. Upserts `ai_stack_config` where `name='default'`.
+
+**Body:** `{ "provider": "groq", "key_id": "uuid", "model": "string", "vision_capable": false }`  
+**Response `200`:** the upserted `ai_stack_config` row.
 
 ---
 
@@ -914,4 +952,7 @@ Key tables the API reads/writes:
 | `meal_periods` | data/meal-periods |
 | `incident_logs` | data/incidents |
 | `barcodes` | dashboard stats (total_items) |
-| `app_settings` | data-entry/settings (AI config) |
+| `app_settings` | AI tools config (`ai_tools_config` key) |
+| `ai_providers` | data-entry/settings (provider metadata) |
+| `ai_provider_keys` | data-entry/ai-keys CRUD |
+| `ai_stack_config` | data-entry/settings, data-entry/ai-stack |

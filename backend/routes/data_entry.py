@@ -147,12 +147,12 @@ def _extract_ops(
     kind, data = file_parser.detect_and_parse(filename, content)
 
     # Deterministic invoice parser short-circuit: no AI needed for structured invoices.
-    if kind == 'invoice_items':
+    if kind == "invoice_items":
         parsed = data  # {'meta': {...}, 'items': [...]}
         categories = ctx.get_categories()
         return invoice_parser.invoice_items_to_ops(
-            parsed['items'],
-            parsed.get('meta', {}),
+            parsed["items"],
+            parsed.get("meta", {}),
             month,
             year,
             week,
@@ -161,23 +161,28 @@ def _extract_ops(
         )
 
     # Image bundles (ZIP-of-images, single images that OCR couldn't parse) — try vision, then OCR
-    if kind == 'invoice_images':
+    if kind == "invoice_images":
         img_data = data  # {'images': [bytes, ...], 'meta': {...}}
-        images   = img_data.get('images', [])
-        img_meta = img_data.get('meta', {})
-        provider = ai_config.get('provider', '')
-        model    = ai_config.get('model', '')
+        images = img_data.get("images", [])
+        img_meta = img_data.get("meta", {})
+        provider = ai_config.get("provider", "")
+        model = ai_config.get("model", "")
 
         if ai_engine.is_vision_capable(provider, model, ai_config):
             try:
                 parsed = invoice_parser.extract_invoice_vision(
                     images, img_meta, ai_config, called_by=called_by
                 )
-                if parsed.get('items'):
+                if parsed.get("items"):
                     categories = ctx.get_categories()
                     return invoice_parser.invoice_items_to_ops(
-                        parsed['items'], parsed.get('meta', {}),
-                        month, year, week, direction, categories,
+                        parsed["items"],
+                        parsed.get("meta", {}),
+                        month,
+                        year,
+                        week,
+                        direction,
+                        categories,
                     )
             except Exception:
                 pass  # fall through to OCR degradation
@@ -185,12 +190,19 @@ def _extract_ops(
         # OCR degradation: run each image through the OCR cascade
         for img_bytes in images[:10]:
             try:
-                ocr_parsed = invoice_parser.parse_invoice_bytes_image(img_bytes, 'image.jpg')
-                if ocr_parsed.get('items'):
+                ocr_parsed = invoice_parser.parse_invoice_bytes_image(
+                    img_bytes, "image.jpg"
+                )
+                if ocr_parsed.get("items"):
                     categories = ctx.get_categories()
                     return invoice_parser.invoice_items_to_ops(
-                        ocr_parsed['items'], ocr_parsed.get('meta', {}),
-                        month, year, week, direction, categories,
+                        ocr_parsed["items"],
+                        ocr_parsed.get("meta", {}),
+                        month,
+                        year,
+                        week,
+                        direction,
+                        categories,
                     )
             except Exception:
                 pass
@@ -207,7 +219,7 @@ def _extract_ops(
             )
         raise HTTPException(
             status_code=422,
-            detail='Could not extract data from this image file — vision extraction and OCR both failed.',
+            detail="Could not extract data from this image file — vision extraction and OCR both failed.",
         )
 
     rows = data if kind == "rows" else None
@@ -217,6 +229,7 @@ def _extract_ops(
 
     # Enforce tool toggles — reject before any AI call if the tool is disabled
     from backend.ai.context import OPERATION_TO_TOOL
+
     tool_key = OPERATION_TO_TOOL.get(operation)
     if tool_key and tools_cfg is not None and not tools_cfg.get(tool_key, True):
         raise HTTPException(
@@ -317,7 +330,9 @@ def _extract_ops(
         },
         {"role": "user", "content": f"FILE CONTENT:\n{(text or '')[:8000]}"},
     ]
-    raw = ai_engine.complete(messages, ai_config, operation=operation, called_by=called_by)
+    raw = ai_engine.complete(
+        messages, ai_config, operation=operation, called_by=called_by
+    )
     payload = ai_engine.extract_json(raw)
     if isinstance(payload, list):
         payload = {"items": payload}
@@ -351,7 +366,9 @@ async def _get_auth_user(authorization: str = Header("")) -> dict:
             raise HTTPException(status_code=401, detail="Token missing user ID")
 
     try:
-        result = svc.table("user_profiles").select("*").eq("id", user_id).single().execute()
+        result = (
+            svc.table("user_profiles").select("*").eq("id", user_id).single().execute()
+        )
         user = result.data if result.data else None
     except Exception:
         user = None
@@ -380,51 +397,57 @@ def _resolve_and_queue_items(
     svc = _client()
     resolved_ops: list[dict] = []
     for op in ops:
-        if op.get('operation') not in ('inventory_save', 'inventory_week_update'):
+        if op.get("operation") not in ("inventory_save", "inventory_week_update"):
             resolved_ops.append(op)
             continue
 
-        items_in = op['payload'].get('items', [])
+        items_in = op["payload"].get("items", [])
         items_kept: list[dict] = []
 
         for item in items_in:
-            sku = (item.get('sku') or '').strip()
+            sku = (item.get("sku") or "").strip()
             if not sku:
                 items_kept.append(item)
                 continue
 
-            match_type = 'none'
+            match_type = "none"
             try:
                 rpc_result = svc.rpc(
-                    'resolve_invoice_sku',
-                    {'p_sku': sku, 'p_vendor': vendor_id},
+                    "resolve_invoice_sku",
+                    {"p_sku": sku, "p_vendor": vendor_id},
                 ).execute()
                 data = rpc_result.data
                 if isinstance(data, list):
                     data = data[0] if data else {}
-                match_type = (data or {}).get('match_type', 'none')
+                match_type = (data or {}).get("match_type", "none")
             except Exception:
                 pass  # network/rpc error — treat as unknown and queue
 
-            if match_type in ('direct', 'alias'):
+            if match_type in ("direct", "alias"):
                 items_kept.append(item)
             else:
                 # Queue for manager review; do not stage as a new item.
                 try:
-                    svc.table('sku_review_queue').insert({
-                        'parsed_sku': sku,
-                        'parsed_description': item.get('desc') or item.get('description') or '',
-                        'vendor_id': vendor_id,
-                        'source_ref': source_ref,
-                        'qty': float(item.get('qty') or item.get('onHand') or 0),
-                        'unit_price': float(item.get('price') or 0),
-                        'status': 'pending',
-                    }).execute()
+                    svc.table("sku_review_queue").insert(
+                        {
+                            "parsed_sku": sku,
+                            "parsed_description": item.get("desc")
+                            or item.get("description")
+                            or "",
+                            "vendor_id": vendor_id,
+                            "source_ref": source_ref,
+                            "qty": float(item.get("qty") or item.get("onHand") or 0),
+                            "unit_price": float(item.get("price") or 0),
+                            "status": "pending",
+                        }
+                    ).execute()
                 except Exception:
                     pass  # Don't block the import if queue insert fails
 
         if items_kept:
-            resolved_ops.append({**op, 'payload': {**op['payload'], 'items': items_kept}})
+            resolved_ops.append(
+                {**op, "payload": {**op["payload"], "items": items_kept}}
+            )
         # ops with zero remaining items are silently dropped (all items queued)
 
     return resolved_ops
@@ -594,24 +617,107 @@ class AISettingsBody(BaseModel):
 
 @router.get("/settings")
 async def get_settings(auth_user: dict = Depends(_get_auth_user)):
-    """Get current AI stack configuration including per-provider model lists and vision flags."""
-    config = ctx.get_ai_config()
+    """Get current AI stack configuration from ai_stack_config + ai_provider_keys + ai_providers."""
+    svc = _client()
+    # Current active stack
+    try:
+        stack_r = (
+            svc.table("ai_stack_config")
+            .select("provider, key_id, model, vision_capable, is_vision, ollama_url")
+            .eq("name", "default")
+            .limit(1)
+            .execute()
+        )
+        stack = stack_r.data[0] if stack_r.data else {}
+    except Exception:
+        stack = {}
+
+    current = {
+        "provider": stack.get("provider", ""),
+        "model": stack.get("model", ""),
+        "key_id": stack.get("key_id"),
+        "is_vision": stack.get("vision_capable") or stack.get("is_vision") or False,
+        "ollama_url": stack.get("ollama_url"),
+    }
+
+    # Providers from ai_providers table
+    try:
+        prov_r = (
+            svc.table("ai_providers")
+            .select("provider, label, description, has_key, default_url, sort_order")
+            .order("sort_order")
+            .execute()
+        )
+        providers = prov_r.data or []
+    except Exception:
+        providers = []
+
+    # Keys from ai_provider_keys — never return raw api_key
+    try:
+        keys_r = (
+            svc.table("ai_provider_keys")
+            .select(
+                "id, provider, label, is_active, is_default, model_override, base_url, api_key, created_at, updated_at"
+            )
+            .order("created_at")
+            .execute()
+        )
+        keys = [
+            {
+                "id": k["id"],
+                "provider": k["provider"],
+                "label": k.get("label", ""),
+                "is_active": k.get("is_active", False),
+                "is_default": k.get("is_default", False),
+                "has_key": bool(k.get("api_key")),
+                "model_override": k.get("model_override"),
+                "base_url": k.get("base_url"),
+                "updated_at": k.get("updated_at"),
+            }
+            for k in (keys_r.data or [])
+        ]
+    except Exception:
+        keys = []
+
     return {
-        "current": config,
-        "supported_providers": list(ai_engine.SUPPORTED_PROVIDERS),
-        "groq_models": ai_engine.GROQ_MODELS,
-        "anthropic_models": ai_engine.ANTHROPIC_MODELS,
-        "openai_models": ai_engine.OPENAI_MODELS,
-        "mistral_models": ai_engine.MISTRAL_MODELS,
-        "ollama_models": ai_engine.OLLAMA_MODELS,
-        "lm_studio_models": ai_engine.LM_STUDIO_MODELS,
+        "current": current,
+        "providers": providers,
+        "keys": keys,
         "vision_models": list(ai_engine.VISION_MODELS),
         "ai_enabled": True,
     }
 
 
+class AIKeyCreateBody(BaseModel):
+    provider: str
+    label: str
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    model_override: Optional[str] = None
+    set_active: bool = False
+    notes: Optional[str] = None
+
+
+class AIKeyPatchBody(BaseModel):
+    label: Optional[str] = None
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    model_override: Optional[str] = None
+    is_active: Optional[bool] = None
+    notes: Optional[str] = None
+
+
+class AIStackBody(BaseModel):
+    provider: str
+    key_id: str
+    model: str
+    vision_capable: bool = False
+
+
 @router.put("/settings")
-async def update_settings(body: AISettingsBody, auth_user: dict = Depends(_get_auth_user)):
+async def update_settings(
+    body: AISettingsBody, auth_user: dict = Depends(_get_auth_user)
+):
     """Update AI stack — provider, model, optional Ollama URL."""
     if body.provider not in ai_engine.SUPPORTED_PROVIDERS:
         raise HTTPException(
@@ -628,13 +734,299 @@ async def update_settings(body: AISettingsBody, auth_user: dict = Depends(_get_a
     return {"ok": True, "config": config}
 
 
+_ROLE_LEVELS = {'staff': 10, 'assistant': 20, 'manager': 30, 'admin': 40, 'sudo': 50}
+
+
+@router.get("/models")
+async def get_models(provider: str, auth_user: dict = Depends(_get_auth_user)):
+    """Live model discovery for a provider. Falls back to static list on any error."""
+    if _ROLE_LEVELS.get(auth_user.get('role', ''), 0) < 30:
+        raise HTTPException(status_code=403, detail="Manager+ required")
+
+    if provider not in ai_engine.SUPPORTED_PROVIDERS:
+        raise HTTPException(status_code=422, detail=f"Unknown provider: {provider}")
+
+    # Get active key/url for this provider from DB
+    svc = _client()
+    api_key: str | None = None
+    base_url: str | None = None
+    try:
+        kr = (
+            svc.table("ai_provider_keys")
+            .select("api_key, base_url")
+            .eq("provider", provider)
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+        )
+        if kr.data:
+            api_key = kr.data[0].get("api_key")
+            base_url = kr.data[0].get("base_url")
+    except Exception:
+        pass
+
+    model_ids: list[str] = []
+
+    try:
+        import httpx as _httpx
+
+        if provider == "groq" and api_key:
+            r = _httpx.get(
+                "https://api.groq.com/openai/v1/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=10,
+            )
+            r.raise_for_status()
+            model_ids = [m["id"] for m in r.json().get("data", [])]
+
+        elif provider == "anthropic":
+            model_ids = list(ai_engine.ANTHROPIC_MODELS)
+
+        elif provider == "openai" and api_key:
+            url = (base_url or "https://api.openai.com").rstrip("/") + "/v1/models"
+            r = _httpx.get(
+                url, headers={"Authorization": f"Bearer {api_key}"}, timeout=10
+            )
+            r.raise_for_status()
+            all_ids = [m["id"] for m in r.json().get("data", [])]
+            model_ids = [
+                m for m in all_ids if any(p in m for p in ("gpt-4", "gpt-3.5"))
+            ]
+
+        elif provider == "mistral" and api_key:
+            r = _httpx.get(
+                "https://api.mistral.ai/v1/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=10,
+            )
+            r.raise_for_status()
+            model_ids = [m["id"] for m in r.json().get("data", [])]
+
+        elif provider == "ollama":
+            ollama_base = base_url or "http://localhost:11434"
+            r = _httpx.get(f"{ollama_base}/api/tags", timeout=10)
+            r.raise_for_status()
+            model_ids = [m["name"] for m in r.json().get("models", [])]
+
+        elif provider == "lm_studio":
+            lm_base = base_url or "http://localhost:1234"
+            r = _httpx.get(f"{lm_base}/v1/models", timeout=10)
+            r.raise_for_status()
+            model_ids = [m["id"] for m in r.json().get("data", [])]
+
+    except Exception:
+        pass
+
+    # Fall back to static list if live discovery yielded nothing
+    if not model_ids:
+        static = {
+            "groq": ai_engine.GROQ_MODELS,
+            "anthropic": ai_engine.ANTHROPIC_MODELS,
+            "openai": ai_engine.OPENAI_MODELS,
+            "mistral": ai_engine.MISTRAL_MODELS,
+            "ollama": ai_engine.OLLAMA_MODELS,
+            "lm_studio": ai_engine.LM_STUDIO_MODELS,
+        }
+        model_ids = static.get(provider, [])
+
+    models = [
+        {"id": mid, "label": mid, "vision": mid in ai_engine.VISION_MODELS}
+        for mid in model_ids
+    ]
+    return {"provider": provider, "models": models}
+
+
+@router.post("/ai-keys")
+async def create_ai_key(
+    body: AIKeyCreateBody, auth_user: dict = Depends(_get_auth_user)
+):
+    """Create a named key in ai_provider_keys. Sudo only."""
+    if auth_user.get("role") != "sudo":
+        raise HTTPException(status_code=403, detail="Sudo required")
+    if body.provider not in ai_engine.SUPPORTED_PROVIDERS:
+        raise HTTPException(
+            status_code=422, detail=f"Unknown provider: {body.provider}"
+        )
+
+    svc = _client()
+    now = _now()
+    row: dict = {
+        "provider": body.provider,
+        "label": body.label,
+        "is_active": False,
+        "is_default": False,
+        "created_by": auth_user["id"],
+        "created_at": now,
+        "updated_at": now,
+    }
+    if body.api_key:
+        row["api_key"] = body.api_key
+    if body.base_url:
+        row["base_url"] = body.base_url
+    if body.model_override:
+        row["model_override"] = body.model_override
+    if body.notes:
+        row["notes"] = body.notes
+
+    try:
+        r = svc.table("ai_provider_keys").insert(row).execute()
+        new_row = r.data[0] if r.data else {}
+        if body.set_active and new_row.get("id"):
+            # Deactivate others for same provider, activate this one
+            svc.table("ai_provider_keys").update({"is_active": False}).eq(
+                "provider", body.provider
+            ).neq("id", new_row["id"]).execute()
+            svc.table("ai_provider_keys").update({"is_active": True}).eq(
+                "id", new_row["id"]
+            ).execute()
+            new_row["is_active"] = True
+        return {
+            "id": new_row.get("id"),
+            "provider": new_row.get("provider"),
+            "label": new_row.get("label", ""),
+            "is_active": new_row.get("is_active", False),
+            "has_key": bool(body.api_key),
+            "updated_at": new_row.get("updated_at"),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@router.patch("/ai-keys/{key_id}")
+async def patch_ai_key(
+    key_id: str, body: AIKeyPatchBody, auth_user: dict = Depends(_get_auth_user)
+):
+    """Update a named key by UUID. Sudo only."""
+    if auth_user.get("role") != "sudo":
+        raise HTTPException(status_code=403, detail="Sudo required")
+
+    svc = _client()
+    now = _now()
+    update_data: dict = {"updated_at": now}
+
+    if body.label is not None:
+        update_data["label"] = body.label
+    if body.api_key is not None and body.api_key != "":
+        update_data["api_key"] = body.api_key
+    if body.base_url is not None:
+        update_data["base_url"] = body.base_url or None
+    if body.model_override is not None:
+        update_data["model_override"] = body.model_override or None
+    if body.notes is not None:
+        update_data["notes"] = body.notes or None
+
+    if body.is_active is True:
+        # Get provider first to deactivate siblings
+        try:
+            existing = (
+                svc.table("ai_provider_keys")
+                .select("provider")
+                .eq("id", key_id)
+                .limit(1)
+                .execute()
+            )
+            if existing.data:
+                prov = existing.data[0]["provider"]
+                svc.table("ai_provider_keys").update({"is_active": False}).eq(
+                    "provider", prov
+                ).neq("id", key_id).execute()
+        except Exception:
+            pass
+        update_data["is_active"] = True
+    elif body.is_active is False:
+        update_data["is_active"] = False
+
+    try:
+        r = svc.table("ai_provider_keys").update(update_data).eq("id", key_id).execute()
+        row = r.data[0] if r.data else {}
+        return {
+            "id": row.get("id", key_id),
+            "is_active": row.get("is_active", False),
+            "has_key": bool(row.get("api_key")),
+            "updated_at": row.get("updated_at"),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@router.delete("/ai-keys/{key_id}")
+async def delete_ai_key(key_id: str, auth_user: dict = Depends(_get_auth_user)):
+    """Delete a named key. Sudo only. 409 if it is the only active key for its provider."""
+    if auth_user.get("role") != "sudo":
+        raise HTTPException(status_code=403, detail="Sudo required")
+
+    svc = _client()
+    # Fetch the key to check if it is active + get provider
+    try:
+        existing = (
+            svc.table("ai_provider_keys")
+            .select("provider, is_active")
+            .eq("id", key_id)
+            .limit(1)
+            .execute()
+        )
+        if not existing.data:
+            raise HTTPException(status_code=404, detail="Key not found")
+        row = existing.data[0]
+        if row.get("is_active"):
+            # Check if it is the only active key for this provider
+            active_count = (
+                svc.table("ai_provider_keys")
+                .select("id", count="exact")
+                .eq("provider", row["provider"])
+                .eq("is_active", True)
+                .execute()
+            )
+            if (active_count.count or 0) <= 1:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cannot delete the only active key for this provider.",
+                )
+        svc.table("ai_provider_keys").delete().eq("id", key_id).execute()
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@router.post("/ai-stack")
+async def set_ai_stack(body: AIStackBody, auth_user: dict = Depends(_get_auth_user)):
+    """Set the active AI stack (provider + key + model). Manager+ required."""
+    if _ROLE_LEVELS.get(auth_user.get('role', ''), 0) < 30:
+        raise HTTPException(status_code=403, detail="Manager+ required")
+    if body.provider not in ai_engine.SUPPORTED_PROVIDERS:
+        raise HTTPException(
+            status_code=422, detail=f"Unknown provider: {body.provider}"
+        )
+
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    row = {
+        "name": "default",
+        "provider": body.provider,
+        "key_id": body.key_id,
+        "model": body.model,
+        "vision_capable": body.vision_capable,
+        "updated_by": auth_user["id"],
+        "updated_at": now,
+    }
+    try:
+        svc = _client()
+        r = svc.table("ai_stack_config").upsert(row, on_conflict="name").execute()
+        return r.data[0] if r.data else row
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
 # ── AI management — sudo only ─────────────────────────────────────────────────
 
 
 async def _require_sudo_for_ai(auth_user: dict = Depends(_get_auth_user)) -> dict:
     """Require sudo role for all AI management endpoints (keys, tools, usage)."""
-    if auth_user.get('role') != 'sudo':
-        raise HTTPException(status_code=403, detail='AI management requires sudo role')
+    if auth_user.get("role") != "sudo":
+        raise HTTPException(status_code=403, detail="AI management requires sudo role")
     return auth_user
 
 
@@ -648,62 +1040,73 @@ class AIKeyUpdateBody(BaseModel):
 async def get_ai_keys(auth_user: dict = Depends(_require_sudo_for_ai)):
     """List all AI provider key status. Never returns the actual key string."""
     try:
-        result = _client().table('api_keys').select('provider,is_active,base_url,updated_at,api_key').execute()
+        result = (
+            _client()
+            .table("api_keys")
+            .select("provider,is_active,base_url,updated_at,api_key")
+            .execute()
+        )
         rows = result.data or []
         return [
             {
-                'provider': r['provider'],
-                'is_active': r['is_active'],
-                'has_key': bool(r.get('api_key')),
-                'base_url': r.get('base_url'),
-                'updated_at': r.get('updated_at'),
+                "provider": r["provider"],
+                "is_active": r["is_active"],
+                "has_key": bool(r.get("api_key")),
+                "base_url": r.get("base_url"),
+                "updated_at": r.get("updated_at"),
             }
             for r in rows
         ]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Database error: {str(e)}')
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
 @router.put("/ai-keys/{provider}")
-async def update_ai_key(provider: str, body: AIKeyUpdateBody, auth_user: dict = Depends(_require_sudo_for_ai)):
+async def update_ai_key(
+    provider: str,
+    body: AIKeyUpdateBody,
+    auth_user: dict = Depends(_require_sudo_for_ai),
+):
     """Update API key / base_url / active status for a provider."""
     if provider not in ai_engine.SUPPORTED_PROVIDERS:
-        raise HTTPException(status_code=422, detail=f'Unknown provider: {provider}')
+        raise HTTPException(status_code=422, detail=f"Unknown provider: {provider}")
 
     svc = _client()
     now = _now()
-    update_data: dict = {'updated_at': now, 'updated_by': auth_user['id']}
+    update_data: dict = {"updated_at": now, "updated_by": auth_user["id"]}
 
-    if body.api_key is not None and body.api_key != '':
-        update_data['api_key'] = body.api_key
+    if body.api_key is not None and body.api_key != "":
+        update_data["api_key"] = body.api_key
     if body.base_url is not None:
-        update_data['base_url'] = body.base_url or None
+        update_data["base_url"] = body.base_url or None
 
     if body.is_active is True:
         # Only one provider active at a time
         try:
-            svc.table('api_keys').update({'is_active': False}).neq('provider', provider).execute()
+            svc.table("api_keys").update({"is_active": False}).neq(
+                "provider", provider
+            ).execute()
         except Exception:
             pass
-        update_data['is_active'] = True
+        update_data["is_active"] = True
     elif body.is_active is False:
-        update_data['is_active'] = False
+        update_data["is_active"] = False
 
     try:
         result = (
-            svc.table('api_keys')
-            .upsert({'provider': provider, **update_data}, on_conflict='provider')
+            svc.table("api_keys")
+            .upsert({"provider": provider, **update_data}, on_conflict="provider")
             .execute()
         )
         row = result.data[0] if result.data else {}
         return {
-            'provider': provider,
-            'is_active': row.get('is_active', False),
-            'has_key': bool(row.get('api_key')),
-            'updated_at': row.get('updated_at'),
+            "provider": provider,
+            "is_active": row.get("is_active", False),
+            "has_key": bool(row.get("api_key")),
+            "updated_at": row.get("updated_at"),
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Database error: {str(e)}')
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
 # ── AI tools config ───────────────────────────────────────────────────────────
@@ -720,9 +1123,12 @@ async def get_ai_tools(auth_user: dict = Depends(_require_sudo_for_ai)):
 
 
 @router.put("/ai-tools")
-async def update_ai_tools(body: AIToolsBody, auth_user: dict = Depends(_require_sudo_for_ai)):
+async def update_ai_tools(
+    body: AIToolsBody, auth_user: dict = Depends(_require_sudo_for_ai)
+):
     """Update AI tool toggles. Only known tool keys are stored."""
     from backend.ai.context import DEFAULT_TOOLS
+
     sanitized = {k: bool(v) for k, v in body.tools.items() if k in DEFAULT_TOOLS}
     try:
         ctx.save_ai_tools_config(sanitized)
@@ -754,66 +1160,74 @@ async def get_ai_usage(
     # ── aggregate stats ──
     try:
         agg_rows = (
-            svc.table('ai_usage_logs')
-            .select('provider,tokens_in,tokens_out,cost_usd,success,duration_ms')
-            .gte('created_at', since)
+            svc.table("ai_usage_logs")
+            .select("provider,tokens_in,tokens_out,cost_usd,success,duration_ms")
+            .gte("created_at", since)
             .execute()
         ).data or []
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Database error: {str(e)}')
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
     total_calls = len(agg_rows)
-    total_success = sum(1 for r in agg_rows if r.get('success'))
-    total_tokens_in  = sum(r.get('tokens_in', 0) or 0 for r in agg_rows)
-    total_tokens_out = sum(r.get('tokens_out', 0) or 0 for r in agg_rows)
-    total_cost = sum(float(r.get('cost_usd') or 0) for r in agg_rows)
+    total_success = sum(1 for r in agg_rows if r.get("success"))
+    total_tokens_in = sum(r.get("tokens_in", 0) or 0 for r in agg_rows)
+    total_tokens_out = sum(r.get("tokens_out", 0) or 0 for r in agg_rows)
+    total_cost = sum(float(r.get("cost_usd") or 0) for r in agg_rows)
     avg_duration = (
-        int(sum(r.get('duration_ms', 0) or 0 for r in agg_rows) / total_calls)
-        if total_calls else 0
+        int(sum(r.get("duration_ms", 0) or 0 for r in agg_rows) / total_calls)
+        if total_calls
+        else 0
     )
 
     # per-provider breakdown
     by_provider: dict[str, dict] = {}
     for r in agg_rows:
-        p = r.get('provider', 'unknown')
+        p = r.get("provider", "unknown")
         if p not in by_provider:
-            by_provider[p] = {'calls': 0, 'tokens_in': 0, 'tokens_out': 0, 'cost_usd': 0.0}
-        by_provider[p]['calls'] += 1
-        by_provider[p]['tokens_in']  += r.get('tokens_in', 0) or 0
-        by_provider[p]['tokens_out'] += r.get('tokens_out', 0) or 0
-        by_provider[p]['cost_usd']   += float(r.get('cost_usd') or 0)
+            by_provider[p] = {
+                "calls": 0,
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "cost_usd": 0.0,
+            }
+        by_provider[p]["calls"] += 1
+        by_provider[p]["tokens_in"] += r.get("tokens_in", 0) or 0
+        by_provider[p]["tokens_out"] += r.get("tokens_out", 0) or 0
+        by_provider[p]["cost_usd"] += float(r.get("cost_usd") or 0)
 
     # per-operation breakdown
     by_operation: dict[str, int] = {}
     for r in agg_rows:
-        op = r.get('operation') or 'unknown'
+        op = r.get("operation") or "unknown"
         by_operation[op] = by_operation.get(op, 0) + 1
 
     # ── recent rows ──
     try:
         recent = (
-            svc.table('ai_usage_logs')
-            .select('id,provider,model,operation,tokens_in,tokens_out,cost_usd,duration_ms,success,error_msg,called_by,created_at')
-            .order('created_at', desc=True)
+            svc.table("ai_usage_logs")
+            .select(
+                "id,provider,model,operation,tokens_in,tokens_out,cost_usd,duration_ms,success,error_msg,called_by,created_at"
+            )
+            .order("created_at", desc=True)
             .limit(limit)
             .execute()
         ).data or []
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Database error: {str(e)}')
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
     return {
-        'window_days': days,
-        'summary': {
-            'total_calls':    total_calls,
-            'successful':     total_success,
-            'failed':         total_calls - total_success,
-            'tokens_in':      total_tokens_in,
-            'tokens_out':     total_tokens_out,
-            'total_tokens':   total_tokens_in + total_tokens_out,
-            'cost_usd':       round(total_cost, 6),
-            'avg_duration_ms': avg_duration,
+        "window_days": days,
+        "summary": {
+            "total_calls": total_calls,
+            "successful": total_success,
+            "failed": total_calls - total_success,
+            "tokens_in": total_tokens_in,
+            "tokens_out": total_tokens_out,
+            "total_tokens": total_tokens_in + total_tokens_out,
+            "cost_usd": round(total_cost, 6),
+            "avg_duration_ms": avg_duration,
         },
-        'by_provider':  by_provider,
-        'by_operation': by_operation,
-        'recent':       recent,
+        "by_provider": by_provider,
+        "by_operation": by_operation,
+        "recent": recent,
     }

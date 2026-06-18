@@ -453,141 +453,389 @@ const PROVIDER_META: Record<string, { label: string; desc: string; placeholder: 
 // ── sub-panels ────────────────────────────────────────────────────────────────
 
 function ProvidersTab() {
-    const [loading, setLoading] = useState(true);
-    const [keys, setKeys] = useState<any[]>([]);
-    const [model, setModel] = useState('');
-    const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
-    const [urlInputs, setUrlInputs] = useState<Record<string, string>>({});
-    const [saving, setSaving] = useState<Record<string, boolean>>({});
-    const [saved, setSaved] = useState<Record<string, boolean>>({});
-    const [err, setErr] = useState<string | null>(null);
+    const [loading, setLoading]   = useState(true);
+    const [err, setErr]           = useState<string | null>(null);
+    const [settings, setSettings] = useState<any>(null);
+
+    // Active stack form state
+    const [stackProvider, setStackProvider] = useState('');
+    const [stackKeyId,    setStackKeyId]    = useState('');
+    const [stackModel,    setStackModel]    = useState('');
+    const [stackVision,   setStackVision]   = useState(false);
+    const [models,        setModels]        = useState<Array<{ id: string; label: string; vision: boolean }>>([]);
+    const [modelsLoading, setModelsLoading] = useState(false);
+    const [stackSaving,   setStackSaving]   = useState(false);
+    const [stackSaved,    setStackSaved]    = useState(false);
+
+    // Per-key add/edit form state
+    const [addOpen,    setAddOpen]    = useState<Record<string, boolean>>({});
+    const [addForm,    setAddForm]    = useState<Record<string, { label: string; key: string; url: string; model_override: string }>>({});
+    const [addBusy,    setAddBusy]    = useState<Record<string, boolean>>({});
+    const [editOpen,   setEditOpen]   = useState<Record<string, boolean>>({});
+    const [editForm,   setEditForm]   = useState<Record<string, { label: string; key: string; url: string; model_override: string }>>({});
+    const [editBusy,   setEditBusy]   = useState<Record<string, boolean>>({});
+    const [keyErr,     setKeyErr]     = useState<string | null>(null);
+
+    const reload = async () => {
+        setLoading(true); setErr(null);
+        try {
+            const s = await api.getDataEntrySettings();
+            setSettings(s);
+            const cur = s?.current || {};
+            setStackProvider(cur.provider || '');
+            setStackKeyId(cur.key_id || '');
+            setStackModel(cur.model || '');
+            setStackVision(cur.is_vision || false);
+            // Init add forms
+            const af: Record<string, any> = {};
+            (s?.providers || []).forEach((p: any) => { af[p.provider] = { label: '', key: '', url: '', model_override: '' }; });
+            setAddForm(af);
+        } catch (e: any) {
+            setErr(e?.message || 'Failed to load');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { reload(); }, []);
+
+    const fetchModels = async (provider: string) => {
+        if (!provider) return;
+        setModelsLoading(true);
+        try {
+            const r = await api.getAIModels(provider);
+            setModels(r.models || []);
+        } catch {
+            setModels([]);
+        } finally {
+            setModelsLoading(false);
+        }
+    };
+
+    const handleStackProviderChange = (p: string) => {
+        setStackProvider(p);
+        setStackKeyId('');
+        setStackModel('');
+        setStackSaved(false);
+        fetchModels(p);
+    };
 
     useEffect(() => {
-        (async () => {
-            try {
-                const [keyData, settingsData] = await Promise.all([api.getAIKeys(), api.getDataEntrySettings()]);
-                setKeys(keyData);
-                setModel(settingsData?.current?.model || '');
-                const urlMap: Record<string, string> = {};
-                keyData.forEach((k: any) => { if (k.base_url) urlMap[k.provider] = k.base_url; });
-                setUrlInputs(urlMap);
-            } catch (e: any) {
-                setErr(e?.message || 'Failed to load');
-            } finally {
-                setLoading(false);
-            }
-        })();
-    }, []);
+        if (stackProvider) fetchModels(stackProvider);
+    }, []); // fetch once on mount for current provider
 
-    const noActiveKey = !keys.some(k => k.is_active && (k.has_key || !PROVIDER_META[k.provider]?.hasKey));
+    const keysForProvider = (provider: string) =>
+        (settings?.keys || []).filter((k: any) => k.provider === provider);
 
-    const saveProvider = async (provider: string, setActive: boolean) => {
-        setSaving(s => ({ ...s, [provider]: true }));
-        setSaved(s => ({ ...s, [provider]: false }));
+    const activateStack = async () => {
+        if (!stackProvider || !stackKeyId || !stackModel) return;
+        setStackSaving(true); setStackSaved(false); setErr(null);
+        try {
+            await api.setAIStack({ provider: stackProvider, key_id: stackKeyId, model: stackModel, vision_capable: stackVision });
+            setStackSaved(true);
+            setTimeout(() => setStackSaved(false), 2500);
+            await reload();
+        } catch (e: any) {
+            setErr(e?.message || 'Failed to activate stack');
+        } finally {
+            setStackSaving(false);
+        }
+    };
+
+    const addKey = async (provider: string) => {
+        const form = addForm[provider] || {};
+        if (!form.label.trim()) { setKeyErr('Key label is required'); return; }
+        setAddBusy(b => ({ ...b, [provider]: true })); setKeyErr(null);
+        try {
+            await api.createAIKey({
+                provider,
+                label:          form.label.trim(),
+                api_key:        form.key || undefined,
+                base_url:       form.url || undefined,
+                model_override: form.model_override || undefined,
+            });
+            setAddOpen(o => ({ ...o, [provider]: false }));
+            setAddForm(f => ({ ...f, [provider]: { label: '', key: '', url: '', model_override: '' } }));
+            await reload();
+        } catch (e: any) {
+            setKeyErr(e?.message || 'Failed to add key');
+        } finally {
+            setAddBusy(b => ({ ...b, [provider]: false }));
+        }
+    };
+
+    const startEdit = (k: any) => {
+        setEditOpen(o => ({ ...o, [k.id]: true }));
+        setEditForm(f => ({ ...f, [k.id]: { label: k.label || '', key: '', url: k.base_url || '', model_override: k.model_override || '' } }));
+    };
+
+    const saveEdit = async (k: any) => {
+        const form = editForm[k.id] || {};
+        setEditBusy(b => ({ ...b, [k.id]: true })); setKeyErr(null);
         try {
             const body: any = {};
-            if (setActive) body.is_active = true;
-            const meta = PROVIDER_META[provider];
-            if (meta?.hasKey && keyInputs[provider]) body.api_key = keyInputs[provider];
-            if (!meta?.hasKey && urlInputs[provider]) body.base_url = urlInputs[provider];
-            const row = await api.updateAIKey(provider, body);
-            setKeys(prev => prev.map(k =>
-                k.provider === provider ? { ...k, ...row, has_key: row.has_key } :
-                setActive ? { ...k, is_active: false } : k
-            ));
-            setKeyInputs(i => ({ ...i, [provider]: '' }));
-            setSaved(s => ({ ...s, [provider]: true }));
-            setTimeout(() => setSaved(s => ({ ...s, [provider]: false })), 2500);
-        } catch (e: any) { setErr(e?.message || 'Save failed'); }
-        finally { setSaving(s => ({ ...s, [provider]: false })); }
+            if (form.label !== k.label)         body.label = form.label;
+            if (form.key)                        body.api_key = form.key;
+            if (form.url !== (k.base_url || '')) body.base_url = form.url || null;
+            if (form.model_override !== (k.model_override || '')) body.model_override = form.model_override || null;
+            await api.updateAIKeyById(k.id, body);
+            setEditOpen(o => ({ ...o, [k.id]: false }));
+            await reload();
+        } catch (e: any) {
+            setKeyErr(e?.message || 'Save failed');
+        } finally {
+            setEditBusy(b => ({ ...b, [k.id]: false }));
+        }
     };
 
-    const saveModel = async () => {
-        try { await api.updateDataEntrySettings({ model }); } catch { /* non-fatal */ }
+    const activateKey = async (k: any) => {
+        setKeyErr(null);
+        try {
+            await api.updateAIKeyById(k.id, { is_active: true });
+            await reload();
+        } catch (e: any) {
+            setKeyErr(e?.message || 'Failed to activate');
+        }
     };
 
-    const providerOrder = ['groq', 'anthropic', 'openai', 'mistral', 'ollama', 'lm_studio'];
+    const deleteKey = async (k: any) => {
+        if (!window.confirm(`Delete key "${k.label}"? This cannot be undone.`)) return;
+        setKeyErr(null);
+        try {
+            await api.deleteAIKey(k.id);
+            await reload();
+        } catch (e: any) {
+            setKeyErr(e?.message || e?.detail || 'Delete failed');
+        }
+    };
 
-    if (loading) return <div className="ph-sub">Loading providers…</div>;
+    if (loading) return <div className="ph-sub">Loading providers...</div>;
+
+    const providers: any[] = settings?.providers || [];
+    const visionSet = new Set<string>(settings?.vision_models || []);
+
+    // Determine active stack status label
+    const cur = settings?.current || {};
+    const activeLabel = cur.provider
+        ? `${cur.provider.charAt(0).toUpperCase() + cur.provider.slice(1)} · ${cur.model || '(no model)'}${cur.is_vision ? ' ✶ Vision' : ''}`
+        : null;
+
+    const visionModels  = models.filter(m => m.vision);
+    const textModels    = models.filter(m => !m.vision);
+    const stackKeys     = keysForProvider(stackProvider);
 
     return (
         <>
-            {err && <div className="banner warn" style={{ marginBottom: 12 }}>{I.alert()} <span>{err}</span></div>}
-            {noActiveKey && (
-                <div className="banner warn" style={{ marginBottom: 14 }}>
-                    {I.alert()} <span>No active provider — AI data-entry uploads will fail until one is activated.</span>
-                </div>
-            )}
+            {err    && <div className="banner warn"  style={{ marginBottom: 12 }}>{I.alert()} <span>{err}</span></div>}
+            {keyErr && <div className="banner warn"  style={{ marginBottom: 12 }}>{I.alert()} <span>{keyErr}</span></div>}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {providerOrder.map(provider => {
-                    const meta = PROVIDER_META[provider];
-                    if (!meta) return null;
-                    const row = keys.find(k => k.provider === provider) || { is_active: false, has_key: false, base_url: null };
-                    const isActive = row.is_active;
-                    const keyVal = keyInputs[provider] || '';
-                    const urlVal = urlInputs[provider] || '';
+            {/* Active stack status */}
+            <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10,
+                background: activeLabel ? 'var(--accent-soft)' : 'var(--amber-bg)',
+                border: `1.5px solid ${activeLabel ? 'var(--accent)' : 'var(--amber-ink)'}` }}>
+                {activeLabel
+                    ? <span style={{ fontWeight: 700, fontSize: 13 }}>Active: {activeLabel}</span>
+                    : <span style={{ color: 'var(--amber-ink)', fontWeight: 700, fontSize: 13 }}>No provider configured - activate one below.</span>
+                }
+            </div>
+
+            {/* Provider cards */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {providers.map((prov: any) => {
+                    const provKeys = keysForProvider(prov.provider);
+                    const isAddOpen = addOpen[prov.provider];
+                    const addF = addForm[prov.provider] || { label: '', key: '', url: '', model_override: '' };
+                    const localProvider = !prov.has_key; // ollama, lm_studio
 
                     return (
-                        <div key={provider} style={{
-                            display: 'grid',
-                            gridTemplateColumns: '180px 1fr auto',
-                            gap: 10,
-                            alignItems: 'center',
-                            padding: '12px 14px',
-                            background: isActive ? 'var(--accent-soft)' : 'var(--surface-2)',
-                            border: `1.5px solid ${isActive ? 'var(--accent)' : 'var(--line)'}`,
-                            borderRadius: 10,
+                        <div key={prov.provider} style={{
+                            border: '1.5px solid var(--line)', borderRadius: 12,
+                            background: 'var(--surface-2)', overflow: 'hidden',
                         }}>
-                            {/* label + radio */}
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                                <input type="radio" name="active_provider" checked={isActive}
-                                    onChange={() => saveProvider(provider, true)} />
+                            {/* Card header */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                padding: '12px 14px', borderBottom: provKeys.length || isAddOpen ? '1px solid var(--line-soft)' : 'none' }}>
                                 <div>
-                                    <div style={{ fontWeight: 700, fontSize: 13 }}>{meta.label}</div>
-                                    <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 1 }}>{meta.desc}</div>
+                                    <span style={{ fontWeight: 700, fontSize: 13 }}>{prov.label}</span>
+                                    <span style={{ fontSize: 10.5, color: 'var(--faint)', marginLeft: 8 }}>{prov.description}</span>
                                 </div>
-                            </label>
-
-                            {/* key / URL input */}
-                            {meta.hasKey ? (
-                                <input type="password" className="sheet-inp txt"
-                                    value={keyVal}
-                                    placeholder={row.has_key ? '●●●●●●●● key saved' : meta.placeholder}
-                                    onChange={e => setKeyInputs(i => ({ ...i, [provider]: e.target.value }))} />
-                            ) : (
-                                <input className="sheet-inp txt"
-                                    value={urlVal}
-                                    placeholder={row.base_url || meta.defaultUrl}
-                                    onChange={e => setUrlInputs(i => ({ ...i, [provider]: e.target.value }))} />
-                            )}
-
-                            {/* save + badges */}
-                            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                                <button className="btn" style={{ whiteSpace: 'nowrap' }}
-                                    disabled={saving[provider]}
-                                    onClick={() => saveProvider(provider, isActive)}>
-                                    {saving[provider] ? 'Saving…' : 'Save'}
-                                </button>
-                                {saved[provider] && <span className="pill ok">Saved</span>}
-                                {row.has_key && !keyVal && meta.hasKey &&
-                                    <span className="pill ok" style={{ fontSize: 10 }}>key ✓</span>}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    {provKeys.length > 0 && (
+                                        <span className="pill off" style={{ fontSize: 10 }}>{provKeys.length} key{provKeys.length !== 1 ? 's' : ''}</span>
+                                    )}
+                                    <button className="btn" style={{ fontSize: 11, padding: '4px 10px' }}
+                                        onClick={() => setAddOpen(o => ({ ...o, [prov.provider]: !o[prov.provider] }))}>
+                                        + Add key
+                                    </button>
+                                </div>
                             </div>
+
+                            {/* Named key list */}
+                            {provKeys.map((k: any) => {
+                                const isEdit = editOpen[k.id];
+                                const ef = editForm[k.id] || {};
+                                return (
+                                    <div key={k.id} style={{
+                                        display: 'flex', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap',
+                                        padding: '10px 14px', borderBottom: '1px solid var(--line-soft)',
+                                        background: k.is_active ? 'var(--accent-soft)' : 'transparent',
+                                    }}>
+                                        <div style={{ flex: 1, minWidth: 160 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                <span style={{ fontWeight: 700, fontSize: 12 }}>{k.label || '(unnamed)'}</span>
+                                                {k.is_active && <span className="pill ok" style={{ fontSize: 9 }}>active</span>}
+                                                {k.is_default && <span className="pill off" style={{ fontSize: 9 }}>default</span>}
+                                            </div>
+                                            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                                                {k.has_key ? '●●●●●●●● key saved' : '(no key)'}
+                                                {k.base_url && <span style={{ marginLeft: 8, fontFamily: 'monospace', fontSize: 10 }}>{k.base_url}</span>}
+                                                {k.model_override && <span style={{ marginLeft: 8, color: 'var(--faint)' }}>model: {k.model_override}</span>}
+                                            </div>
+                                        </div>
+
+                                        {!isEdit ? (
+                                            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
+                                                {!k.is_active && (
+                                                    <button className="btn" style={{ fontSize: 11, padding: '4px 10px' }}
+                                                        onClick={() => activateKey(k)}>Set active</button>
+                                                )}
+                                                <button className="btn" style={{ fontSize: 11, padding: '4px 10px' }}
+                                                    onClick={() => startEdit(k)}>Edit</button>
+                                                <button className="btn" style={{ fontSize: 11, padding: '4px 10px', color: 'var(--red, #dc2626)' }}
+                                                    onClick={() => deleteKey(k)}>Delete</button>
+                                            </div>
+                                        ) : (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', marginTop: 8 }}>
+                                                <input className="sheet-inp txt" placeholder="Label" value={ef.label || ''}
+                                                    onChange={e => setEditForm(f => ({ ...f, [k.id]: { ...f[k.id], label: e.target.value } }))} />
+                                                {!localProvider && (
+                                                    <input type="password" className="sheet-inp txt" placeholder="New key (leave blank to keep existing)"
+                                                        value={ef.key || ''}
+                                                        onChange={e => setEditForm(f => ({ ...f, [k.id]: { ...f[k.id], key: e.target.value } }))} />
+                                                )}
+                                                <input className="sheet-inp txt" placeholder="Base URL (optional)"
+                                                    value={ef.url || ''}
+                                                    onChange={e => setEditForm(f => ({ ...f, [k.id]: { ...f[k.id], url: e.target.value } }))} />
+                                                <input className="sheet-inp txt" placeholder="Model override (optional)"
+                                                    value={ef.model_override || ''}
+                                                    onChange={e => setEditForm(f => ({ ...f, [k.id]: { ...f[k.id], model_override: e.target.value } }))} />
+                                                <div style={{ display: 'flex', gap: 6 }}>
+                                                    <button className="btn primary" onClick={() => saveEdit(k)} disabled={editBusy[k.id]}>
+                                                        {editBusy[k.id] ? 'Saving...' : 'Save'}
+                                                    </button>
+                                                    <button className="btn" onClick={() => setEditOpen(o => ({ ...o, [k.id]: false }))}>Cancel</button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+
+                            {/* Add key form */}
+                            {isAddOpen && (
+                                <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginBottom: 4 }}>Add new key</div>
+                                    <input className="sheet-inp txt" placeholder="Key label (e.g. Production key)" value={addF.label}
+                                        onChange={e => setAddForm(f => ({ ...f, [prov.provider]: { ...f[prov.provider], label: e.target.value } }))} />
+                                    {prov.has_key && (
+                                        <input type="password" className="sheet-inp txt" placeholder={`API key (e.g. ${PROVIDER_META[prov.provider]?.placeholder || 'key...'})`}
+                                            value={addF.key}
+                                            onChange={e => setAddForm(f => ({ ...f, [prov.provider]: { ...f[prov.provider], key: e.target.value } }))} />
+                                    )}
+                                    {(!prov.has_key || prov.provider === 'openai') && (
+                                        <input className="sheet-inp txt" placeholder={`Base URL (${prov.default_url || 'optional'})`}
+                                            value={addF.url}
+                                            onChange={e => setAddForm(f => ({ ...f, [prov.provider]: { ...f[prov.provider], url: e.target.value } }))} />
+                                    )}
+                                    <input className="sheet-inp txt" placeholder="Model override (optional)"
+                                        value={addF.model_override}
+                                        onChange={e => setAddForm(f => ({ ...f, [prov.provider]: { ...f[prov.provider], model_override: e.target.value } }))} />
+                                    <div style={{ display: 'flex', gap: 6 }}>
+                                        <button className="btn primary" onClick={() => addKey(prov.provider)} disabled={addBusy[prov.provider]}>
+                                            {addBusy[prov.provider] ? 'Adding...' : 'Add key'}
+                                        </button>
+                                        <button className="btn" onClick={() => setAddOpen(o => ({ ...o, [prov.provider]: false }))}>Cancel</button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     );
                 })}
             </div>
 
-            <div style={{ marginTop: 14, display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                <div style={{ flex: '1 1 220px' }}>
-                    <label style={LBL}>Model override (leave blank to use provider default)</label>
-                    <input className="sheet-inp txt" value={model} style={{ width: '100%' }}
-                        placeholder="e.g. claude-sonnet-4-20250514 or llama-3.3-70b-versatile"
-                        onChange={e => setModel(e.target.value)} onBlur={saveModel} />
+            {/* Active stack section */}
+            <div style={{ marginTop: 20, border: '1.5px solid var(--line)', borderRadius: 12, padding: '16px 14px', background: 'var(--surface-2)' }}>
+                <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Activate stack</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
+                    {/* Provider selector */}
+                    <div>
+                        <label style={LBL}>Provider</label>
+                        <select className="tb-select" value={stackProvider} style={{ minWidth: 160 }}
+                            onChange={e => handleStackProviderChange(e.target.value)}>
+                            <option value="">-- select --</option>
+                            {providers.map((p: any) => (
+                                <option key={p.provider} value={p.provider}>{p.label}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Key selector */}
+                    {stackProvider && (
+                        <div>
+                            <label style={LBL}>Key</label>
+                            <select className="tb-select" value={stackKeyId} style={{ minWidth: 180 }}
+                                onChange={e => setStackKeyId(e.target.value)}>
+                                <option value="">-- select key --</option>
+                                {stackKeys.map((k: any) => (
+                                    <option key={k.id} value={k.id}>{k.label || k.id.slice(0, 8)}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+
+                    {/* Smart model picker */}
+                    {stackProvider && (
+                        <div>
+                            <label style={LBL}>
+                                Model
+                                {stackVision && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 800,
+                                    background: '#eff5fe', color: '#1e3a8a',
+                                    padding: '2px 7px', borderRadius: 5, border: '1px solid #bfdbfe' }}>✶ Vision</span>}
+                            </label>
+                            {modelsLoading ? (
+                                <div style={{ fontSize: 12, color: 'var(--muted)', padding: '6px 0' }}>Loading models...</div>
+                            ) : (
+                                <select className="tb-select" value={stackModel} style={{ minWidth: 260 }}
+                                    onChange={e => {
+                                        const m = e.target.value;
+                                        setStackModel(m);
+                                        setStackVision(visionSet.has(m));
+                                    }}>
+                                    <option value="">-- select model --</option>
+                                    {visionModels.length > 0 && (
+                                        <optgroup label="Vision capable ✶">
+                                            {visionModels.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                                        </optgroup>
+                                    )}
+                                    {textModels.length > 0 && (
+                                        <optgroup label="Text only">
+                                            {textModels.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                                        </optgroup>
+                                    )}
+                                    {models.length === 0 && <option value={stackModel}>{stackModel || '(enter model name)'}</option>}
+                                </select>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Activate button */}
+                    <button className="btn primary" style={{ alignSelf: 'flex-end' }}
+                        disabled={!stackProvider || !stackKeyId || !stackModel || stackSaving}
+                        onClick={activateStack}>
+                        {stackSaving ? 'Activating...' : 'Activate'}
+                    </button>
+                    {stackSaved && <span className="pill ok" style={{ alignSelf: 'flex-end' }}>Activated</span>}
                 </div>
-            </div>
-            <div className="banner info" style={{ marginTop: 12 }}>
-                {I.alert()} <span>PDF / image receipts use the deterministic parser — no AI tokens consumed. AI processes unrecognized CSV / text formats only.</span>
             </div>
         </>
     );
