@@ -460,9 +460,7 @@ export function reorders(inv: any) {
   return invToList(inv).filter((i) => (i.onHand || 0) < (i.par || 0) && (i.par || 0) > 0);
 }
 export function fmtMoney(n: number) {
-  if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
-  if (n >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
-  return '$' + (n || 0).toFixed(2);
+  return '$' + (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 export function fmtMoneyFull(n: number) {
   return (
