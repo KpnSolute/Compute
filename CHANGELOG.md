@@ -4,6 +4,39 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.1.0] — 2026-06-18 — Data entry: invoice parser fix, invoice records, SKU queue count
+
+**Agent:** Claude (Senior Development Manager)
+**Build:** `tsc --noEmit` clean · `vite build` ✓ · `ruff check backend/ai/invoice_parser.py backend/routes/data_entry.py` ✓ (agent.py pre-existing E701 unchanged)
+**Push:** 4d32224 — 2026-06-18
+
+### Task 1 — USFOODS_LINE_RE column-order fix (critical)
+The previous regex put an ITEM_NO (5-7 digit) in column 1. Real US Foods PDFs start lines with ORD SHP ADJ SALES_UNIT PRODUCT_NUMBER. Fixed group order: G1=ord, G2=shp, G3=adj, G4=unit, G5=product_number, G6=body, G7=unit_price, G8=ext_price. SKU is now `m.group(5)` (product number) not `m.group(6)`.
+
+Weight-priced items (SALES_UNIT=LB): unit_price = ext_price / qty_shipped (per-case cost) instead of the per-pound rate the vendor prints.
+
+Added `USFOODS_SKIP_RE` — rejects column-header rows ("ORD SHP ADJ…"), page numbers, and INVOICE SUMMARY section label lines before the item regex runs. This eliminates INV-UNIPRI-type junk SKUs generated from header text.
+
+### Task 1 ext — INVOICE SUMMARY patterns + INVOICE_EXTRACTION_TOOLS
+Added three new META_PATTERNS: `vizient_discount`, `fuel_surcharge`, `net_total` (patterns cover US Foods summary block labels). `extract_invoice_vision()` now propagates all three fields from AI response. Updated `_VISION_PROMPT` to include the complete field schema so any AI model can follow it, with an explicit note to use LB-price correction.
+
+Added `INVOICE_EXTRACTION_TOOLS` module-level constant: OpenAI function-call format schema for `extract_invoice_line` and `extract_invoice_summary`. Any AI model with tool-calling support can use these natively; models without tool support follow the JSON schema embedded in the prompt.
+
+### Task 2 — Invoice record creation + idempotency
+Added `_upsert_invoice_record(meta, month, year, week, submitter_id)` in `data_entry.py`. Parses invoice_date from MM/DD/YYYY or YYYY-MM-DD; writes invoices row with subtotal/vizient_discount/fuel_surcharge/net_total from parsed meta. Idempotency: SELECT by invoice_number first — if exists, returns the existing id + `existed=True`; the upload route returns 409 `{error: "duplicate_invoice"}` so the UI can surface it cleanly.
+
+`_resolve_and_queue_items()` now returns `(ops, queued_count)` tuple. Response includes `sku_queued` count and `invoice_id`.
+
+### DataEntry.tsx — SKU queue pill
+`UploadResult` interface adds `sku_queued` and `invoice_id`. After upload, shows a yellow "N SKUs queued for review" pill when sku_queued > 0; clicking it navigates to Source Control where the manager can resolve them.
+
+### Status / pending items
+- Task 0 (June opening-balance reconciliation): BLOCKED — needs confirmation with Othniel before any write. Do not proceed without explicit user sign-off.
+- Task 5 (GitHub sync drain — 85 queued rows): P2, not started.
+- INVOICE_EXTRACTION_TOOLS: defined and in prompt, but AI engine doesn't use native tool-calling yet (all providers use JSON prompt pattern). Native tool-call wiring is a future enhancement.
+
+---
+
 ## [v4.0.0] — 2026-06-18 — Auth, session lifecycle & cache/deploy overhaul (P0 + P1)
 
 **Agent:** Claude (Senior Development Manager)
