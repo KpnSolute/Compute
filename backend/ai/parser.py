@@ -42,6 +42,9 @@ def parse_excel(content: bytes) -> list[dict[str, Any]]:
     return result
 
 
+_PDF_PAGE_CAP = 40  # matches invoice_parser._PDF_MAX_PAGES
+
+
 def parse_pdf(content: bytes) -> str:
     try:
         import pdfplumber
@@ -49,8 +52,18 @@ def parse_pdf(content: bytes) -> str:
         raise RuntimeError(
             "pdfplumber is required for PDF parsing: pip install pdfplumber"
         )
+    pages: list[str] = []
     with pdfplumber.open(io.BytesIO(content)) as pdf:
-        pages = [page.extract_text() or "" for page in pdf.pages]
+        total = min(len(pdf.pages), _PDF_PAGE_CAP)
+        for i in range(total):
+            page = pdf.pages[i]
+            try:
+                text = page.extract_text() or ""
+            except Exception:
+                text = ""
+            finally:
+                page.close()
+            pages.append(text)
     return "\n".join(pages).strip()
 
 
@@ -65,7 +78,9 @@ def rows_to_text(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def detect_and_parse(filename: str, content: bytes) -> tuple[str, list[dict] | str | dict]:
+def detect_and_parse(
+    filename: str, content: bytes
+) -> tuple[str, list[dict] | str | dict]:
     """
     Returns (kind, data):
       'rows'           — list of dicts (CSV/Excel/TSV): deterministic column mapping.
@@ -77,14 +92,14 @@ def detect_and_parse(filename: str, content: bytes) -> tuple[str, list[dict] | s
     """
     import zipfile as _zipfile
 
-    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
     # ── magic-byte sniffing ───────────────────────────────────────────────────
-    is_pdf   = content[:4] == b'%PDF'
-    is_zip   = content[:4] == b'PK\x03\x04'
-    is_jpeg  = content[:2] == b'\xff\xd8'
-    is_png   = content[:4] == b'\x89PNG'
-    is_image = is_jpeg or is_png or f'.{ext}' in invoice_parser.IMAGE_EXTENSIONS
+    is_pdf = content[:4] == b"%PDF"
+    is_zip = content[:4] == b"PK\x03\x04"
+    is_jpeg = content[:2] == b"\xff\xd8"
+    is_png = content[:4] == b"\x89PNG"
+    is_image = is_jpeg or is_png or f".{ext}" in invoice_parser.IMAGE_EXTENSIONS
 
     # ZIPs that bundle images (e.g. multi-page invoice scan saved as .pdf)
     if is_zip:
@@ -93,69 +108,93 @@ def detect_and_parse(filename: str, content: bytes) -> tuple[str, list[dict] | s
                 image_bytes_list = []
                 for name in sorted(zf.namelist()):
                     lo = name.lower()
-                    if any(lo.endswith(e) for e in ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff')):
+                    if any(
+                        lo.endswith(e)
+                        for e in (
+                            ".jpg",
+                            ".jpeg",
+                            ".png",
+                            ".webp",
+                            ".bmp",
+                            ".tif",
+                            ".tiff",
+                        )
+                    ):
                         with zf.open(name) as img_f:
                             image_bytes_list.append(img_f.read())
                 if image_bytes_list:
-                    return 'invoice_images', {'images': image_bytes_list, 'meta': {'filename': filename}}
+                    return "invoice_images", {
+                        "images": image_bytes_list,
+                        "meta": {"filename": filename},
+                    }
         except Exception:
             pass
 
     # PDFs: try deterministic invoice parser first, fall back to plain text,
     # then convert to page images for vision AI if text extraction yields nothing.
-    if is_pdf or ext == 'pdf':
+    if is_pdf or ext == "pdf":
         try:
             parsed = invoice_parser.parse_invoice_bytes_pdf(content, filename)
-            if parsed['items']:
-                return 'invoice_items', parsed
+            if parsed["items"]:
+                return "invoice_items", parsed
         except Exception:
             pass
-        raw_text = ''
+        raw_text = ""
         try:
             raw_text = parse_pdf(content)
         except Exception:
             pass
         if raw_text.strip():
-            return 'text', raw_text
+            return "text", raw_text
         # All-image PDF (scanned / no native text) — render pages as PNG for vision AI.
+        # 96 DPI keeps each page ~200KB; 6-page cap keeps peak heap under 100MB.
         try:
             import pdfplumber as _plumber
+
             page_images: list[bytes] = []
             with _plumber.open(io.BytesIO(content)) as _pdf:
-                for _page in _pdf.pages[:10]:
-                    _buf = io.BytesIO()
-                    _page.to_image(resolution=150).save(_buf, format='PNG')
-                    page_images.append(_buf.getvalue())
+                for _page in _pdf.pages[:6]:
+                    try:
+                        _buf = io.BytesIO()
+                        _page.to_image(resolution=96).save(_buf, format="PNG")
+                        page_images.append(_buf.getvalue())
+                    except Exception:
+                        pass
+                    finally:
+                        _page.close()
             if page_images:
-                return 'invoice_images', {'images': page_images, 'meta': {'filename': filename}}
+                return "invoice_images", {
+                    "images": page_images,
+                    "meta": {"filename": filename},
+                }
         except Exception:
             pass
-        return 'text', ''
+        return "text", ""
 
     # Single images: OCR path first, vision path as fallback signal
     if is_image:
         try:
             parsed = invoice_parser.parse_invoice_bytes_image(content, filename)
-            if parsed.get('items'):
-                return 'invoice_items', parsed
+            if parsed.get("items"):
+                return "invoice_items", parsed
         except Exception:
             pass
         # Return as invoice_images so caller can route to vision AI
-        return 'invoice_images', {'images': [content], 'meta': {'filename': filename}}
+        return "invoice_images", {"images": [content], "meta": {"filename": filename}}
 
-    if ext == 'csv':
-        return 'rows', parse_csv(content)
-    if ext in ('xls', 'xlsx'):
-        return 'rows', parse_excel(content)
-    if ext == 'tsv':
-        return 'rows', parse_tsv(content)
+    if ext == "csv":
+        return "rows", parse_csv(content)
+    if ext in ("xls", "xlsx"):
+        return "rows", parse_excel(content)
+    if ext == "tsv":
+        return "rows", parse_tsv(content)
 
     # CSV heuristic for unknown text files
     try:
         rows = parse_csv(content)
         if rows and len(rows[0]) > 1:
-            return 'rows', rows
+            return "rows", rows
     except Exception:
         pass
 
-    return 'text', content.decode('utf-8', errors='replace')
+    return "text", content.decode("utf-8", errors="replace")

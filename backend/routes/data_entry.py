@@ -144,23 +144,31 @@ def _extract_ops(
     direction: str = "received",
     tools_cfg: dict | None = None,
     called_by: str | None = None,
-) -> list[dict]:
-    """Parse file and extract list of {operation, payload} dicts."""
+) -> tuple[list[dict], dict]:
+    """Parse file and return (ops, invoice_meta).
+
+    invoice_meta is the raw parsed meta dict for invoice PDFs/images
+    (contains 'reconciliation', 'invoice_number', etc.).  It is {} for
+    non-invoice files.  Callers MUST use this dict rather than re-parsing
+    the file — re-parsing on a 512MB host causes OOM spikes.
+    """
     kind, data = file_parser.detect_and_parse(filename, content)
 
     # Deterministic invoice parser short-circuit: no AI needed for structured invoices.
     if kind == "invoice_items":
         parsed = data  # {'meta': {...}, 'items': [...]}
+        meta = parsed.get("meta", {})
         categories = ctx.get_categories()
-        return invoice_parser.invoice_items_to_ops(
+        ops = invoice_parser.invoice_items_to_ops(
             parsed["items"],
-            parsed.get("meta", {}),
+            meta,
             month,
             year,
             week,
             direction,
             categories,
         )
+        return ops, meta
 
     # Image bundles (ZIP-of-images, single images that OCR couldn't parse) — try vision, then OCR
     if kind == "invoice_images":
@@ -176,16 +184,18 @@ def _extract_ops(
                     images, img_meta, ai_config, called_by=called_by
                 )
                 if parsed.get("items"):
+                    meta = parsed.get("meta", {})
                     categories = ctx.get_categories()
-                    return invoice_parser.invoice_items_to_ops(
+                    ops = invoice_parser.invoice_items_to_ops(
                         parsed["items"],
-                        parsed.get("meta", {}),
+                        meta,
                         month,
                         year,
                         week,
                         direction,
                         categories,
                     )
+                    return ops, meta
             except Exception:
                 pass  # fall through to OCR degradation
 
@@ -196,16 +206,18 @@ def _extract_ops(
                     img_bytes, "image.jpg"
                 )
                 if ocr_parsed.get("items"):
+                    meta = ocr_parsed.get("meta", {})
                     categories = ctx.get_categories()
-                    return invoice_parser.invoice_items_to_ops(
+                    ops = invoice_parser.invoice_items_to_ops(
                         ocr_parsed["items"],
-                        ocr_parsed.get("meta", {}),
+                        meta,
                         month,
                         year,
                         week,
                         direction,
                         categories,
                     )
+                    return ops, meta
             except Exception:
                 pass
 
@@ -304,7 +316,7 @@ def _extract_ops(
                         },
                     }
                 )
-        return ops
+        return ops, {}
 
     if operation == "event_create":
         if rows is not None:
@@ -313,7 +325,7 @@ def _extract_ops(
                 events = mapper.ai_extract_events(rows, ai_config)
         else:
             events = mapper.ai_extract_events(text, ai_config)
-        return [{"operation": "event_create", "payload": ev} for ev in events]
+        return [{"operation": "event_create", "payload": ev} for ev in events], {}
 
     # for other operations, send to AI with generic prompt
     if rows is not None:
@@ -338,7 +350,7 @@ def _extract_ops(
     payload = ai_engine.extract_json(raw)
     if isinstance(payload, list):
         payload = {"items": payload}
-    return [{"operation": operation, "payload": payload}]
+    return [{"operation": operation, "payload": payload}], {}
 
 
 # ── auth ───────────────────────────────────────────────────────────────────────
@@ -618,7 +630,7 @@ async def upload_file(
 
     try:
         parse_start = time.monotonic()
-        ops = _extract_ops(
+        ops, invoice_meta = _extract_ops(
             fname,
             content,
             hint,
@@ -650,42 +662,15 @@ async def upload_file(
             status_code=422, detail="No data could be extracted from this file."
         )
 
-    # Create / deduplicate invoice record before staging
-    parsed_meta: dict = {}
-    for op in ops:
-        if op.get("operation") in ("inventory_save", "inventory_week_update"):
-            parsed_meta = op.get("payload", {}).get("_invoice_meta") or {}
-            break
-    # invoice_parser stores meta in the ops payload when kind==invoice_items
-    # Also check the first op's full_payload for any meta the parser attached
+    # invoice_meta comes directly from _extract_ops (no second parse needed).
+    # reconcile_and_adjust() already ran inside parse_invoice_bytes_pdf.
+    parsed_meta: dict = invoice_meta
+    reconciliation: dict = parsed_meta.get("reconciliation", {})
     invoice_id: Optional[str] = None
     invoice_is_pending_dup = False
-    if not parsed_meta:
-        # Attempt to pull meta from the file_parser result stored on the first invoice op
-        for op in ops:
-            fp = op.get("full_payload") or op.get("payload") or {}
-            if fp.get("invoice_number"):
-                parsed_meta = fp
-                break
-    reconciliation: dict = {}
-    if parsed_meta or any(
+    if any(
         op.get("operation") in ("inventory_save", "inventory_week_update") for op in ops
     ):
-        # Re-parse to get invoice meta (number, dates) and reconciliation stats.
-        # reconcile_and_adjust() ran inside parse_invoice_bytes_pdf already, so
-        # meta['reconciliation'] is populated here at no extra cost.
-        try:
-            from backend.ai import parser as file_parser
-
-            kind, fdata = file_parser.detect_and_parse(
-                file.filename or "upload", content
-            )
-            if kind == "invoice_items":
-                parsed_meta = fdata.get("meta", {})
-                reconciliation = parsed_meta.get("reconciliation", {})
-        except Exception:
-            pass
-
         # Gate: refuse to stage when totals are off by more than 5%
         if reconciliation and reconciliation.get("net_total", 0) > 0:
             recon = reconciliation
