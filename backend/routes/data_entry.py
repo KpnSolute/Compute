@@ -6,20 +6,22 @@ GET  /api/data-entry/settings — current AI stack config
 PUT  /api/data-entry/settings — update AI stack config
 """
 
+import logging
+import time
 import uuid
 import os
 from datetime import datetime, timezone
 from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header, Depends
 from pydantic import BaseModel
-
 from backend.routes import jwt_validator
 from supabase import create_client
-
 from backend.ai import engine as ai_engine
 from backend.ai import invoice_parser
 from backend.ai import parser as file_parser
 from backend.ai import mapper, context as ctx, diff as diff_engine
+
+log = logging.getLogger("mjcc.data_entry")
 
 router = APIRouter(prefix="/api/data-entry")
 
@@ -580,6 +582,7 @@ async def upload_file(
     - week: 1-4 to post a weekly invoice into that week's column (0 = whole-month save)
     - direction: 'received' (Imports) or 'issued' (Exports) for a weekly post
     """
+    job_start = time.monotonic()
     now = datetime.now(timezone.utc)
     if not month:
         month = now.month
@@ -587,17 +590,36 @@ async def upload_file(
         year = now.year
 
     content = await file.read()
+    fname = file.filename or "upload"
+    fsize_kb = round(len(content) / 1024, 1)
+
+    log.info(
+        "[DATA-ENTRY] Job started | file=%s size=%sKB month=%s year=%s week=%s dir=%s user=%s",
+        fname,
+        fsize_kb,
+        month,
+        year,
+        week,
+        direction,
+        auth_user.get("username", auth_user["id"]),
+    )
+
     if not content:
+        log.warning("[DATA-ENTRY] Rejected: empty file | file=%s", fname)
         raise HTTPException(status_code=400, detail="Empty file.")
     if len(content) > 10 * 1024 * 1024:  # 10 MB limit
+        log.warning(
+            "[DATA-ENTRY] Rejected: file too large (%sKB) | file=%s", fsize_kb, fname
+        )
         raise HTTPException(status_code=413, detail="File too large (max 10 MB).")
 
     ai_config = ctx.get_ai_config()
     tools_cfg = ctx.get_ai_tools_config()
 
     try:
+        parse_start = time.monotonic()
         ops = _extract_ops(
-            file.filename or "upload",
+            fname,
             content,
             hint,
             month,
@@ -608,12 +630,22 @@ async def upload_file(
             tools_cfg=tools_cfg,
             called_by=auth_user["id"],
         )
+        parse_elapsed = round(time.monotonic() - parse_start, 2)
+        log.info(
+            "[DATA-ENTRY] Parse complete | file=%s ops=%d elapsed=%.2fs provider=%s",
+            fname,
+            len(ops),
+            parse_elapsed,
+            ai_config.get("provider", "?"),
+        )
     except HTTPException:
         raise
     except Exception as e:
+        log.error("[DATA-ENTRY] Parse failed | file=%s error=%s", fname, e)
         raise HTTPException(status_code=422, detail=f"Extraction failed: {e}")
 
     if not ops:
+        log.warning("[DATA-ENTRY] No data extracted | file=%s", fname)
         raise HTTPException(
             status_code=422, detail="No data could be extracted from this file."
         )
@@ -656,19 +688,36 @@ async def upload_file(
 
         # Gate: refuse to stage when totals are off by more than 5%
         if reconciliation and reconciliation.get("net_total", 0) > 0:
-            delta_pct = reconciliation.get("delta_pct", 0)
+            recon = reconciliation
+            log.info(
+                "[DATA-ENTRY] Reconcile | file=%s subtotal=%.2f net_total=%.2f "
+                "vizient=%.2f factor=%.4f delta_pct=%.2f%% ok=%s",
+                fname,
+                recon.get("computed_subtotal", 0),
+                recon.get("net_total", 0),
+                recon.get("vizient_discount", 0),
+                recon.get("discount_factor", 1),
+                recon.get("delta_pct", 0),
+                recon.get("reconciled", False),
+            )
+            delta_pct = recon.get("delta_pct", 0)
             if delta_pct > 5.0:
+                log.error(
+                    "[DATA-ENTRY] BLOCKED reconciliation_failed | file=%s delta_pct=%.2f%%",
+                    fname,
+                    delta_pct,
+                )
                 raise HTTPException(
                     status_code=422,
                     detail={
                         "error": "reconciliation_failed",
                         "message": (
-                            f"Invoice line items sum to ${reconciliation['computed_subtotal']:,.2f} "
-                            f"but the invoice total is ${reconciliation['net_total']:,.2f} "
+                            f"Invoice line items sum to ${recon['computed_subtotal']:,.2f} "
+                            f"but the invoice total is ${recon['net_total']:,.2f} "
                             f"(delta {delta_pct:.1f}%). "
                             "Fix the parse or re-upload a corrected file."
                         ),
-                        "reconciliation": reconciliation,
+                        "reconciliation": recon,
                     },
                 )
 
@@ -676,6 +725,11 @@ async def upload_file(
             parsed_meta, month, year, week, auth_user["id"]
         )
         if invoice_is_pending_dup and invoice_id:
+            log.warning(
+                "[DATA-ENTRY] BLOCKED duplicate_invoice | file=%s invoice=%s",
+                fname,
+                parsed_meta.get("invoice_number"),
+            )
             raise HTTPException(
                 status_code=409,
                 detail={
@@ -689,9 +743,18 @@ async def upload_file(
             )
 
     # Resolve SKUs: unknown ones go to sku_review_queue, not staging.
-    ops, sku_queued = _resolve_and_queue_items(ops, file.filename or "upload")
+    ops, sku_queued = _resolve_and_queue_items(ops, fname)
+    if sku_queued:
+        log.warning(
+            "[DATA-ENTRY] SKUs queued for review | file=%s queued=%d", fname, sku_queued
+        )
 
     if not ops:
+        log.error(
+            "[DATA-ENTRY] BLOCKED all-unknown-skus | file=%s queued=%d",
+            fname,
+            sku_queued,
+        )
         raise HTTPException(
             status_code=422,
             detail=(
@@ -703,9 +766,45 @@ async def upload_file(
     batch_id = str(uuid.uuid4())
     submitter = auth_user["id"]
 
+    # Expire any stale pending batches from the same source file so re-uploads
+    # replace rather than accumulate duplicate staging rows.
     try:
-        staged = _stage_entries(ops, batch_id, file.filename or "upload", submitter)
+        svc = _client()
+        stale = (
+            svc.table("staging_entries")
+            .select("entry_id, batch_id")
+            .eq("file_ref", fname)
+            .eq("status", "pending")
+            .execute()
+        )
+        if stale.data:
+            stale_ids = [r["entry_id"] for r in stale.data]
+            stale_batches = list(
+                {r["batch_id"] for r in stale.data if r.get("batch_id")}
+            )
+            svc.table("staging_entries").update(
+                {"status": "rejected", "review_note": "superseded by re-upload"}
+            ).in_("entry_id", stale_ids).execute()
+            log.info(
+                "[DATA-ENTRY] Superseded %d stale pending entries | file=%s old_batches=%s",
+                len(stale_ids),
+                fname,
+                stale_batches,
+            )
+    except Exception as _e:
+        log.warning(
+            "[DATA-ENTRY] Could not expire stale entries | file=%s err=%s", fname, _e
+        )
+
+    try:
+        staged = _stage_entries(ops, batch_id, fname, submitter)
     except Exception as e:
+        log.error(
+            "[DATA-ENTRY] Staging failed | file=%s batch=%s error=%s",
+            fname,
+            batch_id,
+            e,
+        )
         raise HTTPException(status_code=500, detail=f"Staging failed: {e}")
 
     # lightweight summary — full diff available via /preview/{batch_id}
@@ -732,6 +831,19 @@ async def upload_file(
         resp["reconciliation"] = reconciliation
     if description:
         resp["description"] = description[:500]
+
+    total_elapsed = round(time.monotonic() - job_start, 2)
+    log.info(
+        "[DATA-ENTRY] Job complete | file=%s batch=%s staged=%d sku_queued=%d "
+        "ops=%s elapsed=%.2fs reimport=%s",
+        fname,
+        batch_id,
+        len(staged),
+        sku_queued,
+        dict(op_counts),
+        total_elapsed,
+        resp.get("is_reimport", False),
+    )
     return resp
 
 

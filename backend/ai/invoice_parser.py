@@ -20,12 +20,15 @@ Item shape returned by parse_* functions:
 """
 
 import io
+import logging
 import os
 import re
 from typing import Any
 
 import httpx
 import pdfplumber
+
+log = logging.getLogger("mjcc.invoice_parser")
 
 # ── image extensions ──────────────────────────────────────────────────────────
 IMAGE_EXTENSIONS = frozenset(
@@ -63,10 +66,14 @@ USFOODS_LINE_RE = re.compile(
 # Lines that look like column headers or page noise — skip before regex matching
 USFOODS_SKIP_RE = re.compile(
     r"^\s*(?:"
-    r"ORD\s+SHP\s+ADJ|"  # column header row
+    r"ORD\s+SHP\s+ADJ|"  # column header row (ordered/shipped/adj)
+    r"UNIT\s+PRICE\s+EXT|"  # "UNIT  PRICE  EXT" header variant
+    r"UNIT[\s\t]+PRICE|"  # "UNIT\tPRICE" or "UNIT PRICE" alone
     r"ITEM\s*(?:#|NO|NUMBER)|"  # item header
+    r"PRODUCT\s*(?:#|NO|NUMBER)|"  # product number header
+    r"DESCRIPTION\s+BRAND|"  # description/brand header
     r"PAGE\s+\d+\s+OF\s+\d+|"  # page numbers
-    r"INVOICE\s+SUMMARY|"  # INVOICE SUMMARY section header (parsed separately)
+    r"INVOICE\s+SUMMARY|"  # INVOICE SUMMARY section header
     r"(?:SUBTOTAL|NET\s+TOTAL|FUEL\s+SURCHARGE|VIZIENT|MEMBER\s+DISCOUNT)\s*[:\$]"
     r")\s*$",
     re.IGNORECASE,
@@ -436,10 +443,30 @@ def _ocr_space_pdf(content: bytes, api_key: str, debug: bool = False) -> list[st
         return []
 
 
+_PDF_MAX_PAGES = (
+    40  # no US Foods invoice exceeds this; guards against malformed uploads
+)
+
+
 def _extract_text_native(content: bytes) -> list[str]:
-    """Extract text from a digital PDF via pdfplumber."""
+    """Extract text from a digital PDF via pdfplumber.
+
+    Streams one page at a time and closes each page object immediately to keep
+    heap usage flat on the 512 MB Render instance.  Stops after _PDF_MAX_PAGES.
+    """
+    pages: list[str] = []
     with pdfplumber.open(io.BytesIO(content)) as pdf:
-        return [page.extract_text() or "" for page in pdf.pages]
+        total = min(len(pdf.pages), _PDF_MAX_PAGES)
+        for i in range(total):
+            page = pdf.pages[i]
+            try:
+                text = page.extract_text() or ""
+            except Exception:
+                text = ""
+            finally:
+                page.close()  # release page-level resources immediately
+            pages.append(text)
+    return pages
 
 
 def _extract_text_local_ocr(content: bytes, debug: bool = False) -> list[str]:
