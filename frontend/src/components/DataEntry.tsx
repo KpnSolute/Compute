@@ -10,6 +10,7 @@ interface UploadResult {
     staged_count: number;
     sku_queued?: number;
     invoice_id?: string;
+    is_reimport?: boolean;
     operations: Record<string, number>;
     file: string;
     month: number;
@@ -530,7 +531,12 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                             <div style={{ flex: 1, minWidth: 140 }}>
                                 <div style={{ fontWeight: 800, fontSize: 13.5, color: '#15803d', display: 'flex', alignItems: 'center', gap: 6 }}>
                                     {I.checkCircle({ style: { width: 16, height: 16, color: '#15803d', flexShrink: 0 } })}
-                                    {result.staged_count} entries staged by AI
+                                    {result.staged_count} entries staged
+                                    {result.is_reimport && (
+                                        <span style={{ fontSize: 11, fontWeight: 600, color: '#92400e', background: '#fef3c7', border: '1px solid #f59e0b', padding: '1px 7px', borderRadius: 6 }}>
+                                            re-import — will overwrite W{result.operations['inventory_week_update'] ? '' : '?'} values
+                                        </span>
+                                    )}
                                 </div>
                                 <div style={{ fontSize: 11.5, color: '#166534', marginTop: 4, opacity: 0.8 }}>
                                     {result.file} · {MONTHS[(result.month ?? 1) - 1] ?? result.month} {result.year}

@@ -476,17 +476,24 @@ def _upsert_invoice_record(
     if not inv_num:
         return None, False
 
-    # Idempotency check
+    # Idempotency check — only block re-upload when a data-entry-created (status=pending)
+    # record already exists.  Pre-existing verified/applied rows were entered manually
+    # and should be updatable; we upsert those in-place rather than returning 409.
     try:
         existing = (
             svc.table("invoices")
-            .select("id")
+            .select("id, status")
             .eq("invoice_number", inv_num)
             .limit(1)
             .execute()
         )
         if existing.data:
-            return existing.data[0]["id"], True
+            row_data = existing.data[0]
+            if row_data.get("status") == "pending":
+                # Genuinely in-flight data-entry record — block duplicate staging
+                return row_data["id"], True
+            # Pre-existing verified/applied invoice — allow re-import (will overwrite w{N})
+            return row_data["id"], False
     except Exception:
         pass
 
@@ -620,7 +627,7 @@ async def upload_file(
     # invoice_parser stores meta in the ops payload when kind==invoice_items
     # Also check the first op's full_payload for any meta the parser attached
     invoice_id: Optional[str] = None
-    invoice_existed = False
+    invoice_is_pending_dup = False
     if not parsed_meta:
         # Attempt to pull meta from the file_parser result stored on the first invoice op
         for op in ops:
@@ -642,15 +649,21 @@ async def upload_file(
                 parsed_meta = fdata.get("meta", {})
         except Exception:
             pass
-        invoice_id, invoice_existed = _upsert_invoice_record(
+        invoice_id, invoice_is_pending_dup = _upsert_invoice_record(
             parsed_meta, month, year, week, auth_user["id"]
         )
-        if invoice_existed and invoice_id:
+        if invoice_is_pending_dup and invoice_id:
+            # Only block when a data-entry-created pending record exists (prevents
+            # double-staging the same in-flight batch).  Verified/applied invoices
+            # are re-importable — the upsert will overwrite w{N} values.
             raise HTTPException(
                 status_code=409,
                 detail={
                     "error": "duplicate_invoice",
-                    "message": f"Invoice {parsed_meta.get('invoice_number')} has already been imported.",
+                    "message": (
+                        f"Invoice {parsed_meta.get('invoice_number')} is already staged "
+                        "and pending review. Merge or reject that batch before re-importing."
+                    ),
                     "invoice_id": invoice_id,
                 },
             )
@@ -684,6 +697,7 @@ async def upload_file(
         "batch_id": batch_id,
         "staged_count": len(staged),
         "sku_queued": sku_queued,
+        "is_reimport": invoice_id is not None and not invoice_is_pending_dup,
         "operations": op_counts,
         "file": file.filename,
         "month": month,
