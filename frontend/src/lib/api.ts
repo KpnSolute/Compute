@@ -139,6 +139,10 @@ export const api = {
     return req('/api/users', { method: 'POST', body: JSON.stringify(body) });
   },
 
+  async getUserPassword(id: string): Promise<any> {
+    return req(`/api/users/${id}/password`);
+  },
+
   async updateUser(userId: string, body: any): Promise<any> {
     return req(`/api/users/${userId}`, { method: 'PUT', body: JSON.stringify(body) });
   },

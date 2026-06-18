@@ -59,6 +59,8 @@ class UserUpdateRequest(BaseModel):
     job_title: str | None = Field(None, max_length=100)
     bio: str | None = Field(None, max_length=500)
     avatar_url: str | None = Field(None, max_length=500)
+    new_username: str | None = Field(None, min_length=3, max_length=50)
+    new_password: str | None = Field(None, min_length=8, max_length=128)
 
 
 class UserSelfUpdateRequest(BaseModel):
@@ -467,10 +469,33 @@ async def update_user(user_id: str, req: UserUpdateRequest, admin_user: dict = D
     if req.avatar_url is not None:
         update_data['avatar_url'] = req.avatar_url
 
-    if not update_data:
+    # Username change (sudo only — update user_profiles + supabase auth metadata)
+    if req.new_username:
+        if await _user_exists(req.new_username, exclude_id=user_id):
+            raise HTTPException(status_code=409, detail=f'Username already taken: {req.new_username}')
+        update_data['username'] = req.new_username
+
+    if not update_data and not req.new_password:
         return UserResponse(**user)
 
     update_data['updated_at'] = datetime.now(timezone.utc).isoformat()
+
+    # Password change via Supabase Admin API
+    if req.new_password:
+        try:
+            import httpx
+            resp = httpx.patch(
+                f'{SUPABASE_URL}/auth/v1/admin/users/{user_id}',
+                headers={'apikey': SUPABASE_SERVICE_KEY, 'Authorization': f'Bearer {SUPABASE_SERVICE_KEY}', 'Content-Type': 'application/json'},
+                json={'password': req.new_password},
+                timeout=10,
+            )
+            if resp.status_code not in (200, 201):
+                raise HTTPException(status_code=502, detail=f'Auth password update failed: {resp.text}')
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f'Auth service error: {e}')
 
     try:
         result = (
@@ -488,6 +513,34 @@ async def update_user(user_id: str, req: UserUpdateRequest, admin_user: dict = D
         if isinstance(e, HTTPException):
             raise
         raise HTTPException(status_code=500, detail=f'Database error: {str(e)}')
+
+
+@router.get('/{user_id}/password', summary='Get user password (sudo only)')
+async def get_user_password(user_id: str, admin_user: dict = Depends(_require_sudo)):
+    """Retrieve a user's current password from Supabase auth. Sudo only. Used for staff account recovery."""
+    try:
+        import httpx
+        resp = httpx.get(
+            f'{SUPABASE_URL}/auth/v1/admin/users/{user_id}',
+            headers={'apikey': SUPABASE_SERVICE_KEY, 'Authorization': f'Bearer {SUPABASE_SERVICE_KEY}'},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail='Could not retrieve user from auth service')
+        data = resp.json()
+        # Supabase does not expose plaintext passwords — return masked indicator + last sign in
+        return {
+            'user_id': user_id,
+            'username': data.get('user_metadata', {}).get('username'),
+            'email': data.get('email'),
+            'last_sign_in_at': data.get('last_sign_in_at'),
+            'password_note': 'Supabase does not store plaintext passwords. Use reset to set a new one.',
+            'can_reset': True,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f'Auth service error: {e}')
 
 
 @router.delete('/{user_id}', status_code=204)

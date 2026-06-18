@@ -367,8 +367,8 @@ table.data .num{font-family:var(--mono);font-weight:700}
 #toast.show{transform:translateY(0);opacity:1}
 #toast svg{width:16px;height:16px}
 
-.overlay{position:fixed;inset:0;background:rgba(9,22,51,.55);backdrop-filter:blur(3px);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;animation:fadeIn .2s ease both}
-.modal{background:#fff;border-radius:10px;border:1px solid var(--line);box-shadow:var(--shadow-lg);width:100%;max-width:480px;max-height:90vh;overflow-y:auto;animation:popIn .22s cubic-bezier(.2,.8,.2,1) both}
+.overlay,.modal-back,.modal-backdrop{position:fixed;inset:0;background:rgba(9,22,51,.55);backdrop-filter:blur(3px);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;animation:fadeIn .2s ease both}
+.modal,.modal-box{background:var(--surface);border-radius:12px;border:1px solid var(--line);box-shadow:var(--shadow-lg);width:100%;max-width:480px;max-height:90vh;overflow-y:auto;animation:popIn .22s cubic-bezier(.2,.8,.2,1) both}
 @keyframes popIn{from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:none}}
 .modal-head{
   display:flex;align-items:flex-start;justify-content:space-between;
@@ -385,6 +385,27 @@ table.data .num{font-family:var(--mono);font-weight:700}
 .modal-body{padding:16px 20px 8px}
 .modal-foot{padding:12px 20px 18px;display:flex;gap:10px}
 .modal-foot .btn{flex:1;justify-content:center;padding:11px}
+/* ── form-grid (used in modals) ── */
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}
+.form-grid label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--muted)}
+.form-grid label.full{grid-column:1/-1}
+.form-grid input,.form-grid select,.form-grid textarea{
+  background:var(--surface-2);
+  border:1.5px solid var(--line);
+  border-radius:7px;
+  color:var(--ink);
+  font-size:13px;
+  padding:8px 10px;
+  outline:none;
+  transition:border-color .15s;
+  font-family:inherit;
+  width:100%;
+  box-sizing:border-box;
+}
+.form-grid input:focus,.form-grid select:focus,.form-grid textarea:focus{border-color:var(--accent)}
+.form-grid input::placeholder{color:var(--faint)}
+.form-grid input[type="checkbox"]{width:auto;accent-color:var(--accent)}
+
 .conn-status{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:700;padding:10px 13px;border-radius:9px;margin-bottom:16px}
 .conn-status.on{background:var(--green-bg);color:var(--green-ink)}
 .conn-status.off{background:var(--surface-2);color:var(--muted)}
@@ -1618,7 +1639,12 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
 }
 
 /* ── modal ── */
-[data-theme="dark"] .modal {
+[data-theme="dark"] .modal,
+[data-theme="dark"] .modal-box {
+  background:var(--surface);
+  border-color:var(--line);
+}
+[data-theme="dark"] .modal-head {
   background:var(--surface);
   border-color:var(--line);
 }

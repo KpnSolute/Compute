@@ -4,6 +4,22 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v3.10.0 — 2026-06-18
+
+### Modal system — standardized + dark mode
+- Unified all modal overlay variants (`modal-back`, `modal-backdrop`, `modal-overlay`, `sc-confirm-overlay`) into a single `.overlay` class — one CSS definition, consistent positioning and backdrop across every popup in the app.
+- Modal background now uses `var(--surface)` instead of hardcoded `#fff` — fully responsive to light/dark theme switching.
+- Added `.modal-box` as an alias for `.modal` (backward-compat for inline style variants).
+- Added `.form-grid` CSS component for modal forms: uses `var(--surface-2)` background, `var(--line)` border, `var(--ink)` text — all inputs/selects inside modals now look correct in dark mode.
+- Dark mode: `.modal-head` and `.modal-box` now correctly inherit `var(--surface)` and `var(--line)` border.
+
+### User management — username + password change (sudo)
+- Backend: `UserUpdateRequest` now accepts `new_username` (3–50 chars, a-z/0-9/underscore) and `new_password` (min 8 chars).
+- Backend: `update_user` handler checks username uniqueness (409 if taken), updates `user_profiles.username`, and resets the Supabase Auth password via the Admin API.
+- Backend: new `GET /api/users/{id}/password` (sudo only) — returns account metadata (email, username, last sign-in). Note: Supabase does not store plaintext passwords; endpoint returns account info and a reset capability flag.
+- Frontend: Edit user modal for sudo users now shows "Change username" and "Set new password" fields below the Active account checkbox. Both are optional — leave blank to keep current values.
+- Frontend: `api.getUserPassword(id)` added to the API client.
+
 ## [v3.9.2] — 2026-06-18 — Post-agent corrections: API path alignment + role guard fix
 
 **Agent:** Claude (Senior Development Manager)

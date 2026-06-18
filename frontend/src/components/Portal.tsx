@@ -1763,8 +1763,8 @@ function InventoryView({
 
             {/* Rollover confirmation modal */}
             {showRollover && (
-                <div className="modal-backdrop" onClick={() => !rolloverBusy && setShowRollover(false)}>
-                    <div className="modal-box" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+                <div className="overlay" onClick={() => !rolloverBusy && setShowRollover(false)}>
+                    <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
                         <div className="modal-head">
                             <span>Publish Month &amp; Roll Forward</span>
                             <button className="modal-close" onClick={() => setShowRollover(false)} disabled={rolloverBusy}>✕</button>
@@ -3521,17 +3521,22 @@ function UsersView({ user: currentUser }: { user: User }) {
         setSaving(true);
         try {
             if (editing) {
-                await api.updateUser(editing.id, {
-                    display_name: displayName,
-                    last_name: form.last_name.trim(),
-                    role: form.role,
-                    pin: form.role === "staff" ? form.pin : null,
-                    active: form.active,
-                    phone: form.phone || undefined,
-                    job_title: form.job_title || undefined,
-                    bio: form.bio || undefined,
-                    avatar_url: form.avatar_url || undefined,
-                });
+                await api.updateUser(editing.id, (() => {
+                    const p: any = {
+                        display_name: displayName,
+                        last_name: form.last_name.trim(),
+                        role: form.role,
+                        pin: form.role === "staff" ? form.pin : null,
+                        active: form.active,
+                        phone: form.phone || undefined,
+                        job_title: form.job_title || undefined,
+                        bio: form.bio || undefined,
+                        avatar_url: form.avatar_url || undefined,
+                    };
+                    if (isSudo && (form as any).new_username?.trim()) p.new_username = (form as any).new_username.trim().toLowerCase();
+                    if (isSudo && (form as any).new_password?.trim()) p.new_password = (form as any).new_password.trim();
+                    return p;
+                })());
                 toast(`Updated ${displayName}`);
             } else {
                 await api.createUser({
@@ -3718,7 +3723,7 @@ function UsersView({ user: currentUser }: { user: User }) {
                 </div>
             )}
             {showForm && (
-                <div className="modal-back" onClick={() => setShowForm(false)}>
+                <div className="overlay" onClick={() => setShowForm(false)}>
                     <div className="modal" onClick={(e) => e.stopPropagation()}>
                         <div className="modal-head">
                             <h3>{editing ? "Edit user" : "Invite user"}</h3>
@@ -3827,6 +3832,29 @@ function UsersView({ user: currentUser }: { user: User }) {
                                     />
                                     <span>Active account</span>
                                 </label>
+                            )}
+                            {editing && isSudo && (
+                                <>
+                                    <label>
+                                        <span>Change username</span>
+                                        <input
+                                            value={(form as any).new_username || ""}
+                                            onChange={(e) => updateForm("new_username", e.target.value.toLowerCase())}
+                                            placeholder={editing.username || "new-username"}
+                                            autoComplete="off"
+                                        />
+                                    </label>
+                                    <label>
+                                        <span>Set new password</span>
+                                        <input
+                                            type="password"
+                                            value={(form as any).new_password || ""}
+                                            onChange={(e) => updateForm("new_password", e.target.value)}
+                                            placeholder="Min 8 characters"
+                                            autoComplete="new-password"
+                                        />
+                                    </label>
+                                </>
                             )}
                         </div>
                         <div className="modal-foot">

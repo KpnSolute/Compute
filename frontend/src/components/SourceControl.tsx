@@ -988,7 +988,7 @@ function SCChangesView({
 
             {/* Confirm overlay */}
             {confirm && (
-                <div className="sc-confirm-overlay" onClick={() => setConfirm(null)}>
+                <div className="overlay" onClick={() => setConfirm(null)}>
                     <div className="sc-confirm" onClick={(e) => e.stopPropagation()}>
                         <p>{confirm.length === 1 ? "Commit this change?" : `Commit all ${confirm.length} staged changes?`}</p>
                         <div className="sc-confirm-btns">
