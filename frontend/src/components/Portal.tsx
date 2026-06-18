@@ -1871,7 +1871,7 @@ function InventoryView({
                         );
                         const lockIcon = (w: number) => {
                             const s = weekLockStatus[w];
-                            return s === 'locked' ? ' 🔒' : s === 'published' ? ' ✓' : '';
+                            return s === 'locked' ? ' (locked)' : s === 'published' ? ' (pub)' : '';
                         };
                         return (
                             <div style={{ padding: "2px 16px 8px", borderBottom: "1px solid var(--line)" }}>
@@ -1915,7 +1915,8 @@ function InventoryView({
                                                     }
                                                 }}
                                             >
-                                                {ws === 'locked' ? '🔓 Unlock Week' : '🔒 Lock Week'} {compactWeek}
+                                                {I.lock({ style: { width: 12, height: 12, marginRight: 5 } })}
+                                                {ws === 'locked' ? 'Unlock' : 'Lock'} Week {compactWeek}
                                             </button>
                                         );
                                     })()}
@@ -1926,7 +1927,8 @@ function InventoryView({
                                             onClick={() => setShowRollover(true)}
                                             title="Publish this month and create the next period"
                                         >
-                                            Publish Month →
+                                            {I.check({ style: { width: 12, height: 12, marginRight: 5 } })}
+                                            Publish Month
                                         </button>
                                     )}
                                 </div>
