@@ -101,31 +101,54 @@ def detect_and_parse(
     is_png = content[:4] == b"\x89PNG"
     is_image = is_jpeg or is_png or f".{ext}" in invoice_parser.IMAGE_EXTENSIONS
 
-    # ZIPs that bundle images (e.g. multi-page invoice scan saved as .pdf)
+    # ZIPs that bundle images (e.g. multi-page invoice scan saved as .pdf).
+    # OOM GUARD: a 13-page JPEG bundle at native size can exceed 100-200MB
+    # decompressed on a 512MB Render instance -- the same memory ceiling that
+    # forced the 6-page/96dpi cap on the PDF-render fallback below. Apply the
+    # same discipline here: cap pages AND re-encode/downscale each image so
+    # peak heap stays bounded regardless of how the scan was captured.
+    _ZIP_IMG_PAGE_CAP = 8
+    _ZIP_IMG_MAX_DIM = 1600  # px, longest side
     if is_zip:
         try:
             with _zipfile.ZipFile(io.BytesIO(content)) as zf:
-                image_bytes_list = []
-                for name in sorted(zf.namelist()):
-                    lo = name.lower()
-                    if any(
-                        lo.endswith(e)
-                        for e in (
-                            ".jpg",
-                            ".jpeg",
-                            ".png",
-                            ".webp",
-                            ".bmp",
-                            ".tif",
-                            ".tiff",
-                        )
-                    ):
-                        with zf.open(name) as img_f:
-                            image_bytes_list.append(img_f.read())
+                all_names = [
+                    n for n in sorted(zf.namelist())
+                    if n.lower().endswith((
+                        ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff",
+                    ))
+                ]
+                names = all_names[:_ZIP_IMG_PAGE_CAP]
+                image_bytes_list: list[bytes] = []
+                for name in names:
+                    with zf.open(name) as img_f:
+                        raw = img_f.read()
+                    try:
+                        from PIL import Image as _PILImage
+                        _im = _PILImage.open(io.BytesIO(raw))
+                        _im.load()
+                        if max(_im.size) > _ZIP_IMG_MAX_DIM:
+                            _scale = _ZIP_IMG_MAX_DIM / max(_im.size)
+                            _im = _im.resize(
+                                (max(1, int(_im.width * _scale)), max(1, int(_im.height * _scale)))
+                            )
+                        _buf = io.BytesIO()
+                        _im.convert("RGB").save(_buf, format="JPEG", quality=82)
+                        image_bytes_list.append(_buf.getvalue())
+                        _im.close()
+                    except Exception:
+                        # If Pillow can't downscale this one, fall back to the
+                        # raw bytes rather than dropping the page entirely.
+                        image_bytes_list.append(raw)
                 if image_bytes_list:
                     return "invoice_images", {
                         "images": image_bytes_list,
-                        "meta": {"filename": filename},
+                        "meta": {
+                            "filename": filename,
+                            "pages_truncated": len(names) < len(all_names),
+                            "pages_total": len(all_names),
+                            "pages_used": len(names),
+                        },
                     }
         except Exception:
             pass

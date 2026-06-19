@@ -4,6 +4,39 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.3.0 — 2026-06-19
+
+### CRITICAL FIX — OOM on ZIP-of-images invoice uploads (likely cause of site outage)
+- **Root cause found:** the v4.2.0 OOM hardening (6-page/96dpi cap) was applied to the
+  PDF-rendered-to-PNG fallback path only. The separate ZIP-of-JPEGs path (the actual format
+  of real US Foods invoices — multi-page scans saved with a `.pdf` extension) had **no page
+  cap and no downscaling** — every image loaded at full native resolution with no bound.
+  A 13-page invoice scan could spike well past the 512MB Render instance ceiling, causing
+  an OS-level OOM kill of the whole backend process (not a handled error — the process dies,
+  taking the entire site down with it). This explains all three reported symptoms at once:
+  AI was never reached (process died during ZIP extraction, before any AI call), no data
+  was written (process died before staging insert), and the upload UI hung waiting on a
+  request that would never return.
+- `backend/ai/parser.py`: ZIP-of-images path now caps at 8 pages and downscales every image
+  to a max 1600px long edge (Pillow), re-encoding to JPEG q=82 before holding it in memory.
+  Mirrors the existing discipline already used on the PDF-render fallback. Falls back to raw
+  bytes for any single image Pillow can't process, rather than dropping the page.
+  `invoice_images` meta now reports `pages_truncated` / `pages_total` / `pages_used` so the
+  UI can show "n of m pages processed" instead of silently dropping pages.
+- `backend/routes/data_entry.py`: the vision-extraction call was wrapped in a bare
+  `except Exception: pass` — any failure (timeout, bad provider response, etc.) silently
+  fell through to OCR with zero trace, which is why `ai_usage_logs` showed nothing even when
+  vision was attempted. Now logs `log.error(...)` with provider/model/page count on failure,
+  and `log.warning(...)` when vision returns zero items, so a failed/empty AI call is always
+  visible in the Render log stream even if it never reaches the DB.
+
+### Verified — DB integrity after the reported outage
+- Confirmed no orphaned `staging_entries`, `pull_requests`, or `sku_review_queue` rows from
+  the failed run (zero rows in the affected window — consistent with the process dying before
+  any DB write, not a partial/corrupt write).
+- Confirmed `month_status`/`week_status` unaffected — June stayed `open`, no stuck locks.
+- The DB was never at risk; this was purely a backend process crash on a specific file shape.
+
 ## [v4.2.0] — 2026-06-18 — Pipeline progress bar + batch SKU resolution
 
 **Agent:** Claude (Senior Development Manager)

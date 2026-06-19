@@ -196,8 +196,21 @@ def _extract_ops(
                         categories,
                     )
                     return ops, meta
-            except Exception:
-                pass  # fall through to OCR degradation
+                log.warning(
+                    "[DATA-ENTRY] Vision returned no items, falling back to OCR | "
+                    "provider=%s model=%s pages=%d",
+                    provider, model, len(images),
+                )
+            except Exception as e:
+                # Vision call failed (timeout, bad response, provider error, etc).
+                # Log it loudly -- silently swallowing this is why "did AI even
+                # run?" was unanswerable from ai_usage_logs after a failed call.
+                log.error(
+                    "[DATA-ENTRY] Vision extraction failed, falling back to OCR | "
+                    "provider=%s model=%s pages=%d error=%s",
+                    provider, model, len(images), e,
+                )
+                # fall through to OCR degradation
 
         # OCR degradation: run each image through the OCR cascade
         for img_bytes in images[:10]:
