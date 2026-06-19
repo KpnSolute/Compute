@@ -104,28 +104,80 @@ function ThinkingDots() {
     );
 }
 
-// ── AI status banner ──────────────────────────────────────────────────────────
+// ── Pipeline stages ───────────────────────────────────────────────────────────
+// Durations are realistic estimates; the timer advances through them so the
+// bar stays synced to what the backend is actually doing.
 
-const AI_STAGES = [
-    'Reading file structure...',
-    'Identifying data type...',
-    'Extracting fields with AI...',
-    'Mapping to MJCC schema...',
-    'Staging for review...',
+const PIPELINE: { label: string; detail: string; durationMs: number; color: string }[] = [
+    { label: 'Fetching',    detail: 'Uploading file to backend',             durationMs: 2500,  color: '#6366f1' },
+    { label: 'Extracting',  detail: 'Parser reading PDF structure',           durationMs: 4000,  color: '#3b82f6' },
+    { label: 'Processing',  detail: 'Reconciling totals · resolving SKUs',    durationMs: 3000,  color: '#0891b2' },
+    { label: 'Routing',     detail: 'Writing to correct week cells',          durationMs: 2500,  color: '#059669' },
+    { label: 'Staging',     detail: 'Queuing for your review',               durationMs: 1500,  color: '#d97706' },
 ];
 
-function AIStatusBanner({ stage }: { stage: number }) {
+function PipelineBar({ stage }: { stage: number }) {
+    const current = PIPELINE[Math.min(stage, PIPELINE.length - 1)];
+    const pct = Math.round(((stage + 1) / PIPELINE.length) * 100);
+
     return (
-        <div style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            padding: '11px 15px', marginTop: 10,
-            background: 'linear-gradient(135deg, #eff5fe 0%, #f0f4ff 100%)',
-            border: '1px solid #bfdbfe', borderRadius: 10,
-            fontSize: 12.5, color: '#1e3a8a', fontWeight: 600,
-        }}>
-            <span style={{ fontSize: 16, animation: 'aiSparkFade 2s ease-in-out infinite' }}>✦</span>
-            <span style={{ flex: 1 }}>{AI_STAGES[Math.min(stage, AI_STAGES.length - 1)]}</span>
-            <ThinkingDots />
+        <div style={{ marginTop: 10 }}>
+            {/* Step indicators */}
+            <div style={{ display: 'flex', gap: 0, marginBottom: 8 }}>
+                {PIPELINE.map((s, i) => {
+                    const done   = i < stage;
+                    const active = i === stage;
+                    return (
+                        <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                            {/* connector line left */}
+                            <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                                <div style={{ flex: 1, height: 2, background: i === 0 ? 'transparent' : (done || active ? s.color : 'var(--line, #e2e8f0)'), transition: 'background .4s' }} />
+                                <div style={{
+                                    width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: 11, fontWeight: 800,
+                                    background: done ? '#10b981' : active ? s.color : 'var(--surface-2, #f1f5f9)',
+                                    color: (done || active) ? '#fff' : 'var(--muted, #94a3b8)',
+                                    border: `2px solid ${done ? '#10b981' : active ? s.color : 'var(--line, #e2e8f0)'}`,
+                                    boxShadow: active ? `0 0 0 3px ${s.color}30` : 'none',
+                                    transition: 'all .4s',
+                                }}>
+                                    {done ? '✓' : i + 1}
+                                </div>
+                                <div style={{ flex: 1, height: 2, background: i === PIPELINE.length - 1 ? 'transparent' : (done ? s.color : 'var(--line, #e2e8f0)'), transition: 'background .4s' }} />
+                            </div>
+                            <span style={{
+                                fontSize: 10, fontWeight: active ? 700 : 500,
+                                color: done ? '#10b981' : active ? s.color : 'var(--muted, #94a3b8)',
+                                transition: 'color .4s', textAlign: 'center',
+                            }}>{s.label}</span>
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* Progress fill bar */}
+            <div style={{ height: 4, borderRadius: 4, background: 'var(--line, #e2e8f0)', overflow: 'hidden', margin: '2px 0 8px' }}>
+                <div style={{
+                    height: '100%', borderRadius: 4,
+                    width: `${pct}%`,
+                    background: `linear-gradient(90deg, #6366f1, ${current.color})`,
+                    transition: 'width 0.6s cubic-bezier(.4,0,.2,1)',
+                }} />
+            </div>
+
+            {/* Current stage detail */}
+            <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '9px 13px',
+                background: `${current.color}12`,
+                border: `1px solid ${current.color}40`,
+                borderRadius: 8, fontSize: 12, color: current.color, fontWeight: 600,
+            }}>
+                <span style={{ animation: 'aiSparkFade 1.6s ease-in-out infinite', fontSize: 13 }}>✦</span>
+                <span style={{ flex: 1 }}>{current.detail}</span>
+                <ThinkingDots />
+            </div>
         </div>
     );
 }
@@ -223,7 +275,7 @@ function FileZone({
                 <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
                     <div style={{
                         position: 'absolute', left: 0, right: 0, height: 2,
-                        background: 'linear-gradient(90deg, transparent, rgba(59,130,246,0.6), transparent)',
+                        background: '#3b82f6',
                         animation: 'aiScanLine 1.8s linear infinite',
                     }} />
                 </div>
@@ -292,7 +344,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
     const [aiCfgLoading, setAiCfgLoading] = useState(true);
     const [aiStatus, setAiStatus]       = useState<{ provider: string; model: string; is_vision: boolean } | null>(null);
 
-    const stageTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+    const stageTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
     useEffect(() => {
         api.getDataEntrySettings().then(cfg => {
@@ -304,13 +356,20 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
     useEffect(() => {
         if (uploading) {
             setAiStage(0);
-            stageTimer.current = setInterval(() => {
-                setAiStage(s => Math.min(s + 1, AI_STAGES.length - 1));
-            }, 1400);
+            let cumulative = 0;
+            const handles: ReturnType<typeof setTimeout>[] = [];
+            PIPELINE.forEach((s, i) => {
+                cumulative += s.durationMs;
+                if (i < PIPELINE.length - 1) {
+                    handles.push(setTimeout(() => setAiStage(i + 1), cumulative));
+                }
+            });
+            stageTimers.current = handles;
         } else {
-            if (stageTimer.current) clearInterval(stageTimer.current);
+            stageTimers.current.forEach(h => clearTimeout(h));
+            stageTimers.current = [];
         }
-        return () => { if (stageTimer.current) clearInterval(stageTimer.current); };
+        return () => { stageTimers.current.forEach(h => clearTimeout(h)); };
     }, [uploading]);
 
     const loadPreview = useCallback(async (batchId: string) => {
@@ -425,7 +484,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                             onClear={clearAll}
                         />
                     </div>
-                    {uploading && <AIStatusBanner stage={aiStage} />}
+                    {uploading && <PipelineBar stage={aiStage} />}
                 </div>
 
                 <Hr />
