@@ -12,9 +12,12 @@ Usage is logged to ai_usage_logs after every call (best-effort, never raises).
 """
 
 import json
+import logging
 import os
 import time
 import httpx
+
+log = logging.getLogger("mjcc.ai")
 
 # ── cost rates (USD per 1k tokens, approximate) ───────────────────────────────
 
@@ -402,6 +405,11 @@ def complete(
     provider = cfg.get("provider") or "groq"
     model = cfg.get("model") or "llama-3.3-70b-versatile"
 
+    log.info(
+        "[AI] request start | provider=%s model=%s operation=%s called_by=%s msgs=%d",
+        provider, model, operation or "?", called_by or "?", len(messages),
+    )
+
     t0 = time.monotonic()
     text: str = ""
     usage: dict = {"tokens_in": 0, "tokens_out": 0}
@@ -499,6 +507,18 @@ def complete(
             success=success,
             error_msg=error_msg,
         )
+        if success:
+            log.info(
+                "[AI] request done | provider=%s model=%s operation=%s elapsed_ms=%d "
+                "tokens_in=%d tokens_out=%d resp_chars=%d",
+                provider, model, operation or "?", duration_ms,
+                usage.get("tokens_in", 0), usage.get("tokens_out", 0), len(text or ""),
+            )
+        else:
+            log.error(
+                "[AI] request FAILED | provider=%s model=%s operation=%s elapsed_ms=%d error=%s",
+                provider, model, operation or "?", duration_ms, error_msg,
+            )
 
     return text
 
@@ -532,6 +552,11 @@ def complete_vision(
             f"Model '{model}' on provider '{provider}' does not support vision. "
             "Select a vision-capable model in Data Entry → AI stack settings."
         )
+
+    log.info(
+        "[AI] vision request start | provider=%s model=%s operation=%s called_by=%s images=%d",
+        provider, model, operation or "?", called_by or "?", len(images),
+    )
 
     t0 = time.monotonic()
     text: str = ""
@@ -645,6 +670,18 @@ def complete_vision(
             success=success,
             error_msg=error_msg,
         )
+        if success:
+            log.info(
+                "[AI] vision request done | provider=%s model=%s operation=%s elapsed_ms=%d "
+                "tokens_in=%d tokens_out=%d resp_chars=%d images=%d",
+                provider, model, operation or "?", duration_ms,
+                usage.get("tokens_in", 0), usage.get("tokens_out", 0), len(text or ""), len(images),
+            )
+        else:
+            log.error(
+                "[AI] vision request FAILED | provider=%s model=%s operation=%s elapsed_ms=%d images=%d error=%s",
+                provider, model, operation or "?", duration_ms, len(images), error_msg,
+            )
 
     return text
 

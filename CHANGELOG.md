@@ -4,6 +4,35 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.5.0 — 2026-06-19
+
+### CRITICAL — AI requests were invisible on Render (no logging config at all)
+- **Root cause:** `backend/main.py` never called `logging.basicConfig(...)`. Python's root
+  logger defaults to `WARNING` when unconfigured, which silently dropped EVERY `log.info()`
+  and `log.warning()` call in the codebase — including last session's `[DATA-ENTRY]` pipeline
+  logs and the `[AI]` request logs added this session. Only `log.error()` calls were ever
+  reaching Render's log stream; everything else was invisible the whole time.
+- `backend/main.py`: added `logging.basicConfig(level=INFO, ...)` at the very top of the file,
+  before any other module is imported — this matters because `engine.py`/`data_entry.py`
+  create their loggers via `logging.getLogger(...)` at import time, and a logger's effective
+  level is fixed by whatever the root logger's config is at that moment. Configuring it after
+  those imports would have no effect on already-created loggers.
+- Suppressed `httpx`/`httpcore`/`supabase`/`postgrest`/`gotrue`/`storage3` to WARNING so the
+  noisy HTTP client libraries don't drown out the `[AI]`/`[DATA-ENTRY]` lines we actually want
+  to see. `LOG_LEVEL` env var can override the default (`INFO`) if needed.
+- `backend/ai/engine.py`: added explicit start/end log lines around both `complete()` and
+  `complete_vision()` — every single AI call, on every provider, now logs:
+  - **Start:** `[AI] request start | provider=... model=... operation=... called_by=... msgs/images=N`
+  - **Success:** `[AI] request done | ... elapsed_ms=... tokens_in=... tokens_out=... resp_chars=...`
+  - **Failure:** `[AI] request FAILED | ... elapsed_ms=... error=...`
+  This is now visible in Render's live log stream in real time, independent of whether the
+  `ai_usage_logs` DB write succeeds — so a question like "did AI actually run on that upload?"
+  is answerable by checking Render logs even if the process crashes mid-request before any
+  DB write happens.
+- Verified: isolated logging smoke test confirms root level=INFO, httpx suppressed to
+  WARNING, and `[AI]` log lines render with timestamp/level/logger name in the exact format
+  Render will display.
+
 ## v4.4.0 — 2026-06-19
 
 ### Data Entry — fixed broken Settings link, removed duplicate AI badge, added inline model picker

@@ -1,4 +1,23 @@
+import logging
 import os
+import sys
+
+# Configure root logging BEFORE any module-level `logging.getLogger(...)` calls
+# happen on import (engine.py, data_entry.py, etc.) -- otherwise those loggers
+# inherit the default WARNING level and every log.info()/log.warning() call
+# (including AI request start/done lines and data-entry pipeline progress)
+# is silently dropped and never reaches Render's log stream.
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    stream=sys.stdout,  # Render captures stdout/stderr as the log stream
+)
+# Quiet noisy third-party libraries at INFO -- httpx/httpcore log every single
+# outbound request line by line, which would drown out the [AI]/[DATA-ENTRY]
+# lines we actually care about. Our own loggers (mjcc.*) stay at the level above.
+for _noisy in ("httpx", "httpcore", "hpack", "supabase", "postgrest", "gotrue", "storage3"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
