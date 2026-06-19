@@ -837,6 +837,7 @@ def invoice_items_to_ops(
     weekly = week in (1, 2, 3, 4, 5)
     invoice_ref = meta.get("invoice_number", "")
     ops: list[dict] = []
+    skipped = 0
 
     for item in items:
         sku = _clean(item.get("sku", ""))
@@ -846,6 +847,7 @@ def invoice_items_to_ops(
 
         # skip items with no identity signal
         if not sku and not desc:
+            skipped += 1
             continue
 
         # generate a deterministic slug SKU from description when vendor SKU absent
@@ -855,6 +857,7 @@ def invoice_items_to_ops(
             sku = f"INV-{slug}" if slug else ""
 
         if not sku:
+            skipped += 1
             continue
 
         cat_name = bridge_category(item.get("category", ""), live_cats)
@@ -906,14 +909,23 @@ def invoice_items_to_ops(
                 }
             )
 
+    if skipped:
+        log.warning(
+            "[invoice_parser] invoice_items_to_ops: skipped %d/%d item(s) with no "
+            "usable SKU or description — these will NOT appear in staging",
+            skipped,
+            len(items),
+        )
+
     return ops
 
 
 # ── Vision-based invoice extraction ──────────────────────────────────────────
 
 _VISION_PROMPT = """You are an invoice data extraction engine for a food service cafeteria.
-Extract ALL line items from this invoice image using the extract_invoice_line tool,
-then call extract_invoice_summary once for the totals block.
+This image is ONE PAGE of a multi-page invoice. Extract ALL line items visible on
+THIS page only using the extract_invoice_line tool, then call extract_invoice_summary
+once for the totals block IF this page shows totals (not every page will).
 
 If the model does not support tool calling, return ONLY valid JSON matching this schema:
 {
@@ -944,8 +956,40 @@ Rules:
 - sku: use the US Foods product number (5-7 digits) when visible; fall back to description slug
 - For LB-priced items: unit_price = ext_price / qty_shipped (per-case cost)
 - qty_shipped: numeric quantity delivered; use 1 if not shown
-- Include EVERY product line item — skip subtotal/header/address lines
+- Include EVERY product line item on this page — skip subtotal/header/address lines
+- If this page has NO product line items (e.g. it's a cover/summary/blank page),
+  return "items": []  — do not invent items.
+- Any field you cannot find on this page (vendor, invoice_number, totals, etc.):
+  use null / 0.0, do not guess.
 - Return ONLY the JSON object, no explanation."""
+
+
+def _extract_vision_page(
+    image: bytes,
+    cfg: dict,
+    *,
+    page_num: int,
+    called_by: str | None,
+) -> dict | None:
+    """Run vision extraction on a single page image. Returns parsed dict or None on failure.
+
+    Failures here are caught by the caller (extract_invoice_vision) so that one
+    unreadable page does not sink extraction of the rest of the invoice.
+    """
+    from backend.ai import engine as ai_engine
+
+    raw_text = ai_engine.complete_vision(
+        _VISION_PROMPT,
+        [image],
+        cfg,
+        operation="invoice_vision",
+        called_by=called_by,
+    )
+    data = ai_engine.extract_json(raw_text)
+    if not isinstance(data, dict):
+        log.warning("[invoice_parser] page %d: vision response was not a JSON object", page_num)
+        return None
+    return data
 
 
 def extract_invoice_vision(
@@ -957,40 +1001,93 @@ def extract_invoice_vision(
 ) -> dict:
     """Extract invoice line items from image(s) using AI vision.
 
-    Returns {'meta': {...}, 'items': [...], 'reconciled': bool, 'computed_total': float}.
+    Pages are processed ONE AT A TIME and merged. This is deliberate:
+      - A single batched request asking the model to read N pages at once was
+        found to silently return an empty item list once images got dense
+        (the model would "give up" rather than partially extract). Per-page
+        calls are slower in wall-clock time but each call is small, focused,
+        and a bad/unreadable page does not zero out the whole invoice.
+      - Keeps peak request payload size (and provider-side processing time)
+        bounded regardless of how many pages the invoice has.
+
+    Returns {'meta': {...}, 'items': [...], 'reconciled': bool, 'computed_total': float,
+             'pages_total': int, 'pages_failed': int}.
     Items have the same field shape as parse_invoice_bytes_pdf/image.
     """
-    from backend.ai import engine as ai_engine
+    merged_meta: dict[str, Any] = {}
+    items: list[dict] = []
+    pages_failed = 0
 
-    raw_text = ai_engine.complete_vision(
-        _VISION_PROMPT,
-        images,
-        cfg,
-        operation="invoice_vision",
-        called_by=called_by,
-    )
+    for i, img in enumerate(images, start=1):
+        try:
+            data = _extract_vision_page(img, cfg, page_num=i, called_by=called_by)
+        except Exception as e:
+            pages_failed += 1
+            log.error(
+                "[invoice_parser] page %d/%d vision extraction failed: %s",
+                i,
+                len(images),
+                e,
+            )
+            continue
 
-    try:
-        data = ai_engine.extract_json(raw_text)
-    except Exception:
-        return {"meta": meta, "items": [], "reconciled": False, "computed_total": 0.0}
+        if data is None:
+            pages_failed += 1
+            continue
 
-    if not isinstance(data, dict):
-        return {"meta": meta, "items": [], "reconciled": False, "computed_total": 0.0}
+        # First non-null value for each meta field wins (most invoices put
+        # vendor/invoice#/date on page 1, totals on the last page).
+        for key in (
+            "vendor",
+            "invoice_number",
+            "invoice_date",
+            "subtotal",
+            "vizient_discount",
+            "fuel_surcharge",
+            "net_total",
+        ):
+            val = data.get(key)
+            if val not in (None, "", 0, 0.0) and not merged_meta.get(key):
+                merged_meta[key] = val
+
+        page_items = data.get("items") or []
+        if not page_items:
+            log.info(
+                "[invoice_parser] page %d/%d: 0 items extracted (may be a cover/"
+                "summary page, or page was unreadable)",
+                i,
+                len(images),
+            )
+        items.extend(page_items)
+
+    if pages_failed and pages_failed == len(images):
+        log.error(
+            "[invoice_parser] vision extraction failed on ALL %d page(s) — "
+            "returning empty result",
+            len(images),
+        )
+        return {
+            "meta": meta,
+            "items": [],
+            "reconciled": False,
+            "computed_total": 0.0,
+            "pages_total": len(images),
+            "pages_failed": pages_failed,
+        }
 
     parsed_meta = {
         **meta,
-        "vendor_name": data.get("vendor"),
-        "invoice_number": data.get("invoice_number"),
-        "invoice_date": data.get("invoice_date"),
-        "subtotal": data.get("subtotal"),
-        "vizient_discount": data.get("vizient_discount"),
-        "fuel_surcharge": data.get("fuel_surcharge"),
-        "net_total": data.get("net_total"),
+        "vendor_name": merged_meta.get("vendor"),
+        "invoice_number": merged_meta.get("invoice_number"),
+        "invoice_date": merged_meta.get("invoice_date"),
+        "subtotal": merged_meta.get("subtotal"),
+        "vizient_discount": merged_meta.get("vizient_discount"),
+        "fuel_surcharge": merged_meta.get("fuel_surcharge"),
+        "net_total": merged_meta.get("net_total"),
     }
 
-    items = []
-    for it in data.get("items") or []:
+    norm_items = []
+    for it in items:
         sku = str(it.get("sku") or "").strip()
         desc = str(it.get("description") or sku).strip()
         unit = str(it.get("unit") or "CS").upper()
@@ -1000,7 +1097,7 @@ def extract_invoice_vision(
         # Normalise weight-priced items from vision path
         if unit == "LB" and qty > 0 and unit_price > 0:
             unit_price = round(ext_price / qty, 4)
-        items.append(
+        norm_items.append(
             {
                 "category": "",
                 "sku": sku,
@@ -1019,16 +1116,27 @@ def extract_invoice_vision(
         )
 
     subtotal = float(parsed_meta.get("subtotal") or 0)
-    computed_total = round(sum(it["ext_price"] for it in items), 2)
+    computed_total = round(sum(it["ext_price"] for it in norm_items), 2)
     reconciled = (
         subtotal > 0
         and computed_total > 0
         and abs(computed_total - subtotal) / max(subtotal, 0.01) < 0.02
     )
 
+    log.info(
+        "[invoice_parser] vision extraction complete | pages=%d pages_failed=%d "
+        "items=%d reconciled=%s",
+        len(images),
+        pages_failed,
+        len(norm_items),
+        reconciled,
+    )
+
     return {
         "meta": parsed_meta,
-        "items": items,
+        "items": norm_items,
         "reconciled": reconciled,
         "computed_total": computed_total,
+        "pages_total": len(images),
+        "pages_failed": pages_failed,
     }

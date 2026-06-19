@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from datetime import datetime, timezone
 
@@ -8,6 +9,8 @@ from backend.inventory_identity import (
     get_new_items_category_id,
     resolve_and_write_item,
 )
+
+log = logging.getLogger("mjcc.dispatch")
 
 _svc = None
 
@@ -53,6 +56,7 @@ def dispatch_inventory_save(payload: dict) -> dict:
     review_new = bool(payload.get("review_new"))
 
     count = 0
+    dropped = 0
     for item in items:
         # Identity is resolved by SKU only; an unknown category resolves to None
         # so a brand-new item lands in "New Items" for manager review.
@@ -70,6 +74,15 @@ def dispatch_inventory_save(payload: dict) -> dict:
             force_review_category=review_new,
         )
         if not item_id:
+            log.warning(
+                "[dispatch] inventory_save: could not resolve item_id for sku=%r "
+                "desc=%r — item DROPPED from this import (month=%s year=%s)",
+                item.get("sku"),
+                item.get("desc"),
+                month,
+                year,
+            )
+            dropped += 1
             continue
 
         monthly_fields: dict = {
@@ -101,7 +114,7 @@ def dispatch_inventory_save(payload: dict) -> dict:
             on_conflict="item_id,month,year",
         ).execute()
         count += 1
-    return {"applied": count, "month": month, "year": year, "notes": notes}
+    return {"applied": count, "dropped": dropped, "month": month, "year": year, "notes": notes}
 
 
 def dispatch_item_update(payload: dict) -> dict:
@@ -222,6 +235,7 @@ def dispatch_inventory_week(payload: dict) -> dict:
     review_new = bool(payload.get("review_new"))
 
     count = 0
+    dropped = 0
     for item in items:
         cat_id = cat_map.get(item.get("category", ""))
         item_id, _sku, _created = resolve_and_write_item(
@@ -236,6 +250,16 @@ def dispatch_inventory_week(payload: dict) -> dict:
             force_review_category=review_new,
         )
         if not item_id:
+            log.warning(
+                "[dispatch] inventory_week: could not resolve item_id for sku=%r "
+                "desc=%r — item DROPPED from this import (month=%s year=%s week=%s)",
+                item.get("sku"),
+                item.get("desc"),
+                month,
+                year,
+                week,
+            )
+            dropped += 1
             continue
 
         qty = item.get("qty")
@@ -257,6 +281,7 @@ def dispatch_inventory_week(payload: dict) -> dict:
         count += 1
     return {
         "applied": count,
+        "dropped": dropped,
         "month": month,
         "year": year,
         "week": week,

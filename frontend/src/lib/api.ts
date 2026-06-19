@@ -393,6 +393,16 @@ export const api = {
     return req('/api/commits', { method: 'POST', body: JSON.stringify(body) });
   },
 
+  // GitHub archive sync — drains github_sync_queue (queued automatically after
+  // every commit) and pushes pending snapshots to the data-archive repo.
+  async runGithubSync(): Promise<{ ok: boolean; message: string }> {
+    return req('/api/github-sync/run', { method: 'POST' });
+  },
+
+  async getGithubSyncStatus(): Promise<{ total: number; synced: number; pending: number; failed: number }> {
+    return req('/api/github-sync/status');
+  },
+
   async rejectStaging(id: string, reviewNote?: string): Promise<void> {
     const qs = reviewNote ? `?review_note=${encodeURIComponent(reviewNote)}` : '';
     return req(`/api/staging/${id}${qs}`, { method: 'DELETE' });

@@ -170,16 +170,30 @@ def detect_and_parse(
         if raw_text.strip():
             return "text", raw_text
         # All-image PDF (scanned / no native text) — render pages as PNG for vision AI.
-        # 96 DPI keeps each page ~200KB; 6-page cap keeps peak heap under 100MB.
+        # 150 DPI is the floor for the model to reliably read dense invoice line-item
+        # text (product codes, packed columns, small prices). 96 DPI was tried
+        # previously and reliably produced empty extractions — the model could not
+        # read the text, not a timeout or API error.
+        #
+        # Pages are now sent to the vision model ONE AT A TIME (see
+        # invoice_parser.extract_invoice_vision), not batched into one request, so
+        # raising DPI does not multiply a single request's payload size — peak
+        # memory is bounded by ONE page image at a time, not all pages at once.
+        # We still cap total pages to guard against pathological uploads.
+        _PDF_RENDER_DPI = 150
+        _PDF_PAGE_CAP = 8
         try:
             import pdfplumber as _plumber
 
             page_images: list[bytes] = []
             with _plumber.open(io.BytesIO(content)) as _pdf:
-                for _page in _pdf.pages[:6]:
+                pages_total = len(_pdf.pages)
+                for _page in _pdf.pages[:_PDF_PAGE_CAP]:
                     try:
                         _buf = io.BytesIO()
-                        _page.to_image(resolution=96).save(_buf, format="PNG")
+                        _page.to_image(resolution=_PDF_RENDER_DPI).save(
+                            _buf, format="PNG"
+                        )
                         page_images.append(_buf.getvalue())
                     except Exception:
                         pass
@@ -188,7 +202,12 @@ def detect_and_parse(
             if page_images:
                 return "invoice_images", {
                     "images": page_images,
-                    "meta": {"filename": filename},
+                    "meta": {
+                        "filename": filename,
+                        "pages_total": pages_total,
+                        "pages_used": len(page_images),
+                        "pages_truncated": pages_total > _PDF_PAGE_CAP,
+                    },
                 }
         except Exception:
             pass

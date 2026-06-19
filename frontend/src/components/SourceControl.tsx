@@ -6,6 +6,47 @@ import { useEscapeClose } from "../lib/useEscapeClose";
 
 const t = (msg: string) => (window as any).toast?.(msg);
 
+function SCPushButton() {
+    const [syncing, setSyncing] = useState(false);
+
+    async function doPush() {
+        setSyncing(true);
+        try {
+            await api.runGithubSync();
+            t("Push queued — draining archive sync in background");
+            // give the background task a moment, then check how it landed
+            setTimeout(async () => {
+                try {
+                    const status = await api.getGithubSyncStatus();
+                    if (status.failed > 0) {
+                        t(`Sync: ${status.synced} synced, ${status.failed} failed — check server logs`);
+                    } else if (status.pending > 0) {
+                        t(`Sync in progress — ${status.pending} still pending`);
+                    } else {
+                        t("Archive sync complete");
+                    }
+                } catch { /* status check is best-effort */ }
+            }, 3000);
+        } catch (err: any) {
+            t(`Push failed: ${err?.message || "Unknown error"}`);
+        } finally {
+            setSyncing(false);
+        }
+    }
+
+    return (
+        <button
+            className="sc-icon-btn"
+            onClick={doPush}
+            disabled={syncing}
+            title="Push pending commits to the GitHub archive repo"
+            style={{ marginLeft: 6 }}
+        >
+            {syncing ? "Pushing…" : "Push"}
+        </button>
+    );
+}
+
 const OP_LABEL: Record<string, string> = {
     inventory_save: "Inventory",
     inventory_week_update: "Weekly invoice",
@@ -1103,6 +1144,9 @@ export function SourceControlPanel({
                                 </span>
                             </>
                         )}
+                        {(ROLE_LEVEL[user.role] || 0) >= ROLE_LEVEL.manager && (
+                            <SCPushButton />
+                        )}
                         {visibleStaged.length > 0 && (
                             <span className="sc-section-count" style={{ marginLeft: "auto" }}>{visibleStaged.length} pending</span>
                         )}
@@ -1144,6 +1188,7 @@ export function SourceControlPage({ user }: { user: User }) {
                 <button className="btn" onClick={loadData} disabled={loading}>
                     {I.refresh()} Refresh
                 </button>
+                {(ROLE_LEVEL[user.role] || 0) >= ROLE_LEVEL.manager && <SCPushButton />}
             </div>
             <div className="sc-page-body">
                 <div className="sc-page-panel card">

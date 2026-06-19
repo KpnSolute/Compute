@@ -193,6 +193,14 @@ def _extract_ops(
                     images, img_meta, ai_config, called_by=called_by
                 )
                 if parsed.get("items"):
+                    if parsed.get("pages_failed"):
+                        log.warning(
+                            "[DATA-ENTRY] Vision extraction partial — %d/%d page(s) "
+                            "failed, proceeding with %d item(s) from remaining pages",
+                            parsed["pages_failed"],
+                            parsed.get("pages_total", len(images)),
+                            len(parsed["items"]),
+                        )
                     meta = parsed.get("meta", {})
                     categories = ctx.get_categories()
                     ops = invoice_parser.invoice_items_to_ops(
@@ -207,10 +215,11 @@ def _extract_ops(
                     return ops, meta
                 log.warning(
                     "[DATA-ENTRY] Vision returned no items, falling back to OCR | "
-                    "provider=%s model=%s pages=%d",
+                    "provider=%s model=%s pages=%d pages_failed=%d",
                     provider,
                     model,
                     len(images),
+                    parsed.get("pages_failed", 0),
                 )
             except Exception as e:
                 # Vision call failed (timeout, bad response, provider error, etc).
