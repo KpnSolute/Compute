@@ -4,6 +4,44 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.6.0 — 2026-06-19 — Live DB structure audit + hardening (Supabase advisors, zero app changes)
+
+**Agent:** Claude (Senior Development Manager)
+**Scope:** Live MJCCv1 schema only, via Supabase MCP `apply_migration`. No application code touched.
+**Method:** Cross-referenced every live table/RPC against actual code usage (`grep` across `backend/`, `frontend/src/`) before changing anything — not changelog history, the real call sites. Verified before/after with `get_advisors`.
+
+### Findings — confirmed via grep, not assumption
+- Every `.rpc()` call in the codebase (`inventory.py`, `sku_review.py`, `sourcectrl.py`) goes through `supabase_service`/`_client()`, which use `SUPABASE_SERVICE_KEY` exclusively. `frontend/src/lib/supabase.ts` never calls `.rpc()` with the anon key — confirmed zero matches.
+- `_backup_may2026_monthly_inv` (273 rows) and `_backup_may2026_snapshot` (1 row) have **zero references** anywhere in `.py`/`.ts`/`.tsx`. Not in AGENTS.md §4 table list either — created ad hoc, never cleaned up. **Left in place pending explicit user decision** (named "backup", so not unilaterally dropped).
+
+### Fixed — RLS-enabled-no-policy (extends v3026's `add_service_role_policies_orphan_tables`)
+6 tables gained this status after that migration landed (created during the AI-system + SourceControl/SKU-review builds): `ai_provider_keys`, `ai_providers`, `ai_stack_config`, `pull_requests`, `sku_review_queue`, `week_status`. Added `service_role_all` policy to each — same pattern as v3026, preserves secure deny-by-default for `anon`/`authenticated` (none of these are queried directly by the frontend) while clearing the advisory.
+
+### Fixed — unnecessary SECURITY DEFINER exposure to anon/authenticated (12 functions)
+`guard_locked_week_writes`, `refresh_monthly_snapshot`, `refresh_week_gross`, `resolve_invoice_sku`, `sc_close_pull_request`, `sc_finalize_merge`, `sc_open_pull_request`, `set_week_status`, `sku_add_alias`, `sku_review_resolve`, `trg_invoice_refresh_week`, `trg_refresh_snapshot` were all callable by `anon`/`authenticated` directly over `/rest/v1/rpc/*`, bypassing RLS by design (that's what SECURITY DEFINER means) — for zero functional reason, since only the backend's service-role client ever calls them.
+- **Gotcha hit:** `REVOKE EXECUTE ... FROM anon, authenticated` alone did nothing — these functions had `EXECUTE` granted to `PUBLIC` at creation time, and a `PUBLIC` grant is not overridden by revoking from a named role. Had to `REVOKE EXECUTE ... FROM PUBLIC` explicitly, then `GRANT EXECUTE ... TO service_role`. Re-ran `get_advisors` to confirm — all 12 cleared on both `anon` and `authenticated`.
+
+### Fixed — function search_path hijacking (flagged in v3046, never actually applied)
+`refresh_monthly_snapshot`, `trg_refresh_snapshot`, `sc_touch_updated_at`, `touch_ai_provider_key` now have explicit `SET search_path = public, pg_temp`. No behavior change.
+
+### Fixed — duplicate indexes (4 pairs)
+Dropped the redundant half of each: `idx_ai_stack_config_default` (dup of `ai_stack_config_name_key`), `idx_inv_items_category` (dup of `idx_invoice_items_category`), `idx_inv_items_sku` (dup of `idx_invoice_items_sku`), `idx_monthly_inv_month_year` (dup of `idx_monthly_inventory_month_year`). Pure write-overhead reduction, zero read-path change.
+
+### Fixed — missing FK indexes (10, on actively-developed PR/SKU-review/week-lock tables)
+Added covering indexes for `ai_provider_keys.created_by`, `ai_stack_config.key_id`, `ai_stack_config.updated_by`, `pull_requests.{closed_by,commit_id,merged_by}`, `sku_review_queue.{resolved_by,resolved_item_id,suggested_item_id}`, `week_status.locked_by`.
+
+### NOT touched — flagged for user decision, not unilateral action
+- **`_backup_may2026_monthly_inv` / `_backup_may2026_snapshot`** — zero code references, no PK, but contain real backup data. Did not drop; asked Miah directly.
+- **`multiple_permissive_policies`** on `month_close`, `month_periods`, `week_gross` — each has overlapping `read_*`/`write_*` SELECT policies for the same roles (redundant eval, not a correctness bug). Needs the exact `USING` clauses inspected before merging to avoid narrowing/widening access — left as a follow-up rather than guessing.
+- **Auth leaked-password-protection** — a project-level Auth toggle (Dashboard → Auth → Policies), not a schema change. Flagged, not actionable via migration.
+- **`auth_rls_initplan`** on `agent_conversations`/`agent_usage` (10 + 8 rows) — minor at this scale, deprioritized.
+
+**Verification:** `get_advisors(security)` before: 8 RLS-no-policy + 12×2 SECURITY DEFINER exposure + 4 search-path warnings. After: only the 2 backup-table items + the pre-existing leaked-password-protection toggle remain. `get_advisors(performance)`: all 4 duplicate-index warnings cleared.
+
+**Push:** N/A — live schema migration via MCP only, no app code changed.
+
+---
+
 ## v4.5.0 — 2026-06-19
 
 ### CRITICAL — AI requests were invisible on Render (no logging config at all)
