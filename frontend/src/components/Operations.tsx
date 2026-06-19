@@ -261,6 +261,28 @@ export function MonthlyInventory({
   const [week, setWeek] = useState(0); // 0 = All, 1–5 = W1–W5
   const [maxWeeks, setMaxWeeks] = useState(4); // from API metadata.weeks_in_period
 
+  // Local cache key for this period
+  const draftKey = `mjcc_ops_draft_${m + 1}_${y}`;
+
+  const saveDraft = (data: any[]) => {
+    try { localStorage.setItem(draftKey, JSON.stringify({ rows: data, savedAt: Date.now() })); }
+    catch { /* quota exceeded — silent */ }
+  };
+
+  const clearDraft = () => {
+    try { localStorage.removeItem(draftKey); }
+    catch { /* silent */ }
+  };
+
+  const restoreDraft = (): any[] | null => {
+    try {
+      const raw = localStorage.getItem(draftKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed?.rows) ? parsed.rows : null;
+    } catch { return null; }
+  };
+
   useEffect(() => {
     let alive = true;
     setLoading(true);
@@ -280,7 +302,20 @@ export function MonthlyInventory({
           w1r: it.w1r || 0, w2r: it.w2r || 0, w3r: it.w3r || 0, w4r: it.w4r || 0, w5r: it.w5r || 0,
           w1i: it.w1i || 0, w2i: it.w2i || 0, w3i: it.w3i || 0, w4i: it.w4i || 0, w5i: it.w5i || 0,
         }));
-        if (alive) { setRows(flat); setInitRows(flat); setMaxWeeks(wip); }
+        // Check for uncommitted draft
+        const draft = restoreDraft();
+        if (draft && draft.length > 0) {
+          // Merge draft on top of fresh DB data: preserved edited values by sku/id
+          const draftMap = new Map(draft.map((r: any) => [r.id, r]));
+          const merged = flat.map((r: any) => ({ ...r, ...draftMap.get(r.id) }));
+          // Add any draft rows that no longer exist in DB (new items, etc.)
+          for (const dr of draft) {
+            if (!merged.find((r: any) => r.id === dr.id)) merged.push(dr);
+          }
+          if (alive) { setRows(merged); setInitRows(flat); setMaxWeeks(wip); }
+        } else {
+          if (alive) { setRows(flat); setInitRows(flat); setMaxWeeks(wip); }
+        }
         try {
           const ivs = await api.getInvoices(m + 1, y);
           if (alive) setInvoices(ivs || []);
@@ -295,11 +330,19 @@ export function MonthlyInventory({
   }, [m, y]);
 
   function setR(id: string, f: string, v: string) {
-    setRows((prev) => prev.map((r: any) => r.id === id ? { ...r, [f]: parseFloat(v) || 0 } : r));
+    setRows((prev) => {
+      const next = prev.map((r: any) => r.id === id ? { ...r, [f]: parseFloat(v) || 0 } : r);
+      saveDraft(next);
+      return next;
+    });
     setSaved(false);
   }
   function setRStr(id: string, f: string, v: string) {
-    setRows((prev) => prev.map((r: any) => r.id === id ? { ...r, [f]: v } : r));
+    setRows((prev) => {
+      const next = prev.map((r: any) => r.id === id ? { ...r, [f]: v } : r);
+      saveDraft(next);
+      return next;
+    });
     setSaved(false);
   }
 
@@ -350,37 +393,57 @@ export function MonthlyInventory({
       const notes = `${MONTHS[m]} ${y}`;
       const items = rows.map((r: any) => ({
         sku: r.id, desc: r.item,
-        onHand: r.opening,
+        onHand: closing(r),
         par: r.par, price: r.price, category: r.cat, unit: r.unit,
         w1r: r.w1r, w2r: r.w2r, w3r: r.w3r, w4r: r.w4r, w5r: r.w5r,
         w1i: r.w1i, w2i: r.w2i, w3i: r.w3i, w4i: r.w4i, w5i: r.w5i,
       }));
 
-      // Direct write: monthly_inventory (on_hand + weekly cols + price + unit)
-      await api.saveInventory({ items, metadata: { month: m + 1, year: y }, notes });
+      const stagingIds: string[] = [];
 
-      // par is bypassed in saveInventory to prevent bulk-zeroing — patch changed items only
+      // 1. Stage bulk inventory data via Source Control (the ONLY write path)
+      const bulkEntry = await api.stageChange(
+        'inventory_save', 'inventory', `batch-moninv-${m + 1}-${y}`,
+        { items, month: m + 1, year: y, notes },
+        `Monthly inventory — ${notes}`,
+      );
+      stagingIds.push(bulkEntry.entry_id);
+
+      // 2. Stage par changes as item_update (par is item-level, not period-level)
       const initMap = Object.fromEntries(initRows.map((r: any) => [r.id, r]));
       const parChanged = rows.filter((r: any) => {
         const init = initMap[r.id];
         return init && r.par !== init.par;
       });
-      if (parChanged.length) {
-        await Promise.all(parChanged.map((r: any) =>
-          api.updateInventoryItem(r.id, { par: r.par }),
-        ));
+      for (const r of parChanged) {
+        const parEntry = await api.stageChange(
+          'item_update', 'inventory', r.id,
+          { sku: r.id, desc: r.item, par: r.par },
+          `PAR update · ${r.item} → ${r.par}`,
+        );
+        stagingIds.push(parEntry.entry_id);
       }
 
-      // Source Control audit trail
-      await api.stageChange('inventory_save', 'inventory', `batch-moninv-${m + 1}-${y}`,
-        { items, month: m + 1, year: y, notes },
-        `Monthly inventory — ${notes}`,
-      );
+      // 3. Auto-commit for managers (stage + commit = single action)
+      if (lvl >= 30 && stagingIds.length) {
+        await api.approveCommit({
+          staging_ids: stagingIds,
+          message: `Monthly inventory — ${MONTHS[m]} ${y} (${stagingIds.length} change${stagingIds.length !== 1 ? 's' : ''})`,
+          author_id: user.id,
+        });
+      }
 
+      clearDraft();
       setInitRows([...rows]);
       setSaved(true);
       setSavedAt(new Date());
       openSC?.();
+
+      if (lvl >= 30) {
+        (window as any).toast?.('Inventory saved and committed successfully');
+      } else {
+        (window as any).toast?.('Changes staged. A manager must approve them in Source Control.');
+      }
     } catch (e: any) {
       (window as any).toast?.(`Save failed: ${e?.message || 'please try again'}`);
     } finally {
@@ -614,7 +677,7 @@ export function MonthlyInventory({
         </div>
         {canEdit && (
           <button className="btn primary" onClick={handleSave} disabled={saved || saving}>
-            {saving ? 'Saving…' : <><I.save /> Save &amp; sync</>}
+            {saving ? 'Saving…' : <><I.save /> {lvl >= 30 ? 'Save & commit' : 'Stage changes'}</>}
           </button>
         )}
       </div>

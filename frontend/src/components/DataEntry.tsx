@@ -49,6 +49,15 @@ interface DiffTable {
     rows?: DiffRow[];
 }
 
+interface PreviewResponse {
+    batch_id: string;
+    staged_count: number;
+    tables_affected: string[];
+    summary: { new_rows: number; updated_rows: number };
+    staging_ids: string[];
+    diff: DiffTable[];
+}
+
 // ── style helpers ─────────────────────────────────────────────────────────────
 
 const LBL: React.CSSProperties = {
@@ -337,6 +346,8 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
     const [result, setResult]           = useState<UploadResult | null>(null);
 
     const [preview, setPreview]           = useState<DiffTable[] | null>(null);
+    const [stagingIds, setStagingIds]     = useState<string[]>([]);
+    const [commitBusy, setCommitBusy]     = useState(false);
     const [previewLoading, setPreviewLoading] = useState(false);
     const [previewErr, setPreviewErr]     = useState<string | null>(null);
 
@@ -351,6 +362,9 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
     const [pickerSaving, setPickerSaving] = useState(false);
 
     const stageTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+    const abortRef = useRef<AbortController | null>(null);
+    const [elapsed, setElapsed] = useState(0);
+    const elapsedTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
     useEffect(() => {
         api.getDataEntrySettings().then(cfg => {
@@ -402,6 +416,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
     useEffect(() => {
         if (uploading) {
             setAiStage(0);
+            setElapsed(0);
             let cumulative = 0;
             const handles: ReturnType<typeof setTimeout>[] = [];
             PIPELINE.forEach((s, i) => {
@@ -411,22 +426,40 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                 }
             });
             stageTimers.current = handles;
+            // Fire "AI connected" toast once we're past the file-upload stage
+            handles.push(setTimeout(() => {
+                (window as any).toast?.('AI provider connected — processing document');
+                window.dispatchEvent(new CustomEvent('mjcc:ai-connected'));
+            }, 3500));
+            // Track elapsed time after pipeline animation would have completed
+            elapsedTimer.current = setInterval(() => {
+                setElapsed(p => p + 1);
+            }, 1000);
         } else {
             stageTimers.current.forEach(h => clearTimeout(h));
             stageTimers.current = [];
+            if (elapsedTimer.current) {
+                clearInterval(elapsedTimer.current);
+                elapsedTimer.current = null;
+            }
         }
-        return () => { stageTimers.current.forEach(h => clearTimeout(h)); };
+        return () => {
+            stageTimers.current.forEach(h => clearTimeout(h));
+            if (elapsedTimer.current) { clearInterval(elapsedTimer.current); elapsedTimer.current = null; }
+        };
     }, [uploading]);
 
     const loadPreview = useCallback(async (batchId: string) => {
         setPreviewLoading(true);
         setPreviewErr(null);
         try {
-            const diffs = await api.getDataEntryPreview(batchId);
-            setPreview(diffs as DiffTable[]);
+            const res = await api.getDataEntryPreview(batchId) as unknown as PreviewResponse;
+            setPreview(res.diff as DiffTable[]);
+            setStagingIds(res.staging_ids || []);
         } catch (e: any) {
             setPreviewErr(e?.message || 'Failed to load preview');
             setPreview(null);
+            setStagingIds([]);
         } finally {
             setPreviewLoading(false);
         }
@@ -434,27 +467,56 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
 
     const doUpload = useCallback(async () => {
         if (!file) return;
+        abortRef.current?.abort();
+        abortRef.current = new AbortController();
         setUploading(true);
         setUploadErr(null);
         setResult(null);
         setPreview(null);
+        const timeoutId = setTimeout(() => abortRef.current?.abort(), 120_000);
         try {
             const res = await api.uploadDataEntry(file, hint, month + 1, year, week, direction, description);
+            clearTimeout(timeoutId);
             setResult(res);
             window.dispatchEvent(new CustomEvent('mjcc:staging-changed'));
+            window.dispatchEvent(new CustomEvent('mjcc:open-sc'));
+            (window as any).toast?.(`AI parsing complete — ${res.staged_count} entries staged`);
             await loadPreview(res.batch_id);
         } catch (e: any) {
-            setUploadErr(e?.message || 'Upload failed');
+            clearTimeout(timeoutId);
+            const msg = e?.name === 'AbortError' ? 'Request timed out — AI provider did not respond within 120s' : (e?.message || 'Upload failed');
+            setUploadErr(msg);
+            (window as any).toast?.(`AI parsing failed: ${msg}`);
         } finally {
             setUploading(false);
+            abortRef.current = null;
         }
     }, [file, hint, month, year, week, direction, description, loadPreview]);
+
+    const doCommitBatch = useCallback(async () => {
+        if (!stagingIds.length || !result) return;
+        setCommitBusy(true);
+        try {
+            const msg = `AI batch: ${result.file} — ${result.staged_count} entries (${MONTHS[(result.month ?? 1) - 1] ?? result.month} ${result.year})`;
+            await api.approveCommit({ staging_ids: stagingIds, message: msg, author_id: user.id });
+            setResult(null);
+            setPreview(null);
+            setStagingIds([]);
+            window.dispatchEvent(new CustomEvent('mjcc:committed'));
+            onNavigate?.('sourcectrl');
+        } catch (e: any) {
+            setUploadErr(e?.message || 'Commit failed');
+        } finally {
+            setCommitBusy(false);
+        }
+    }, [stagingIds, result, user.id, onNavigate]);
 
     const clearAll = () => {
         setFile(null);
         setResult(null);
         setUploadErr(null);
         setPreview(null);
+        setStagingIds([]);
     };
 
     const stagedCount = result?.staged_count ?? 0;
@@ -593,7 +655,24 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                             onClear={clearAll}
                         />
                     </div>
-                    {uploading && <PipelineBar stage={aiStage} />}
+                    {uploading && (
+                        <>
+                            <PipelineBar stage={aiStage} />
+                            {aiStage >= PIPELINE.length - 1 && (
+                                <div style={{
+                                    marginTop: 8, padding: '8px 13px', borderRadius: 8,
+                                    background: 'var(--amber-bg)', border: '1px solid var(--amber-ink)',
+                                    display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--amber-ink)',
+                                }}>
+                                    <span style={{ fontSize: 14, animation: 'aiSparkFade 1.2s ease-in-out infinite' }}>⟳</span>
+                                    <span style={{ flex: 1, fontWeight: 600 }}>
+                                        Waiting on AI provider — {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`} elapsed
+                                    </span>
+                                    <ThinkingDots />
+                                </div>
+                            )}
+                        </>
+                    )}
                 </div>
 
                 <Hr />
@@ -799,6 +878,30 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                                     {result.staged_count}
                                 </span>
                             </button>
+                            {stagingIds.length > 0 && (
+                                <button
+                                    onClick={doCommitBatch}
+                                    disabled={commitBusy}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: 7,
+                                        padding: '10px 18px', borderRadius: 10,
+                                        background: '#059669', color: '#fff',
+                                        border: 'none', cursor: 'pointer',
+                                        fontWeight: 700, fontSize: 13,
+                                        flexShrink: 0, minHeight: 44,
+                                        boxShadow: '0 2px 8px rgba(5,150,105,0.25)',
+                                        transition: 'opacity .15s',
+                                        opacity: commitBusy ? 0.7 : 1,
+                                    }}
+                                    onMouseEnter={e => (e.currentTarget.style.opacity = '0.88')}
+                                    onMouseLeave={e => (e.currentTarget.style.opacity = commitBusy ? '0.7' : '1')}
+                                >
+                                    {commitBusy
+                                        ? <><div className="spinner" style={{ width: 14, height: 14, borderColor: '#fff transparent transparent' }} />&nbsp;Committing…</>
+                                        : <>{I.checkCircle({ style: { width: 15, height: 15 } })} Commit AI batch</>
+                                    }
+                                </button>
+                            )}
                         </div>
                     </div>
                 )}

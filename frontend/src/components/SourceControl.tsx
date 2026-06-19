@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { I } from "../lib/icons";
 import { type User, ROLE_LEVEL, ROLE_LABEL } from "../lib/constants";
 import { api, type Commit, type StagingEntry } from "../lib/api";
+import { useEscapeClose } from "../lib/useEscapeClose";
 
 const t = (msg: string) => (window as any).toast?.(msg);
 
@@ -156,15 +157,18 @@ function SCChangesView({
     const [commitMsg, setCommitMsg] = useState("");
     const [busy, setBusy] = useState(false);
     const [confirm, setConfirm] = useState<StagingEntry[] | null>(null);
+    useEscapeClose(!!confirm, () => setConfirm(null));
 
     // Sub-view toggles (fixed: buttons now exist to open each one)
     const [showHistory, setShowHistory] = useState(false);
+    useEscapeClose(showHistory, () => setShowHistory(false));
     const [showAI, setShowAI] = useState(false);
     const [showPRs, setShowPRs] = useState(false);
 
     // AI state
     const [aiPrompt, setAiPrompt] = useState("");
     const [aiRunning, setAiRunning] = useState(false);
+    useEscapeClose(showAI, () => setShowAI(false), aiRunning);
     const [aiResult, setAiResult] = useState<string | null>(null);
 
     // PR state
@@ -172,6 +176,7 @@ function SCChangesView({
     const [pullsLoading, setPullsLoading] = useState(false);
     const [prTitle, setPrTitle] = useState("");
     const [prBusy, setPrBusy] = useState(false);
+    useEscapeClose(showPRs, () => setShowPRs(false), prBusy || pullsLoading);
     const [expandedPR, setExpandedPR] = useState<string | null>(null);
     const [prDetail, setPrDetail] = useState<Record<string, any>>({});
     const [prDetailLoading, setPrDetailLoading] = useState<string | null>(null);
@@ -191,6 +196,7 @@ function SCChangesView({
     const [skuOverrideSku, setSkuOverrideSku] = useState('');
     const [skuConflict, setSkuConflict] = useState<any>(null);
     const [skuBusy, setSkuBusy] = useState(false);
+    useEscapeClose(showSKUReview, () => setShowSKUReview(false), skuLoading || skuBusy);
     const [allItems, setAllItems] = useState<any[]>([]);
     const [allItemsLoaded, setAllItemsLoaded] = useState(false);
 
@@ -401,235 +407,236 @@ function SCChangesView({
     function stageDraft(sku: string) { window.dispatchEvent(new CustomEvent("mjcc:stage-draft-item", { detail: { sku } })); }
     function discardDraft(sku: string) { window.dispatchEvent(new CustomEvent("mjcc:discard-draft-item", { detail: { sku } })); }
 
-    // ── sub-view: COMMIT LOG ──────────────────────────────────────────────────
-    if (showHistory) return (
-        <div className="sc-body">
-            <div className="sc-vsc-section-head" style={{ cursor: "pointer" }} onClick={() => setShowHistory(false)}>
-                <span className="sc-vsc-chevron">‹</span>
-                <span className="sc-section-label">COMMIT LOG</span>
-                <span className="sc-section-count">{commits.length}</span>
-            </div>
-            {commits.length === 0 ? (
-                <div className="sc-empty"><div className="sc-empty-title">No commits yet</div></div>
-            ) : commits.map((c, i) => (
-                <div key={c.commit_id} className="sc-commit-item">
-                    <div className="sc-graph">
-                        <span className="sc-g-dot" />
-                        {i < commits.length - 1 && <span className="sc-g-line" />}
-                    </div>
-                    <div className="sc-commit-body">
-                        <div className="sc-hist-msg">{c.message}</div>
-                        <div className="sc-commit-meta">
-                            <span className="sc-sha mono">{shortSha(c.github_sha) || c.commit_id.slice(0, 7)}</span>
-                            <span>{c.author_name || c.author_id}</span>
-                            {(c as any).submitter_role && (
-                                <span className={"pill role-" + (c as any).submitter_role} style={{ padding: "0 5px", fontSize: 9 }}>
-                                    {ROLE_LABEL[(c as any).submitter_role as keyof typeof ROLE_LABEL] || (c as any).submitter_role}
-                                </span>
-                            )}
-                            {c.pr_number != null && (
-                                <span className="pill info" style={{ padding: "0 5px", fontSize: 9 }}>
-                                    #{c.pr_number}
-                                </span>
-                            )}
-                            <span style={{ marginLeft: "auto", opacity: 0.6 }}>
-                                {relTime((c as any).github_synced_at || c.merged_at || c.created_at)}
-                            </span>
-                        </div>
-                        <div className="sc-commit-detail">
-                            <span>{c.change_count} field{c.change_count !== 1 ? "s" : ""}</span>
-                            {c.github_sha && <span className="sc-synced">{I.check({ style: { width: 10, height: 10 } })} synced</span>}
-                        </div>
-                    </div>
+    // ── sub-view: COMMIT LOG (rendered as overlay) ────────────────────────────
+    const renderHistory = () => (showHistory ? (
+        <div className="overlay" onClick={() => setShowHistory(false)}>
+            <div className="modal" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
+                <div className="modal-head">
+                    <h3>{I.clock()} Commit Log</h3>
+                    <div className="sub">{commits.length} commit{commits.length !== 1 ? "s" : ""}</div>
+                    <button className="modal-x" onClick={() => setShowHistory(false)} aria-label="Close">{I.x()}</button>
                 </div>
-            ))}
-        </div>
-    );
-
-    // ── sub-view: AI ASSISTANT ────────────────────────────────────────────────
-    if (showAI) return (
-        <div className="sc-body">
-            <div className="sc-vsc-section-head" style={{ cursor: "pointer" }} onClick={() => setShowAI(false)}>
-                <span className="sc-vsc-chevron">‹</span>
-                <span className="sc-section-label">{I.flame({ style: { width: 11, height: 11, display: "inline-block", marginRight: 4 } })} AI ASSISTANT</span>
-            </div>
-            <div style={{ padding: "10px 12px" }}>
-                <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 10 }}>
-                    Describe a change in plain English. The AI stages it for review.
+                <div className="modal-body" style={{ padding: 0 }}>
+                    {commits.length === 0 ? (
+                        <div className="sc-empty"><div className="sc-empty-title">No commits yet</div></div>
+                    ) : commits.map((c, i) => (
+                        <div key={c.commit_id} className="sc-commit-item">
+                            <div className="sc-graph">
+                                <span className="sc-g-dot" />
+                                {i < commits.length - 1 && <span className="sc-g-line" />}
+                            </div>
+                            <div className="sc-commit-body">
+                                <div className="sc-hist-msg">{c.message}</div>
+                                <div className="sc-commit-meta">
+                                    <span className="sc-sha mono">{shortSha(c.github_sha) || c.commit_id.slice(0, 7)}</span>
+                                    <span>{c.author_name || c.author_id}</span>
+                                    {(c as any).submitter_role && (
+                                        <span className={"pill role-" + (c as any).submitter_role} style={{ padding: "0 5px", fontSize: 9 }}>
+                                            {ROLE_LABEL[(c as any).submitter_role as keyof typeof ROLE_LABEL] || (c as any).submitter_role}
+                                        </span>
+                                    )}
+                                    {c.pr_number != null && (
+                                        <span className="pill info" style={{ padding: "0 5px", fontSize: 9 }}>
+                                            #{c.pr_number}
+                                        </span>
+                                    )}
+                                    <span style={{ marginLeft: "auto", opacity: 0.6 }}>
+                                        {relTime((c as any).github_synced_at || c.merged_at || c.created_at)}
+                                    </span>
+                                </div>
+                                <div className="sc-commit-detail">
+                                    <span>{c.change_count} field{c.change_count !== 1 ? "s" : ""}</span>
+                                    {c.github_sha && <span className="sc-synced">{I.check({ style: { width: 10, height: 10 } })} synced</span>}
+                                </div>
+                            </div>
+                        </div>
+                    ))}
                 </div>
-                <textarea className="sc-commit-msg" placeholder={"e.g. \"Set chicken stock to 20\"\n\"Add Olive Oil, $8.50, par 6\""}
-                    rows={5} value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)} disabled={aiRunning}
-                    onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) runAI(); }} />
-                <button className="btn primary" style={{ width: "100%", justifyContent: "center", marginTop: 8 }}
-                    onClick={runAI} disabled={aiRunning || !aiPrompt.trim()}>
-                    {aiRunning ? <><div className="spinner" style={{ width: 13, height: 13 }} />&nbsp;Processing…</> : <>{I.flame({ style: { width: 14, height: 14 } })}&nbsp;Apply &amp; Stage</>}
-                </button>
-                {aiResult && (
-                    <div className="sc-ai-result">
-                        <div className="sc-ai-result-head">AI Response</div>
-                        <div className="sc-ai-result-body">{aiResult}</div>
-                    </div>
-                )}
             </div>
         </div>
-    );
+    ) : null);
 
-    // ── sub-view: PULL REQUESTS ───────────────────────────────────────────────
-    if (showPRs) {
+    // ── sub-view: AI ASSISTANT (rendered as overlay) ──────────────────────────
+    const renderAI = () => (showAI ? (
+        <div className="overlay" onClick={() => setShowAI(false)}>
+            <div className="modal" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+                <div className="modal-head">
+                    <h3>{I.flame()} AI Assistant</h3>
+                    <div className="sub">Describe a change in plain English. The AI stages it for review.</div>
+                    <button className="modal-x" onClick={() => setShowAI(false)} aria-label="Close">{I.x()}</button>
+                </div>
+                <div className="modal-body">
+                    <textarea className="sc-commit-msg" placeholder={"e.g. \"Set chicken stock to 20\"\n\"Add Olive Oil, $8.50, par 6\""}
+                        rows={5} value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)} disabled={aiRunning}
+                        onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) runAI(); }} />
+                    <button className="btn primary" style={{ width: "100%", justifyContent: "center", marginTop: 8 }}
+                        onClick={runAI} disabled={aiRunning || !aiPrompt.trim()}>
+                        {aiRunning ? <><div className="spinner" style={{ width: 13, height: 13 }} />&nbsp;Processing…</> : <>{I.flame({ style: { width: 14, height: 14 } })}&nbsp;Apply &amp; Stage</>}
+                    </button>
+                    {aiResult && (
+                        <div className="sc-ai-result">
+                            <div className="sc-ai-result-head">AI Response</div>
+                            <div className="sc-ai-result-body">{aiResult}</div>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    ) : null);
+
+    // ── sub-view: PULL REQUESTS (rendered as overlay) ────────────────────────
+    const renderPRs = () => {
+        if (!showPRs) return null;
         const openCount = pulls.filter((p) => p.status === "open").length;
         return (
-            <div className="sc-body" style={{ overflowY: "auto" }}>
-                <div className="sc-vsc-section-head" style={{ cursor: "pointer" }} onClick={() => setShowPRs(false)}>
-                    <span className="sc-vsc-chevron">‹</span>
-                    <span className="sc-section-label">
-                        {canReview ? "PULL REQUESTS" : "MY REQUESTS"}
-                    </span>
-                    {openCount > 0 && (
-                        <span className="sc-section-count">{openCount} open</span>
-                    )}
-                    <div style={{ flex: 1 }} />
-                    <button className="sc-icon-btn" title="Refresh" onClick={loadPRs} disabled={pullsLoading}>
-                        {I.refresh({ style: { width: 13, height: 13 } })}
-                    </button>
-                </div>
-
-                {/* Staff: Submit for Review form */}
-                {!canReview && (
-                    <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--line)" }}>
-                        {unlinkedStaged.length > 0 ? (
-                            <>
-                                <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 8 }}>
-                                    Submit your {unlinkedStaged.length} staged change{unlinkedStaged.length !== 1 ? "s" : ""} for manager review.
-                                </div>
-                                <input
-                                    className="ipt"
-                                    style={{ width: "100%", marginBottom: 8, fontSize: 12 }}
-                                    placeholder="Request title…"
-                                    value={prTitle}
-                                    onChange={(e) => setPrTitle(e.target.value)}
-                                    onKeyDown={(e) => { if (e.key === "Enter") doOpenPR(); }}
-                                />
-                                <button
-                                    className="btn primary"
-                                    style={{ width: "100%", justifyContent: "center" }}
-                                    disabled={prBusy || !prTitle.trim()}
-                                    onClick={doOpenPR}
-                                >
-                                    {prBusy ? "Submitting…" : <>{I.inbox({ style: { width: 13, height: 13 } })} Submit for Review</>}
-                                </button>
-                            </>
-                        ) : (
-                            <div style={{ fontSize: 11, color: "var(--muted)" }}>
-                                No unsubmitted staged changes. Stage inventory or data edits first.
-                            </div>
-                        )}
+            <div className="overlay" onClick={() => setShowPRs(false)}>
+                <div className="modal" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+                    <div className="modal-head">
+                        <h3>{I.inbox()} {canReview ? "Pull Requests" : "My Requests"}</h3>
+                        <div className="sub">{openCount > 0 ? `${openCount} open` : "All requests"}</div>
+                        <button className="modal-x" onClick={() => setShowPRs(false)} aria-label="Close">{I.x()}</button>
                     </div>
-                )}
+                    <div className="modal-body" style={{ padding: 0 }}>
 
-                {pullsLoading && (
-                    <div className="sc-loading">
-                        <div className="spinner" style={{ width: 14, height: 14 }} />
-                        <span>Loading…</span>
-                    </div>
-                )}
-
-                {!pullsLoading && pulls.length === 0 && (
-                    <div className="sc-empty">
-                        <div className="sc-empty-icon">{I.inbox({ style: { width: 24, height: 24 } })}</div>
-                        <div className="sc-empty-title">
-                            {canReview ? "No open pull requests" : "No requests yet"}
-                        </div>
+                        {/* Staff: Submit for Review form */}
                         {!canReview && (
-                            <div className="sc-empty-sub">Stage changes and submit them for review.</div>
-                        )}
-                    </div>
-                )}
-
-                {pulls.map((pr) => {
-                    const isExpanded = expandedPR === pr.pr_id;
-                    const detail = prDetail[pr.pr_id];
-                    const isBusy = prActionBusy === pr.pr_id;
-                    const isDetailLoading = prDetailLoading === pr.pr_id;
-                    const canClose = canReview || pr.author_id === user.id;
-
-                    return (
-                        <div key={pr.pr_id} style={{ borderBottom: "1px solid var(--line)" }}>
-                            <div
-                                className="sc-vsc-section-head"
-                                style={{ cursor: "pointer", alignItems: "flex-start", padding: "8px 12px" }}
-                                onClick={() => toggleExpandPR(pr.pr_id)}
-                            >
-                                <span className="sc-vsc-chevron" style={{ marginTop: 2 }}>
-                                    {isExpanded ? "▾" : "▸"}
-                                </span>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ fontSize: 12, fontWeight: 600 }}>
-                                        #{pr.pr_number} {pr.title}
+                            <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--line)" }}>
+                                {unlinkedStaged.length > 0 ? (
+                                    <>
+                                        <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 8 }}>
+                                            Submit your {unlinkedStaged.length} staged change{unlinkedStaged.length !== 1 ? "s" : ""} for manager review.
+                                        </div>
+                                        <input
+                                            className="ipt"
+                                            style={{ width: "100%", marginBottom: 8, fontSize: 12 }}
+                                            placeholder="Request title…"
+                                            value={prTitle}
+                                            onChange={(e) => setPrTitle(e.target.value)}
+                                            onKeyDown={(e) => { if (e.key === "Enter") doOpenPR(); }}
+                                        />
+                                        <button
+                                            className="btn primary"
+                                            style={{ width: "100%", justifyContent: "center" }}
+                                            disabled={prBusy || !prTitle.trim()}
+                                            onClick={doOpenPR}
+                                        >
+                                            {prBusy ? "Submitting…" : <>{I.inbox({ style: { width: 13, height: 13 } })} Submit for Review</>}
+                                        </button>
+                                    </>
+                                ) : (
+                                    <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                                        No unsubmitted staged changes. Stage inventory or data edits first.
                                     </div>
-                                    <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 2 }}>
-                                        {canReview && pr.author_name ? `${pr.author_name} · ` : ""}
-                                        {pr.entry_count} change{pr.entry_count !== 1 ? "s" : ""} · {relTime(pr.created_at)}
-                                    </div>
-                                </div>
-                                {prStatusPill(pr.status)}
+                                )}
                             </div>
+                        )}
 
-                            {isExpanded && (
-                                <div style={{ padding: "4px 12px 10px 28px", background: "rgba(0,0,0,0.02)" }}>
-                                    {isDetailLoading && (
-                                        <div className="sc-loading" style={{ padding: "4px 0" }}>
-                                            <div className="spinner" style={{ width: 12, height: 12 }} />
-                                            <span>Loading diff…</span>
-                                        </div>
-                                    )}
-                                    {detail?.entries?.map((e: StagingEntry) => {
-                                        const op = (e as any).operation || e.change_type;
-                                        const kind = OP_KIND[op] ?? "M";
-                                        return (
-                                            <div key={e.entry_id} className="sc-vsc-file-row" style={{ paddingLeft: 0 }}>
-                                                <span className="sc-vsc-file-icon">
-                                                    {I.database({ style: { width: 12, height: 12, opacity: 0.5 } })}
-                                                </span>
-                                                <div className="sc-vsc-file-info">
-                                                    <span className="sc-vsc-file-name">{OP_LABEL[op] || op}</span>
-                                                    <span className="sc-vsc-file-path">{stagedSummary(e)}</span>
-                                                </div>
-                                                <span className={`sc-vsc-badge sc-vsc-badge-${kind.toLowerCase()}`}>{kind}</span>
+                        {pullsLoading && (
+                            <div className="sc-loading">
+                                <div className="spinner" style={{ width: 14, height: 14 }} />
+                                <span>Loading…</span>
+                            </div>
+                        )}
+
+                        {!pullsLoading && pulls.length === 0 && (
+                            <div className="sc-empty">
+                                <div className="sc-empty-icon">{I.inbox({ style: { width: 24, height: 24 } })}</div>
+                                <div className="sc-empty-title">
+                                    {canReview ? "No open pull requests" : "No requests yet"}
+                                </div>
+                                {!canReview && (
+                                    <div className="sc-empty-sub">Stage changes and submit them for review.</div>
+                                )}
+                            </div>
+                        )}
+
+                        {pulls.map((pr) => {
+                            const isExpanded = expandedPR === pr.pr_id;
+                            const detail = prDetail[pr.pr_id];
+                            const isBusy = prActionBusy === pr.pr_id;
+                            const isDetailLoading = prDetailLoading === pr.pr_id;
+                            const canClose = canReview || pr.author_id === user.id;
+
+                            return (
+                                <div key={pr.pr_id} style={{ borderBottom: "1px solid var(--line)" }}>
+                                    <div
+                                        className="sc-vsc-section-head"
+                                        style={{ cursor: "pointer", alignItems: "flex-start", padding: "8px 12px" }}
+                                        onClick={() => toggleExpandPR(pr.pr_id)}
+                                    >
+                                        <span className="sc-vsc-chevron" style={{ marginTop: 2 }}>
+                                            {isExpanded ? "▾" : "▸"}
+                                        </span>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontSize: 12, fontWeight: 600 }}>
+                                                #{pr.pr_number} {pr.title}
                                             </div>
-                                        );
-                                    })}
-                                    {pr.status === "open" && (
-                                        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                                            {canReview && (
-                                                <button
-                                                    className="btn primary"
-                                                    style={{ fontSize: 11, padding: "4px 10px" }}
-                                                    disabled={isBusy}
-                                                    onClick={(e) => { e.stopPropagation(); doMergePR(pr.pr_id); }}
-                                                >
-                                                    {isBusy ? "Merging…" : <>{I.check({ style: { width: 11, height: 11 } })}&nbsp;Merge</>}
-                                                </button>
+                                            <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 2 }}>
+                                                {canReview && pr.author_name ? `${pr.author_name} · ` : ""}
+                                                {pr.entry_count} change{pr.entry_count !== 1 ? "s" : ""} · {relTime(pr.created_at)}
+                                            </div>
+                                        </div>
+                                        {prStatusPill(pr.status)}
+                                    </div>
+
+                                    {isExpanded && (
+                                        <div style={{ padding: "4px 12px 10px 28px", background: "rgba(0,0,0,0.02)" }}>
+                                            {isDetailLoading && (
+                                                <div className="sc-loading" style={{ padding: "4px 0" }}>
+                                                    <div className="spinner" style={{ width: 12, height: 12 }} />
+                                                    <span>Loading diff…</span>
+                                                </div>
                                             )}
-                                            {canClose && (
-                                                <button
-                                                    className="btn"
-                                                    style={{ fontSize: 11, padding: "4px 10px", color: "var(--red)", borderColor: "var(--red)" }}
-                                                    disabled={isBusy}
-                                                    onClick={(e) => { e.stopPropagation(); doClosePR(pr.pr_id); }}
-                                                >
-                                                    {isBusy ? "Closing…" : "Close"}
-                                                </button>
+                                            {detail?.entries?.map((e: StagingEntry) => {
+                                                const op = (e as any).operation || e.change_type;
+                                                const kind = OP_KIND[op] ?? "M";
+                                                return (
+                                                    <div key={e.entry_id} className="sc-vsc-file-row" style={{ paddingLeft: 0 }}>
+                                                        <span className="sc-vsc-file-icon">
+                                                            {I.database({ style: { width: 12, height: 12, opacity: 0.5 } })}
+                                                        </span>
+                                                        <div className="sc-vsc-file-info">
+                                                            <span className="sc-vsc-file-name">{OP_LABEL[op] || op}</span>
+                                                            <span className="sc-vsc-file-path">{stagedSummary(e)}</span>
+                                                        </div>
+                                                        <span className={`sc-vsc-badge sc-vsc-badge-${kind.toLowerCase()}`}>{kind}</span>
+                                                    </div>
+                                                );
+                                            })}
+                                            {pr.status === "open" && (
+                                                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                                                    {canReview && (
+                                                        <button
+                                                            className="btn primary"
+                                                            style={{ fontSize: 11, padding: "4px 10px" }}
+                                                            disabled={isBusy}
+                                                            onClick={(e) => { e.stopPropagation(); doMergePR(pr.pr_id); }}
+                                                        >
+                                                            {isBusy ? "Merging…" : <>{I.check({ style: { width: 11, height: 11 } })}&nbsp;Merge</>}
+                                                        </button>
+                                                    )}
+                                                    {canClose && (
+                                                        <button
+                                                            className="btn"
+                                                            style={{ fontSize: 11, padding: "4px 10px", color: "var(--red)", borderColor: "var(--red)" }}
+                                                            disabled={isBusy}
+                                                            onClick={(e) => { e.stopPropagation(); doClosePR(pr.pr_id); }}
+                                                        >
+                                                            {isBusy ? "Closing…" : "Close"}
+                                                        </button>
+                                                    )}
+                                                </div>
                                             )}
                                         </div>
                                     )}
                                 </div>
-                            )}
-                        </div>
-                    );
-                })}
+                            );
+                        })}
+                    </div>
+                </div>
             </div>
         );
-    }
+    };
 
     // Computed before any conditional returns (rules of hooks)
     const skuFilteredItems = useMemo(() => {
@@ -643,186 +650,187 @@ function SCChangesView({
             .slice(0, 8);
     }, [allItems, skuItemSearch]);
 
-    // ── sub-view: SKU REVIEW QUEUE ───────────────────────────────────────────
-    if (showSKUReview && canReview) {
+    // ── sub-view: SKU REVIEW QUEUE (rendered as overlay) ─────────────────────
+    const renderSKUReview = () => {
+        if (!(showSKUReview && canReview)) return null;
         return (
-            <div className="sc-body" style={{ overflowY: "auto" }}>
-                <div className="sc-vsc-section-head" style={{ cursor: "pointer" }} onClick={() => setShowSKUReview(false)}>
-                    <span className="sc-vsc-chevron">‹</span>
-                    <span className="sc-section-label">SKU REVIEW QUEUE</span>
-                    {skuRows.length > 0 && <span className="sc-section-count">{skuRows.length} pending</span>}
-                    <div style={{ flex: 1 }} />
-                    <button className="sc-icon-btn" title="Refresh" onClick={loadSKUReview} disabled={skuLoading}>
-                        {I.refresh({ style: { width: 13, height: 13 } })}
-                    </button>
-                </div>
-
-                {skuLoading && (
-                    <div className="sc-loading">
-                        <div className="spinner" style={{ width: 14, height: 14 }} />
-                        <span>Loading…</span>
+            <div className="overlay" onClick={() => setShowSKUReview(false)}>
+                <div className="modal" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+                    <div className="modal-head">
+                        <h3>{I.archive()} SKU Review Queue</h3>
+                        <div className="sub">{skuRows.length > 0 ? `${skuRows.length} pending` : "All resolved"}</div>
+                        <button className="modal-x" onClick={() => setShowSKUReview(false)} aria-label="Close">{I.x()}</button>
                     </div>
-                )}
+                    <div className="modal-body" style={{ padding: 0 }}>
 
-                {!skuLoading && skuRows.length === 0 && (
-                    <div className="sc-empty">
-                        <div className="sc-empty-icon">{I.check({ style: { width: 24, height: 24 } })}</div>
-                        <div className="sc-empty-title">Queue is clear</div>
-                        <div className="sc-empty-sub">All imported SKUs resolved.</div>
-                    </div>
-                )}
-
-                {skuRows.map((row: any) => {
-                    const isExpanded = skuExpandedId === row.id;
-                    return (
-                        <div key={row.id} style={{ borderBottom: "1px solid var(--line)" }}>
-                            {/* Row header */}
-                            <div
-                                className="sc-vsc-section-head"
-                                style={{ cursor: "pointer", alignItems: "flex-start", padding: "8px 12px" }}
-                                onClick={() => setSkuExpandedId(isExpanded ? null : row.id)}
-                            >
-                                <span className="sc-vsc-chevron" style={{ marginTop: 2 }}>
-                                    {isExpanded ? "▾" : "▸"}
-                                </span>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ fontSize: 12, fontWeight: 600, display: "flex", gap: 6, alignItems: "center" }}>
-                                        <span className="mono">{row.parsed_sku}</span>
-                                        <span className="pill warn" style={{ fontSize: 9 }}>unknown</span>
-                                    </div>
-                                    <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 2 }}>
-                                        {row.parsed_description || "—"}
-                                        {row.qty != null ? ` · qty ${row.qty}` : ""}
-                                        {row.unit_price != null ? ` · $${Number(row.unit_price).toFixed(2)}` : ""}
-                                    </div>
-                                </div>
+                        {skuLoading && (
+                            <div className="sc-loading">
+                                <div className="spinner" style={{ width: 14, height: 14 }} />
+                                <span>Loading…</span>
                             </div>
+                        )}
 
-                            {/* Expanded form */}
-                            {isExpanded && (
-                                <div style={{ padding: "6px 12px 12px 28px", background: "rgba(0,0,0,0.02)" }}>
-                                    {/* Conflict banner */}
-                                    {skuConflict && skuExpandedId === row.id && (
-                                        <div style={{ background: "rgba(220,38,38,0.08)", border: "1px solid var(--red,#dc2626)", borderRadius: 6, padding: "8px 10px", marginBottom: 8, fontSize: 11.5 }}>
-                                            <strong>SKU conflict:</strong> &ldquo;{skuConflict.conflict_sku}&rdquo; already belongs to{" "}
-                                            <em>{skuConflict.conflict_desc}</em>.
-                                            <div style={{ marginTop: 6, display: "flex", gap: 6 }}>
-                                                <button
-                                                    className="btn"
-                                                    style={{ fontSize: 11, padding: "3px 8px" }}
-                                                    onClick={() => {
-                                                        setSkuConflict(null);
-                                                        setSkuResolution('alias_existing');
-                                                        setSkuSelectedItem(allItems.find((it: any) => it.id === skuConflict.conflict_id) || { id: skuConflict.conflict_id, sku: skuConflict.conflict_sku, desc: skuConflict.conflict_desc });
-                                                        loadAllItems();
-                                                    }}
-                                                >
-                                                    {I.check({ style: { width: 10, height: 10 } })} Link as alias
-                                                </button>
-                                                <button className="btn" style={{ fontSize: 11, padding: "3px 8px" }} onClick={() => setSkuConflict(null)}>
-                                                    Cancel
-                                                </button>
+                        {!skuLoading && skuRows.length === 0 && (
+                            <div className="sc-empty">
+                                <div className="sc-empty-icon">{I.check({ style: { width: 24, height: 24 } })}</div>
+                                <div className="sc-empty-title">Queue is clear</div>
+                                <div className="sc-empty-sub">All imported SKUs resolved.</div>
+                            </div>
+                        )}
+
+                        {skuRows.map((row: any) => {
+                            const isExpanded = skuExpandedId === row.id;
+                            return (
+                                <div key={row.id} style={{ borderBottom: "1px solid var(--line)" }}>
+                                    {/* Row header */}
+                                    <div
+                                        className="sc-vsc-section-head"
+                                        style={{ cursor: "pointer", alignItems: "flex-start", padding: "8px 12px" }}
+                                        onClick={() => setSkuExpandedId(isExpanded ? null : row.id)}
+                                    >
+                                        <span className="sc-vsc-chevron" style={{ marginTop: 2 }}>
+                                            {isExpanded ? "▾" : "▸"}
+                                        </span>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontSize: 12, fontWeight: 600, display: "flex", gap: 6, alignItems: "center" }}>
+                                                <span className="mono">{row.parsed_sku}</span>
+                                                <span className="pill warn" style={{ fontSize: 9 }}>unknown</span>
+                                            </div>
+                                            <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 2 }}>
+                                                {row.parsed_description || "—"}
+                                                {row.qty != null ? ` · qty ${row.qty}` : ""}
+                                                {row.unit_price != null ? ` · $${Number(row.unit_price).toFixed(2)}` : ""}
                                             </div>
                                         </div>
-                                    )}
-
-                                    {/* Action selector */}
-                                    <div style={{ display: "flex", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
-                                        {(["new_item", "alias_existing", "override_existing"] as const).map((res) => (
-                                            <button
-                                                key={res}
-                                                className={"sc-nav-btn" + (skuResolution === res && skuExpandedId === row.id ? " active" : "")}
-                                                onClick={() => openSkuAction(row.id, row, res)}
-                                                style={{ fontSize: 11 }}
-                                            >
-                                                {res === "new_item" && <>{I.plus({ style: { width: 11, height: 11 } })} New item</>}
-                                                {res === "alias_existing" && <>{I.check({ style: { width: 11, height: 11 } })} Alias existing</>}
-                                                {res === "override_existing" && <>{I.edit({ style: { width: 11, height: 11 } })} Override SKU</>}
-                                            </button>
-                                        ))}
                                     </div>
 
-                                    {/* New item form */}
-                                    {skuResolution === 'new_item' && skuExpandedId === row.id && (
-                                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                                            <input className="ipt" placeholder="SKU" value={skuNewSku} onChange={(e) => setSkuNewSku(e.target.value)} style={{ fontSize: 12 }} />
-                                            <input className="ipt" placeholder="Description" value={skuNewDesc} onChange={(e) => setSkuNewDesc(e.target.value)} style={{ fontSize: 12 }} />
-                                            <input className="ipt" placeholder="Category (leave blank → Uncategorized)" value={skuNewCategory} onChange={(e) => setSkuNewCategory(e.target.value)} style={{ fontSize: 12 }} />
-                                            <button
-                                                className="btn primary"
-                                                style={{ fontSize: 11, padding: "4px 10px", alignSelf: "flex-start" }}
-                                                disabled={skuBusy || !skuNewSku.trim()}
-                                                onClick={() => doSKUResolve(row.id)}
-                                            >
-                                                {skuBusy ? "Creating…" : <>{I.plus({ style: { width: 11, height: 11 } })} Create &amp; Commit</>}
-                                            </button>
-                                        </div>
-                                    )}
-
-                                    {/* Alias / Override form (shared item picker) */}
-                                    {(skuResolution === 'alias_existing' || skuResolution === 'override_existing') && skuExpandedId === row.id && (
-                                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                                            <div style={{ position: "relative" }}>
-                                                <input
-                                                    className="ipt"
-                                                    placeholder="Search existing item by SKU or description…"
-                                                    value={skuSelectedItem ? `${skuSelectedItem.sku} — ${skuSelectedItem.desc || skuSelectedItem.description || ''}` : skuItemSearch}
-                                                    onChange={(e) => { setSkuItemSearch(e.target.value); setSkuSelectedItem(null); }}
-                                                    style={{ fontSize: 12, width: "100%" }}
-                                                />
-                                                {!skuSelectedItem && skuItemSearch && (
-                                                    <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 6, zIndex: 10, maxHeight: 160, overflowY: "auto", boxShadow: "0 4px 12px rgba(0,0,0,0.12)" }}>
-                                                        {skuFilteredItems.length === 0 && (
-                                                            <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--muted)" }}>No items found</div>
-                                                        )}
-                                                        {skuFilteredItems.map((it: any) => (
-                                                            <div
-                                                                key={it.id}
-                                                                style={{ padding: "6px 10px", cursor: "pointer", fontSize: 11.5 }}
-                                                                onMouseDown={(e) => { e.preventDefault(); setSkuSelectedItem(it); setSkuItemSearch(''); }}
-                                                            >
-                                                                <span className="mono" style={{ fontSize: 10.5, color: "var(--muted)", marginRight: 6 }}>{it.sku}</span>
-                                                                {it.desc || it.description}
-                                                            </div>
-                                                        ))}
+                                    {/* Expanded form */}
+                                    {isExpanded && (
+                                        <div style={{ padding: "6px 12px 12px 28px", background: "rgba(0,0,0,0.02)" }}>
+                                            {/* Conflict banner */}
+                                            {skuConflict && skuExpandedId === row.id && (
+                                                <div style={{ background: "rgba(220,38,38,0.08)", border: "1px solid var(--red,#dc2626)", borderRadius: 6, padding: "8px 10px", marginBottom: 8, fontSize: 11.5 }}>
+                                                    <strong>SKU conflict:</strong> &ldquo;{skuConflict.conflict_sku}&rdquo; already belongs to{" "}
+                                                    <em>{skuConflict.conflict_desc}</em>.
+                                                    <div style={{ marginTop: 6, display: "flex", gap: 6 }}>
+                                                        <button
+                                                            className="btn"
+                                                            style={{ fontSize: 11, padding: "3px 8px" }}
+                                                            onClick={() => {
+                                                                setSkuConflict(null);
+                                                                setSkuResolution('alias_existing');
+                                                                setSkuSelectedItem(allItems.find((it: any) => it.id === skuConflict.conflict_id) || { id: skuConflict.conflict_id, sku: skuConflict.conflict_sku, desc: skuConflict.conflict_desc });
+                                                                loadAllItems();
+                                                            }}
+                                                        >
+                                                            {I.check({ style: { width: 10, height: 10 } })} Link as alias
+                                                        </button>
+                                                        <button className="btn" style={{ fontSize: 11, padding: "3px 8px" }} onClick={() => setSkuConflict(null)}>
+                                                            Cancel
+                                                        </button>
                                                     </div>
-                                                )}
+                                                </div>
+                                            )}
+
+                                            {/* Action selector */}
+                                            <div style={{ display: "flex", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
+                                                {(["new_item", "alias_existing", "override_existing"] as const).map((res) => (
+                                                    <button
+                                                        key={res}
+                                                        className={"sc-nav-btn" + (skuResolution === res && skuExpandedId === row.id ? " active" : "")}
+                                                        onClick={() => openSkuAction(row.id, row, res)}
+                                                        style={{ fontSize: 11 }}
+                                                    >
+                                                        {res === "new_item" && <>{I.plus({ style: { width: 11, height: 11 } })} New item</>}
+                                                        {res === "alias_existing" && <>{I.check({ style: { width: 11, height: 11 } })} Alias existing</>}
+                                                        {res === "override_existing" && <>{I.edit({ style: { width: 11, height: 11 } })} Override SKU</>}
+                                                    </button>
+                                                ))}
                                             </div>
-                                            {skuSelectedItem && (
-                                                <div style={{ fontSize: 11, color: "var(--muted)", display: "flex", alignItems: "center", gap: 6 }}>
-                                                    {I.check({ style: { width: 11, height: 11, color: "var(--ok, #16a34a)" } })}
-                                                    Selected: <strong>{skuSelectedItem.sku}</strong> — {skuSelectedItem.desc || skuSelectedItem.description}
-                                                    <button className="sc-icon-btn" style={{ marginLeft: 4 }} onClick={() => { setSkuSelectedItem(null); setSkuItemSearch(''); }}>
-                                                        {I.x({ style: { width: 10, height: 10 } })}
+
+                                            {/* New item form */}
+                                            {skuResolution === 'new_item' && skuExpandedId === row.id && (
+                                                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                                    <input className="ipt" placeholder="SKU" value={skuNewSku} onChange={(e) => setSkuNewSku(e.target.value)} style={{ fontSize: 12 }} />
+                                                    <input className="ipt" placeholder="Description" value={skuNewDesc} onChange={(e) => setSkuNewDesc(e.target.value)} style={{ fontSize: 12 }} />
+                                                    <input className="ipt" placeholder="Category (leave blank → Uncategorized)" value={skuNewCategory} onChange={(e) => setSkuNewCategory(e.target.value)} style={{ fontSize: 12 }} />
+                                                    <button
+                                                        className="btn primary"
+                                                        style={{ fontSize: 11, padding: "4px 10px", alignSelf: "flex-start" }}
+                                                        disabled={skuBusy || !skuNewSku.trim()}
+                                                        onClick={() => doSKUResolve(row.id)}
+                                                    >
+                                                        {skuBusy ? "Creating…" : <>{I.plus({ style: { width: 11, height: 11 } })} Create &amp; Commit</>}
                                                     </button>
                                                 </div>
                                             )}
-                                            {skuResolution === 'override_existing' && (
-                                                <input className="ipt" placeholder="New canonical SKU" value={skuOverrideSku} onChange={(e) => setSkuOverrideSku(e.target.value)} style={{ fontSize: 12 }} />
+
+                                            {/* Alias / Override form (shared item picker) */}
+                                            {(skuResolution === 'alias_existing' || skuResolution === 'override_existing') && skuExpandedId === row.id && (
+                                                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                                    <div style={{ position: "relative" }}>
+                                                        <input
+                                                            className="ipt"
+                                                            placeholder="Search existing item by SKU or description…"
+                                                            value={skuSelectedItem ? `${skuSelectedItem.sku} — ${skuSelectedItem.desc || skuSelectedItem.description || ''}` : skuItemSearch}
+                                                            onChange={(e) => { setSkuItemSearch(e.target.value); setSkuSelectedItem(null); }}
+                                                            style={{ fontSize: 12, width: "100%" }}
+                                                        />
+                                                        {!skuSelectedItem && skuItemSearch && (
+                                                            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 6, zIndex: 10, maxHeight: 160, overflowY: "auto", boxShadow: "0 4px 12px rgba(0,0,0,0.12)" }}>
+                                                                {skuFilteredItems.length === 0 && (
+                                                                    <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--muted)" }}>No items found</div>
+                                                                )}
+                                                                {skuFilteredItems.map((it: any) => (
+                                                                    <div
+                                                                        key={it.id}
+                                                                        style={{ padding: "6px 10px", cursor: "pointer", fontSize: 11.5 }}
+                                                                        onMouseDown={(e) => { e.preventDefault(); setSkuSelectedItem(it); setSkuItemSearch(''); }}
+                                                                    >
+                                                                        <span className="mono" style={{ fontSize: 10.5, color: "var(--muted)", marginRight: 6 }}>{it.sku}</span>
+                                                                        {it.desc || it.description}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    {skuSelectedItem && (
+                                                        <div style={{ fontSize: 11, color: "var(--muted)", display: "flex", alignItems: "center", gap: 6 }}>
+                                                            {I.check({ style: { width: 11, height: 11, color: "var(--ok, #16a34a)" } })}
+                                                            Selected: <strong>{skuSelectedItem.sku}</strong> — {skuSelectedItem.desc || skuSelectedItem.description}
+                                                            <button className="sc-icon-btn" style={{ marginLeft: 4 }} onClick={() => { setSkuSelectedItem(null); setSkuItemSearch(''); }}>
+                                                                {I.x({ style: { width: 10, height: 10 } })}
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                    {skuResolution === 'override_existing' && (
+                                                        <input className="ipt" placeholder="New canonical SKU" value={skuOverrideSku} onChange={(e) => setSkuOverrideSku(e.target.value)} style={{ fontSize: 12 }} />
+                                                    )}
+                                                    <button
+                                                        className="btn primary"
+                                                        style={{ fontSize: 11, padding: "4px 10px", alignSelf: "flex-start" }}
+                                                        disabled={skuBusy || !skuSelectedItem || (skuResolution === 'override_existing' && !skuOverrideSku.trim())}
+                                                        onClick={() => doSKUResolve(row.id)}
+                                                    >
+                                                        {skuBusy
+                                                            ? "Saving…"
+                                                            : skuResolution === 'alias_existing'
+                                                                ? <>{I.check({ style: { width: 11, height: 11 } })} Link Alias</>
+                                                                : <>{I.edit({ style: { width: 11, height: 11 } })} Override &amp; Commit</>
+                                                        }
+                                                    </button>
+                                                </div>
                                             )}
-                                            <button
-                                                className="btn primary"
-                                                style={{ fontSize: 11, padding: "4px 10px", alignSelf: "flex-start" }}
-                                                disabled={skuBusy || !skuSelectedItem || (skuResolution === 'override_existing' && !skuOverrideSku.trim())}
-                                                onClick={() => doSKUResolve(row.id)}
-                                            >
-                                                {skuBusy
-                                                    ? "Saving…"
-                                                    : skuResolution === 'alias_existing'
-                                                        ? <>{I.check({ style: { width: 11, height: 11 } })} Link Alias</>
-                                                        : <>{I.edit({ style: { width: 11, height: 11 } })} Override &amp; Commit</>
-                                                }
-                                            </button>
                                         </div>
                                     )}
                                 </div>
-                            )}
-                        </div>
-                    );
-                })}
+                            );
+                        })}
+                    </div>
+                </div>
             </div>
         );
-    }
+    };
 
     // ── main view ─────────────────────────────────────────────────────────────
     return (
@@ -989,9 +997,24 @@ function SCChangesView({
             {/* Confirm overlay */}
             {confirm && (
                 <div className="overlay" onClick={() => setConfirm(null)}>
-                    <div className="sc-confirm" onClick={(e) => e.stopPropagation()}>
-                        <p>{confirm.length === 1 ? "Commit this change?" : `Commit all ${confirm.length} staged changes?`}</p>
-                        <div className="sc-confirm-btns">
+                    <div className="modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-head">
+                            <h3>{I.check()} Commit changes</h3>
+                            <div className="sub">
+                                {confirm.length === 1 ? "Commit this staged change to the live database?" : `Commit all ${confirm.length} staged changes to the live database?`}
+                            </div>
+                            <button className="modal-x" onClick={() => setConfirm(null)} aria-label="Close">
+                                {I.x()}
+                            </button>
+                        </div>
+                        <div className="modal-body">
+                            <p style={{ lineHeight: 1.5, fontSize: 13 }}>
+                                {confirm.length === 1
+                                    ? "This will apply the change and create a commit record. The change will be dispatched to the live tables immediately."
+                                    : `This will apply all ${confirm.length} staged changes and create a commit record. Each change will be dispatched to the live tables.`}
+                            </p>
+                        </div>
+                        <div className="modal-foot">
                             <button className="btn" onClick={() => setConfirm(null)}>Cancel</button>
                             <button className="btn primary" disabled={busy} onClick={() => doCommit(confirm)}>
                                 {I.check({ style: { width: 13, height: 13 } })}&nbsp;Commit
@@ -1000,6 +1023,11 @@ function SCChangesView({
                     </div>
                 </div>
             )}
+
+            {renderHistory()}
+            {renderAI()}
+            {renderPRs()}
+            {renderSKUReview()}
         </div>
     );
 }
@@ -1010,15 +1038,30 @@ export function SourceControlPanel({
     open,
     onClose,
     onCountChange,
+    onSkuReviewCount,
 }: {
     user: User;
     open: boolean;
     onClose: () => void;
     onCountChange?: (n: number) => void;
+    onSkuReviewCount?: (n: number) => void;
 }) {
     const { staged, setStaged, commits, loading, loadData } = useSCData(open);
 
+    const [skuReviewCount, setSkuReviewCount] = useState(0);
+
     useEffect(() => { onCountChange?.(staged.length); }, [staged.length, onCountChange]);
+    useEffect(() => { onSkuReviewCount?.(skuReviewCount); }, [skuReviewCount, onSkuReviewCount]);
+
+    // Fetch pending SKU review count
+    useEffect(() => {
+        if (!open) return;
+        let alive = true;
+        api.getSKUReview('pending', 1).then(rows => {
+            if (alive) setSkuReviewCount(rows?.[0]?.total_count ?? rows?.length ?? 0);
+        }).catch(() => {});
+        return () => { alive = false; };
+    }, [open]);
 
     const lvl = ROLE_LEVEL[user.role] || 0;
     const canReview = lvl >= 30;

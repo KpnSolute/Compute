@@ -177,8 +177,16 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
                 category=cat.get("name") or "",
                 price=_to_float(row.get("unit_price")),
                 unit=inv_item.get("unit") or "each",
-                w1r=w1r, w2r=w2r, w3r=w3r, w4r=w4r, w5r=w5r,
-                w1i=w1i, w2i=w2i, w3i=w3i, w4i=w4i, w5i=w5i,
+                w1r=w1r,
+                w2r=w2r,
+                w3r=w3r,
+                w4r=w4r,
+                w5r=w5r,
+                w1i=w1i,
+                w2i=w2i,
+                w3i=w3i,
+                w4i=w4i,
+                w5i=w5i,
                 running_total=running_total,
                 sku_pending=bool(inv_item.get("sku_pending")),
                 needs_attention=bool(inv_item.get("needs_attention")),
@@ -267,20 +275,22 @@ async def get_inventory(
         created_at = _serialize_dt(result.data[0].get("created_at"))
 
         over_issued_count = sum(
-            1 for row in result.data
+            1
+            for row in result.data
             if (
-                max(0, int(_to_float(row.get("on_hand")))) +
-                int(_to_float(row.get("w1_received"))) +
-                int(_to_float(row.get("w2_received"))) +
-                int(_to_float(row.get("w3_received"))) +
-                int(_to_float(row.get("w4_received"))) +
-                int(_to_float(row.get("w5_received")))
-            ) < (
-                int(_to_float(row.get("w1_issued"))) +
-                int(_to_float(row.get("w2_issued"))) +
-                int(_to_float(row.get("w3_issued"))) +
-                int(_to_float(row.get("w4_issued"))) +
-                int(_to_float(row.get("w5_issued")))
+                max(0, int(_to_float(row.get("on_hand"))))
+                + int(_to_float(row.get("w1_received")))
+                + int(_to_float(row.get("w2_received")))
+                + int(_to_float(row.get("w3_received")))
+                + int(_to_float(row.get("w4_received")))
+                + int(_to_float(row.get("w5_received")))
+            )
+            < (
+                int(_to_float(row.get("w1_issued")))
+                + int(_to_float(row.get("w2_issued")))
+                + int(_to_float(row.get("w3_issued")))
+                + int(_to_float(row.get("w4_issued")))
+                + int(_to_float(row.get("w5_issued")))
             )
         )
 
@@ -342,19 +352,21 @@ async def list_inventory_items(
             cat_join = row.get("inventory_categories") or {}
             if isinstance(cat_join, list):
                 cat_join = cat_join[0] if cat_join else {}
-            items.append({
-                "id": row["id"],
-                "sku": row["sku"],
-                "description": row["description"],
-                "category_id": row.get("category_id"),
-                "category": cat_join.get("name") or "",
-                "unit_price": row.get("unit_price"),
-                "par_level": row.get("par_level"),
-                "unit": row.get("unit"),
-                "active": row.get("active"),
-                "sku_pending": row.get("sku_pending"),
-                "needs_attention": row.get("needs_attention"),
-            })
+            items.append(
+                {
+                    "id": row["id"],
+                    "sku": row["sku"],
+                    "description": row["description"],
+                    "category_id": row.get("category_id"),
+                    "category": cat_join.get("name") or "",
+                    "unit_price": row.get("unit_price"),
+                    "par_level": row.get("par_level"),
+                    "unit": row.get("unit"),
+                    "active": row.get("active"),
+                    "sku_pending": row.get("sku_pending"),
+                    "needs_attention": row.get("needs_attention"),
+                }
+            )
         return items
     except Exception as e:
         logger.exception("Error in list_inventory_items")
@@ -414,11 +426,20 @@ async def save_inventory(
         401: Missing or invalid auth
         500: Database error
     """
+    role = (auth_user.get("role") or "").lower()
+    if role not in ("admin", "manager", "sudo"):
+        raise HTTPException(
+            status_code=403,
+            detail="Admin/manager access required. Staff must stage changes through Source Control.",
+        )
+
     if not payload.items:
         raise HTTPException(status_code=400, detail="Items list cannot be empty")
 
     for item in payload.items:
-        if (item.onHand is not None and item.onHand < 0) or (item.par is not None and item.par < 0):
+        if (item.onHand is not None and item.onHand < 0) or (
+            item.par is not None and item.par < 0
+        ):
             raise HTTPException(
                 status_code=400, detail="onHand and par must be non-negative"
             )
@@ -440,13 +461,25 @@ async def save_inventory(
         # Reject writes to published periods unless the caller is admin/manager.
         user_role = (auth_user.get("role") or "").lower()
         if user_role not in ("admin", "manager", "sudo"):
-            status_r = supabase_service.table("month_status").select("status").eq("month", db_month).eq("year", year).limit(1).execute()
+            status_r = (
+                supabase_service.table("month_status")
+                .select("status")
+                .eq("month", db_month)
+                .eq("year", year)
+                .limit(1)
+                .execute()
+            )
             status_row = (status_r.data or [None])[0]
             if status_row and status_row.get("status") == "published":
-                raise HTTPException(status_code=403, detail=f"Period {month}/{year} is published and cannot be modified")
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Period {month}/{year} is published and cannot be modified",
+                )
 
         # Pre-fetch category name -> id mapping + the Uncategorized triage bucket.
-        cat_result = supabase_service.table("inventory_categories").select("id, name").execute()
+        cat_result = (
+            supabase_service.table("inventory_categories").select("id, name").execute()
+        )
         category_map = {}
         for c in cat_result.data or []:
             category_map[c["name"]] = c["id"]
@@ -487,11 +520,15 @@ async def save_inventory(
             if item.price is not None:
                 monthly_fields["unit_price"] = item.price
             for src, col in [
-                ("w1r", "w1_received"), ("w2r", "w2_received"),
-                ("w3r", "w3_received"), ("w4r", "w4_received"),
+                ("w1r", "w1_received"),
+                ("w2r", "w2_received"),
+                ("w3r", "w3_received"),
+                ("w4r", "w4_received"),
                 ("w5r", "w5_received"),
-                ("w1i", "w1_issued"),   ("w2i", "w2_issued"),
-                ("w3i", "w3_issued"),   ("w4i", "w4_issued"),
+                ("w1i", "w1_issued"),
+                ("w2i", "w2_issued"),
+                ("w3i", "w3_issued"),
+                ("w4i", "w4_issued"),
                 ("w5i", "w5_issued"),
             ]:
                 val = getattr(item, src)
@@ -715,7 +752,13 @@ async def update_item_meta(
     if role not in ("admin", "manager", "sudo"):
         raise HTTPException(status_code=403, detail="Manager access required.")
 
-    res = supabase_service.table("inventory_items").select("id").eq("sku", sku).limit(1).execute()
+    res = (
+        supabase_service.table("inventory_items")
+        .select("id")
+        .eq("sku", sku)
+        .limit(1)
+        .execute()
+    )
     row = (res.data or [None])[0]
     if not row:
         raise HTTPException(status_code=404, detail=f"Item not found: {sku}")
@@ -735,7 +778,13 @@ async def update_item_meta(
     new_sku = (body.new_sku or "").strip()
     if new_sku and new_sku != sku:
         # Check for SKU conflict before writing
-        conflict_r = supabase_service.table("inventory_items").select("id,sku,description").eq("sku", new_sku).limit(1).execute()
+        conflict_r = (
+            supabase_service.table("inventory_items")
+            .select("id,sku,description")
+            .eq("sku", new_sku)
+            .limit(1)
+            .execute()
+        )
         conflict_row = (conflict_r.data or [None])[0]
         if conflict_row:
             raise HTTPException(
@@ -750,34 +799,52 @@ async def update_item_meta(
         fields["sku"] = new_sku
 
     if body.category:
-        cat_r = supabase_service.table("inventory_categories").select("id").eq("name", body.category).limit(1).execute()
+        cat_r = (
+            supabase_service.table("inventory_categories")
+            .select("id")
+            .eq("name", body.category)
+            .limit(1)
+            .execute()
+        )
         cat_row = (cat_r.data or [None])[0]
         if cat_row:
             fields["category_id"] = cat_row["id"]
 
     if len(fields) > 1:
-        supabase_service.table("inventory_items").update(fields).eq("id", row["id"]).execute()
+        supabase_service.table("inventory_items").update(fields).eq(
+            "id", row["id"]
+        ).execute()
 
     return {"sku": new_sku or sku, "updated": [k for k in fields if k != "updated_at"]}
 
 
 _MONTHS = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 ]
 
 
 class PeriodStatus(BaseModel):
-    current_month: int          # 0-indexed real-world month (0=Jan)
+    current_month: int  # 0-indexed real-world month (0=Jan)
     current_year: int
-    latest_month: int | None    # newest period present in monthly_inventory
+    latest_month: int | None  # newest period present in monthly_inventory
     latest_year: int | None
-    next_month: int | None      # the period a rollover would create
+    next_month: int | None  # the period a rollover would create
     next_year: int | None
     needs_rollover: bool
-    current_label: str          # e.g. "June 2026" (real-world)
-    latest_label: str           # e.g. "May 2026" (what the app is showing)
-    next_label: str             # e.g. "June 2026"
+    current_label: str  # e.g. "June 2026" (real-world)
+    latest_label: str  # e.g. "May 2026" (what the app is showing)
+    next_label: str  # e.g. "June 2026"
 
 
 class RolloverRequest(BaseModel):
@@ -791,21 +858,28 @@ def _label(month: int | None, year: int | None) -> str:
 
 
 @router.get("/month-status")
-async def get_month_status(month: int, year: int, auth_user: dict = Depends(_get_auth_user)):
+async def get_month_status(
+    month: int, year: int, auth_user: dict = Depends(_get_auth_user)
+):
     """Return published/open status for a specific period.
     month is 1-indexed (API convention); DB stores 0-indexed.
     """
     db_month = month - 1
     r = (
-        supabase_service.table('month_status')
-        .select('status')
-        .eq('month', db_month)
-        .eq('year', year)
+        supabase_service.table("month_status")
+        .select("status")
+        .eq("month", db_month)
+        .eq("year", year)
         .limit(1)
         .execute()
     )
-    status = r.data[0]['status'] if r.data else 'open'
-    return {'month': month, 'year': year, 'status': status, 'published': status == 'published'}
+    status = r.data[0]["status"] if r.data else "open"
+    return {
+        "month": month,
+        "year": year,
+        "status": status,
+        "published": status == "published",
+    }
 
 
 @router.get("/period-status", response_model=PeriodStatus)
@@ -831,12 +905,16 @@ async def get_period_status(auth_user: dict = Depends(_get_auth_user)):
     )
     if not latest.data:
         return PeriodStatus(
-            current_month=current_month, current_year=current_year,
-            latest_month=None, latest_year=None,
-            next_month=None, next_year=None,
+            current_month=current_month,
+            current_year=current_year,
+            latest_month=None,
+            latest_year=None,
+            next_month=None,
+            next_year=None,
             needs_rollover=False,
             current_label=_label(current_month, current_year),
-            latest_label="", next_label="",
+            latest_label="",
+            next_label="",
         )
 
     lm = int(latest.data[0]["month"])
@@ -848,9 +926,12 @@ async def get_period_status(auth_user: dict = Depends(_get_auth_user)):
 
     needs = (current_year, current_month) > (ly, lm)
     return PeriodStatus(
-        current_month=current_month, current_year=current_year,
-        latest_month=lm, latest_year=ly,
-        next_month=nm, next_year=ny,
+        current_month=current_month,
+        current_year=current_year,
+        latest_month=lm,
+        latest_year=ly,
+        next_month=nm,
+        next_year=ny,
         needs_rollover=needs,
         current_label=_label(current_month, current_year),
         latest_label=_label(lm, ly),
@@ -907,10 +988,11 @@ async def rollover_period(
 
 # ── Week-status endpoints ──────────────────────────────────────────────────────
 
+
 class WeekStatusRequest(BaseModel):
-    month: int   # 1-indexed
+    month: int  # 1-indexed
     year: int
-    week: int    # 1–5
+    week: int  # 1–5
     status: str  # open | locked | published
 
 
@@ -924,6 +1006,7 @@ async def get_week_status(
     Weeks with no row in the DB are returned as {status:'open'}.
     """
     from backend.periods import weeks_in_month
+
     db_month = month - 1
     try:
         r = (
@@ -940,7 +1023,9 @@ async def get_week_status(
             if w in db_rows:
                 result.append({"week": w, **db_rows[w]})
             else:
-                result.append({"week": w, "status": "open", "locked_by": None, "locked_at": None})
+                result.append(
+                    {"week": w, "status": "open", "locked_by": None, "locked_at": None}
+                )
         return result
     except Exception as e:
         logger.exception("Error in get_week_status")
@@ -955,9 +1040,13 @@ async def set_week_status(
     """Lock, unlock, or publish a specific week. Requires manager+."""
     role = (auth_user.get("role") or "").lower()
     if role not in ("admin", "manager", "sudo"):
-        raise HTTPException(status_code=403, detail="Manager access required to change week status.")
+        raise HTTPException(
+            status_code=403, detail="Manager access required to change week status."
+        )
     if body.status not in ("open", "locked", "published"):
-        raise HTTPException(status_code=422, detail="status must be open, locked, or published.")
+        raise HTTPException(
+            status_code=422, detail="status must be open, locked, or published."
+        )
     if body.week not in (1, 2, 3, 4, 5):
         raise HTTPException(status_code=422, detail="week must be 1–5.")
     db_month = body.month - 1
@@ -972,7 +1061,13 @@ async def set_week_status(
                 "p_by": auth_user["id"],
             },
         ).execute()
-        return {"ok": True, "month": body.month, "year": body.year, "week": body.week, "status": body.status}
+        return {
+            "ok": True,
+            "month": body.month,
+            "year": body.year,
+            "week": body.week,
+            "status": body.status,
+        }
     except Exception as e:
         logger.exception("Error in set_week_status")
         raise HTTPException(status_code=500, detail=str(e))

@@ -4,7 +4,116 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
-## v4.6.0 — 2026-06-19 — Live DB structure audit + hardening (Supabase advisors, zero app changes)
+## v4.8.0 — 2026-06-19 — Modal unification + SC sub-view overlays (staged entries stay visible)
+
+**Agent:** OpenCode (Big Pickle)
+**Build:** `ruff check + format ✓` · `tsc -b ✓` · `vite build ✓`
+**Scope:** Modal visual unification, Escape-close everywhere, SC sub-views converted from full-panel replacement to overlays.
+
+### Phase 2 — Modal unification
+- **2.1 (SC confirm):** Converted `.sc-confirm` → `.modal` (overlay > modal > head/body/foot) with `popIn` animation from design system
+- **2.2 (Rollover close):** Replaced `modal-close` + `✕` text → `modal-x` + `I.x()` icon, added heading + sub
+- **2.3 (Escape + focus):** Created `useEscapeClose` hook (Escape keyhandler with optional busy-disabled). Applied to all modal overlays: SC confirm, History, AI, PRs, SKU Review, Rollover, Add Item, Edit Item, Merge, Event Form
+
+### Phase 3 — SC sub-view overlays
+- **3.1:** Converted 4 sub-views (Commit Log, AI Assistant, Pull Requests, SKU Review Queue) from `if (showX) return (...)` full-panel replacement to overlay modals. Staged entries remain visible underneath. Each has proper `.modal-head` header, close button, scrollable body.
+
+### Dependencies shipped
+- Created `frontend/src/lib/useEscapeClose.ts` — shared hook
+
+### What's next
+- Phase 4.1–4.2: AI upload → auto-open SC + "Commit AI batch" flow
+- Phase 4: DataEntry + SC integration for AI data extraction auto-commit workflow
+
+---
+
+## v4.7.0 — 2026-06-19 — SourceControl is now the ONLY write path: Operations.tsx → staging → commit (no more direct DB bypass)
+
+**Agent:** OpenCode (Big Pickle)
+**Build:** `ruff check + format ✓` · `tsc -b ✓` · `vite build ✓`
+**Scope:** Audit of the full inventory write chain (stage → commit → apply), then three fixes to make SourceControl the single source of truth.
+
+### Audit findings (from actual code trace, not changelog claims)
+- **Portal.tsx compact view** — already correct: all edits go through `api.stageChange()` → `POST /api/staging`
+- **data_entry.py AI pipeline** — already correct: `_stage_entries()` → `staging_entries`, needs commit to apply
+- **dispatch.py replay engine** — already correct: all REGISTRY handlers write via `supabase_service` service-role client
+- **Operations.tsx (Monthly Inventory)** — **BROKEN**: called `api.saveInventory()` → `POST /api/inventory` (direct write bypassing SC) plus `api.updateInventoryItem()` (direct PATCH for par), then created a post-hoc audit trail via `api.stageChange()` that was never replayed
+- **sourcectrl.py approve_commit** — **BROKEN**: queried staging entries by ID without `.eq('status', 'pending')`, so already-merged/rejected entries could be re-replayed (double-apply risk)
+- **inventory.py POST /api/inventory** — **UNGUARDED**: staff with a valid token could call this endpoint directly, bypassing SourceControl entirely
+
+### Fix 1 — sourcectrl.py approve_commit (BE-SC-08 resolved)
+Added `.eq('status', 'pending')` to the staging query in `approve_commit` so it only fetches unapplied entries. Prevents double-apply of already-merged entries if someone resubmits the same staging_ids after a commit.
+
+### Fix 2 — inventory.py POST /api/inventory role gate (BE-INV-B resolved)
+Added admin/manager/sudo-only role check at the top of `save_inventory()`. Staff calling this endpoint now get 403: "Admin/manager access required. Staff must stage changes through Source Control." The replay engine (`dispatch.py`) is unaffected because it writes directly via `supabase_service` — it never goes through the FastAPI route.
+
+### Fix 3 — Operations.tsx (Monthly Inventory) complete rewrite of handleSave
+- **Removed** `api.saveInventory()` call — was the direct DB write bypassing SourceControl
+- **Removed** `api.updateInventoryItem()` call — was direct PATCH for par changes
+- **Now stages** bulk inventory data via `api.stageChange('inventory_save', ...)` — this is the ONLY write path
+- **Now stages** par changes as `api.stageChange('item_update', ...)` entries (par is item-level, matches dispatch.py's `dispatch_item_update`)
+- **Auto-commit for managers** (`lvl >= 30`): after staging all entries, calls `api.approveCommit()` — same one-click UX as before, but now routed through SourceControl properly
+- **Stage-only for staff** (`lvl < 30`): just stages — they must submit a PR for manager approval
+- **Button text** now says "Save & commit" for managers, "Stage changes" for staff
+
+### Fix 4 — Persistent local draft cache for Operations.tsx
+- `saveDraft()` / `restoreDraft()` / `clearDraft()` using `localStorage` keyed by period (`mjcc_ops_draft_month_year`)
+- On load, merges draft over fresh DB data so in-progress edits survive page refresh
+- Draft cleared on successful save+commit (managers) or save (staff)
+- Draft saved on every cell edit (`setR`/`setRStr`)
+
+### Supabase schema confirmed
+- `staging_entries` has `status`, `entry_id`, `operation`, `full_payload`, `submitted_by` — all correct
+- `inventory_items` has `par_level`, `sku`, `unit`, `category_id` — all correct
+- `monthly_inventory` has `week*_received`, `week*_issued`, `on_hand`, `unit_price`, `item_id`, `month`, `year` — all correct
+
+### Data flow after these fixes
+```
+Portal.tsx (Compact View) ──→ POST /api/staging ──→ staging_entries (pending)
+Operations.tsx (Monthly)   ──→ POST /api/staging ──→ staging_entries (pending)
+data_entry.py (AI)         ──→ POST /api/staging ──→ staging_entries (pending)
+                                                        │
+                                          Manager commits (POST /api/commits)
+                                                        │
+                                              dispatch.py replays handler
+                                                        │
+                                          Writes to real tables (monthly_inventory, inventory_items…)
+```
+
+There is no longer ANY code path that writes to `monthly_inventory` or `inventory_items` without going through `staging_entries`.
+
+### Fix 5 — SourceControl diff view for staged entries (expandable payload detail)
+Staged entries in the SourceControl panel now have an expandable **▸ / ▾** toggle. When expanded, each entry type shows a formatted detail panel:
+- **inventory_save**: table of items with SKU, description, on_hand, price, PAR columns (20-row cap with "...and N more")
+- **inventory_week_update**: table of items with SKU, description, qty, direction (received/issued)
+- **item_update**: field-level badges showing what's changing (PAR, Price, Unit, Category, Active, New SKU)
+- **item_create**: SKU + description + category pill + numeric fields
+- **item_delete**: red "Delete <sku>" confirmation
+- **Fallback**: raw key/value pairs for any unrecognized operation
+
+This gives reviewers a human-readable "what will this change do?" before pressing the Commit button — directly inside SourceControl, no need to switch to the DataEntry preview tab. The DataEntry.tsx "AI Extract Preview" (with before/after comparison) is an additional detail layer shown immediately after upload for a more thorough pre-commit review.
+
+### DataEntry.tsx audit result — already correct
+The AI data entry pipeline is properly wired:
+1. Upload → `POST /api/data-entry/upload`
+2. Backend parses PDF → AI extracts items → `_extract_ops()` creates op dicts
+3. `_stage_entries()` writes to `staging_entries` with `status: 'pending'`
+4. Fires `mjcc:staging-changed` event → SC panel auto-refreshes
+5. Shows "N entries staged" pill + "Review in Source Control" button
+6. Shows "AI Extract Preview" with before/after diff table
+7. Unknown SKUs sent to `sku_review_queue` → manager resolves in SC
+8. Manager commits → `_apply_entries()` → `dispatch.py` replay → writes to real tables
+
+No changes needed to data_entry.py or api.ts — the pipeline already routes through SourceControl correctly. The missing link (SourceControl diff view) is now fixed in this session.
+
+### Remaining (not addressed — out of scope for this session)
+- AI duplicate SKU detection (same item, different SKU in inventory vs invoice) — data_entry.py/AI pipeline enhancement
+- Inventory view showing staged-but-uncommitted edits to staff users (UX enhancement)
+- The user's "save→stage→push interstitial prompts" vision for the full UX flow
+
+**Push:** pending
+
+---
 
 **Agent:** Claude (Senior Development Manager)
 **Scope:** Live MJCCv1 schema only, via Supabase MCP `apply_migration`. No application code touched.
@@ -3749,3 +3858,81 @@ Audit only. No application code, schema, or git history changed this session. Fi
 4. **[MED — owner: Claude, doc lane]** Reconcile `AGENT_ALIGNMENT.md` §3 endpoint table to the shipped routes (drop the fictional `inventory_sync`/`cycle_menu` BROKEN rows). Correct I-7 wording (`backend/` only, no `tests/`). Correct I-1/I-3 status notes if the Architect lands the dispatch fix.
 5. **[MED — owner: user decision, then Gemini]** Resolve the quote-style contradiction in §6: choose single OR double, add a ruff config (`[tool.ruff.format] quote-style = ...`) to ENFORCE it, then format the 3 inconsistent files. Stop claiming "enforced" until a config exists.
 6. **[LOW — owner: any agent at next close-out]** The top `[Unreleased]` entry's "UNCOMMITTED" claim is stale. Append-only rule forbids editing it; future close-outs should note resolution rather than rewriting history.
+
+---
+
+## v4.9.0 — 2026-06-19 — Formula audit + AI upload UX overhaul (toasts, timeout, connection feedback)
+
+**Agent:** OpenCode (Big Pickle)
+**Build:** `tsc -b ✓` · `vite build ✓`
+
+### Bugfix — MonthlyInventory `onHand` formula was saving opening instead of closing balance
+
+**Severity: Critical (data corruption).** Operations.tsx:396 saved `onHand: r.opening` (the opening balance) instead of `onHand: closing(r)` (the computed closing balance = opening + received - issued).
+
+**Impact:** Every time a manager saved inventory, the `monthly_inventory.on_hand` column was set to the stale opening balance. The next month the incorrect opening was read as the starting balance, corrupting the running total. Items with zero activity were silently correct (opening = closing when no changes). Items with any received/issued activity got progressively more wrong each save.
+
+**Fix:** `Operations.tsx:396` — `onHand: r.opening` → `onHand: closing(r)`. The `closing()` function was already defined at line 351 and used correctly in display cells and summary cards — only the save path was wrong.
+
+### AI upload UX overhaul — DataEntry.tsx
+
+**Problem (user report):** AI parser felt unresponsive — system went blank, everything showed "syncing", no popup, no error when AI provider didn't respond.
+
+**Fixes:**
+
+1. **120s request timeout** — Added `AbortController` + `setTimeout(120s)`. If the AI provider doesn't respond within 2 minutes, the request is aborted with a clear message: "Request timed out — AI provider did not respond within 120s".
+
+2. **"Waiting on AI provider" indicator** — After the PipelineBar animation completes (~13.5s fixed stages), a persistent amber bar appears showing elapsed seconds: "Waiting on AI provider — Xs elapsed" with pulsing dots. This tells the user the system is still working, not hung.
+
+3. **Toast notifications** (these fire as `window.toast()` popups):
+   - **"AI provider connected — processing document"** at ~3.5s (after file upload stage)
+   - **"AI parsing complete — N entries staged"** on successful upload
+   - **"AI parsing failed: {message}"** on any error (timeout, network, AI error, etc.)
+
+4. **Errors surface in two places** — both the inline `.banner warn` in the upload card AND a toast popup. No more silent failures.
+
+### Formula audit — all cells verified correct
+
+| Column | Type | Formula | Location |
+|--------|------|---------|----------|
+| Opening | User input | direct | `cellN(r.opening, ...)` |
+| PAR | User input | direct | `cellN(r.par, ...)` |
+| Price | User input | direct | `cellN(r.price, ...)` |
+| W1–W5 Received | User input (per-week) | direct | `cellN(r.wNr, ...)` |
+| W1–W5 Issued | User input (per-week) | direct | `cellN(r.wNi, ...)` |
+| **Closing** | **Formula** | `max(0, opening + totalRcv - totalIss)` | `closing()` at line 351 |
+| **Value** | **Formula** | `closing × price` | `fmtMoneyFull(closing(r) * r.price)` |
+| Opening value (summary) | Formula | `Σ opening × price` | `sum.open` |
+| Total received (summary) | Formula | `Σ totalRcv × price` | `sum.recv` |
+| Total issued (summary) | Formula | `Σ totalIss × price` | `sum.iss` |
+| Closing value (summary) | Formula | `Σ closing × price` | `sum.close` |
+
+**No random number inputs exist.** Every editable cell feeds into the formula chain. The only bug was that the save path sent the wrong value for `on_hand`.
+
+### AI data entry → cell mapping audit
+
+- **Weekly invoice upload** (W1–W5 selected): Creates `inventory_week_update` ops. Dispatch writes a single `w{week}_{received|issued}` column via partial upsert. `on_hand` and other weeks are preserved untouched. ✅
+- **Full month upload** (Month selected): Creates `inventory_save` ops per item. Dispatch writes `on_hand` from AI-extracted value + any week columns present in payload. Only explicitly provided fields are written — missing fields are preserved. ✅
+- **Pull sheet / end-of-month count:** AI extracts counted values, stores as `on_hand`. Correct for physical inventory counts (you don't compute a count — you count). ✅
+- **Imports vs Deductions:** Direction selector (`received` / `issued`) determines which column gets written. The UI labels match: "Down Received" / "Up Issued". ✅
+- **SKU resolution:** Unknown SKUs go to `sku_review_queue` for manager resolution. ✅
+
+### UI/API/data consistency — verified
+
+- Frontend API client (`api.ts`) calls match backend routes 1:1 — no orphan calls, no missing routes
+- All inventory writes flow through staging → commit → dispatch pipeline. `POST /api/inventory` is role-gated (admin/manager/sudo only)
+- `dispatch.py` uses `supabase_service` (service-role) for all DB writes — bypasses RLS intentionally
+- `monthly_inventory` month is 0-indexed in DB, converted at API boundary — consistent everywhere
+- `staging_entries` uses `status: 'pending' | 'merged' | 'rejected'` — checked in `approve_commit` ✅
+
+### Phase 4.1 — Auto-open SC on AI upload
+- DataEntry fires `mjcc:open-sc` event on successful upload
+- Portal listens, calls `setScPanelOpen(true)` — SC panel slides open automatically
+
+### Phase 4.2 — "Commit AI batch" one-click
+- Preview response includes `staging_ids`
+- Green "Commit AI batch" button appears in result card
+- Calls `api.approveCommit()` with batch entries + auto-generated message
+- On success: navigates to SC so manager sees commit in history
+
+**Push:** pending

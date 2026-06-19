@@ -9,6 +9,7 @@ import {
     NAV,
     DOW_FULL,
 } from "../lib/constants";
+import { useEscapeClose } from "../lib/useEscapeClose";
 
 const ROUTE_MIN: Record<string, number> = Object.fromEntries(
     NAV.flatMap((g) => g.items.map((i) => [i.key, i.min || 0])),
@@ -290,12 +291,14 @@ function Sidebar({
     setActive,
     reorderCount,
     stagedCount,
+    skuReviewCount,
 }: {
     user: User;
     active: string;
     setActive: (k: string) => void;
     reorderCount: number;
     stagedCount: number;
+    skuReviewCount: number;
 }) {
     const lvl = ROLE_LEVEL[user.role];
     return (
@@ -323,8 +326,13 @@ function Sidebar({
                                 {it.key === "inventory" && reorderCount > 0 && (
                                     <span className="nb">{reorderCount}</span>
                                 )}
-                                {it.key === "sourcectrl" && stagedCount > 0 && (
-                                    <span className="nb">{stagedCount}</span>
+                                {it.key === "sourcectrl" && (stagedCount > 0 || skuReviewCount > 0) && (
+                                    <span className="nb">{stagedCount + skuReviewCount}</span>
+                                )}
+                                {it.key === "sourcectrl" && skuReviewCount > 0 && lvl >= 30 && (
+                                    <span className="nb warn" title={`${skuReviewCount} SKU${skuReviewCount !== 1 ? 's' : ''} need review`}>
+                                        {I.alert({ style: { width: 11, height: 11 } })}
+                                    </span>
                                 )}
                             </button>
                         ))}
@@ -1063,6 +1071,7 @@ function InventoryView({
     // staging path — a new SKU upserts as a new item on approval).
     const [showAddItem, setShowAddItem] = useState(false);
     const [addBusy, setAddBusy] = useState(false);
+    useEscapeClose(showAddItem, () => setShowAddItem(false), addBusy);
     const blankItem = {
         desc: "",
         sku: "",
@@ -1086,12 +1095,14 @@ function InventoryView({
         active: true,
     });
     const [editBusy, setEditBusy] = useState(false);
+    useEscapeClose(!!editTarget, () => setEditTarget(null), editBusy);
     const [triageFilter, setTriageFilter] = useState(false);
     const [mergeDialog, setMergeDialog] = useState<{
         keepId: string; removeId: string;
         keepSku: string; removeSku: string; removeDesc: string;
     } | null>(null);
     const [mergeBusy, setMergeBusy] = useState(false);
+    useEscapeClose(!!mergeDialog, () => setMergeDialog(null), mergeBusy);
 
     // Week lock status: keyed by week number (1-5), value = 'open'|'locked'|'published'
     const [weekLockStatus, setWeekLockStatus] = useState<Record<number, string>>({});
@@ -1129,6 +1140,7 @@ function InventoryView({
     // Rollover modal
     const [showRollover, setShowRollover] = useState(false);
     const [rolloverBusy, setRolloverBusy] = useState(false);
+    useEscapeClose(showRollover, () => setShowRollover(false), rolloverBusy);
     const doRollover = async () => {
         setRolloverBusy(true);
         try {
@@ -1766,8 +1778,11 @@ function InventoryView({
                 <div className="overlay" onClick={() => !rolloverBusy && setShowRollover(false)}>
                     <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
                         <div className="modal-head">
-                            <span>Publish Month &amp; Roll Forward</span>
-                            <button className="modal-close" onClick={() => setShowRollover(false)} disabled={rolloverBusy}>✕</button>
+                            <h3>{I.archive()} Publish Month &amp; Roll Forward</h3>
+                            <div className="sub">Cannot be undone. Weekly data will be locked.</div>
+                            <button className="modal-x" onClick={() => setShowRollover(false)} disabled={rolloverBusy} aria-label="Close">
+                                {I.x()}
+                            </button>
                         </div>
                         <div className="modal-body" style={{ padding: '16px 20px' }}>
                             <p style={{ margin: '0 0 12px', lineHeight: 1.5 }}>
@@ -3432,6 +3447,7 @@ function UsersView({ user: currentUser }: { user: User }) {
     const [editing, setEditing] = useState<any | null>(null);
     const [showForm, setShowForm] = useState(false);
     const [saving, setSaving] = useState(false);
+    useEscapeClose(showForm, () => setShowForm(false), saving);
 
     const loadUsers = useCallback(async () => {
         setState({ loading: true, users: null, error: null });
@@ -4247,11 +4263,21 @@ export function Portal({
     const apiStatus = invState.loading ? 'syncing' : invState.error && invState.error !== 'empty' ? 'error' : 'live';
     const lastFetch = invState.syncedAt;
     const [stagedCount, setStagedCount] = useState(0);
+    const [skuReviewCount, setSkuReviewCount] = useState(0);
     const [periodPublished, setPeriodPublished] = useState<boolean | null>(null);
 
     useEffect(() => {
         (window as any).__logout = onLogout;
     }, [onLogout]);
+
+    // Open SC panel + highlight batch on custom event (from DataEntry)
+    useEffect(() => {
+        const h = () => {
+            setScPanelOpen(true);
+        };
+        window.addEventListener('mjcc:open-sc', h);
+        return () => window.removeEventListener('mjcc:open-sc', h);
+    }, []);
 
     // Fetch published/open status for the currently selected period
     useEffect(() => {
@@ -4394,6 +4420,7 @@ export function Portal({
                 }}
                 reorderCount={reorderCount}
                 stagedCount={stagedCount}
+                skuReviewCount={skuReviewCount}
             />
             {explorerOpen && (
                 <div
@@ -4433,6 +4460,7 @@ export function Portal({
                 open={scPanelOpen}
                 onClose={() => setScPanelOpen(false)}
                 onCountChange={(n) => setStagedCount(n)}
+                onSkuReviewCount={(n) => setSkuReviewCount(n)}
             />
             <AgentBubble user={user} />
         </div>
