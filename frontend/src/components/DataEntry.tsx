@@ -364,6 +364,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
 
     const stageTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
     const abortRef = useRef<AbortController | null>(null);
+    const cancelledRef = useRef(false);
     const [elapsed, setElapsed] = useState(0);
     const elapsedTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -466,8 +467,14 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         }
     }, []);
 
+    const cancelUpload = useCallback(() => {
+        cancelledRef.current = true;
+        abortRef.current?.abort();
+    }, []);
+
     const doUpload = useCallback(async () => {
         if (!file) return;
+        cancelledRef.current = false;
         abortRef.current?.abort();
         abortRef.current = new AbortController();
         setUploading(true);
@@ -486,7 +493,10 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
             await loadPreview(res.batch_id);
         } catch (e: any) {
             clearTimeout(timeoutId);
-            const msg = e?.name === 'AbortError' ? 'Request timed out — AI provider did not respond within 120s' : (e?.message || 'Upload failed');
+            const userCancelled = cancelledRef.current;
+            const msg = e?.name === 'AbortError'
+                ? (userCancelled ? 'Cancelled by user' : 'Request timed out — AI provider did not respond within 120s')
+                : (e?.message || 'Upload failed');
             setUploadErr(msg);
             (window as any).toast?.(`AI parsing failed: ${msg}`);
         } finally {
@@ -670,7 +680,18 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                                     <span style={{ flex: 1, fontWeight: 600 }}>
                                         Waiting on AI provider — {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`} elapsed
                                     </span>
-                                    <ThinkingDots />
+                                    <button
+                                        onClick={cancelUpload}
+                                        style={{
+                                            background: 'var(--red)', color: '#fff', border: 'none', borderRadius: 6,
+                                            padding: '4px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                                            display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap',
+                                        }}
+                                        title="Cancel upload"
+                                    >
+                                        {I.x({ style: { width: 12, height: 12 } })}
+                                        Stop
+                                    </button>
                                 </div>
                             )}
                         </>

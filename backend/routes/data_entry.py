@@ -12,7 +12,16 @@ import uuid
 import os
 from datetime import datetime, timezone
 from typing import Any, Optional
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header, Depends
+from fastapi import (
+    APIRouter,
+    HTTPException,
+    UploadFile,
+    File,
+    Form,
+    Header,
+    Depends,
+    Request,
+)
 from pydantic import BaseModel
 from backend.routes import jwt_validator
 from supabase import create_client
@@ -199,7 +208,9 @@ def _extract_ops(
                 log.warning(
                     "[DATA-ENTRY] Vision returned no items, falling back to OCR | "
                     "provider=%s model=%s pages=%d",
-                    provider, model, len(images),
+                    provider,
+                    model,
+                    len(images),
                 )
             except Exception as e:
                 # Vision call failed (timeout, bad response, provider error, etc).
@@ -208,7 +219,10 @@ def _extract_ops(
                 log.error(
                     "[DATA-ENTRY] Vision extraction failed, falling back to OCR | "
                     "provider=%s model=%s pages=%d error=%s",
-                    provider, model, len(images), e,
+                    provider,
+                    model,
+                    len(images),
+                    e,
                 )
                 # fall through to OCR degradation
 
@@ -632,6 +646,7 @@ def _upsert_invoice_record(
 
 @router.post("/upload", status_code=201)
 async def upload_file(
+    request: Request,
     file: UploadFile = File(...),
     hint: Optional[str] = Form(None),
     month: int = Form(default=0),
@@ -654,6 +669,10 @@ async def upload_file(
         month = now.month
     if not year:
         year = now.year
+
+    if await request.is_disconnected():
+        log.warning("[DATA-ENTRY] Client disconnected before file read")
+        raise HTTPException(status_code=499, detail="Client disconnected")
 
     content = await file.read()
     fname = file.filename or "upload"
@@ -681,6 +700,10 @@ async def upload_file(
 
     ai_config = ctx.get_ai_config()
     tools_cfg = ctx.get_ai_tools_config()
+
+    if await request.is_disconnected():
+        log.warning("[DATA-ENTRY] Client disconnected before parse | file=%s", fname)
+        raise HTTPException(status_code=499, detail="Client disconnected")
 
     try:
         parse_start = time.monotonic()
@@ -870,6 +893,16 @@ async def upload_file(
         resp["reconciliation"] = reconciliation
     if description:
         resp["description"] = description[:500]
+
+    if await request.is_disconnected():
+        log.warning(
+            "[DATA-ENTRY] Client disconnected after parse (staging already written) | "
+            "file=%s batch=%s staged=%d",
+            fname,
+            batch_id,
+            len(staged),
+        )
+        raise HTTPException(status_code=499, detail="Client disconnected")
 
     total_elapsed = round(time.monotonic() - job_start, 2)
     log.info(

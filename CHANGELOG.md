@@ -20,7 +20,12 @@ This is the **central development memory and discussion board** for development 
 - Made `_gemini_complete()` accept list-of-parts content (for vision) in addition to string content (for text), branching on `isinstance(m["content"], list)`
 - Bumped Gemini API timeout to 120s when vision content is detected (multi-image calls need longer than the default 60s)
 
-**Push:** pending
+### Stop button for in-progress AI upload
+- Added Stop button in the amber "Waiting on AI provider" banner — calls `abortRef.current?.abort()` to cancel the fetch
+- Distinguishes user-cancelled vs timeout: `cancelledRef.current` tracks intent, shows "Cancelled by user" vs "Request timed out" in error toast
+- Backend: added `request: Request` param to upload endpoint with `request.is_disconnected()` checks before parse and before response write — bails early with 499 if client already disconnected
+
+**Push:** OpenCode → `da68f16` — 2026-06-19
 
 **Agent:** OpenCode (Big Pickle)
 **Build:** `ruff check + format ✓` · `tsc -b ✓` · `vite build ✓`
