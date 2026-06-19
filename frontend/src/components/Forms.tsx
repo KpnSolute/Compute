@@ -11,6 +11,7 @@ import { I } from "../lib/icons";
 import { DS } from "../lib/services";
 import { loadLog, saveLog, fetchLog } from "../lib/supabase";
 import { api } from "../lib/api";
+import { SaveBar } from "./ui/ActionBars";
 
 /* ── shared persistence hook ── */
 function useLog(key: string, initial: any) {
@@ -41,52 +42,6 @@ function useLog(key: string, initial: any) {
         return r;
     };
     return { data, update, saved, save, savedAt };
-}
-
-/* ── SaveBar ── */
-function SaveBar({
-    saved,
-    savedAt,
-    onSave,
-    canEdit,
-    note,
-}: {
-    saved: boolean;
-    savedAt: Date | null;
-    onSave: () => void;
-    canEdit: boolean;
-    note: React.ReactNode;
-}) {
-    return (
-        <div className="formbar">
-            <div className="formbar-l">
-                {note}
-                {!saved && canEdit && (
-                    <span className="dirty-chip">
-                        {I.alert({ style: { width: 12, height: 12 } })} Unsaved
-                    </span>
-                )}
-                {saved && savedAt && (
-                    <span className="saved-chip">
-                        {I.check({ style: { width: 12, height: 12 } })} Saved{" "}
-                        {savedAt.toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                        })}
-                    </span>
-                )}
-            </div>
-            {canEdit && (
-                <button
-                    className="btn primary"
-                    onClick={onSave}
-                    disabled={saved}
-                >
-                    {I.save({ style: { width: 15, height: 15 } })} Save
-                </button>
-            )}
-        </div>
-    );
 }
 
 /* ── MonthNav ── */
@@ -479,10 +434,12 @@ export function MachineLog({ user, period, setPeriod }: PeriodFormProps) {
                 )}
             </div>
             <SaveBar
+                dirtyCount={saved ? 0 : 1}
                 saved={saved}
                 savedAt={savedAt}
-                onSave={() => save(user.display_name)}
                 canEdit={canEdit}
+                onSave={() => save(user.display_name)}
+                savePrimary
                 note={
                     <span className="formbar-meta">
                         {machine.name} · {MONTHS[m]} {y}
@@ -713,10 +670,12 @@ export function CoolingLog({ user, period, setPeriod }: PeriodFormProps) {
                 )}
             </div>
             <SaveBar
+                dirtyCount={saved ? 0 : 1}
                 saved={saved}
                 savedAt={savedAt}
-                onSave={() => save(user.display_name)}
                 canEdit={canEdit}
+                onSave={() => save(user.display_name)}
+                savePrimary
                 note={
                     <span className="formbar-meta">
                         Cooling &amp; Reheating · {MONTHS[m]} {y}
@@ -1021,10 +980,12 @@ export function MealLog({ user }: FormProps) {
                 </div>
             </div>
             <SaveBar
+                dirtyCount={saved ? 0 : 1}
                 saved={saved}
                 savedAt={savedAt}
-                onSave={handleSave}
                 canEdit={canEdit}
+                onSave={handleSave}
+                savePrimary
                 note={
                     <span className="formbar-meta">
                         Meal log ·{" "}
@@ -1190,10 +1151,12 @@ export function InspectionSheet({ user }: FormProps) {
                 </div>
             </div>
             <SaveBar
+                dirtyCount={saved ? 0 : 1}
                 saved={saved}
                 savedAt={savedAt}
-                onSave={handleSave}
                 canEdit={canEdit}
+                onSave={handleSave}
+                savePrimary
                 note={
                     <span className="formbar-meta">
                         Inspection ·{" "}

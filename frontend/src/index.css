@@ -515,6 +515,14 @@ table.data.logtbl td{padding:6px 10px}
 .formbar-meta{font-size:12px;font-weight:700;color:var(--muted)}
 .saved-chip{display:inline-flex;align-items:center;gap:6px;background:var(--green-chip);color:var(--green-ink);font-size:11px;font-weight:800;padding:5px 11px;border-radius:20px}
 
+/* ── Shared save-bar (dirty-aware; renders null when clean) ── */
+.save-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;background:#fff;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:10px 16px;flex-wrap:wrap;position:sticky;bottom:14px;margin-top:14px}
+.save-bar-l{display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1;min-width:0}
+.save-bar-actions{display:flex;gap:9px;align-items:center;flex-shrink:0}
+
+/* ── Shared page toolbar (persistent nav/filter row) ── */
+.page-toolbar{display:flex;align-items:center;gap:6px;padding:0 0 10px;flex-wrap:wrap}
+
 .tastecode{display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:9px}
 .tc-badge{width:26px;height:26px;border-radius:7px;color:#fff;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 
@@ -1022,6 +1030,11 @@ table.data.logtbl td{padding:6px 10px}
   .formbar{flex-direction:column;align-items:stretch;gap:8px}
   .formbar-l{flex-direction:column;align-items:stretch}
   .formbar .btn{width:100%;justify-content:center;min-height:44px}
+  .save-bar{flex-direction:column;align-items:stretch;gap:8px}
+  .save-bar-l{flex-direction:column;align-items:stretch}
+  .save-bar-actions{flex-direction:column}
+  .save-bar-actions .btn{width:100%;justify-content:center;min-height:44px}
+  .page-toolbar{flex-wrap:wrap;gap:5px}
 
   .meal-summary{gap:6px}
   .ms-pill{min-width:64px;padding:8px 10px}
@@ -1633,6 +1646,7 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
 [data-theme="dark"] .sync-card,
 [data-theme="dark"] .tpl-card,
 [data-theme="dark"] .formbar,
+[data-theme="dark"] .save-bar,
 [data-theme="dark"] .placeholder {
   background:var(--surface-2);
   border-color:var(--line);
@@ -1899,7 +1913,7 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
   .activity-bar,.topbar,.sidebar,.sidebar-overlay,.status-bar { display:none !important }
   .portal { display:block !important }
   .main { grid-column:1/-1 !important; grid-row:1/-1 !important; padding:6px 0 !important; overflow:visible !important; background:white !important }
-  .page-head .ph-actions,.view-toggle,.card-head,.banner,.no-print { display:none !important }
+  .page-head .ph-actions,.view-toggle,.card-head,.banner,.no-print,.save-bar,.page-toolbar { display:none !important }
   .page-head { border-bottom:1px solid #ccc; padding-bottom:6px; margin-bottom:8px }
   .page-head h2 { font-size:15px !important }
   .card { box-shadow:none !important; border:none !important; border-radius:0 !important }

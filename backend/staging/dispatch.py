@@ -418,7 +418,24 @@ def dispatch_user_update(payload: dict) -> dict:
     return {"applied": 1, "user": r.data[0] if r.data else None}
 
 
-_UNCATEGORIZED_ID = '448c13cf-e5c0-404f-bf32-f299d411c944'
+_UNCATEGORIZED_ID_FALLBACK = '448c13cf-e5c0-404f-bf32-f299d411c944'
+
+
+def _resolve_uncategorized_id(sup) -> str:
+    """Dynamically look up the 'Uncategorized' category ID. Falls back to hardcoded UUID."""
+    try:
+        r = (
+            sup.table('inventory_categories')
+            .select('id')
+            .ilike('name', 'uncategorized')
+            .limit(1)
+            .execute()
+        )
+        if r.data:
+            return r.data[0]['id']
+    except Exception:
+        pass
+    return _UNCATEGORIZED_ID_FALLBACK
 
 
 def dispatch_item_create(payload: dict) -> dict:
@@ -437,7 +454,7 @@ def dispatch_item_create(payload: dict) -> dict:
         if cat_r.data:
             cat_id = cat_r.data[0]['id']
     if cat_id is None:
-        cat_id = _UNCATEGORIZED_ID
+        cat_id = _resolve_uncategorized_id(sup)
 
     try:
         ins = sup.table('inventory_items').insert({

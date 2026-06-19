@@ -130,28 +130,46 @@ def _diff_inventory_week(payload: dict) -> dict:
     week = payload.get("week")
     direction = payload.get("direction", "received")
     col = f"w{week}_{direction}"
+    month = payload.get("month")
+    year = payload.get("year")
+    db_month = (month - 1) if month else None
     items = payload.get("items", [])
+    svc = _client()
     rows = []
     for it in items:
         sku = (it.get("sku") or "").strip()
         qty = it.get("qty")
         if qty is None:
             qty = it.get("onHand", 0)
-        live = (
-            _client()
-            .table("inventory_items")
-            .select("id")
-            .eq("sku", sku)
-            .limit(1)
-            .execute()
-        )
-        status = "update" if (live.data or []) else "new"
+
+        live_r = svc.table("inventory_items").select("id").eq("sku", sku).limit(1).execute()
+        item_row = live_r.data[0] if live_r.data else None
+        status = "update" if item_row else "new"
+
+        # Fetch the current value of the target weekly column so reviewers see before → after
+        current_val = None
+        if item_row and db_month is not None and year is not None:
+            try:
+                mi_r = (
+                    svc.table("monthly_inventory")
+                    .select(col)
+                    .eq("item_id", item_row["id"])
+                    .eq("month", db_month)
+                    .eq("year", year)
+                    .limit(1)
+                    .execute()
+                )
+                if mi_r.data:
+                    current_val = mi_r.data[0].get(col)
+            except Exception:
+                pass
+
         rows.append(
             {
                 "sku": sku,
                 "description": it.get("desc", ""),
                 "status": status,
-                "before": None,
+                "before": {col: current_val} if item_row else None,
                 "after": {col: qty},
                 "changes": [col],
             }
@@ -160,6 +178,8 @@ def _diff_inventory_week(payload: dict) -> dict:
         "table": "monthly_inventory",
         "operation": "inventory_week_update",
         "summary": f"{len(items)} item(s) → Week {week} {direction}",
+        "month": month,
+        "year": year,
         "rows": rows,
     }
 

@@ -1445,15 +1445,19 @@ async def get_ai_keys(auth_user: dict = Depends(_require_sudo_for_ai)):
     try:
         result = (
             _client()
-            .table("api_keys")
-            .select("provider,is_active,base_url,updated_at,api_key")
+            .table("ai_provider_keys")
+            .select("id,provider,label,is_active,is_default,base_url,updated_at,api_key")
+            .order("created_at")
             .execute()
         )
         rows = result.data or []
         return [
             {
+                "id": r["id"],
                 "provider": r["provider"],
-                "is_active": r["is_active"],
+                "label": r.get("label", ""),
+                "is_active": r.get("is_active", False),
+                "is_default": r.get("is_default", False),
                 "has_key": bool(r.get("api_key")),
                 "base_url": r.get("base_url"),
                 "updated_at": r.get("updated_at"),
@@ -1470,23 +1474,39 @@ async def update_ai_key(
     body: AIKeyUpdateBody,
     auth_user: dict = Depends(_require_sudo_for_ai),
 ):
-    """Update API key / base_url / active status for a provider."""
+    """Update API key / base_url / active status for a provider (by provider name).
+
+    Targets ai_provider_keys.  Activates the first existing key for this provider
+    or inserts a new one when none exists yet.
+    """
     if provider not in ai_engine.SUPPORTED_PROVIDERS:
         raise HTTPException(status_code=422, detail=f"Unknown provider: {provider}")
 
     svc = _client()
     now = _now()
-    update_data: dict = {"updated_at": now, "updated_by": auth_user["id"]}
 
+    # Find the active (or first) key row for this provider
+    try:
+        kr = (
+            svc.table("ai_provider_keys")
+            .select("id,is_active,api_key")
+            .eq("provider", provider)
+            .order("is_active", desc=True)
+            .limit(1)
+            .execute()
+        )
+        existing_row = kr.data[0] if kr.data else None
+    except Exception:
+        existing_row = None
+
+    update_data: dict = {"updated_at": now}
     if body.api_key is not None and body.api_key != "":
         update_data["api_key"] = body.api_key
     if body.base_url is not None:
         update_data["base_url"] = body.base_url or None
-
     if body.is_active is True:
-        # Only one provider active at a time
         try:
-            svc.table("api_keys").update({"is_active": False}).neq(
+            svc.table("ai_provider_keys").update({"is_active": False}).eq(
                 "provider", provider
             ).execute()
         except Exception:
@@ -1496,16 +1516,23 @@ async def update_ai_key(
         update_data["is_active"] = False
 
     try:
-        result = (
-            svc.table("api_keys")
-            .upsert({"provider": provider, **update_data}, on_conflict="provider")
-            .execute()
-        )
-        row = result.data[0] if result.data else {}
+        if existing_row:
+            result = (
+                svc.table("ai_provider_keys")
+                .update(update_data)
+                .eq("id", existing_row["id"])
+                .execute()
+            )
+            row = result.data[0] if result.data else existing_row
+        else:
+            # No key row exists yet — create one
+            new_row = {"provider": provider, "label": provider, "created_at": now, **update_data}
+            result = svc.table("ai_provider_keys").insert(new_row).execute()
+            row = result.data[0] if result.data else new_row
         return {
             "provider": provider,
             "is_active": row.get("is_active", False),
-            "has_key": bool(row.get("api_key")),
+            "has_key": bool(row.get("api_key") or body.api_key),
             "updated_at": row.get("updated_at"),
         }
     except Exception as e:

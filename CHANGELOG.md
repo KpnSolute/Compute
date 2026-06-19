@@ -310,6 +310,70 @@ Added covering indexes for `ai_provider_keys.created_by`, `ai_stack_config.key_i
 - Confirmed `month_status`/`week_status` unaffected — June stayed `open`, no stuck locks.
 - The DB was never at risk; this was purely a backend process crash on a specific file shape.
 
+---
+
+## [v4.3.1-be] — 2026-06-19 — Data entry + parsing bug fixes
+
+**Agent:** Claude (Senior Development Manager)
+**Build:** `ruff check backend/ai/ backend/staging/dispatch.py backend/routes/data_entry.py` — all passed
+**Scope:** Backend only (AI engine, invoice parser, diff engine, dispatch, data_entry route). No frontend changes.
+
+### Fixed — `backend/ai/engine.py` — Anthropic model IDs
+Old IDs (`claude-sonnet-4-20250514`, `claude-opus-4-6`) did not match the real Anthropic API. Updated to match current model IDs per runtime: `claude-fable-5`, `claude-opus-4-8`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`. Updated `VISION_MODELS` frozenset accordingly. Without correct IDs, all Anthropic provider calls returned 404/invalid-model from the Anthropic API.
+
+### Fixed — `backend/ai/invoice_parser.py` — Vision path skipped price reconciliation
+`extract_invoice_vision()` returned raw (pre-discount) prices — `reconcile_and_adjust()` was never called for the AI-vision parse path. Items uploaded as image-PDFs with a Vizient discount were stored at the full vendor rate instead of the net price. Fixed: call `reconcile_and_adjust(items, parsed_meta)` before returning; set `parsed_meta["reconciliation"] = recon`. The 5% delta gate in the upload route now also fires for vision-parsed invoices.
+
+### Fixed — `backend/ai/diff.py` — Weekly invoice preview showed `before: null`
+`_diff_inventory_week()` always returned `before: None` for every item, so reviewers in Source Control had no reference for what the current weekly column value is. Fixed: fetch the live `w{week}_{direction}` value from `monthly_inventory` and include it as `before`. Also added `month`/`year` to the returned diff block for display context.
+
+### Fixed — `backend/staging/dispatch.py` — Hardcoded Uncategorized UUID
+`dispatch_item_create` used a hardcoded UUID `448c13cf-...` as the fallback `category_id`. If the Uncategorized row doesn't exist at that ID (different Supabase environment, category renamed), the insert fails with a FK violation. Fixed: replaced hardcoded ID with `_resolve_uncategorized_id()` that queries `inventory_categories` by name (case-insensitive). The hardcoded UUID remains as a last-resort fallback constant `_UNCATEGORIZED_ID_FALLBACK`.
+
+### Fixed — `backend/routes/data_entry.py` — Legacy `GET /ai-keys` read from dead `api_keys` table
+`GET /api/data-entry/ai-keys` queried `api_keys` (old table, not in schema, not in AGENTS.md §4). `POST/PATCH/DELETE /ai-keys` all write to `ai_provider_keys`. The split caused `getAIKeys()` frontend calls to return 500/empty. Fixed: `GET /ai-keys` now reads from `ai_provider_keys` (same as `GET /settings`). Also fixed `PUT /ai-keys/{provider}` to upsert into `ai_provider_keys` by provider name instead of the dead `api_keys` table.
+
+### Not fixed (out of scope / P3)
+- Bug 3 (slug SKU collision) — no-SKU items from invoice parser generate `INV-{desc_slug}`; same-description items from different invoices collide. Mitigation: add invoice_number suffix to slugs. Deferred — affects edge cases only when vendor product# is absent.
+- Bug 9 weekly before=null — fixed above.
+- Bug 12 (N+1 diff queries for large batches) — deferred.
+- Bug 14 (staff upload direction bypass) — deferred; low-risk since manager review gates all commits.
+
+---
+
+## [v4.3.0-ui] — 2026-06-19 — Shared SaveBar + PageToolbar UI primitives
+
+**Agent:** Claude (Senior Development Manager)
+**Build:** `tsc --noEmit` clean · `vite build` ✓ · `npm run lint` 488 warnings / 3 pre-existing errors (Portal.tsx:1314 `rows` used before declaration — confirmed pre-existing via `git stash`)
+**Scope:** UI only — no backend or schema changes.
+
+### New — `frontend/src/components/ui/ActionBars.tsx`
+Shared primitives extracted so every surface uses the same sticky chrome:
+- `<SaveBar>` — dirty-aware, renders `null` when `dirtyCount === 0 && saved`. Props: `dirtyCount`, `saved`, `savedAt?`, `busy?`, `canEdit`, `onSave?`, `saveLabel?`, `savePrimary?`, `onStage?`, `onPush?`, `note?`. Buttons disabled when `dirtyCount === 0`, Push always enabled.
+- `<PageToolbar>` — thin persistent flex row (`div.page-toolbar`) for nav/filter actions.
+
+### Modified — `index.css`
+Added `.save-bar`, `.save-bar-l`, `.save-bar-actions`, `.page-toolbar` utility classes. Added dark-mode variant. Added to `@media print` hide list. Added mobile (`max-width`) flex-column overrides.
+
+### Modified — `Forms.tsx`
+Replaced the local `SaveBar` function with import of shared `<SaveBar>`. Updated 4 call sites (`MachineLog`, `CoolingLog`, `MealLog`, `InspectionSheet`) to use `dirtyCount={saved ? 0 : 1}`. `FoodRequest` kept its custom inline formbar (not compatible with shared SaveBar). Moved `useMemo` in `SCChangesView` above early returns to fix pre-existing `react-hooks/rules-of-hooks` violation.
+
+### Modified — `Portal.tsx` (`InventoryView`)
+- Removed Save / Stage / Push buttons from `.ph-actions` (they were always visible, just disabled when clean).
+- Added `<SaveBar onSave={saveDraftLocally} onStage={stageCompactChanges} onPush={openSC}>` below the inventory card — only renders when `dirtyCount > 0`.
+- Removed `scCount` prop from `InventoryView` (the badge moved to Topbar/Sidebar where it belongs; `scCount` was only used for the old Push badge chip).
+
+### Modified — `SourceControl.tsx`
+- `SCChangesView` now accepts `externalTab?: string` prop. When set, the component is in "page mode": internal nav toolbar hidden, sub-view display driven by `externalTab` value (`'changes' | 'history' | 'prs' | 'ai' | 'sku'`), back-header rows hidden.
+- Replaced `<div class="sc-vsc-commit-area">` with `<SaveBar saveLabel="Commit (N)" savePrimary canEdit={canCommit}>`. Commit textarea still shows above the bar when `visibleStaged.length > 0`.
+- `SourceControlPage` now owns `tab: SCPageTab` state and renders a `<PageToolbar>` with tab buttons (Changes, History, Pull Requests, AI, SKU Review — gated by `canReview`). Panel drawer (`SourceControlPanel`) unchanged.
+- Fixed pre-existing `useMemo` called-conditionally violation by hoisting `skuFilteredItems` above all early returns.
+
+### Pre-existing issues (not introduced, not fixed)
+- `Portal.tsx:1314` — `compactDirtyRows` closes over `rows` which is declared at line 1596 (`let rows`). ESLint `no-use-before-define` fires 3×. The runtime is safe (function is only called after `rows` is assigned) but the lint rule can't prove it.
+
+---
+
 ## [v4.2.0] — 2026-06-18 — Pipeline progress bar + batch SKU resolution
 
 **Agent:** Claude (Senior Development Manager)

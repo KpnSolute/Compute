@@ -1115,13 +1115,13 @@ def extract_invoice_vision(
             }
         )
 
-    subtotal = float(parsed_meta.get("subtotal") or 0)
-    computed_total = round(sum(it["ext_price"] for it in norm_items), 2)
-    reconciled = (
-        subtotal > 0
-        and computed_total > 0
-        and abs(computed_total - subtotal) / max(subtotal, 0.01) < 0.02
-    )
+    # Apply Vizient discount proportionally so stored prices = what was paid.
+    # This mirrors what parse_invoice_bytes_pdf does for OCR-parsed invoices.
+    norm_items, recon = reconcile_and_adjust(norm_items, parsed_meta)
+    parsed_meta["reconciliation"] = recon
+
+    reconciled = recon.get("reconciled", False)
+    computed_total = recon.get("adjusted_total", round(sum(it["ext_price"] for it in norm_items), 2))
 
     log.info(
         "[invoice_parser] vision extraction complete | pages=%d pages_failed=%d "

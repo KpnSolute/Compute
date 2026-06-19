@@ -51,6 +51,7 @@ import { MealLog, InspectionSheet, FoodRequest } from "./Forms";
 import { CycleMenu } from "./CycleMenu";
 import { SnackBar, MonthlyInventory } from "./Operations";
 import { SourceControlPanel, SourceControlPage } from "./SourceControl";
+import { SaveBar } from "./ui/ActionBars";
 import { Reports } from "./Reports";
 import { Settings } from "./Settings";
 import { AgentBubble } from "./AgentBubble";
@@ -1027,14 +1028,12 @@ function InventoryView({
     invState,
     onSync,
     openSC,
-    scCount,
 }: {
     user: User;
     period: [number, number];
     invState: any;
     onSync: () => void;
     openSC?: () => void;
-    scCount?: number;
 }) {
     const lvl = ROLE_LEVEL[user.role];
     const canStage = lvl >= 10;
@@ -1699,37 +1698,6 @@ function InventoryView({
                     <button className="btn no-print" onClick={onSync}>
                         {I.refresh()} Refresh
                     </button>
-                    {canStage && (
-                        <>
-                            <button
-                                className="btn"
-                                disabled={Object.keys(draft).length === 0 && Object.keys(wkDraft).length === 0}
-                                onClick={saveDraftLocally}
-                                title="Save draft to local storage"
-                            >
-                                {I.save({ style: { width: 14, height: 14 } })} Save
-                            </button>
-                            <button
-                                className={"btn" + (Object.keys(draft).length + Object.keys(wkDraft).length > 0 ? " warn-outline" : "")}
-                                disabled={Object.keys(draft).length === 0 && Object.keys(wkDraft).length === 0}
-                                onClick={() => { void stageCompactChanges(); }}
-                                title="Stage all pending changes"
-                            >
-                                {I.branch({ style: { width: 13, height: 13 } })} Stage
-                                {(Object.keys(draft).length + Object.keys(wkDraft).length) > 0 && (
-                                    <span className="sc-badge-count">{Object.keys(draft).length + Object.keys(wkDraft).length}</span>
-                                )}
-                            </button>
-                            <button
-                                className={"btn" + ((scCount ?? 0) > 0 ? " sc-push-active" : "")}
-                                onClick={openSC}
-                                title="Open Source Control panel"
-                            >
-                                {I.branch({ style: { width: 13, height: 13 } })} Push
-                                {(scCount ?? 0) > 0 && <span className="sc-badge-count">{scCount}</span>}
-                            </button>
-                        </>
-                    )}
                     {lvl >= 30 && (
                         <button
                             className="btn primary"
@@ -2880,6 +2848,24 @@ function InventoryView({
                         </div>
                     )}
                 </div>
+            )}
+            {canStage && (
+                <SaveBar
+                    dirtyCount={Object.keys(draft).length + Object.keys(wkDraft).length}
+                    saved={(Object.keys(draft).length + Object.keys(wkDraft).length) === 0}
+                    canEdit={canStage}
+                    onSave={saveDraftLocally}
+                    onStage={() => { void stageCompactChanges(); }}
+                    onPush={openSC}
+                    note={
+                        <span className="formbar-meta">
+                            {MONTHS[period[0]]} {period[1]}
+                            {(Object.keys(draft).length + Object.keys(wkDraft).length) > 0 && (
+                                <> · {Object.keys(draft).length + Object.keys(wkDraft).length} item{(Object.keys(draft).length + Object.keys(wkDraft).length) !== 1 ? "s" : ""} edited</>
+                            )}
+                        </span>
+                    }
+                />
             )}
             {canStage && showAddItem && (
                 <div
@@ -4353,7 +4339,6 @@ export function Portal({
                 <InventoryView
                     {...common}
                     openSC={() => setScPanelOpen(true)}
-                    scCount={stagedCount}
                 />
             );
         if (active === "haccp") return <ComplianceHub user={user} />;

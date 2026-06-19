@@ -244,9 +244,10 @@ GROQ_MODELS = [
     "meta-llama/llama-4-maverick-17b-128e-instruct",
 ]
 ANTHROPIC_MODELS = [
-    "claude-sonnet-4-20250514",
+    "claude-fable-5",
+    "claude-opus-4-8",
+    "claude-sonnet-4-6",
     "claude-haiku-4-5-20251001",
-    "claude-opus-4-6",
 ]
 OPENAI_MODELS = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"]
 MISTRAL_MODELS = [
@@ -281,9 +282,10 @@ VISION_MODELS: frozenset[str] = frozenset(
         "meta-llama/llama-4-scout-17b-16e-instruct",
         "meta-llama/llama-4-maverick-17b-128e-instruct",
         # Anthropic — all current models support vision
-        "claude-sonnet-4-20250514",
+        "claude-fable-5",
+        "claude-opus-4-8",
+        "claude-sonnet-4-6",
         "claude-haiku-4-5-20251001",
-        "claude-opus-4-6",
         # OpenAI
         "gpt-4o",
         "gpt-4o-mini",

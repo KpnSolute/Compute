@@ -3,6 +3,7 @@ import { I } from "../lib/icons";
 import { type User, ROLE_LEVEL, ROLE_LABEL } from "../lib/constants";
 import { api, type Commit, type StagingEntry } from "../lib/api";
 import { useEscapeClose } from "../lib/useEscapeClose";
+import { SaveBar, PageToolbar } from "./ui/ActionBars";
 
 const t = (msg: string) => (window as any).toast?.(msg);
 
@@ -182,6 +183,7 @@ function SCChangesView({
     loadData,
     openPrId,
     onConsumePrId,
+    externalTab,
 }: {
     user: User;
     staged: StagingEntry[];
@@ -191,7 +193,9 @@ function SCChangesView({
     loadData: () => void;
     openPrId?: string | null;
     onConsumePrId?: () => void;
+    externalTab?: string;
 }) {
+    const pageMode = externalTab !== undefined;
     const lvl = ROLE_LEVEL[user.role] || 0;
     const canReview = lvl >= 30; // manager, admin, sudo
     const canCommit = lvl >= 30;
@@ -290,6 +294,20 @@ function SCChangesView({
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [openPrId]);
+
+    // In page mode (SourceControlPage), the PageToolbar passes a tab name via
+    // externalTab.  Map tab changes to overlay-open state so tabs feel responsive.
+    useEffect(() => {
+        if (!externalTab || externalTab === 'changes') {
+            setShowHistory(false); setShowAI(false); setShowPRs(false); setShowSKUReview(false);
+            return;
+        }
+        setShowHistory(externalTab === 'history');
+        setShowAI(externalTab === 'ai');
+        setShowSKUReview(externalTab === 'sku');
+        if (externalTab === 'prs') { setShowPRs(true); loadPRs(); }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [externalTab]);
 
     const loadSKUReview = useCallback(async () => {
         setSkuLoading(true);
@@ -902,20 +920,13 @@ function SCChangesView({
         <div className="sc-body" style={{ overflowY: "auto" }}>
             {loading && <div className="sc-loading"><div className="spinner" style={{ width: 16, height: 16 }} /><span>Loading…</span></div>}
 
-            {/* Toolbar: labeled nav buttons for all three sub-views */}
+            {/* Toolbar: labeled nav buttons (panel mode only — page mode uses PageToolbar) */}
+            {!pageMode && (
             <div style={{ display: "flex", gap: 4, padding: "5px 8px 4px", borderBottom: "1px solid var(--line)", flexWrap: "wrap" }}>
-                <button
-                    className="sc-nav-btn"
-                    title="Commit History"
-                    onClick={() => setShowHistory(true)}
-                >
+                <button className="sc-nav-btn" title="Commit History" onClick={() => setShowHistory(true)}>
                     {I.clock({ style: { width: 13, height: 13 } })} History
                 </button>
-                <button
-                    className="sc-nav-btn"
-                    title={canReview ? "Pull Requests" : "My Requests"}
-                    onClick={() => { setShowPRs(true); loadPRs(); }}
-                >
+                <button className="sc-nav-btn" title={canReview ? "Pull Requests" : "My Requests"} onClick={() => { setShowPRs(true); loadPRs(); }}>
                     {I.inbox({ style: { width: 13, height: 13 } })} {canReview ? "Pull Requests" : "My Requests"}
                 </button>
                 {canReview && (
@@ -929,20 +940,26 @@ function SCChangesView({
                     </button>
                 )}
             </div>
+            )}
 
-            {/* Commit message + button — admin/manager only */}
-            {canCommit && (
-                <div className="sc-vsc-commit-area">
+            {/* Commit textarea — admin/manager only, when there are staged changes */}
+            {canCommit && visibleStaged.length > 0 && (
+                <div style={{ padding: "8px 12px 0" }}>
                     <textarea className="sc-commit-msg" placeholder="Commit message (Ctrl+Enter)…" rows={2}
                         value={commitMsg} onChange={(e) => setCommitMsg(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && visibleStaged.length > 0) setConfirm(visibleStaged); }} />
-                    <button className="btn primary sc-vsc-commit-btn"
-                        disabled={busy || visibleStaged.length === 0}
-                        onClick={() => setConfirm(visibleStaged)}>
-                        {I.check({ style: { width: 13, height: 13 } })}&nbsp;
-                        Commit{visibleStaged.length > 0 ? ` (${visibleStaged.length})` : ""}
-                    </button>
                 </div>
+            )}
+            {canCommit && (
+                <SaveBar
+                    dirtyCount={visibleStaged.length}
+                    saved={visibleStaged.length === 0}
+                    busy={busy}
+                    canEdit={canCommit}
+                    onSave={() => setConfirm(visibleStaged)}
+                    saveLabel={`Commit${visibleStaged.length > 0 ? ` (${visibleStaged.length})` : ""}`}
+                    savePrimary
+                />
             )}
 
             {/* CHANGES — unstaged draft items */}
@@ -1190,11 +1207,16 @@ export function SourceControlPanel({
 }
 
 // ── Full page view ───────────────────────────────────────────────────────────
+type SCPageTab = 'changes' | 'history' | 'prs' | 'ai' | 'sku';
+
 export function SourceControlPage({
     user, openPrId, onConsumePrId,
 }: { user: User; openPrId?: string | null; onConsumePrId?: () => void }) {
     const { staged, setStaged, commits, loading, loadData } = useSCData(true);
+    const [tab, setTab] = useState<SCPageTab>('changes');
     const lastCommit = commits[0];
+    const lvl = ROLE_LEVEL[user.role] ?? 0;
+    const canReview = lvl >= 30;
 
     return (
         <div className="sc-page">
@@ -1216,6 +1238,27 @@ export function SourceControlPage({
                 </button>
                 {(ROLE_LEVEL[user.role] || 0) >= ROLE_LEVEL.manager && <SCPushButton />}
             </div>
+            <PageToolbar>
+                <button className={"sc-nav-btn" + (tab === 'changes' ? " active" : "")} onClick={() => setTab('changes')}>
+                    {I.branch({ style: { width: 13, height: 13 } })} Changes
+                </button>
+                <button className={"sc-nav-btn" + (tab === 'history' ? " active" : "")} onClick={() => setTab('history')}>
+                    {I.clock({ style: { width: 13, height: 13 } })} History
+                </button>
+                <button className={"sc-nav-btn" + (tab === 'prs' ? " active" : "")} onClick={() => setTab('prs')}>
+                    {I.inbox({ style: { width: 13, height: 13 } })} {canReview ? "Pull Requests" : "My Requests"}
+                </button>
+                {canReview && (
+                    <button className={"sc-nav-btn" + (tab === 'ai' ? " active" : "")} onClick={() => setTab('ai')}>
+                        {I.flame({ style: { width: 13, height: 13 } })} AI
+                    </button>
+                )}
+                {canReview && (
+                    <button className={"sc-nav-btn" + (tab === 'sku' ? " active" : "")} onClick={() => setTab('sku')}>
+                        {I.archive({ style: { width: 13, height: 13 } })} SKU Review
+                    </button>
+                )}
+            </PageToolbar>
             <div className="sc-page-body">
                 <div className="sc-page-panel card">
                     <SCChangesView
@@ -1227,6 +1270,7 @@ export function SourceControlPage({
                         openPrId={openPrId}
                         onConsumePrId={onConsumePrId}
                         loadData={loadData}
+                        externalTab={tab}
                     />
                 </div>
             </div>
