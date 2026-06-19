@@ -22,6 +22,7 @@ interface ReconciliationStats {
 interface UploadResult {
     batch_id: string;
     staged_count: number;
+    staging_ids?: string[];
     sku_queued?: number;
     invoice_id?: string;
     is_reimport?: boolean;
@@ -475,9 +476,10 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         setPreview(null);
         const timeoutId = setTimeout(() => abortRef.current?.abort(), 120_000);
         try {
-            const res = await api.uploadDataEntry(file, hint, month + 1, year, week, direction, description);
+            const res = await api.uploadDataEntry(file, hint, month + 1, year, week, direction, description, abortRef.current?.signal);
             clearTimeout(timeoutId);
             setResult(res);
+            setStagingIds(res.staging_ids || []);
             window.dispatchEvent(new CustomEvent('mjcc:staging-changed'));
             window.dispatchEvent(new CustomEvent('mjcc:open-sc'));
             (window as any).toast?.(`AI parsing complete — ${res.staged_count} entries staged`);
