@@ -4,6 +4,28 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.2.0] — 2026-06-18 — Pipeline progress bar + batch SKU resolution
+
+**Agent:** Claude (Senior Development Manager)
+**Build:** `tsc --noEmit` clean · `vite build` ✓ · `ruff check backend/routes/data_entry.py` ✓
+**Push:** 646b230 — 2026-06-18
+
+### Performance — Batch SKU Resolution (`data_entry.py`)
+Old `_resolve_and_queue_items` made 1 `resolve_invoice_sku` RPC call per item. For a 127-item invoice that was 127 sequential network round-trips (~12-15 seconds alone). New approach: 2 bulk queries (`inventory_items.sku IN [...]` + `item_barcodes.barcode IN [...]`) then in-memory dict lookup — drops SKU resolution to <0.5 s. Unknown SKUs are batch-inserted to `sku_review_queue` in one shot.
+
+### UI — 5-Stage PipelineBar (`DataEntry.tsx`)
+Replaced the old `AIStatusBanner` (generic text cycling every 1.4s on a white bar) with `PipelineBar`:
+- Five named stages: **Fetching → Extracting → Processing → Routing → Staging**
+- Stepped indicator circles (numbered, green checkmark when done, colored ring when active)
+- Fill bar advances from 20% → 100% as stages complete
+- Stage timer advances based on realistic duration estimates per phase
+- Scan line was transparent-gradient-on-white (invisible) → fixed to solid `#3b82f6`
+
+### Where OCR lives
+`backend/ai/invoice_parser.py` cascade: (1) pdfplumber native text (fast, used for digital US Foods PDFs), (2) OCR.space cloud API (`OCR_API_KEY`), (3) local pytesseract (fallback, not installed on Render). US Foods digital PDFs never need OCR.
+
+---
+
 ## [v4.1.0] — 2026-06-18 — Data entry: invoice parser fix, invoice records, SKU queue count
 
 **Agent:** Claude (Senior Development Manager)
