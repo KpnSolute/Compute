@@ -23,6 +23,7 @@ COST_RATES: dict[str, dict[str, float]] = {
     "anthropic": {"in": 0.003, "out": 0.015},
     "openai": {"in": 0.00015, "out": 0.0006},  # gpt-4o-mini baseline
     "mistral": {"in": 0.0014, "out": 0.0014},
+    "google": {"in": 0.0, "out": 0.0},  # free tier
     "ollama": {"in": 0.0, "out": 0.0},
     "lm_studio": {"in": 0.0, "out": 0.0},
 }
@@ -148,6 +149,43 @@ def _mistral_complete(
     )
 
 
+def _gemini_complete(
+    messages: list[dict], model: str, api_key: str
+) -> tuple[str, dict]:
+    """Call Google Gemini generateContent API."""
+    # Split system messages from conversation turns
+    system_parts = [m["content"] for m in messages if m.get("role") == "system"]
+    turns = [m for m in messages if m.get("role") != "system"]
+
+    body: dict = {
+        "contents": [
+            {
+                "role": "user" if m["role"] == "user" else "model",
+                "parts": [{"text": m["content"]}],
+            }
+            for m in turns
+        ],
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 4096},
+    }
+    if system_parts:
+        body["systemInstruction"] = {"parts": [{"text": "\n\n".join(system_parts)}]}
+
+    resp = httpx.post(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+        headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+        json=body,
+        timeout=60,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    text = data["candidates"][0]["content"]["parts"][0]["text"]
+    meta = data.get("usageMetadata", {})
+    return text, {
+        "tokens_in": meta.get("promptTokenCount", 0),
+        "tokens_out": meta.get("candidatesTokenCount", 0),
+    }
+
+
 def _ollama_complete(
     messages: list[dict], model: str, base_url: str
 ) -> tuple[str, dict]:
@@ -170,13 +208,22 @@ def _ollama_complete(
 
 # ── provider registry ─────────────────────────────────────────────────────────
 
-SUPPORTED_PROVIDERS = ("groq", "anthropic", "openai", "mistral", "ollama", "lm_studio")
+SUPPORTED_PROVIDERS = (
+    "groq",
+    "anthropic",
+    "openai",
+    "mistral",
+    "google",
+    "ollama",
+    "lm_studio",
+)
 
 PROVIDER_LABELS = {
     "groq": "Groq",
     "anthropic": "Anthropic (Claude)",
     "openai": "OpenAI",
     "mistral": "Mistral AI",
+    "google": "Google Gemini",
     "ollama": "Ollama (local)",
     "lm_studio": "LM Studio (local)",
 }
@@ -212,6 +259,13 @@ OLLAMA_MODELS = [
     "mixtral:8x7b",
     "phi3:mini",
 ]
+GEMINI_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-8b",
+    "gemini-1.5-pro",
+]
 LM_STUDIO_MODELS = ["local-model"]  # user fills in whatever is loaded
 
 # ── vision-capable model IDs (cross-provider) ─────────────────────────────────
@@ -231,6 +285,12 @@ VISION_MODELS: frozenset[str] = frozenset(
         # Mistral — pixtral family
         "pixtral-large-2411",
         "pixtral-12b-2409",
+        # Google Gemini — all current models support vision
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-flash-8b",
+        "gemini-1.5-pro",
     }
 )
 
@@ -389,6 +449,17 @@ def complete(
                 )
             text, usage = _mistral_complete(
                 messages, model or "mistral-small-latest", api_key
+            )
+
+        elif provider == "google":
+            db_key, _ = _get_db_row("google")
+            api_key = db_key or cfg.get("api_key")
+            if not api_key:
+                raise RuntimeError(
+                    "No API key configured for Google Gemini — add one in Settings → AI."
+                )
+            text, usage = _gemini_complete(
+                messages, model or "gemini-2.0-flash", api_key
             )
 
         elif provider == "ollama":

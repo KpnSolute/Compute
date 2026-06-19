@@ -1125,6 +1125,19 @@ async def get_models(provider: str, auth_user: dict = Depends(_get_auth_user)):
             r.raise_for_status()
             model_ids = [m["id"] for m in r.json().get("data", [])]
 
+        elif provider == "google" and api_key:
+            r = _httpx.get(
+                "https://generativelanguage.googleapis.com/v1beta/models",
+                params={"key": api_key},
+                timeout=10,
+            )
+            r.raise_for_status()
+            model_ids = [
+                m["name"].split("/")[-1]
+                for m in r.json().get("models", [])
+                if "generateContent" in m.get("supportedGenerationMethods", [])
+            ]
+
         elif provider == "ollama":
             ollama_base = base_url or "http://localhost:11434"
             r = _httpx.get(f"{ollama_base}/api/tags", timeout=10)
@@ -1147,6 +1160,7 @@ async def get_models(provider: str, auth_user: dict = Depends(_get_auth_user)):
             "anthropic": ai_engine.ANTHROPIC_MODELS,
             "openai": ai_engine.OPENAI_MODELS,
             "mistral": ai_engine.MISTRAL_MODELS,
+            "google": ai_engine.GEMINI_MODELS,
             "ollama": ai_engine.OLLAMA_MODELS,
             "lm_studio": ai_engine.LM_STUDIO_MODELS,
         }
