@@ -164,7 +164,9 @@ def _gemini_complete(
         "contents": [
             {
                 "role": "user" if m["role"] == "user" else "model",
-                "parts": [{"text": m["content"]}],
+                "parts": m["content"]
+                if isinstance(m["content"], list)
+                else [{"text": m["content"]}],
             }
             for m in turns
         ],
@@ -173,11 +175,12 @@ def _gemini_complete(
     if system_parts:
         body["systemInstruction"] = {"parts": [{"text": "\n\n".join(system_parts)}]}
 
+    timeout_sec = 120 if any(isinstance(m.get("content"), list) for m in turns) else 60
     resp = httpx.post(
         f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
         headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
         json=body,
-        timeout=60,
+        timeout=timeout_sec,
     )
     resp.raise_for_status()
     data = resp.json()
@@ -407,7 +410,11 @@ def complete(
 
     log.info(
         "[AI] request start | provider=%s model=%s operation=%s called_by=%s msgs=%d",
-        provider, model, operation or "?", called_by or "?", len(messages),
+        provider,
+        model,
+        operation or "?",
+        called_by or "?",
+        len(messages),
     )
 
     t0 = time.monotonic()
@@ -511,13 +518,22 @@ def complete(
             log.info(
                 "[AI] request done | provider=%s model=%s operation=%s elapsed_ms=%d "
                 "tokens_in=%d tokens_out=%d resp_chars=%d",
-                provider, model, operation or "?", duration_ms,
-                usage.get("tokens_in", 0), usage.get("tokens_out", 0), len(text or ""),
+                provider,
+                model,
+                operation or "?",
+                duration_ms,
+                usage.get("tokens_in", 0),
+                usage.get("tokens_out", 0),
+                len(text or ""),
             )
         else:
             log.error(
                 "[AI] request FAILED | provider=%s model=%s operation=%s elapsed_ms=%d error=%s",
-                provider, model, operation or "?", duration_ms, error_msg,
+                provider,
+                model,
+                operation or "?",
+                duration_ms,
+                error_msg,
             )
 
     return text
@@ -555,7 +571,11 @@ def complete_vision(
 
     log.info(
         "[AI] vision request start | provider=%s model=%s operation=%s called_by=%s images=%d",
-        provider, model, operation or "?", called_by or "?", len(images),
+        provider,
+        model,
+        operation or "?",
+        called_by or "?",
+        len(images),
     )
 
     t0 = time.monotonic()
@@ -602,6 +622,27 @@ def complete_vision(
             _, db_url = _get_db_row("ollama")
             base_url = db_url or cfg.get("ollama_url") or "http://localhost:11434"
             text, usage = _ollama_complete(messages, model, base_url)
+
+        elif provider == "google":
+            parts: list[dict] = []
+            for img in images:
+                parts.append(
+                    {
+                        "inline_data": {
+                            "mime_type": _media_type(img),
+                            "data": base64.b64encode(img).decode(),
+                        },
+                    }
+                )
+            parts.append({"text": prompt})
+            messages = [{"role": "user", "content": parts}]
+            db_key, _ = _get_db_row("google")
+            api_key = db_key or cfg.get("api_key")
+            if not api_key:
+                raise RuntimeError(
+                    "No API key configured for Google Gemini — add one in Settings → AI."
+                )
+            text, usage = _gemini_complete(messages, model, api_key)
 
         else:
             # OpenAI-compatible: groq, openai, mistral, lm_studio
@@ -674,13 +715,24 @@ def complete_vision(
             log.info(
                 "[AI] vision request done | provider=%s model=%s operation=%s elapsed_ms=%d "
                 "tokens_in=%d tokens_out=%d resp_chars=%d images=%d",
-                provider, model, operation or "?", duration_ms,
-                usage.get("tokens_in", 0), usage.get("tokens_out", 0), len(text or ""), len(images),
+                provider,
+                model,
+                operation or "?",
+                duration_ms,
+                usage.get("tokens_in", 0),
+                usage.get("tokens_out", 0),
+                len(text or ""),
+                len(images),
             )
         else:
             log.error(
                 "[AI] vision request FAILED | provider=%s model=%s operation=%s elapsed_ms=%d images=%d error=%s",
-                provider, model, operation or "?", duration_ms, len(images), error_msg,
+                provider,
+                model,
+                operation or "?",
+                duration_ms,
+                len(images),
+                error_msg,
             )
 
     return text

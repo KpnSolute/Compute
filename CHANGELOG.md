@@ -4,7 +4,23 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
-## v4.8.0 — 2026-06-19 — Modal unification + SC sub-view overlays (staged entries stay visible)
+## v4.8.1 — 2026-06-19 — Fix Google Gemini vision dispatch (production data-entry was broken)
+
+**Agent:** OpenCode (Big Pickle)
+**Build:** `ruff check + format ✓` · `vite build ✓`
+**Scope:** Google Gemini `complete_vision()` dispatch was missing, causing "Vision dispatch not implemented for provider: 'google'" on every data entry invoice upload.
+
+### Root cause
+- `backend/ai/engine.py::complete_vision()` handled anthropic + ollama + OpenAI-compatible providers (`image_url` parts), but had no `google` provider branch. Google Gemini uses `inline_data` parts — different API format.
+- The Gemini model (`gemini-2.5-flash`) was in `VISION_MODELS` so `is_vision_capable()` returned True, passing the guard check, only to crash in the fallthrough `else: raise ValueError("Vision dispatch not implemented for ...")`.
+- Production impact: all PDF invoice uploads to `/api/data-entry/upload` processed images for 7+ minutes, then failed immediately on the vision call, then OCR-fallback also failed → HTTP 422.
+
+### Fix
+- Added `provider == "google"` branch in `complete_vision()` that builds Gemini-compatible `inline_data` parts and calls `_gemini_complete()`
+- Made `_gemini_complete()` accept list-of-parts content (for vision) in addition to string content (for text), branching on `isinstance(m["content"], list)`
+- Bumped Gemini API timeout to 120s when vision content is detected (multi-image calls need longer than the default 60s)
+
+**Push:** pending
 
 **Agent:** OpenCode (Big Pickle)
 **Build:** `ruff check + format ✓` · `tsc -b ✓` · `vite build ✓`
@@ -3935,4 +3951,15 @@ Audit only. No application code, schema, or git history changed this session. Fi
 - Calls `api.approveCommit()` with batch entries + auto-generated message
 - On success: navigates to SC so manager sees commit in history
 
-**Push:** pending
+### Post-push hotfix — AbortController was never wired
+
+**Severity: Critical — the 120s timeout was completely dead.** The `AbortController` created in `doUpload` was never passed to the fetch call (`api.uploadDataEntry` had no `signal` parameter). The timeout timer fired and called `abort()` on a controller nobody was listening to. The user saw "Waiting on AI provider — 4m 25s elapsed" with no error because the fetch never timed out.
+
+**Fix:**
+1. `api.ts` — added optional `signal: AbortSignal` parameter to `uploadDataEntry`, passes it to `fetch()`
+2. `DataEntry.tsx` — passes `abortRef.current?.signal` to the upload call
+3. Also captures `staging_ids` from the upload response (backend already sent them at line 865 — frontend was ignoring them)
+
+Now if the AI provider doesn't respond within 120s, the user gets a toast: "AI parsing failed: Request timed out — AI provider did not respond within 120s" plus inline error banner.
+
+**Push:** OpenCode → `84db801` — 2026-06-19
