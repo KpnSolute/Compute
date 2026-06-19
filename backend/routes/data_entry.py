@@ -24,6 +24,7 @@ from fastapi import (
 )
 from pydantic import BaseModel
 from backend.routes import jwt_validator
+from backend.routes._deps import ensure_pr_for_entries
 from supabase import create_client
 from backend.ai import engine as ai_engine
 from backend.ai import invoice_parser
@@ -878,6 +879,14 @@ async def upload_file(
         )
         raise HTTPException(status_code=500, detail=f"Staging failed: {e}")
 
+    # Auto-wrap the new staging rows in a PR (attaches to the user's existing
+    # open PR if they have one from an earlier upload this session, else opens
+    # a new one) -- this is what makes them show up in Source Control's Pull
+    # Requests tab as a reviewable unit instead of loose pending rows.
+    pr = ensure_pr_for_entries(
+        [s["entry_id"] for s in staged], submitter, title=f"Invoice import — {fname}"
+    )
+
     # lightweight summary — full diff available via /preview/{batch_id}
     op_counts: dict[str, int] = {}
     for op in ops:
@@ -895,6 +904,8 @@ async def upload_file(
         "ai_provider": ai_config.get("provider", "groq"),
         "ai_model": ai_config.get("model", ""),
         "staging_ids": [s["entry_id"] for s in staged],
+        "pr_id": pr.get("pr_id") if pr else None,
+        "pr_number": pr.get("pr_number") if pr else None,
     }
     if invoice_id:
         resp["invoice_id"] = invoice_id

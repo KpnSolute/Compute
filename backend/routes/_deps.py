@@ -57,3 +57,61 @@ def _require_admin_or_manager(auth_user: dict = Depends(_get_auth_user)) -> dict
 
 # alias — same threshold (manager, admin, sudo all qualify)
 _require_manager = _require_admin_or_manager
+
+
+def ensure_pr_for_entries(entry_ids: list[str], author_id: str, title: str) -> dict | None:
+    """Wrap newly-staged entries in a pull request, automatically.
+
+    Every entry that lands in `staging_entries` as status='pending' (manual edits
+    via stage_change, AI Data Entry uploads) should immediately belong to a PR so
+    it's reviewable as a coherent unit instead of floating as a loose row — this
+    is what makes the Source Control "Pull Requests" tab actually have data, and
+    is what a push/review modal groups by.
+
+    Behavior:
+      1. If the author already has an OPEN pr, attach these entries to it
+         (so uploading several invoices in one sitting = one PR, not N).
+      2. Otherwise open a new PR titled `title`.
+
+    Never raises — PR wrapping is a UX nicety, not a correctness requirement.
+    A failure here must not block the underlying staging write that already
+    succeeded. Returns the PR dict, or None if entry_ids is empty or this
+    failed (best-effort).
+    """
+    if not entry_ids:
+        return None
+    try:
+        attached = (
+            supabase_service.rpc(
+                'sc_attach_to_open_pr',
+                {'p_author': author_id, 'p_entry_ids': entry_ids},
+            )
+            .execute()
+        )
+        pr = (
+            attached.data
+            if isinstance(attached.data, dict)
+            else (attached.data[0] if attached.data else None)
+        )
+        if pr:
+            return pr
+
+        opened = (
+            supabase_service.rpc(
+                'sc_open_pull_request',
+                {
+                    'p_author': author_id,
+                    'p_title': title,
+                    'p_description': '',
+                    'p_entry_ids': entry_ids,
+                },
+            )
+            .execute()
+        )
+        return (
+            opened.data
+            if isinstance(opened.data, dict)
+            else (opened.data[0] if opened.data else None)
+        )
+    except Exception:
+        return None

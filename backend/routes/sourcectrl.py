@@ -7,7 +7,7 @@ from supabase import create_client
 from dotenv import load_dotenv
 from typing import Optional
 from backend.staging.dispatch import replay
-from backend.routes._deps import _get_auth_user, _require_admin_or_manager
+from backend.routes._deps import _get_auth_user, _require_admin_or_manager, ensure_pr_for_entries
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
@@ -479,7 +479,13 @@ async def submit_staging(
         r = _client().table("staging_entries").insert(row).execute()
         if not r.data:
             raise HTTPException(status_code=500, detail="Insert returned no data.")
-        return r.data[0]
+        entry = r.data[0]
+        # Auto-wrap in a PR so it's reviewable as a unit, not a loose pending row.
+        ensure_pr_for_entries(
+            [entry["entry_id"]], auth_user["id"],
+            title=f"{body.entity_type} changes — {auth_user.get('display_name', 'staff')}",
+        )
+        return entry
     except HTTPException:
         raise
     except Exception as e:

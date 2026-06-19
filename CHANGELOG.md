@@ -4,6 +4,62 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.6.0 — 2026-06-19
+
+### Source Control — PRs everywhere, real push modal, archive layer audited
+
+**Root cause found:** the Pull Requests tab existed in code but had ZERO rows, ever —
+confirmed via DB query (0 PRs total). Every one of the 166 historical commits and 154
+staging entries went straight to merged/rejected with no PR involvement, because nothing
+outside SourceControl.tsx's own manual "Submit for Review" button ever called `openPull`.
+Data Entry uploads staged entries as `status='pending'` correctly, but they sat as loose
+unlinked rows — never bundled, never reviewable as a unit, never visible in the PR tab.
+
+**DB (migrated):** new `sc_attach_to_open_pr(author, entry_ids)` RPC — lets new staging
+entries attach to a user's existing OPEN pr instead of always minting a new one, so
+uploading several invoices in one session produces ONE PR, not N.
+
+**Backend — `ensure_pr_for_entries()` in the shared `_deps.py`:** every entry that lands
+in `staging_entries` now automatically gets wrapped in a PR — attach to the author's
+existing open PR if they have one, else open a new one. Wired into both real staging
+insert points:
+- `sourcectrl.py` `stage_change` (manual inventory/item edits)
+- `data_entry.py` upload route (AI invoice imports) — response now includes `pr_id`/
+  `pr_number` so the frontend can deep-link straight to it.
+Best-effort, never raises — a PR-wrapping failure can't block the underlying staged write.
+
+**Frontend — the "Copilot push" modal you asked for:** Data Entry's "Go to Source Control"
+button (and the SKU-queued pill, and the post-commit redirect) now pass the upload's
+`pr_id` through `onNavigate('sourcectrl', { prId })`. Threaded: `DataEntry` → `Portal.goTo`
+→ `SourceControlPage` → `SCChangesView`. On arrival, the Pull Requests panel auto-opens
+pre-expanded on exactly that PR — diff visible immediately, Merge/Close buttons right there
+for admin/manager, Stage-and-leave for everyone else. No more hunting through SC for what
+you just uploaded.
+
+**Data Entry's commit button now routes through the PR, not a side-door:** `doCommitBatch`
+previously called `api.approveCommit({staging_ids})` directly — a second, parallel commit
+path that bypassed the PR system entirely. Now calls `api.mergePull(result.pr_id)` so the
+AI-import commit path and the manual-edit commit path are the same gate, matching the
+"Source Control is everywhere" principle. Falls back to the old direct-commit call only for
+pre-existing uploads with no `pr_id` (backward compat).
+
+### GitHub archive layer — audited, found to be a stub
+Checked `MJCC-Portal/mjcc` (the data-archive repo) directly. `README.md` and
+`docs/IMPLEMENTATION_PLAN.md` describe a rich design (full inventory snapshots, immutable
+month-end archives, an items catalog, an append-only commit log) — **none of which was ever
+built.** The actual code (`github_sync.py`) pushes a bare `{commit_id, message,
+change_count}` object per commit to `archives/{commit_id}.json` — no real diff content, no
+inventory state. Confirmed via the one file that's ever made it there. 85 commits are
+queued unsynced since June 11 (oldest pending), only 1 has ever synced. This is a separate,
+smaller follow-up — the Supabase-side commit/PR chain (this release) is what actually
+guards data entering the system and is independently sound; the GitHub archive is a nice-to-
+have durable backup that needs its payload rebuilt to be worth anything, not a blocker.
+
+### Verified
+- `tsc --noEmit` zero errors, `npm run build` succeeds.
+- All six touched backend/frontend files compile/typecheck clean.
+- DB: `sc_attach_to_open_pr` RPC confirmed present and callable.
+
 ## v4.8.1 — 2026-06-19 — Fix Google Gemini vision dispatch (production data-entry was broken)
 
 **Agent:** OpenCode (Big Pickle)

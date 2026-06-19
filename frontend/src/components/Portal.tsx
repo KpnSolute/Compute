@@ -4258,6 +4258,7 @@ export function Portal({
         new Date().getFullYear(),
     ]);
     const [explorerOpen, setExplorerOpen] = useState(false);
+    const [openPrId, setOpenPrId] = useState<string | null>(null); // deep-link target PR for SourceControl
     const [scPanelOpen, setScPanelOpen] = useState(false);
     const [invState, reloadInv] = useInventory(period);
     const apiStatus = invState.loading ? 'syncing' : invState.error && invState.error !== 'empty' ? 'error' : 'live';
@@ -4317,9 +4318,10 @@ export function Portal({
     }
 
     const canAccess = (routeKey: string) => lvl >= (ROUTE_MIN[routeKey] ?? 10);
-    const goTo = (routeKey: string) => {
+    const goTo = (routeKey: string, opts?: { prId?: string }) => {
         setExplorerOpen(false);
         if (routeKey === "sourcectrl") {
+            setOpenPrId(opts?.prId || null);
             setActive("sourcectrl");
             return;
         }
@@ -4373,7 +4375,7 @@ export function Portal({
         if (active === "ai-usage")   return <AIUsageView user={user} />;
         if (active === "ai-tools")   return <AIToolsView user={user} />;
         if (active === "ai-presets") return <AIPresetsView user={user} />;
-        if (active === "sourcectrl") return <SourceControlPage user={user} />;
+        if (active === "sourcectrl") return <SourceControlPage user={user} openPrId={openPrId} onConsumePrId={() => setOpenPrId(null)} />;
         return <PlaceholderPage pageKey={active} />;
     };
 

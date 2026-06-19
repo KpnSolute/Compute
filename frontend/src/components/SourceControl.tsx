@@ -180,6 +180,8 @@ function SCChangesView({
     commits,
     loading,
     loadData,
+    openPrId,
+    onConsumePrId,
 }: {
     user: User;
     staged: StagingEntry[];
@@ -187,6 +189,8 @@ function SCChangesView({
     commits: Commit[];
     loading: boolean;
     loadData: () => void;
+    openPrId?: string | null;
+    onConsumePrId?: () => void;
 }) {
     const lvl = ROLE_LEVEL[user.role] || 0;
     const canReview = lvl >= 30; // manager, admin, sudo
@@ -266,6 +270,26 @@ function SCChangesView({
         } catch { /* silent */ }
         setPullsLoading(false);
     }, [canReview]);
+
+    // Deep-link: Data Entry just created/extended a PR and navigated here to
+    // show its diff immediately (the "Copilot push" moment) -- open the PR
+    // panel pre-expanded on that PR instead of making the user hunt for it.
+    useEffect(() => {
+        if (!openPrId) return;
+        setShowPRs(true);
+        loadPRs().then(() => {
+            setExpandedPR(openPrId);
+            if (!prDetail[openPrId]) {
+                setPrDetailLoading(openPrId);
+                api.getPull(openPrId)
+                    .then((detail) => setPrDetail((prev) => ({ ...prev, [openPrId]: detail })))
+                    .catch(() => {})
+                    .finally(() => setPrDetailLoading(null));
+            }
+            onConsumePrId?.();
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [openPrId]);
 
     const loadSKUReview = useCallback(async () => {
         setSkuLoading(true);
@@ -1166,7 +1190,9 @@ export function SourceControlPanel({
 }
 
 // ── Full page view ───────────────────────────────────────────────────────────
-export function SourceControlPage({ user }: { user: User }) {
+export function SourceControlPage({
+    user, openPrId, onConsumePrId,
+}: { user: User; openPrId?: string | null; onConsumePrId?: () => void }) {
     const { staged, setStaged, commits, loading, loadData } = useSCData(true);
     const lastCommit = commits[0];
 
@@ -1198,6 +1224,8 @@ export function SourceControlPage({ user }: { user: User }) {
                         setStaged={setStaged}
                         commits={commits}
                         loading={loading}
+                        openPrId={openPrId}
+                        onConsumePrId={onConsumePrId}
                         loadData={loadData}
                     />
                 </div>

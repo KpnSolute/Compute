@@ -33,6 +33,8 @@ interface UploadResult {
     year: number;
     ai_provider?: string;
     ai_model?: string;
+    pr_id?: string | null;
+    pr_number?: number | null;
 }
 
 interface DiffRow {
@@ -326,7 +328,7 @@ function FileZone({
 
 // ── main component ─────────────────────────────────────────────────────────────
 
-export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: string) => void }) {
+export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: string, opts?: { prId?: string }) => void }) {
     const lvl = ROLE_LEVEL[user.role as keyof typeof ROLE_LEVEL] ?? 0;
     const isSudo = lvl >= 50;
     const now = new Date();
@@ -509,13 +511,22 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         if (!stagingIds.length || !result) return;
         setCommitBusy(true);
         try {
-            const msg = `AI batch: ${result.file} — ${result.staged_count} entries (${MONTHS[(result.month ?? 1) - 1] ?? result.month} ${result.year})`;
-            await api.approveCommit({ staging_ids: stagingIds, message: msg, author_id: user.id });
+            // Route through the PR this upload created (ensure_pr_for_entries on
+            // the backend), not a direct approveCommit -- Source Control is the
+            // single gate for everything entering the system, including AI imports.
+            if (result.pr_id) {
+                await api.mergePull(result.pr_id);
+            } else {
+                // Fallback for older uploads with no PR attached
+                const msg = `AI batch: ${result.file} — ${result.staged_count} entries (${MONTHS[(result.month ?? 1) - 1] ?? result.month} ${result.year})`;
+                await api.approveCommit({ staging_ids: stagingIds, message: msg, author_id: user.id });
+            }
+            const mergedPrId = result.pr_id || undefined;
             setResult(null);
             setPreview(null);
             setStagingIds([]);
             window.dispatchEvent(new CustomEvent('mjcc:committed'));
-            onNavigate?.('sourcectrl');
+            onNavigate?.('sourcectrl', { prId: mergedPrId });
         } catch (e: any) {
             setUploadErr(e?.message || 'Commit failed');
         } finally {
@@ -881,7 +892,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                                 )}
                             </div>
                             <button
-                                onClick={() => onNavigate?.('sourcectrl')}
+                                onClick={() => onNavigate?.('sourcectrl', { prId: result.pr_id || undefined })}
                                 style={{
                                     display: 'flex', alignItems: 'center', gap: 7,
                                     padding: '10px 18px', borderRadius: 10,
