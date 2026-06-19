@@ -4,6 +4,26 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.4.0 — 2026-06-19
+
+### Data Entry — fixed broken Settings link, removed duplicate AI badge, added inline model picker
+- **Broken link fixed:** the "Settings" text next to the AI status bar was a plain `<span>`
+  with `cursor: 'default'` and no `onClick` — it looked clickable but did nothing. Now a real
+  button that navigates to Settings → Providers.
+- **Duplicate AI indicator removed:** there were two redundant AI status displays stacked on
+  top of each other — a header pill ("AI Active"/"AI Disabled") and the full status bar below
+  it showing the same information. Removed the pill; the status bar is now the single source
+  of truth for what's active.
+- **NEW — switch AI model without leaving Data Entry:** added a "Switch model" button next to
+  the AI status bar. Opens a picker scoped to only the *configured* providers (i.e. those with
+  a saved API key in Settings → Providers — `has_key: true` from `ai_provider_keys`), with a
+  live model dropdown (vision-capable models grouped and badged ✶) fetched from
+  `GET /api/data-entry/models?provider=`. Selecting and activating calls the existing
+  `POST /api/data-entry/ai-stack` endpoint — same backend path used by Settings, so the two
+  surfaces never drift out of sync.
+- Removed dead `aiEnabled` state that was only used by the deleted pill.
+- Verified clean: `tsc --noEmit` zero errors, `npm run build` succeeds.
+
 ## v4.3.0 — 2026-06-19
 
 ### CRITICAL FIX — OOM on ZIP-of-images invoice uploads (likely cause of site outage)

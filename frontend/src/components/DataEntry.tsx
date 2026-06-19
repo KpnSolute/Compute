@@ -340,18 +340,64 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
     const [previewLoading, setPreviewLoading] = useState(false);
     const [previewErr, setPreviewErr]     = useState<string | null>(null);
 
-    const [aiEnabled, setAiEnabled]     = useState(true);
     const [aiCfgLoading, setAiCfgLoading] = useState(true);
-    const [aiStatus, setAiStatus]       = useState<{ provider: string; model: string; is_vision: boolean } | null>(null);
+    const [aiStatus, setAiStatus]       = useState<{ provider: string; model: string; is_vision: boolean; key_id?: string } | null>(null);
+    const [aiKeys, setAiKeys]           = useState<Array<{ id: string; provider: string; label: string; has_key: boolean; model_override?: string }>>([]);
+    const [pickerOpen, setPickerOpen]   = useState(false);
+    const [pickerKeyId, setPickerKeyId] = useState('');
+    const [pickerModel, setPickerModel] = useState('');
+    const [pickerModels, setPickerModels] = useState<Array<{ id: string; vision: boolean }>>([]);
+    const [pickerModelsLoading, setPickerModelsLoading] = useState(false);
+    const [pickerSaving, setPickerSaving] = useState(false);
 
     const stageTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
     useEffect(() => {
         api.getDataEntrySettings().then(cfg => {
-            setAiEnabled(cfg?.ai_enabled !== false);
             if (cfg?.current?.provider) setAiStatus(cfg.current);
+            setAiKeys((cfg?.keys || []).filter((k: any) => k.has_key));
         }).catch(() => {}).finally(() => setAiCfgLoading(false));
     }, []);
+
+    // Load live model list whenever the picker's selected key changes
+    useEffect(() => {
+        if (!pickerKeyId) { setPickerModels([]); return; }
+        const key = aiKeys.find(k => k.id === pickerKeyId);
+        if (!key) return;
+        setPickerModelsLoading(true);
+        api.getAIModels(key.provider)
+            .then(r => setPickerModels(r?.models || []))
+            .catch(() => setPickerModels([]))
+            .finally(() => setPickerModelsLoading(false));
+    }, [pickerKeyId, aiKeys]);
+
+    const openPicker = () => {
+        const key = aiKeys.find(k => k.id === aiStatus?.key_id) || aiKeys[0];
+        setPickerKeyId(key?.id || '');
+        setPickerModel(aiStatus?.model || key?.model_override || '');
+        setPickerOpen(true);
+    };
+
+    const saveAiStack = async () => {
+        const key = aiKeys.find(k => k.id === pickerKeyId);
+        if (!key || !pickerModel) return;
+        setPickerSaving(true);
+        try {
+            const visionModel = pickerModels.find(m => m.id === pickerModel);
+            await api.setAIStack({
+                provider: key.provider,
+                key_id: key.id,
+                model: pickerModel,
+                vision_capable: !!visionModel?.vision,
+            });
+            setAiStatus({ provider: key.provider, model: pickerModel, is_vision: !!visionModel?.vision, key_id: key.id });
+            setPickerOpen(false);
+        } catch (e: any) {
+            setUploadErr(e?.message || 'Failed to switch AI model');
+        } finally {
+            setPickerSaving(false);
+        }
+    };
 
     useEffect(() => {
         if (uploading) {
@@ -422,27 +468,13 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                         AI-powered parsing — upload any file, AI extracts and routes to Source Control
                     </div>
                 </div>
-                {!aiCfgLoading && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 5,
-                            fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 8,
-                            background: aiEnabled ? '#eff5fe' : '#f3f4f6',
-                            color: aiEnabled ? '#1e3a8a' : 'var(--muted)',
-                            border: `1px solid ${aiEnabled ? '#bfdbfe' : 'var(--line)'}`,
-                        }}>
-                            <span>✦</span>
-                            AI {aiEnabled ? 'Active' : 'Disabled'}
-                        </span>
-                        {isSudo && (
-                            <button className="btn" style={{ fontSize: 11, padding: '4px 10px' }}
-                                onClick={() => onNavigate?.('settings')}>Configure</button>
-                        )}
-                    </div>
+                {!aiCfgLoading && isSudo && (
+                    <button className="btn" style={{ fontSize: 11, padding: '4px 10px' }}
+                        onClick={() => onNavigate?.('settings')}>Configure</button>
                 )}
             </div>
 
-            {/* ── AI status bar ────────────────────────────── */}
+            {/* ── AI status bar / inline model picker ────────────────────────────── */}
             <div style={{
                 display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12,
                 padding: '8px 14px', borderRadius: 10,
@@ -466,8 +498,85 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                     </span>
                 )}
                 <span style={{ flex: 1 }} />
-                <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 700, cursor: 'default' }}>Settings</span>
+                {aiKeys.length > 0 && (
+                    <button
+                        className="btn"
+                        style={{ fontSize: 11, padding: '3px 9px' }}
+                        onClick={openPicker}
+                    >
+                        Switch model
+                    </button>
+                )}
+                {isSudo && (
+                    <button
+                        className="btn"
+                        style={{ fontSize: 11, padding: '3px 9px' }}
+                        onClick={() => onNavigate?.('settings')}
+                    >
+                        Settings
+                    </button>
+                )}
             </div>
+
+            {pickerOpen && (
+                <div className="overlay" onClick={() => !pickerSaving && setPickerOpen(false)}>
+                    <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+                        <div className="modal-head">
+                            <h3>Switch AI model</h3>
+                            <button className="modal-x" onClick={() => setPickerOpen(false)} disabled={pickerSaving}>
+                                {I.x()}
+                            </button>
+                        </div>
+                        <div className="form-grid" style={{ padding: '4px 20px 8px' }}>
+                            <label className="full">
+                                <span>Configured key</span>
+                                <select
+                                    value={pickerKeyId}
+                                    onChange={e => { setPickerKeyId(e.target.value); setPickerModel(''); }}
+                                >
+                                    {aiKeys.map(k => (
+                                        <option key={k.id} value={k.id}>
+                                            {k.provider.charAt(0).toUpperCase() + k.provider.slice(1)} · {k.label}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                            <label className="full">
+                                <span>Model</span>
+                                <select
+                                    value={pickerModel}
+                                    onChange={e => setPickerModel(e.target.value)}
+                                    disabled={pickerModelsLoading}
+                                >
+                                    <option value="">{pickerModelsLoading ? 'Loading models…' : 'Select a model'}</option>
+                                    {pickerModels.filter(m => m.vision).length > 0 && (
+                                        <optgroup label="Vision capable">
+                                            {pickerModels.filter(m => m.vision).map(m => (
+                                                <option key={m.id} value={m.id}>✶ {m.id}</option>
+                                            ))}
+                                        </optgroup>
+                                    )}
+                                    {pickerModels.filter(m => !m.vision).length > 0 && (
+                                        <optgroup label="Text only">
+                                            {pickerModels.filter(m => !m.vision).map(m => (
+                                                <option key={m.id} value={m.id}>{m.id}</option>
+                                            ))}
+                                        </optgroup>
+                                    )}
+                                </select>
+                            </label>
+                        </div>
+                        <div className="modal-foot">
+                            <button className="btn" onClick={() => setPickerOpen(false)} disabled={pickerSaving}>
+                                Cancel
+                            </button>
+                            <button className="btn primary" onClick={saveAiStack} disabled={pickerSaving || !pickerKeyId || !pickerModel}>
+                                {pickerSaving ? 'Saving…' : 'Activate'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* ── Upload card ─────────────────────────────────────────── */}
             <WinCard
