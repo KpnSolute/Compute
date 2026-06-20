@@ -7,7 +7,12 @@ ROLE_LEVEL = {'staff': 10, 'assistant': 20, 'manager': 30, 'admin': 40, 'sudo': 
 
 
 def _get_auth_user(authorization: str = Header('')) -> dict:
-    """Resolve caller from Bearer token (JWT or pin_). Raises 401 if missing or invalid."""
+    """Resolve caller from Bearer token (JWT or pin_). Raises 401 if missing or invalid.
+
+    Returns the full user_profiles row (single source of truth for auth across all
+    routers). Selecting `*` keeps every consumer working whether it reads id/role
+    or richer profile fields.
+    """
     token = (authorization or '').replace('Bearer ', '').strip()
     if not token:
         raise HTTPException(status_code=401, detail='Missing authorization token')
@@ -16,7 +21,7 @@ def _get_auth_user(authorization: str = Header('')) -> dict:
         try:
             r = (
                 supabase_service.table('user_profiles')
-                .select('id,role,active')
+                .select('*')
                 .eq('id', user_id)
                 .eq('active', True)
                 .limit(1)
@@ -36,7 +41,7 @@ def _get_auth_user(authorization: str = Header('')) -> dict:
     try:
         r = (
             supabase_service.table('user_profiles')
-            .select('id,role,active')
+            .select('*')
             .eq('id', user_id)
             .eq('active', True)
             .limit(1)

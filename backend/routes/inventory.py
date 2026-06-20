@@ -19,6 +19,11 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Header, Depends
 from pydantic import BaseModel, Field
 from backend.routes import supabase_service, jwt_validator
+from backend.routes._deps import (
+    _get_auth_user,
+    _require_admin_or_manager,
+    ROLE_LEVEL,
+)
 from backend.inventory_identity import (
     get_new_items_category_id,
     resolve_and_write_item,
@@ -80,63 +85,7 @@ class LowStockItem(BaseModel):
     short: int
 
 
-async def _get_auth_user(authorization: str = Header("")) -> dict:
-    """
-    Extract authenticated user from Bearer token.
-
-    Supports both Supabase JWT and PIN-based tokens.
-
-    Raises:
-        401: Missing or invalid token
-    """
-    token = authorization.replace("Bearer ", "") if authorization else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing authorization token")
-
-    # Handle PIN-based tokens
-    if token.startswith("pin_"):
-        user_id = token.replace("pin_", "")
-        try:
-            result = (
-                supabase_service.table("user_profiles")
-                .select("*")
-                .eq("id", user_id)
-                .single()
-                .execute()
-            )
-            user = result.data if result.data else None
-        except Exception:
-            user = None
-
-        if not user or not user.get("active"):
-            raise HTTPException(status_code=401, detail="Invalid session")
-        return user
-
-    # Handle Supabase JWT tokens
-    claims = jwt_validator.verify_token(token)
-    if not claims:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-    user_id = claims.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Token missing user ID")
-
-    try:
-        result = (
-            supabase_service.table("user_profiles")
-            .select("*")
-            .eq("id", user_id)
-            .single()
-            .execute()
-        )
-        user = result.data if result.data else None
-    except Exception:
-        user = None
-
-    if not user or not user.get("active"):
-        raise HTTPException(status_code=401, detail="User not found or inactive")
-
-    return user
+# _get_auth_user is imported from backend.routes._deps (single source of truth).
 
 
 def _to_float(v, default=0.0) -> float:
@@ -409,23 +358,31 @@ async def save_inventory(
     payload: InventorySnapshot, auth_user: dict = Depends(_get_auth_user)
 ):
     """
-    Save a new inventory snapshot.
+    DEPRECATED — direct inventory writes are disabled.
 
-    Requires: Valid authentication token (manager or admin recommended)
-
-    Request Body:
-    - items: List of inventory items
-    - metadata: Optional metadata dict (can contain month/year)
-    - notes: Optional notes about this snapshot
-
-    Returns:
-        Created inventory snapshot
+    All inventory changes must go through Source Control (stage -> commit) so
+    every change is audited, atomic, and respects the period lock. This endpoint
+    used to write `monthly_inventory` directly with no commit record, bypassing
+    that audit trail; it is no longer a valid write path. Use the staging flow:
+    `POST /api/sc/stage` (operation `inventory_save`) then approve/merge.
 
     Raises:
-        400: Invalid input
-        401: Missing or invalid auth
-        500: Database error
+        410: always — endpoint retired in favour of Source Control.
     """
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "Direct inventory writes are disabled. Stage the change through "
+            "Source Control (operation 'inventory_save') and commit it; that is "
+            "the single audited write path."
+        ),
+    )
+
+
+async def _save_inventory_retired(
+    payload: "InventorySnapshot", auth_user: dict
+):
+    """Original direct-write implementation, retained (unreachable) for reference."""
     role = (auth_user.get("role") or "").lower()
     if role not in ("admin", "manager", "sudo"):
         raise HTTPException(
