@@ -72,15 +72,17 @@ def _apply_entries(
     source: str,
     pr_id: Optional[str] = None,
 ) -> dict:
-    """Replay entries, create commit for the applied subset, return result dict.
+    """Replay entries and commit them as one atomic unit; return result dict.
 
-    Partition behavior (preserved from original approve_commit):
-    - Replay ALL entries first, then split applied vs failed.
-    - If nothing applied → raise HTTPException(500), leave all entries pending.
-    - Else create commit (with optional pull_request_id), insert commit_changes for
-      applied entries only, mark applied entries merged, leave failed pending with a
-      retry review_note, enqueue push_archive_snapshot.
-    Returns {**commit_row, change_count, replayed, applied, failed[]}.
+    All-or-nothing:
+    - Replay ALL entries first.
+    - If ANY entry fails → create NO commit, mark nothing merged, leave every
+      entry pending with a clear note, and raise HTTPException(409). Dispatch ops
+      are idempotent upserts, so any writes that already landed reconcile on retry.
+    - Only if EVERY entry succeeds → create the commit, insert commit_changes for
+      all entries, mark them merged, and enqueue push_archive_snapshot.
+    A commit therefore never represents a partial change.
+    Returns {**commit_row, change_count, replayed, applied, failed:[]}.
     """
     now = datetime.now(timezone.utc).isoformat()
 
@@ -99,23 +101,41 @@ def _apply_entries(
                 {"entry_id": entry["entry_id"], "operation": op, "result": result}
             )
 
-    # 2 — partition
-    applied_results = [r for r in replay_results if not r["result"].get("error")]
+    # 2 — all-or-nothing. If ANY entry failed to replay, abort the WHOLE commit:
+    #     create no commit, mark nothing merged, leave every entry pending with a
+    #     clear note. Dispatch operations are idempotent upserts, so any writes
+    #     that already landed are harmless and reconcile when the fixed commit is
+    #     retried. This guarantees a commit can never represent a partial change.
+    replayed_ids = {r["entry_id"] for r in replay_results}
     failed_results = [r for r in replay_results if r["result"].get("error")]
-
-    if not applied_results and failed_results:
+    if failed_results:
+        for r in replay_results:
+            err = r["result"].get("error")
+            note = (
+                f"Commit aborted — left pending. {r['operation']}: {err}"
+                if err
+                else "Commit aborted (another change in this commit failed) — left pending for retry."
+            )
+            _client().table("staging_entries").update(
+                {"review_note": note}
+            ).eq("entry_id", r["entry_id"]).execute()
         detail = "; ".join(
             f"{r['operation']}: {r['result']['error']}" for r in failed_results
         )
         raise HTTPException(
-            status_code=500,
-            detail=f"All replay operations failed (no commit created): {detail}",
+            status_code=409,
+            detail=(
+                f"Commit aborted — {len(failed_results)} of {len(replay_results)} "
+                f"change(s) failed; nothing was committed. Fix and retry: {detail}"
+            ),
         )
 
-    applied_entry_ids = [r["entry_id"] for r in applied_results]
-    applied_entries = [e for e in entries if e["entry_id"] in set(applied_entry_ids)]
+    # All entries replayed cleanly → commit the whole set as one unit.
+    applied_results = replay_results
+    applied_entry_ids = list(replayed_ids)
+    applied_entries = [e for e in entries if e["entry_id"] in replayed_ids]
 
-    # 3 — create commit row for the applied subset
+    # 3 — create commit row for the applied set
     commit_row: dict = {
         "message": message,
         "author_id": author_id,
@@ -134,7 +154,7 @@ def _apply_entries(
     commit = commit_r.data[0]
     commit_id = commit["commit_id"]
 
-    # 4 — commit_changes for applied only
+    # 4 — commit_changes for the applied set
     changes = []
     for entry in applied_entries:
         changes.append(
@@ -152,7 +172,7 @@ def _apply_entries(
     if changes:
         _client().table("commit_changes").insert(changes).execute()
 
-    # 5 — mark applied merged; leave failed pending with retry note
+    # 5 — mark the whole set merged
     if applied_entry_ids:
         _client().table("staging_entries").update(
             {
@@ -161,14 +181,6 @@ def _apply_entries(
                 "reviewed_at": now,
             }
         ).in_("entry_id", applied_entry_ids).execute()
-
-    for r in failed_results:
-        err_msg = r["result"].get("error", "Replay error")
-        _client().table("staging_entries").update(
-            {
-                "review_note": f"Replay error (left pending for retry): {err_msg}",
-            }
-        ).eq("entry_id", r["entry_id"]).execute()
 
     # 6 — enqueue github sync
     # NOTE: github_sync_queue_operation_check permits push_archive_snapshot, not push_snapshot.
@@ -185,20 +197,12 @@ def _apply_entries(
         }
     ).execute()
 
-    failed_summary = [
-        {
-            "entry_id": r["entry_id"],
-            "operation": r["operation"],
-            "error": r["result"].get("error"),
-        }
-        for r in failed_results
-    ]
     return {
         **commit,
         "change_count": len(changes),
         "replayed": len(applied_results),
         "applied": len(applied_results),
-        "failed": failed_summary,
+        "failed": [],
     }
 
 
