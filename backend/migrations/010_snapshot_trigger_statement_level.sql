@@ -1,0 +1,6 @@
+-- Migration 010 — statement-level snapshot refresh (applied to MJCCv1).
+-- Replaces the per-row trg_monthly_inventory_snapshot (which recomputed the whole
+-- period once per row — 300 recomputes for a 300-item save) with three
+-- statement-level triggers using transition tables that refresh each affected
+-- (month,year) exactly once per write statement. Function: trg_refresh_snapshot_stmt.
+-- Full body applied via Supabase apply_migration 010_snapshot_trigger_statement_level.

@@ -57,6 +57,7 @@ def dispatch_inventory_save(payload: dict) -> dict:
 
     count = 0
     dropped = 0
+    rows: list[dict] = []
     for item in items:
         # Identity is resolved by SKU only; an unknown category resolves to None
         # so a brand-new item lands in "New Items" for manager review.
@@ -98,7 +99,7 @@ def dispatch_inventory_save(payload: dict) -> dict:
         if item.get("price") is not None:
             monthly_fields["unit_price"] = item["price"]
         # Only write weekly columns when explicitly present in the payload — omitting
-        # them preserves existing W1-W4 data instead of zeroing it on every save.
+        # them preserves existing W1-W5 data instead of zeroing it on every save.
         for src, col in [
             ("w1r", "w1_received"), ("w2r", "w2_received"),
             ("w3r", "w3_received"), ("w4r", "w4_received"),
@@ -109,11 +110,23 @@ def dispatch_inventory_save(payload: dict) -> dict:
         ]:
             if src in item:
                 monthly_fields[col] = item[src]
-        sup.table("monthly_inventory").upsert(
-            monthly_fields,
-            on_conflict="item_id,month,year",
-        ).execute()
+        rows.append(monthly_fields)
         count += 1
+
+    # Batched, atomic write. Rows are grouped by their exact column signature so a
+    # batched upsert never introduces NULLs for columns a row omitted (which would
+    # wipe existing weekly data). Each group is a single statement -> one snapshot
+    # refresh per period (see statement-level trigger), instead of one per row.
+    if rows:
+        groups: dict[tuple, list[dict]] = {}
+        for r in rows:
+            groups.setdefault(tuple(sorted(r.keys())), []).append(r)
+        for batch in groups.values():
+            sup.table("monthly_inventory").upsert(
+                batch,
+                on_conflict="item_id,month,year",
+            ).execute()
+
     result = {"applied": count, "dropped": dropped, "month": month, "year": year, "notes": notes}
     # Do not let a lossy save be recorded as a clean merge. If any item was
     # dropped (unresolvable SKU), surface it as an error so _apply_entries leaves
@@ -242,6 +255,7 @@ def dispatch_inventory_week(payload: dict) -> dict:
 
     count = 0
     dropped = 0
+    rows: list[dict] = []
     for item in items:
         cat_id = cat_map.get(item.get("category", ""))
         item_id, _sku, _created = resolve_and_write_item(
@@ -279,12 +293,22 @@ def dispatch_inventory_week(payload: dict) -> dict:
         }
         if item.get("price") is not None:
             monthly_fields["unit_price"] = item.get("price")
-        # Partial upsert: only `col` (+ unit_price) is written on conflict, so
-        # on_hand and the other weekly columns are left intact.
-        sup.table("monthly_inventory").upsert(
-            monthly_fields, on_conflict="item_id,month,year"
-        ).execute()
+        rows.append(monthly_fields)
         count += 1
+
+    # Batched, atomic write. Grouped by column signature so the partial upsert
+    # never NULLs a column a row omitted; only `col` (+ unit_price) is written on
+    # conflict, so on_hand and the other weekly columns are preserved. One
+    # statement per group -> one snapshot refresh per period.
+    if rows:
+        groups: dict[tuple, list[dict]] = {}
+        for r in rows:
+            groups.setdefault(tuple(sorted(r.keys())), []).append(r)
+        for batch in groups.values():
+            sup.table("monthly_inventory").upsert(
+                batch, on_conflict="item_id,month,year"
+            ).execute()
+
     result = {
         "applied": count,
         "dropped": dropped,
