@@ -86,7 +86,9 @@ def _apply_entries(
     """
     now = datetime.now(timezone.utc).isoformat()
 
-    # 1 — replay all operations; _override_published=True because callers are always managers/admins
+    # 1 — replay all operations. Published periods are read-only (enforced by the
+    #     DB guard and the dispatch published-check); there is no override — to edit
+    #     a closed period an admin reopens it (month_status.status='open') first.
     replay_results = []
     for entry in entries:
         op = entry.get("operation")
@@ -94,7 +96,6 @@ def _apply_entries(
         if op and fp:
             extra = {
                 "_staging_entry_id": entry["entry_id"],
-                "_override_published": True,
             }
             result = replay(op, {**fp, **extra})
             replay_results.append(

@@ -46,7 +46,8 @@ def dispatch_inventory_save(payload: dict) -> dict:
 
     db_month = max(0, month - 1)  # Convert 1→0 indexed for monthly_inventory
     sup = _client()
-    if not payload.get("_override_published") and _is_month_published(sup, db_month, year):
+    # Published periods are read-only (also enforced by the DB guard trigger).
+    if _is_month_published(sup, db_month, year):
         return {'applied': 0, 'error': f'Period {month}/{year} is published and cannot be modified'}
 
     cat_r = sup.table("inventory_categories").select("id,name").execute()

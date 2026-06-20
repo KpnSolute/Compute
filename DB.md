@@ -209,6 +209,8 @@ The new API authenticates as `service_role`. Frontend reads directly; **never** 
 | `007_remove_dead_weight` | dropped 9 dead tables, 3 redundant views, 1 orphan fn; rewrote `admin_merge_items` |
 | `008_unify_inventory_retire_barcode_dupes` | retired `barcodes` + `inventory_master`; migrated barcode maps to `item_barcodes`; rebuilt `live_inventory` on `monthly_inventory` |
 | `009_drop_dead_inventory_items_on_hand` | dropped unmaintained `inventory_items.on_hand` |
+| `010_snapshot_trigger_statement_level` | snapshot refresh is statement-level (transition tables), once per write statement instead of per row |
+| `011_drop_stale_staging_functions` | dropped 4 stale/broken staging-merge SQL functions (referenced dropped tables / non-existent columns) |
 
 ---
 
@@ -224,6 +226,8 @@ The new API authenticates as `service_role`. Frontend reads directly; **never** 
 
 1. **Unify `commit_changes`** to a single column model. Blocker: `revert_to_commit` depends on the numeric item-level columns — rework revert first.
 2. **`guard_locked_week_writes` bypasses `service_role`** → week locks don't restrain the backend. Decide whether to enforce against the API (small guard change) or treat week-lock as UI-only.
-3. **Snapshot trigger cost:** `trg_refresh_snapshot` fires per-row → bulk saves fire N refreshes. New API should batch writes in one transaction (RPC) and refresh the snapshot once.
+3. **Snapshot trigger cost:** DONE (migration 010) — `trg_refresh_snapshot` is now
+   statement-level via transition tables, refreshing each affected period once per
+   write statement. The API also batches inventory writes into one statement.
 4. **Period spines:** `month_status`/`week_status` (inventory locking) vs `month_periods`/`week_gross` (purchasing) are intentionally separate — revisit only if a single spine is wanted.
 5. **Drop `_backup_may2026_*`** from `public` once confirmed redundant with `bak_20260619`.
