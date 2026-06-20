@@ -114,7 +114,13 @@ def dispatch_inventory_save(payload: dict) -> dict:
             on_conflict="item_id,month,year",
         ).execute()
         count += 1
-    return {"applied": count, "dropped": dropped, "month": month, "year": year, "notes": notes}
+    result = {"applied": count, "dropped": dropped, "month": month, "year": year, "notes": notes}
+    # Do not let a lossy save be recorded as a clean merge. If any item was
+    # dropped (unresolvable SKU), surface it as an error so _apply_entries leaves
+    # the staging entry pending for review instead of marking it merged.
+    if dropped:
+        result["error"] = f"{dropped} item(s) dropped (unresolved SKU); {count} applied. Entry left pending for review."
+    return result
 
 
 def dispatch_item_update(payload: dict) -> dict:
@@ -279,7 +285,7 @@ def dispatch_inventory_week(payload: dict) -> dict:
             monthly_fields, on_conflict="item_id,month,year"
         ).execute()
         count += 1
-    return {
+    result = {
         "applied": count,
         "dropped": dropped,
         "month": month,
@@ -287,6 +293,9 @@ def dispatch_inventory_week(payload: dict) -> dict:
         "week": week,
         "direction": direction,
     }
+    if dropped:
+        result["error"] = f"{dropped} item(s) dropped (unresolved SKU); {count} applied. Entry left pending for review."
+    return result
 
 
 def dispatch_menu_save(payload: dict) -> dict:

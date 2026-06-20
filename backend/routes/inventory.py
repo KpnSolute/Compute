@@ -690,6 +690,8 @@ async def get_reorders(auth_user: dict = Depends(_get_auth_user)):
             supabase_service.table("monthly_inventory")
             .select(
                 "on_hand, "
+                "w1_received, w2_received, w3_received, w4_received, w5_received, "
+                "w1_issued, w2_issued, w3_issued, w4_issued, w5_issued, "
                 "inventory_items!inner(sku, description, par_level, "
                 "  inventory_categories!inner(name))"
             )
@@ -702,8 +704,19 @@ async def get_reorders(auth_user: dict = Depends(_get_auth_user)):
         for row in result.data or []:
             inv_item = row.get("inventory_items") or {}
             cat = inv_item.get("inventory_categories") or {}
-            on_hand = max(0, row.get("on_hand", 0) or 0)
-            par = max(0, inv_item.get("par_level", 0) or 0)
+            # Ending/running stock = opening + received - issued (matches the
+            # read model and perform_rollover). Reorder off this, not opening.
+            opening = _to_float(row.get("on_hand"))
+            received = sum(
+                _to_float(row.get(c))
+                for c in ("w1_received", "w2_received", "w3_received", "w4_received", "w5_received")
+            )
+            issued = sum(
+                _to_float(row.get(c))
+                for c in ("w1_issued", "w2_issued", "w3_issued", "w4_issued", "w5_issued")
+            )
+            on_hand = max(0, int(opening + received - issued))
+            par = max(0, int(_to_float(inv_item.get("par_level"))))
             if par > 0 and on_hand < par:
                 low_items.append(
                     LowStockItem(

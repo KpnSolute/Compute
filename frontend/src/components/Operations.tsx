@@ -391,9 +391,14 @@ export function MonthlyInventory({
     setSaving(true);
     try {
       const notes = `${MONTHS[m]} ${y}`;
+      // on_hand is the OPENING balance for the period (the DB model: the read
+      // side and perform_rollover both compute ending = on_hand + received -
+      // issued). Sending closing() here double-counted every receipt/issue on
+      // read and compounded on each save. Persist the opening balance instead;
+      // closing is always derived from opening + the weekly columns.
       const items = rows.map((r: any) => ({
         sku: r.id, desc: r.item,
-        onHand: closing(r),
+        onHand: r.opening || 0,
         par: r.par, price: r.price, category: r.cat, unit: r.unit,
         w1r: r.w1r, w2r: r.w2r, w3r: r.w3r, w4r: r.w4r, w5r: r.w5r,
         w1i: r.w1i, w2i: r.w2i, w3i: r.w3i, w4i: r.w4i, w5i: r.w5i,

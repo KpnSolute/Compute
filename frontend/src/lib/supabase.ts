@@ -477,7 +477,14 @@ export function catTotals(inv: any) {
     .sort((a, b) => b.val - a.val);
 }
 export function reorders(inv: any) {
-  return invToList(inv).filter((i) => (i.onHand || 0) < (i.par || 0) && (i.par || 0) > 0);
+  // Ending/running stock = onHand(opening) + received - issued, matching iTotal
+  // and the backend. Reorder off ending, not the opening balance.
+  return invToList(inv).filter((i) => {
+    const rcv = (i.w1r || 0) + (i.w2r || 0) + (i.w3r || 0) + (i.w4r || 0) + (i.w5r || 0);
+    const iss = (i.w1i || 0) + (i.w2i || 0) + (i.w3i || 0) + (i.w4i || 0) + (i.w5i || 0);
+    const ending = Math.max(0, (i.onHand || 0) + rcv - iss);
+    return ending < (i.par || 0) && (i.par || 0) > 0;
+  });
 }
 export function fmtMoney(n: number) {
   return '$' + (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
