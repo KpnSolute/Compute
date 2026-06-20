@@ -345,10 +345,11 @@ async def get_dashboard_stats(auth_user: dict = Depends(_get_auth_user)):
             except Exception:
                 pass
 
-        # total_items from barcodes COUNT where is_active=true
+        # total_items: count active items from the canonical catalog
+        # (the legacy `barcodes` store was retired in migration 008).
         total_items = 0
         try:
-            ti = supabase_service.table("barcodes").select("id").eq("is_active", True).execute()
+            ti = supabase_service.table("inventory_items").select("id").eq("active", True).execute()
             total_items = len(ti.data) if ti.data else 0
         except Exception:
             pass

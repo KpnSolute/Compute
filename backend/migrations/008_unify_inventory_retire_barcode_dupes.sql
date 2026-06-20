@@ -1,0 +1,13 @@
+-- Migration 008 — collapse duplicate inventory stores into one model (2026-06-19).
+-- Backups: bak_20260619 (all) + bak_20260619b (tables touched here).
+--
+-- Retired the parallel denormalized stores `barcodes` (450 rows; also backed
+-- live_inventory) and `inventory_master` (316 rows; zero code refs). Canonical
+-- model is now: inventory_items (catalog) + item_barcodes (barcode map) +
+-- monthly_inventory (period fact). Barcode->item mappings were migrated from
+-- `barcodes` into item_barcodes first (317 -> 365 rows). live_inventory was
+-- rebuilt to derive from monthly_inventory's open period (fallback latest), so
+-- the dashboard's total_value/low_stock are period-aligned. In the rebuilt view,
+-- `on_hand` = ENDING (current) stock and `sub_total` = ending * unit_price.
+-- See the applied body (Supabase migration 008) for the full view definition;
+-- reproducible source is the live definition of view public.live_inventory.

@@ -301,3 +301,21 @@ tables is preserved in schema **`bak_20260619`** (recover any table with
 - Pre-restructure snapshot: schema `bak_20260619` (all 53 original tables, data only).
 - To restore a dropped table: `CREATE TABLE public.<t> AS TABLE bak_20260619.<t>;`
   then re-add its constraints/indexes (see migration 002 / git history).
+
+## Update 2026-06-19 (migrations 008–009) — duplicate stores collapsed
+- Retired `barcodes` and `inventory_master` (parallel denormalized inventory
+  copies). Canonical model is now **inventory_items + item_barcodes +
+  monthly_inventory** only. Barcode mappings preserved into item_barcodes (→365).
+- Dropped dead column `inventory_items.on_hand` (monthly_inventory is the quantity
+  source of truth).
+- **`live_inventory` rebuilt**: now derives from `monthly_inventory` for the open
+  period (fallback latest), not the old `barcodes` store, so dashboard
+  total_value/low_stock match the period model. In this view `on_hand` = ending
+  (current) stock, `sub_total` = ending × unit_price, plus `opening_on_hand`,
+  weekly columns, `order_qty`. Backup of all 53 original tables: schema bak_20260619.
+- Phase-2 item #1 (barcode-layer consolidation) is now DONE. Remaining phase-2:
+  unify `commit_changes` dual schema (note: `revert_to_commit` depends on the
+  numeric columns, so keep both until revert is reworked); reconcile the two
+  period subsystems if desired (currently intentional: month_status/week_status =
+  inventory locking, month_periods/week_gross = purchasing aggregation).
+- Schema now: **42 tables, 6 views** (from 53 / 11 at session start).
