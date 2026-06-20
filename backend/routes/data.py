@@ -9,60 +9,12 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query, Header, Depends
 from pydantic import BaseModel
 from backend.routes import supabase_service, jwt_validator
+from backend.routes._deps import _get_auth_user
 
 router = APIRouter(prefix="/api", tags=["data"])
 
 
-async def _get_auth_user(authorization: str = Header("")) -> dict:
-    token = authorization.replace("Bearer ", "") if authorization else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing authorization token")
-
-    if token.startswith("pin_"):
-        user_id = token.replace("pin_", "")
-        try:
-            result = (
-                supabase_service.table("user_profiles")
-                .select("*")
-                .eq("id", user_id)
-                .single()
-                .execute()
-            )
-            user = result.data if result.data else None
-        except Exception:
-            user = None
-
-        if not user or not user.get("active"):
-            raise HTTPException(status_code=401, detail="Invalid session")
-        return user
-
-    claims = jwt_validator.verify_token(token)
-    if not claims:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-    user_id = claims.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Token missing user ID")
-
-    try:
-        result = (
-            supabase_service.table("user_profiles")
-            .select("*")
-            .eq("id", user_id)
-            .single()
-            .execute()
-        )
-        user = result.data if result.data else None
-    except Exception:
-        user = None
-
-    if not user or not user.get("active"):
-        raise HTTPException(status_code=401, detail="User not found or inactive")
-
-    return user
-
-
-# ── Opening Checklist ──────────────────────────────────────────────────────
+# _get_auth_user imported from backend.routes._deps (single source of truth).
 
 
 @router.get("/opening-checklist")
@@ -314,7 +266,10 @@ async def delete_category(cat_id: str, auth_user: dict = Depends(_require_manage
 @router.get("/dashboard/stats")
 async def get_dashboard_stats(auth_user: dict = Depends(_get_auth_user)):
     try:
-        # total_value from live_inventory SUM(sub_total)
+        # total_value = current inventory value for the open period, from
+        # live_inventory (sub_total = ending stock x unit_price). live_inventory
+        # derives from monthly_inventory, so this is period-aligned and uses the
+        # canonical ending math (opening + received - issued), not opening alone.
         total_value = 0.0
         try:
             tv = supabase_service.table("live_inventory").select("sub_total").execute()
@@ -323,25 +278,20 @@ async def get_dashboard_stats(auth_user: dict = Depends(_get_auth_user)):
         except Exception:
             pass
         if not total_value:
+            # Fallback: the latest filed period snapshot's grand_total (also an
+            # ending-based figure). Never fall back to summing on_hand alone —
+            # that ignores the month's receipts/issues and understates value.
             try:
-                items = (
-                    supabase_service.table("inventory_items").select("id,unit_price").execute()
+                snap = (
+                    supabase_service.table("monthly_snapshots")
+                    .select("grand_total")
+                    .order("year", desc=True)
+                    .order("month", desc=True)
+                    .limit(1)
+                    .execute()
                 )
-                if items.data:
-                    prices = {
-                        i["id"]: float(i.get("unit_price", 0) or 0) for i in items.data
-                    }
-                    mi = (
-                        supabase_service.table("monthly_inventory")
-                        .select("item_id,on_hand")
-                        .execute()
-                    )
-                    if mi.data:
-                        total_value = sum(
-                            prices.get(r.get("item_id"), 0)
-                            * float(r.get("on_hand", 0) or 0)
-                            for r in mi.data
-                        )
+                if snap.data:
+                    total_value = float(snap.data[0].get("grand_total", 0) or 0)
             except Exception:
                 pass
 
