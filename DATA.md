@@ -228,3 +228,76 @@ Key-value store. Keys include `ai_provider` (`groq`/`ollama`) and `ai_model`.
 | Stale May staging entry | Had `month:5` (published) entry stuck in queue. Cleared 2026-06-12. Root cause fixed by staging-time guard. | Fixed |
 | `menu_entries.items/sides` | TEXT not jsonb — must be serialized strings, not raw arrays. | Documented |
 | `staging_entries_status_check` | Constraint only allows `pending/merged/rejected`. Writing `approved` → 23514 error. | Documented |
+
+---
+
+# Post-Restructure Authority — 2026-06-19 (supersedes any stale table lists above)
+
+The live schema was audited end-to-end against `MJCCv1` and cleaned. The notes
+below are the current source of truth. Full pre-restructure backup of all 53
+tables is preserved in schema **`bak_20260619`** (recover any table with
+`CREATE TABLE public.x AS TABLE bak_20260619.x`).
+
+## Migration ledger (in source control under `backend/migrations/`)
+- `002_schema_redesign` — original normalized base (pre-existing).
+- `005_fix_rollover_include_week5` — `perform_rollover` now includes week 5 in
+  the carry-forward (was dropping it on 31-day months).
+- `006_fix_closed_month_guard_logic` — `guard_closed_month_writes` now actually
+  enforces the lock: a `published`/`locked` period rejects writes from everyone
+  (including the backend service key). Reopen (`month_status.status='open'`) to edit.
+- `007_remove_dead_weight` — dropped 9 dead tables, 3 redundant views, 1 orphan
+  function; rewrote `admin_merge_items`. 53→44 tables, 11→8 views.
+
+## Corrected core logic (the invariants that were being violated)
+- **`on_hand` = OPENING balance.** Ending = `on_hand + Σreceived − Σissued`.
+  This is enforced by both the read path and `perform_rollover`. Writers MUST
+  persist the opening balance, never the computed closing. (Frontend `handleSave`
+  was storing closing → double-count; fixed on branch `fix/inventory-integrity`.)
+- **Period lock is real now.** Writes to a published/locked month are rejected at
+  the DB trigger. To repair a closed month: set `month_status.status='open'`,
+  re-upload, then re-close (rollover republishes the prior month).
+- **Reorders** are computed off ending stock, not opening.
+
+## Final table map (44 tables, by domain)
+- **Identity / reference:** `inventory_items` (catalog; SKU is unique business
+  key; also carries a live `on_hand`), `inventory_categories`, `vendors`,
+  `item_barcodes`, `barcodes`, `inventory_master` *(legacy 316-row master —
+  phase-2 consolidation candidate)*.
+- **Inventory fact + locking:** `monthly_inventory` (per-item/per-month: opening
+  `on_hand`, `w1..w5_received`, `w1..w5_issued`, `unit_price`; unique on
+  `(item_id,month,year)`; 0-indexed month, CHECK 0–11), `month_status`,
+  `week_status`, `monthly_snapshots` (per-period rollup incl. `wk1..wk5_total`).
+- **Purchasing period subsystem:** `month_periods` (rich period summary:
+  starting/closing balance, totals) ← `invoices` ← `invoice_items`; `week_gross`
+  (per-week invoice aggregation, refreshed by trigger). NOTE: this is a separate
+  concern from `month_status`; both are intentional.
+- **Source control:** `staging_entries` → `pull_requests` → `commits` →
+  `commit_changes`, plus `inventory_versions` (snapshots) and
+  `github_sync_queue` (archive push). `commit_changes` currently carries TWO
+  column sets (numeric item-level + text entity-level) — phase-2 unify.
+- **Compliance / ops:** `events`, `haccp_logs`, `daily_operations_logs`,
+  `incident_logs`, `opening_checklist_items`, `servsafe_certifications`,
+  `meal_periods`, `menu_cycles` → `menu_entries`.
+- **Auth / admin:** `user_profiles` (no password column), `app_settings`,
+  `audit_log`, `api_keys`, `centers`, `sku_review_queue`.
+- **AI:** `ai_providers`, `ai_provider_keys`, `ai_stack_config`, `ai_usage_logs`,
+  `agent_conversations`, `agent_usage`, `archive_import_log`.
+- **Kept views (8):** `live_inventory` (used by API), plus reporting views
+  `category_spending`, `category_summary`, `dashboard_summary`,
+  `invoice_spending_summary`, `item_price_history`, `monthly_comparison`,
+  `barcodes_view`.
+
+## Phase-2 consolidation backlog (do WITH the API rewrite, not before — each
+## changes a shape the API/functions depend on)
+1. Collapse the barcode layers (`inventory_master` / `item_barcodes` / `barcodes`)
+   into one mapping after validating the 316-row master linkage.
+2. Unify `commit_changes` to a single column model (drop the unused half).
+3. Reconcile the live `inventory_items.on_hand` vs `monthly_inventory.on_hand`
+   (the catalog-level field is redundant with the current open period).
+4. Decide whether `month_status`/`week_status` and `month_periods`/`week_gross`
+   should share a single period spine.
+
+## Backup / rollback
+- Pre-restructure snapshot: schema `bak_20260619` (all 53 original tables, data only).
+- To restore a dropped table: `CREATE TABLE public.<t> AS TABLE bak_20260619.<t>;`
+  then re-add its constraints/indexes (see migration 002 / git history).

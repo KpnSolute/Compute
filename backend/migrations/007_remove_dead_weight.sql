@@ -1,0 +1,17 @@
+-- Migration 007 — remove confirmed dead weight (2026-06-19).
+-- Full pre-restructure backup of all 53 tables lives in schema bak_20260619.
+-- Net effect: 53 -> 44 tables, 11 -> 8 views. No core table touched.
+--
+-- Dropped tables (all 0 rows except month_close=2 legacy; no live code dep):
+--   email_log, email_templates, documents, uploads, qr_codes, reorder_alerts,
+--   inventory_transactions, weekly_counts, month_close
+-- Dropped views (0 code refs; duplicates of monthly_inventory/commits access):
+--   commits_compat, v_monthly_inventory, v_month_weekly_breakdown
+-- Dropped function: block_txn_history_mutation (orphan; guarded a table that no
+--   longer exists)
+-- Rewrote admin_merge_items to stop referencing the dropped child tables
+--   (now only reassigns monthly_inventory + item_barcodes).
+--
+-- See the migration body applied via Supabase apply_migration 007_remove_dead_weight.
+-- Rollback: recreate from bak_20260619 (CREATE TABLE public.x AS TABLE bak_20260619.x)
+-- then restore constraints/indexes from migration 002 + this file's prior state.
