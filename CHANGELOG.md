@@ -14,7 +14,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** `ruff format` and `ruff check` passed for changed backend route files. `frontend/.env` still points to `https://mjcc-managements.onrender.com`. Dummy-env `import backend.main` passed. `tsc --noEmit` passed. `npm run build` passed with only the existing Vite dynamic-import/chunk-size/plugin timing warnings. Local Vite app served 200 at `http://127.0.0.1:5173/`. In-app browser login as Jeremiah McDowell/Sudo Administrator succeeded against the production API; Data Entry showed Google `gemini-2.5-flash`, April-July 2026 period options, W1-W4 only, and the days-after-28 rollover copy. Browser console warning/error check returned no entries during login/Data Entry navigation. Screenshot capture timed out in the in-app browser bridge, so visual QA is DOM-based for this pass.
 
-**Push:** Codex -> 1561f7b - 2026-06-21
+**Push:** Codex -> 3d5d335 - 2026-06-21
 
 ## v4.9.5 ? 2026-06-21 ? Codex four-week Data Entry contract
 
