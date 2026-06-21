@@ -46,12 +46,10 @@ class InventoryItem(BaseModel):
     w2r: Optional[int] = None
     w3r: Optional[int] = None
     w4r: Optional[int] = None
-    w5r: Optional[int] = None
     w1i: Optional[int] = None
     w2i: Optional[int] = None
     w3i: Optional[int] = None
     w4i: Optional[int] = None
-    w5i: Optional[int] = None
     # Computed: on_hand (opening) + received - issued = actual ending stock.
     running_total: Optional[int] = None
     sku_pending: Optional[bool] = None
@@ -102,16 +100,11 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
         w2r = int(_to_float(row.get("w2_received")))
         w3r = int(_to_float(row.get("w3_received")))
         w4r = int(_to_float(row.get("w4_received")))
-        w5r = int(_to_float(row.get("w5_received")))
         w1i = int(_to_float(row.get("w1_issued")))
         w2i = int(_to_float(row.get("w2_issued")))
         w3i = int(_to_float(row.get("w3_issued")))
         w4i = int(_to_float(row.get("w4_issued")))
-        w5i = int(_to_float(row.get("w5_issued")))
-        running_total = max(
-            0,
-            oh + w1r + w2r + w3r + w4r + w5r - w1i - w2i - w3i - w4i - w5i,
-        )
+        running_total = max(0, oh + w1r + w2r + w3r + w4r - w1i - w2i - w3i - w4i)
         items.append(
             InventoryItem(
                 id=inv_item.get("id"),
@@ -126,12 +119,10 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
                 w2r=w2r,
                 w3r=w3r,
                 w4r=w4r,
-                w5r=w5r,
                 w1i=w1i,
                 w2i=w2i,
                 w3i=w3i,
                 w4i=w4i,
-                w5i=w5i,
                 running_total=running_total,
                 sku_pending=bool(inv_item.get("sku_pending")),
                 needs_attention=bool(inv_item.get("needs_attention")),
@@ -150,8 +141,8 @@ def _serialize_dt(dt) -> str:
 
 _JOIN_SELECT = (
     "id, month, year, on_hand, "
-    "w1_received, w2_received, w3_received, w4_received, w5_received, "
-    "w1_issued, w2_issued, w3_issued, w4_issued, w5_issued, "
+    "w1_received, w2_received, w3_received, w4_received, "
+    "w1_issued, w2_issued, w3_issued, w4_issued, "
     "unit_price, created_at, "
     "inventory_items!inner(id, sku, description, par_level, unit, sku_pending, needs_attention, "
     "  inventory_categories!inner(name)"
@@ -228,14 +219,12 @@ async def get_inventory(
                 + int(_to_float(row.get("w2_received")))
                 + int(_to_float(row.get("w3_received")))
                 + int(_to_float(row.get("w4_received")))
-                + int(_to_float(row.get("w5_received")))
             )
             < (
                 int(_to_float(row.get("w1_issued")))
                 + int(_to_float(row.get("w2_issued")))
                 + int(_to_float(row.get("w3_issued")))
                 + int(_to_float(row.get("w4_issued")))
-                + int(_to_float(row.get("w5_issued")))
             )
         )
 
@@ -475,12 +464,10 @@ async def _save_inventory_retired(payload: "InventorySnapshot", auth_user: dict)
                 ("w2r", "w2_received"),
                 ("w3r", "w3_received"),
                 ("w4r", "w4_received"),
-                ("w5r", "w5_received"),
                 ("w1i", "w1_issued"),
                 ("w2i", "w2_issued"),
                 ("w3i", "w3_issued"),
                 ("w4i", "w4_issued"),
-                ("w5i", "w5_issued"),
             ]:
                 val = getattr(item, src)
                 if val is not None:

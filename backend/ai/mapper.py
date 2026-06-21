@@ -108,16 +108,6 @@ _INV_ALIASES: dict[str, str] = {
     "w4receivable": "w4r",
     "receivedweek4": "w4r",
     "receiveweek4": "w4r",
-    "w5r": "w5r",
-    "week5received": "w5r",
-    "week5receive": "w5r",
-    "week5receivable": "w5r",
-    "w5received": "w5r",
-    "w5receive": "w5r",
-    "w5receivable": "w5r",
-    "receivedweek5": "w5r",
-    "receiveweek5": "w5r",
-    "w1i": "w1i",
     "week1issued": "w1i",
     "week1issue": "w1i",
     "week1pulled": "w1i",
@@ -161,17 +151,6 @@ _INV_ALIASES: dict[str, str] = {
     "w4pull": "w4i",
     "issuedweek4": "w4i",
     "pullweek4": "w4i",
-    "w5i": "w5i",
-    "week5issued": "w5i",
-    "week5issue": "w5i",
-    "week5pulled": "w5i",
-    "week5pull": "w5i",
-    "w5issued": "w5i",
-    "w5issue": "w5i",
-    "w5pulled": "w5i",
-    "w5pull": "w5i",
-    "issuedweek5": "w5i",
-    "pullweek5": "w5i",
 }
 
 _EVENT_ALIASES: dict[str, str] = {
@@ -279,12 +258,10 @@ def map_rows_to_inventory(
                 "w2r": _safe_int(mapped.get("w2r")),
                 "w3r": _safe_int(mapped.get("w3r")),
                 "w4r": _safe_int(mapped.get("w4r")),
-                "w5r": _safe_int(mapped.get("w5r")),
                 "w1i": _safe_int(mapped.get("w1i")),
                 "w2i": _safe_int(mapped.get("w2i")),
                 "w3i": _safe_int(mapped.get("w3i")),
                 "w4i": _safe_int(mapped.get("w4i")),
-                "w5i": _safe_int(mapped.get("w5i")),
             }
         )
 

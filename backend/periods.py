@@ -1,9 +1,6 @@
 """Invoice-week period utilities shared across routes and dispatch."""
 
-import calendar
-import math
-
-MAX_WEEKS = 5
+MAX_WEEKS = 4
 
 
 def to_db_month(ui_month: int) -> int:
@@ -18,17 +15,19 @@ def to_ui_month(db_month: int) -> int:
 
 def days_in_month(month: int, year: int) -> int:
     """Calendar days in the given month (month is 1-indexed)."""
+    # Kept for callers that need calendar context, not for operational week count.
+    import calendar
+
     return calendar.monthrange(year, month)[1]
 
 
 def weeks_in_month(month: int, year: int) -> int:
-    """Invoice weeks in a month: min(5, ceil(days/7)).
-
-    A 28-day February has exactly 4 invoice weeks; every other month has 5.
-    """
-    return min(MAX_WEEKS, math.ceil(days_in_month(month, year) / 7))
+    """MJCC uses four operational weeks per inventory month."""
+    return MAX_WEEKS if 1 <= month <= 12 else 0
 
 
 def week_of_day(day: int) -> int:
-    """Invoice week a calendar day falls in: min(5, ceil(day/7))."""
-    return min(MAX_WEEKS, math.ceil(day / 7))
+    """Map calendar days to four operational weeks; days after 28 roll forward."""
+    if day <= 0:
+        return 1
+    return min(MAX_WEEKS, ((day - 1) // 7) + 1)

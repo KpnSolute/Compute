@@ -501,8 +501,8 @@ def stage_inventory_week_update(args: dict, user_role: str) -> dict:
         return {"error": "month must be 1-12"}
     if year < 2020 or year > 2040:
         return {"error": "year must be 2020-2040"}
-    if week not in (1, 2, 3, 4, 5):
-        return {"error": "week must be 1-5"}
+    if week not in (1, 2, 3, 4):
+        return {"error": "week must be 1-4"}
     if direction not in ("received", "issued"):
         return {"error": "direction must be received or issued"}
     if not isinstance(items, list) or not items:

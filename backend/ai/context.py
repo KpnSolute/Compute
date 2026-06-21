@@ -157,8 +157,8 @@ PAYLOAD FORMAT — inventory_save operation:
       "price": <float>,
       "par": <int — minimum stock level, 0 if unknown>,
       "onHand": <int — current quantity>,
-      "w1r": 0, "w2r": 0, "w3r": 0, "w4r": 0, "w5r": 0,
-      "w1i": 0, "w2i": 0, "w3i": 0, "w4i": 0, "w5i": 0
+      "w1r": 0, "w2r": 0, "w3r": 0, "w4r": 0,
+      "w1i": 0, "w2i": 0, "w3i": 0, "w4i": 0
     }}
   ]
 }}

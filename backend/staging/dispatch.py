@@ -43,6 +43,28 @@ def _is_month_published(sup, db_month: int, year: int) -> bool:
         return False
 
 
+def _non_negative(value, field: str, sku: str | None = None):
+    if value is None:
+        return None
+    try:
+        number = float(str(value).replace(",", ""))
+    except (TypeError, ValueError):
+        raise ValueError(f"{field} must be numeric for SKU {sku or 'unknown'}")
+    if number < 0:
+        raise ValueError(f"{field} cannot be negative for SKU {sku or 'unknown'}")
+    return number
+
+
+def _validate_inventory_item_numbers(
+    items: list[dict], fields: tuple[str, ...]
+) -> None:
+    for item in items:
+        sku = item.get("sku")
+        for field in fields:
+            if field in item and item.get(field) is not None:
+                _non_negative(item.get(field), field, sku)
+
+
 def dispatch_inventory_save(payload: dict) -> dict:
     month = payload.get("month") or datetime.now().month  # 1-indexed from staging
     year = payload.get("year") or datetime.now().year
@@ -50,6 +72,24 @@ def dispatch_inventory_save(payload: dict) -> dict:
     notes = payload.get("notes", "")
     if not items:
         return {"applied": 0, "error": "No items in payload"}
+    try:
+        _validate_inventory_item_numbers(
+            items,
+            (
+                "onHand",
+                "price",
+                "w1r",
+                "w2r",
+                "w3r",
+                "w4r",
+                "w1i",
+                "w2i",
+                "w3i",
+                "w4i",
+            ),
+        )
+    except ValueError as exc:
+        return {"applied": 0, "error": str(exc)}
 
     db_month = max(0, month - 1)  # Convert 1→0 indexed for monthly_inventory
     sup = _client()
@@ -106,25 +146,25 @@ def dispatch_inventory_save(payload: dict) -> dict:
         # not zero an existing balance. Default 0 only for new rows (DB default).
         on_hand = item.get("onHand")
         if on_hand is not None:
-            monthly_fields["on_hand"] = max(0, int(on_hand))
+            monthly_fields["on_hand"] = int(
+                _non_negative(on_hand, "onHand", item.get("sku"))
+            )
         if item.get("price") is not None:
             monthly_fields["unit_price"] = item["price"]
         # Only write weekly columns when explicitly present in the payload — omitting
-        # them preserves existing W1-W5 data instead of zeroing it on every save.
+        # them preserves existing W1-W4 data instead of zeroing it on every save.
         for src, col in [
             ("w1r", "w1_received"),
             ("w2r", "w2_received"),
             ("w3r", "w3_received"),
             ("w4r", "w4_received"),
-            ("w5r", "w5_received"),
             ("w1i", "w1_issued"),
             ("w2i", "w2_issued"),
             ("w3i", "w3_issued"),
             ("w4i", "w4_issued"),
-            ("w5i", "w5_issued"),
         ]:
             if src in item:
-                monthly_fields[col] = item[src]
+                monthly_fields[col] = _non_negative(item[src], src, item.get("sku"))
         rows.append(monthly_fields)
         count += 1
 
@@ -268,12 +308,16 @@ def dispatch_inventory_week(payload: dict) -> dict:
     week = int(payload.get("week") or 0)
     direction = (payload.get("direction") or "received").lower()
     items = payload.get("items", [])
-    if week not in (1, 2, 3, 4, 5):
-        return {"applied": 0, "error": f"Invalid week {week} (expected 1-5)"}
+    if week not in (1, 2, 3, 4):
+        return {"applied": 0, "error": f"Invalid week {week} (expected 1-4)"}
     if direction not in ("received", "issued"):
         return {"applied": 0, "error": f"Invalid direction {direction}"}
     if not items:
         return {"applied": 0, "error": "No items in payload"}
+    try:
+        _validate_inventory_item_numbers(items, ("qty", "onHand", "price"))
+    except ValueError as exc:
+        return {"applied": 0, "error": str(exc)}
 
     db_month = max(0, month - 1)
     col = f"w{week}_{direction}"
@@ -321,6 +365,7 @@ def dispatch_inventory_week(payload: dict) -> dict:
         qty = item.get("qty")
         if qty is None:
             qty = item.get("onHand", 0)
+        qty = _non_negative(qty, "qty", item.get("sku"))
         monthly_fields = {
             "item_id": item_id,
             "month": db_month,

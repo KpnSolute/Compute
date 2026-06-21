@@ -666,8 +666,8 @@ function Dashboard({
     const monRows = invToList(live || {}).map((it: any) => ({
         price: it.price || 0,
         opening: it.onHand || 0,
-        received: (it.w1r || 0) + (it.w2r || 0) + (it.w3r || 0) + (it.w4r || 0) + (it.w5r || 0),
-        issued: (it.w1i || 0) + (it.w2i || 0) + (it.w3i || 0) + (it.w4i || 0) + (it.w5i || 0),
+        received: (it.w1r || 0) + (it.w2r || 0) + (it.w3r || 0) + (it.w4r || 0),
+        issued: (it.w1i || 0) + (it.w2i || 0) + (it.w3i || 0) + (it.w4i || 0),
     }));
     const miSum = monRows.reduce(
         (a: any, r: any) => {
@@ -1105,7 +1105,7 @@ function InventoryView({
     const [mergeBusy, setMergeBusy] = useState(false);
     useEscapeClose(!!mergeDialog, () => setMergeDialog(null), mergeBusy);
 
-    // Week lock status: keyed by week number (1-5), value = 'open'|'locked'|'published'
+    // Week lock status: keyed by week number (1-4), value = 'open'|'locked'|'published'
     const [weekLockStatus, setWeekLockStatus] = useState<Record<number, string>>({});
     const [weekLockBusy, setWeekLockBusy] = useState(false);
     const reloadWeekStatus = useCallback(() => {
@@ -1187,19 +1187,19 @@ function InventoryView({
     // template's compact sheet. Edits live in local `wkDraft` and are persisted
     // via the "Stage weekly changes" batch action (stageCompactChanges), which
     // routes through Source Control like the Monthly Inventory view.
-    const ISSUED = ["w1i", "w2i", "w3i", "w4i", "w5i"] as const; // pulled ↓
-    const RECEIVED = ["w1r", "w2r", "w3r", "w4r", "w5r"] as const; // delivered ↑
+    const ISSUED = ["w1i", "w2i", "w3i", "w4i"] as const; // pulled ↓
+    const RECEIVED = ["w1r", "w2r", "w3r", "w4r"] as const; // delivered ↑
     type WeeklyField = (typeof ISSUED)[number] | (typeof RECEIVED)[number];
     const [wkDraft, setWkDraft] = useState<
         Record<string, Partial<Record<WeeklyField, number>>>
     >({});
 
-    // Invoice mode selectors: which week (1-5) and direction this staging batch
+    // Invoice mode selectors: which week (1-4) and direction this staging batch
     // represents. 0 = whole-month save (inventory_save). When week>0, the batch
     // is routed as inventory_week_update for that specific column only.
     const maxWeeks = (invState.metadata?.weeks_in_period as number) ?? 4;
-    const [compactWeek, setCompactWeek] = useState<0 | 1 | 2 | 3 | 4 | 5>(
-        () => Math.min(5, Math.ceil(new Date().getDate() / 7)) as 1 | 2 | 3 | 4 | 5
+    const [compactWeek, setCompactWeek] = useState<0 | 1 | 2 | 3 | 4>(
+        () => Math.min(4, Math.ceil(new Date().getDate() / 7)) as 1 | 2 | 3 | 4
     );
     // compactDir removed — both issued AND received are staged when they have edits.
     const setWeeklyField = (sku: string, field: WeeklyField, value: string) => {
@@ -1336,13 +1336,11 @@ function InventoryView({
             w2i: it.w2i || 0,
             w3i: it.w3i || 0,
             w4i: it.w4i || 0,
-            w5i: it.w5i || 0,
-            w1r: it.w1r || 0,
+                        w1r: it.w1r || 0,
             w2r: it.w2r || 0,
             w3r: it.w3r || 0,
             w4r: it.w4r || 0,
-            w5r: it.w5r || 0,
-            sku_pending: it.sku_pending ?? String(it.sku || "").startsWith("MJC-"),
+                        sku_pending: it.sku_pending ?? String(it.sku || "").startsWith("MJC-"),
             needs_attention: it.needs_attention ?? it.sku_pending ?? String(it.sku || "").startsWith("MJC-"),
             status:
                 (it.onHand || 0) < (it.par || 0) && (it.par || 0) > 0
@@ -1450,7 +1448,7 @@ function InventoryView({
                         par: d?.par ?? r.par,
                     };
                     // Spread only explicitly-edited weekly fields
-                    for (const k of ["w1r","w2r","w3r","w4r","w5r","w1i","w2i","w3i","w4i","w5i"] as WeeklyField[]) {
+                    for (const k of ["w1r","w2r","w3r","w4r","w1i","w2i","w3i","w4i"] as WeeklyField[]) {
                         if (k in w) base[k] = w[k];
                     }
                     return base;
@@ -1866,15 +1864,7 @@ function InventoryView({
                     </div>
                     {/* ── Week selector — visible in all 3 modes ── */}
                     {(() => {
-                        // Determine which week tabs to render.
-                        // Week 5 is only shown when it has data OR the current date is in week 5 of this period.
-                        const todayWeek = Math.min(5, Math.ceil(new Date().getDate() / 7));
-                        const isCurPeriod = period[0] === new Date().getMonth() && period[1] === new Date().getFullYear();
-                        const flatInv = invToList(invState.inv || {});
-                        const weekHasData = (w: number) => flatInv.some((r: any) => (r[`w${w}r`] || 0) > 0 || (r[`w${w}i`] || 0) > 0);
-                        const visibleWeeks = Array.from({ length: maxWeeks }, (_, i) => i + 1).filter(
-                            (w) => w < 5 || weekHasData(w) || (isCurPeriod && todayWeek >= w)
-                        );
+                        const visibleWeeks = Array.from({ length: Math.min(maxWeeks, 4) }, (_, i) => i + 1);
                         const lockIcon = (w: number) => {
                             const s = weekLockStatus[w];
                             return s === 'locked' ? ' (locked)' : s === 'published' ? ' (pub)' : '';
@@ -1884,9 +1874,9 @@ function InventoryView({
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                     <div className="tab-bar" style={{ marginBottom: 0, flex: 1 }}>
                                         {[
-                                            { val: 0 as 0|1|2|3|4|5, label: "All weeks" },
+                                            { val: 0 as 0|1|2|3|4, label: "All weeks" },
                                             ...visibleWeeks.map((w) => ({
-                                                val: w as 0|1|2|3|4|5,
+                                                val: w as 0|1|2|3|4,
                                                 label: `Week ${w}${lockIcon(w)}`,
                                             })),
                                         ].map(({ val, label }) => (

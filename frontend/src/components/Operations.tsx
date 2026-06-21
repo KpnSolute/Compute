@@ -258,7 +258,7 @@ export function MonthlyInventory({
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [q, setQ] = useState('');
   const [viewMode, setViewMode] = useState<'flat' | 'group'>('flat');
-  const [week, setWeek] = useState(0); // 0 = All, 1–5 = W1–W5
+  const [week, setWeek] = useState(0); // 0 = All, 1-4 = W1-W4
   const [maxWeeks, setMaxWeeks] = useState(4); // from API metadata.weeks_in_period
 
   // Local cache key for this period
@@ -299,8 +299,8 @@ export function MonthlyInventory({
           par: it.par || 0,
           unit: it.unit || 'each',
           opening: it.onHand || 0,
-          w1r: it.w1r || 0, w2r: it.w2r || 0, w3r: it.w3r || 0, w4r: it.w4r || 0, w5r: it.w5r || 0,
-          w1i: it.w1i || 0, w2i: it.w2i || 0, w3i: it.w3i || 0, w4i: it.w4i || 0, w5i: it.w5i || 0,
+          w1r: it.w1r || 0, w2r: it.w2r || 0, w3r: it.w3r || 0, w4r: it.w4r || 0,
+          w1i: it.w1i || 0, w2i: it.w2i || 0, w3i: it.w3i || 0, w4i: it.w4i || 0,
         }));
         // Check for uncommitted draft
         const draft = restoreDraft();
@@ -346,8 +346,8 @@ export function MonthlyInventory({
     setSaved(false);
   }
 
-  const totalRcv = (r: any) => (r.w1r || 0) + (r.w2r || 0) + (r.w3r || 0) + (r.w4r || 0) + (r.w5r || 0);
-  const totalIss = (r: any) => (r.w1i || 0) + (r.w2i || 0) + (r.w3i || 0) + (r.w4i || 0) + (r.w5i || 0);
+  const totalRcv = (r: any) => (r.w1r || 0) + (r.w2r || 0) + (r.w3r || 0) + (r.w4r || 0);
+  const totalIss = (r: any) => (r.w1i || 0) + (r.w2i || 0) + (r.w3i || 0) + (r.w4i || 0);
   const closing = (r: any) => Math.max(0, (r.opening || 0) + totalRcv(r) - totalIss(r));
 
   // Week-scoped accessors
@@ -400,8 +400,8 @@ export function MonthlyInventory({
         sku: r.id, desc: r.item,
         onHand: r.opening || 0,
         par: r.par, price: r.price, category: r.cat, unit: r.unit,
-        w1r: r.w1r, w2r: r.w2r, w3r: r.w3r, w4r: r.w4r, w5r: r.w5r,
-        w1i: r.w1i, w2i: r.w2i, w3i: r.w3i, w4i: r.w4i, w5i: r.w5i,
+        w1r: r.w1r, w2r: r.w2r, w3r: r.w3r, w4r: r.w4r,
+        w1i: r.w1i, w2i: r.w2i, w3i: r.w3i, w4i: r.w4i,
       }));
 
       const stagingIds: string[] = [];

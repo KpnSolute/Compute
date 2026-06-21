@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { I } from '../lib/icons';
 import { ROLE_LEVEL, MONTHS, loadAIPrefs } from '../lib/constants';
 import { api } from '../lib/api';
@@ -59,6 +59,14 @@ interface PreviewResponse {
     summary: { new_rows: number; updated_rows: number };
     staging_ids: string[];
     diff: DiffTable[];
+}
+
+interface PeriodSettings {
+    floor_year: number;
+    floor_month: number;
+    max_year: number;
+    max_month: number;
+    operational_week_count: number;
 }
 
 // ── style helpers ─────────────────────────────────────────────────────────────
@@ -367,15 +375,44 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
     const [pickerModels, setPickerModels] = useState<Array<{ id: string; vision: boolean }>>([]);
     const [pickerModelsLoading, setPickerModelsLoading] = useState(false);
     const [pickerSaving, setPickerSaving] = useState(false);
+    const [periodSettings, setPeriodSettings] = useState<PeriodSettings>({
+        floor_year: 2026,
+        floor_month: 3,
+        max_year: now.getFullYear(),
+        max_month: Math.min(now.getMonth() + 1, 11),
+        operational_week_count: 4,
+    });
 
     const stageTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
     const abortRef = useRef<AbortController | null>(null);
     const cancelledRef = useRef(false);
-    const weekCount = weeksInMonth(month, year);
+    const calendarWeekCount = weeksInMonth(month, year);
+    const weekCount = Math.min(calendarWeekCount, Number(periodSettings.operational_week_count || 4));
+    const allowedYears = useMemo(() => {
+        const years: number[] = [];
+        for (let yr = periodSettings.floor_year; yr <= periodSettings.max_year; yr += 1) years.push(yr);
+        return years.length ? years : [periodSettings.floor_year];
+    }, [periodSettings.floor_year, periodSettings.max_year]);
+    const allowedMonths = useMemo(() => {
+        const start = year === periodSettings.floor_year ? periodSettings.floor_month : 0;
+        const end = year === periodSettings.max_year ? periodSettings.max_month : 11;
+        const months: number[] = [];
+        for (let idx = Math.max(0, start); idx <= Math.min(11, end); idx += 1) months.push(idx);
+        return months.length ? months : [Math.max(0, Math.min(11, start))];
+    }, [periodSettings.floor_month, periodSettings.floor_year, periodSettings.max_month, periodSettings.max_year, year]);
 
     useEffect(() => {
         if (week > weekCount) setWeek(0);
     }, [week, weekCount]);
+    useEffect(() => {
+        if (!allowedYears.includes(year)) {
+            setYear(allowedYears[allowedYears.length - 1]);
+            return;
+        }
+        if (!allowedMonths.includes(month)) {
+            setMonth(allowedMonths[0]);
+        }
+    }, [allowedMonths, allowedYears, month, year]);
     const [elapsed, setElapsed] = useState(0);
     const elapsedTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -383,6 +420,17 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         api.getDataEntrySettings().then(cfg => {
             if (cfg?.current?.provider) setAiStatus(cfg.current);
             setAiKeys((cfg?.keys || []).filter((k: any) => k.has_key));
+            if (cfg?.period) {
+                setPeriodSettings(p => ({
+                    ...p,
+                    ...cfg.period,
+                    floor_year: Number(cfg.period.floor_year ?? p.floor_year),
+                    floor_month: Number(cfg.period.floor_month ?? p.floor_month),
+                    max_year: Number(cfg.period.max_year ?? p.max_year),
+                    max_month: Number(cfg.period.max_month ?? p.max_month),
+                    operational_week_count: Number(cfg.period.operational_week_count ?? p.operational_week_count ?? 4),
+                }));
+            }
         }).catch(() => {}).finally(() => setAiCfgLoading(false));
     }, []);
 
@@ -734,13 +782,13 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                             <div>
                                 <label style={LBL}>Month</label>
                                 <select className="tb-select" value={month} onChange={e => setMonth(+e.target.value)}>
-                                    {MONTHS.map((nm, i) => <option key={i} value={i}>{nm}</option>)}
+                                    {allowedMonths.map(i => <option key={i} value={i}>{MONTHS[i]}</option>)}
                                 </select>
                             </div>
                             <div>
                                 <label style={LBL}>Year</label>
                                 <select className="tb-select" value={year} onChange={e => setYear(+e.target.value)}>
-                                    {[2021, 2022, 2023, 2024, 2025, 2026].map(yr => <option key={yr} value={yr}>{yr}</option>)}
+                                    {allowedYears.map(yr => <option key={yr} value={yr}>{yr}</option>)}
                                 </select>
                             </div>
                             <div>
@@ -768,23 +816,23 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                                 ))}
                             </div>
                             <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 5 }}>
-                                {MONTHS[month]} {year} supports W1-W{weekCount}
+                                {calendarWeekCount > weekCount
+                                    ? `${MONTHS[month]} ${year} uses W1-W${weekCount}; days after the 28th roll into the next month's W1.`
+                                    : `${MONTHS[month]} ${year} uses W1-W${weekCount}`}
                             </div>
                         </div>
 
-                        {week > 0 && (
-                            <div>
-                                <label style={LBL}>Direction</label>
-                                <div style={{ display: 'flex', gap: 4 }}>
-                                    <button className={direction === 'received' ? 'btn primary' : 'btn'}
-                                        style={{ padding: '6px 13px', fontSize: 12, fontWeight: 700, minHeight: 36 }}
-                                        onClick={() => setDirection('received')}>Received</button>
-                                    <button className={direction === 'issued' ? 'btn accent' : 'btn'}
-                                        style={{ padding: '6px 13px', fontSize: 12, fontWeight: 700, minHeight: 36 }}
-                                        onClick={() => setDirection('issued')}>Pulled / Issued</button>
-                                </div>
+                        <div>
+                            <label style={LBL}>Direction</label>
+                            <div style={{ display: 'flex', gap: 4 }}>
+                                <button className={direction === 'received' ? 'btn primary' : 'btn'}
+                                    style={{ padding: '6px 13px', fontSize: 12, fontWeight: 700, minHeight: 36 }}
+                                    onClick={() => setDirection('received')}>Received</button>
+                                <button className={direction === 'issued' ? 'btn accent' : 'btn'}
+                                    style={{ padding: '6px 13px', fontSize: 12, fontWeight: 700, minHeight: 36 }}
+                                    onClick={() => setDirection('issued')}>Pulled / Issued</button>
                             </div>
-                        )}
+                        </div>
                     </div>
                 </div>
 

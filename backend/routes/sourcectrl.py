@@ -393,7 +393,36 @@ async def submit_staging(
             status_code=422, detail=f"entity_type must be one of {sorted(ENTITY_TYPES)}"
         )
     try:
+        if body.full_payload and not body.operation:
+            raise HTTPException(
+                status_code=422,
+                detail="operation is required when full_payload is provided.",
+            )
         caller_role = (auth_user.get("role") or "").lower()
+        if (
+            body.operation in ("inventory_save", "inventory_week_update")
+            and body.full_payload
+        ):
+            fp = body.full_payload or {}
+            inv_month = fp.get("month")
+            inv_year = fp.get("year")
+            if inv_month and inv_year:
+                db_month = max(0, int(inv_month) - 1)
+                ms_r = (
+                    _client()
+                    .table("month_status")
+                    .select("status")
+                    .eq("month", db_month)
+                    .eq("year", int(inv_year))
+                    .limit(1)
+                    .execute()
+                )
+                ms_row = (ms_r.data or [None])[0]
+                if ms_row and ms_row.get("status") == "published":
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Period {inv_month}/{inv_year} is published and cannot be modified.",
+                    )
         if caller_role not in ("admin", "manager", "sudo"):
             if (
                 body.operation in ("inventory_save", "inventory_week_update")
@@ -412,31 +441,11 @@ async def submit_staging(
                 # Check for inventory_save payloads containing any issued field
                 if body.operation == "inventory_save":
                     for item in fp.get("items", []):
-                        if any(k in item for k in ("w1i", "w2i", "w3i", "w4i", "w5i")):
+                        if any(k in item for k in ("w1i", "w2i", "w3i", "w4i")):
                             raise HTTPException(
                                 status_code=403,
                                 detail="Only managers can stage issued (pullout) quantities.",
                             )
-                inv_month = fp.get("month")
-                inv_year = fp.get("year")
-                if inv_month and inv_year:
-                    db_month = max(0, int(inv_month) - 1)
-                    ms_r = (
-                        _client()
-                        .table("month_status")
-                        .select("status")
-                        .eq("month", db_month)
-                        .eq("year", int(inv_year))
-                        .limit(1)
-                        .execute()
-                    )
-                    ms_row = (ms_r.data or [None])[0]
-                    if ms_row and ms_row.get("status") == "published":
-                        raise HTTPException(
-                            status_code=403,
-                            detail=f"Period {inv_month}/{inv_year} is published and cannot be modified.",
-                        )
-
         # Dedup: update existing pending entry rather than stacking duplicates
         existing_r = (
             _client()

@@ -62,17 +62,73 @@ def _expires() -> str:
 
 
 def _weeks_in_month(month: int, year: int) -> int:
-    """MJCC inventory weeks are date buckets: 1-7, 8-14, 15-21, 22-28, 29-end."""
+    """MJCC operational inventory periods use four weekly buckets per month."""
     if month < 1 or month > 12:
         return 0
-    return 5 if calendar.monthrange(year, month)[1] > 28 else 4
+    return 4
+
+
+def _data_entry_period_settings() -> dict:
+    now = datetime.now(timezone.utc)
+    defaults = {
+        "floor_year": 2026,
+        "floor_month": 3,  # 0-indexed: April
+        "max_year": now.year,
+        "max_month": min(now.month, 11),  # 0-indexed current month + one
+        "operational_week_count": 4,
+        "calendar_rollover_rule": "days_after_28_to_next_month_w1",
+        "allow_new_items_on_weekly": False,
+        "max_file_size_mb": 10,
+        "reconcile_max_delta_pct": 5.0,
+    }
+    try:
+        r = (
+            _client()
+            .table("app_settings")
+            .select("setting_value")
+            .eq("setting_key", "data_entry")
+            .limit(1)
+            .execute()
+        )
+        value = (r.data or [{}])[0].get("setting_value") or {}
+        if isinstance(value, dict):
+            defaults.update(value)
+    except Exception as exc:
+        log.warning("[DATA-ENTRY] Could not load data_entry settings: %s", exc)
+    return defaults
+
+
+def _validate_period(month: int, year: int, settings: dict) -> None:
+    floor_year = int(settings.get("floor_year", 2026))
+    floor_month = int(settings.get("floor_month", 3))
+    max_year = int(settings.get("max_year", datetime.now(timezone.utc).year))
+    max_month = int(
+        settings.get("max_month", min(datetime.now(timezone.utc).month, 11))
+    )
+    db_month = month - 1
+    if month < 1 or month > 12:
+        raise HTTPException(status_code=422, detail="Month must be between 1 and 12.")
+    if year < floor_year or (year == floor_year and db_month < floor_month):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Data Entry starts at {calendar.month_name[floor_month + 1]} {floor_year}.",
+        )
+    if year > max_year or (year == max_year and db_month > max_month):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Data Entry is open through {calendar.month_name[max_month + 1]} {max_year}.",
+        )
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 
 def _stage_entries(
-    ops: list[dict], batch_id: str, file_ref: str, submitter: str
+    ops: list[dict],
+    batch_id: str,
+    file_ref: str,
+    submitter: str,
+    description: str = "",
 ) -> list[dict]:
     """Write a list of {operation, full_payload} dicts to staging_entries."""
     rows = []
@@ -133,9 +189,14 @@ def _stage_entries(
                 "old_value_text": None,
                 "new_value_text": new_value,
                 "change_type": "import",
-                "metadata": {"summary": summary, "file_ref": file_ref},
+                "metadata": {
+                    "summary": summary,
+                    "file_ref": file_ref,
+                    "description": description[:500] if description else None,
+                },
                 "status": "pending",
                 "submitted_by": submitter,
+                "review_note": description[:500] if description else None,
                 "source": "ai_data_entry",
                 "operation": operation,
                 "full_payload": payload,
@@ -609,17 +670,19 @@ def _upsert_invoice_record(
     year: int,
     week: int,
     submitter_id: str,
-) -> tuple[Optional[str], bool]:
-    """Insert an invoices row from parsed meta.  Returns (invoice_id, already_existed).
+) -> tuple[Optional[str], bool, bool]:
+    """Insert an invoices row from parsed meta.
+
+    Returns (invoice_id, pending_duplicate, found_existing).
 
     invoice_number is the idempotency key.  If a row with the same invoice_number
     already exists we return its id without inserting (idempotent re-upload guard).
-    Returns (None, False) when invoice_number is absent (non-US Foods uploads).
+    Returns (None, False, False) when invoice_number is absent (non-US Foods uploads).
     """
     svc = _client()
     inv_num = (meta.get("invoice_number") or "").strip()
     if not inv_num:
-        return None, False
+        return None, False, False
 
     # Idempotency check — only block re-upload when a data-entry-created (status=pending)
     # record already exists.  Pre-existing verified/applied rows were entered manually
@@ -636,9 +699,9 @@ def _upsert_invoice_record(
             row_data = existing.data[0]
             if row_data.get("status") == "pending":
                 # Genuinely in-flight data-entry record — block duplicate staging
-                return row_data["id"], True
+                return row_data["id"], True, True
             # Pre-existing verified/applied invoice — allow re-import (will overwrite w{N})
-            return row_data["id"], False
+            return row_data["id"], False, True
     except Exception:
         pass
 
@@ -699,9 +762,9 @@ def _upsert_invoice_record(
     try:
         r = svc.table("invoices").insert(row).execute()
         invoice_id = r.data[0]["id"] if r.data else None
-        return invoice_id, False
+        return invoice_id, False, False
     except Exception:
-        return None, False
+        return None, False, False
 
 
 # ── routes ────────────────────────────────────────────────────────────────────
@@ -732,13 +795,19 @@ async def upload_file(
         month = now.month
     if not year:
         year = now.year
+    period_settings = _data_entry_period_settings()
+    _validate_period(month, year, period_settings)
+    direction = direction.lower().strip()
+    if direction not in ("received", "issued"):
+        raise HTTPException(
+            status_code=422, detail="Direction must be received or issued."
+        )
     valid_weeks = _weeks_in_month(month, year)
     if week and (week < 1 or week > valid_weeks):
         raise HTTPException(
             status_code=422,
             detail=f"{calendar.month_name[month]} {year} has weeks W1-W{valid_weeks}; W{week} is not valid.",
         )
-
     if await request.is_disconnected():
         log.warning("[DATA-ENTRY] Client disconnected before file read")
         raise HTTPException(status_code=499, detail="Client disconnected")
@@ -814,6 +883,7 @@ async def upload_file(
     reconciliation: dict = parsed_meta.get("reconciliation", {})
     invoice_id: Optional[str] = None
     invoice_is_pending_dup = False
+    invoice_found_existing = False
     if any(
         op.get("operation") in ("inventory_save", "inventory_week_update") for op in ops
     ):
@@ -832,7 +902,10 @@ async def upload_file(
                 recon.get("reconciled", False),
             )
             delta_pct = recon.get("delta_pct", 0)
-            if delta_pct > 5.0:
+            max_delta_pct = float(
+                period_settings.get("reconcile_max_delta_pct", 5.0) or 5.0
+            )
+            if delta_pct > max_delta_pct:
                 log.error(
                     "[DATA-ENTRY] BLOCKED reconciliation_failed | file=%s delta_pct=%.2f%%",
                     fname,
@@ -852,8 +925,8 @@ async def upload_file(
                     },
                 )
 
-        invoice_id, invoice_is_pending_dup = _upsert_invoice_record(
-            parsed_meta, month, year, week, auth_user["id"]
+        invoice_id, invoice_is_pending_dup, invoice_found_existing = (
+            _upsert_invoice_record(parsed_meta, month, year, week, auth_user["id"])
         )
         if invoice_is_pending_dup and invoice_id:
             log.warning(
@@ -889,6 +962,8 @@ async def upload_file(
     except Exception:
         catalog_empty = False
     allow_new_items = catalog_empty or week == 0
+    if week > 0 and period_settings.get("allow_new_items_on_weekly") is True:
+        allow_new_items = True
     ops, sku_queued = _resolve_and_queue_items(
         ops,
         fname,
@@ -924,6 +999,7 @@ async def upload_file(
             svc.table("staging_entries")
             .select("entry_id, batch_id")
             .eq("file_ref", fname)
+            .eq("submitted_by", auth_user["id"])
             .eq("status", "pending")
             .execute()
         )
@@ -947,7 +1023,9 @@ async def upload_file(
         )
 
     try:
-        staged = _stage_entries(ops, batch_id, fname, submitter)
+        staged = _stage_entries(
+            ops, batch_id, fname, submitter, (description or "").strip()
+        )
     except Exception as e:
         log.error(
             "[DATA-ENTRY] Staging failed | file=%s batch=%s error=%s",
@@ -974,7 +1052,7 @@ async def upload_file(
         "batch_id": batch_id,
         "staged_count": len(staged),
         "sku_queued": sku_queued,
-        "is_reimport": invoice_id is not None and not invoice_is_pending_dup,
+        "is_reimport": invoice_found_existing and not invoice_is_pending_dup,
         "operations": op_counts,
         "file": file.filename,
         "month": month,
@@ -1152,6 +1230,7 @@ async def get_settings(auth_user: dict = Depends(_get_auth_user)):
         "keys": keys,
         "vision_models": list(ai_engine.VISION_MODELS),
         "ai_enabled": True,
+        "period": _data_entry_period_settings(),
     }
 
 

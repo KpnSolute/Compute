@@ -31,6 +31,10 @@ The production Supabase project was intentionally wiped clean of inventory, invo
 
 **Data Entry extraction order:** digital/text PDFs are parsed locally first with `pdfplumber` / `pdfminer.six`. Scanned PDFs and images are rendered/read as images, sent to Google Cloud Vision OCR, parsed back through the deterministic invoice parser, and only then fall back to Gemini vision/legacy OCR when OCR text cannot produce line items. This keeps local PDF extraction working while using the Cloud API for picture reading.
 
+**Data Entry period gate:** `app_settings.data_entry` controls the live upload window. Defaults are `floor_year=2026`, `floor_month=3` (April, 0-indexed), and max month = current calendar month plus one. The UI and backend both reject periods outside that window. For the June 2026 rebuild this means April, May, June, and July 2026 are selectable while earlier historical months stay out of the operational import path.
+
+**Operational week model:** MJCC inventory uses four operational weeks per month: W1-W4. Calendar days after the 28th are treated operationally as the next month's W1, not as W5. The legacy `w5_*` / `wk5_total` columns still exist for compatibility, but live Supabase migration `013_enforce_four_operational_weeks` forces them to remain zero and constrains `week_status.week` to 1-4.
+
 ---
 
 ## 1. Critical invariants — read before touching anything
@@ -39,7 +43,7 @@ The production Supabase project was intentionally wiped clean of inventory, invo
 |---|---|
 | `monthly_inventory.on_hand` = **OPENING balance** | Ending = `on_hand + Σreceived − Σissued`. `perform_rollover` copies ending into next month's opening. Writers MUST store opening, never the computed closing. |
 | `month` is **0-indexed** everywhere in the DB | `0`=Jan … `11`=Dec. CHECK enforces 0–11. The API is 1-indexed; convert at the boundary: `db_month = api_month − 1`. |
-| Inventory weeks run **W1–W5** | 29–31 day months have a real week 5. `monthly_inventory` and `perform_rollover` both handle `w5_*`. |
+| Inventory weeks run **W1-W4** | Days after the 28th roll into the next month's W1 operationally. Legacy `w5_*` columns are unused and constrained to zero. |
 | `par_level` lives in `inventory_items` — **global** | One par per item, shared across all periods. Not per-month. |
 | Published period = **read-only, enforced by trigger** | `guard_closed_month_writes` rejects any write to a `published` month. To edit a closed month: set `month_status.status='open'`, edit, re-close. |
 | `user_profiles` has **no password column** | Admin/manager auth = Supabase Auth (JWT) keyed by synthesized email; staff auth = `pin`. |
@@ -62,15 +66,15 @@ The production Supabase project was intentionally wiped clean of inventory, invo
 
 ```
 inventory_categories ─┐
-                      ├─< inventory_items >─┬─< monthly_inventory  (period fact: opening + W1..W5 received/issued)
+                      ├─< inventory_items >─┬─< monthly_inventory  (period fact: opening + W1..W4 received/issued)
 vendors ──────────────┘                    ├─< item_barcodes      (barcode -> item map)
                                            └─< sku_review_queue   (unresolved parsed SKUs)
 ```
 
 **Ending / value math (single source of truth):**
 ```
-received = w1_received + w2_received + w3_received + w4_received + w5_received
-issued   = w1_issued   + w2_issued   + w3_issued   + w4_issued   + w5_issued
+received = w1_received + w2_received + w3_received + w4_received
+issued   = w1_issued   + w2_issued   + w3_issued   + w4_issued
 ending   = GREATEST(0, on_hand + received − issued)      -- current stock
 value    = ending * unit_price                            -- inventory value
 reorder  = ending < par_level                             -- low stock (uses ending, not opening)
@@ -98,14 +102,14 @@ Notation: **PK**, *FK→table*, `UQ`(unique). Common audit columns `created_at`/
 
 ### 4.2 Inventory fact & period locking
 
-**`monthly_inventory`** — per-item/per-month fact. `id` PK · `item_id` *FK→inventory_items* NN · `month` int NN (0–11) · `year` int NN · `on_hand` num=0 *(opening)* · `w1_received`..`w5_received` num=0 · `w1_issued`..`w5_issued` num=0 · `unit_price` num=0 · +ts · **UQ(item_id, month, year)**
+**`monthly_inventory`** - per-item/per-month fact. `id` PK; `item_id` *FK->inventory_items* NN; `month` int NN (0-11); `year` int NN; `on_hand` num=0 *(opening)*; `w1_received`..`w4_received` num=0; `w1_issued`..`w4_issued` num=0; legacy `w5_received`/`w5_issued` num=0 constrained unused; `unit_price` num=0; +ts; **UQ(item_id, month, year)**
 Triggers: `guard_closed_month_writes`, `guard_locked_week_writes`, `touch_updated_at`, `trg_refresh_snapshot`.
 
 **`month_status`** — inventory period lock. `id` serial PK · `month` int NN (0–11) · `year` int NN (2020–2040) · `status` text ∈ {`open`,`published`} · `opened_at` · `published_at` · `published_by` *FK→user_profiles* · **UQ(month, year)**
 
 **`week_status`** — per-week lock. `id` PK · `month` NN · `year` NN · `week` int NN (1–5) · `status` ∈ {`open`,`locked`,`published`} · `locked_by` *FK→user_profiles* · `locked_at` · `created_at` · **UQ(month, year, week)**
 
-**`monthly_snapshots`** — period rollup (computed). `id` PK · `month` NN · `year` NN · `grand_total` · `category_totals` jsonb · `item_count` · `reorder_count` · `preset` bool · `data` jsonb · `wk1_total`..`wk5_total` · `starting_total` · `saved_by` · `saved_at` · **UQ(month, year)**. Maintained by `trg_refresh_snapshot` / `refresh_monthly_snapshot`.
+**`monthly_snapshots`** — period rollup (computed). `id` PK · `month` NN · `year` NN · `grand_total` · `category_totals` jsonb · `item_count` · `reorder_count` · `preset` bool · `data` jsonb · `wk1_total`..`wk4_total` plus legacy `wk5_total` constrained unused · `starting_total` · `saved_by` · `saved_at` · **UQ(month, year)**. Maintained by `trg_refresh_snapshot` / `refresh_monthly_snapshot`.
 
 ### 4.3 Purchasing (invoices) — separate period spine from inventory locking
 
@@ -174,14 +178,14 @@ No `_backup_may2026_*` backup tables remain in `public`. Historical safety snaps
 
 ## 5. Views (6)
 
-- **`live_inventory`** — current live stock for the **open period** (fallback latest) derived from `monthly_inventory` + `inventory_items` (+ primary barcode). Exposes `on_hand` (= **ending** stock), `opening_on_hand`, `w1r..w5r`, `w1i..w5i`, `total_received`, `total_issued`, `sub_total` (= ending × price), `order_qty`, `par_level`, `barcode_id`. **This is the dashboard's inventory source.** Used by the API.
+- **`live_inventory`** — current live stock for the **open period** (fallback latest) derived from `monthly_inventory` + `inventory_items` (+ primary barcode). Exposes `on_hand` (= **ending** stock), `opening_on_hand`, `w1r..w4r`, `w1i..w4i`, `total_received`, `total_issued`, `sub_total` (= ending × price), `order_qty`, `par_level`, `barcode_id`. **This is the dashboard's inventory source.** Used by the API.
 - **`dashboard_summary`**, **`category_spending`**, **`category_summary`**, **`invoice_spending_summary`**, **`item_price_history`**, **`monthly_comparison`** — reporting views (read-only).
 
 ---
 
 ## 6. Functions (33) & triggers
 
-**Period / inventory:** `perform_rollover` (carry ending→next opening, incl. W5; publishes from-month), `get_current_period`, `get_distinct_months`, `increment_inventory_field`, `refresh_monthly_snapshot` + `trg_refresh_snapshot`, `refresh_week_gross` + `trg_invoice_refresh_week`, `set_week_status`, `admin_merge_items` (merge two items → `monthly_inventory` + `item_barcodes`), `import_archive_month`, `resolve_invoice_sku`, `sku_add_alias`, `sku_review_resolve`.
+**Period / inventory:** `perform_rollover` (carry ending to next opening; publishes from-month), `get_current_period`, `get_distinct_months`, `increment_inventory_field`, `refresh_monthly_snapshot` + `trg_refresh_snapshot`, `refresh_week_gross` + `trg_invoice_refresh_week`, `set_week_status`, `admin_merge_items` (merge two items -> `monthly_inventory` + `item_barcodes`), `import_archive_month`, `resolve_invoice_sku`, `sku_add_alias`, `sku_review_resolve`.
 
 **Guards (triggers on `monthly_inventory`):** `guard_closed_month_writes` (block writes to non-open months), `guard_locked_week_writes` (block writes to locked weeks — **note: bypasses `service_role`**, so it does not restrain the backend; see phase-2).
 
@@ -228,7 +232,7 @@ The new API authenticates as `service_role`. Frontend reads directly; **never** 
 | # | What |
 |---|---|
 | `002_schema_redesign` | original normalized base (pre-existing) |
-| `005_fix_rollover_include_week5` | `perform_rollover` now includes W5 in carry-forward |
+| `005_fix_rollover_include_week5` | Historical migration; superseded by `013_enforce_four_operational_weeks` for live W1-W4 operations |
 | `006_fix_closed_month_guard_logic` | publish lock actually enforced (was a no-op) |
 | `007_remove_dead_weight` | dropped 9 dead tables, 3 redundant views, 1 orphan fn; rewrote `admin_merge_items` |
 | `008_unify_inventory_retire_barcode_dupes` | retired `barcodes` + `inventory_master`; migrated barcode maps to `item_barcodes`; rebuilt `live_inventory` on `monthly_inventory` |

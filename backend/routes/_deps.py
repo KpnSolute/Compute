@@ -65,7 +65,7 @@ _require_manager = _require_admin_or_manager
 
 
 def ensure_pr_for_entries(
-    entry_ids: list[str], author_id: str, title: str
+    entry_ids: list[str], author_id: str, title: str, description: str = ""
 ) -> dict | None:
     """Wrap newly-staged entries in a pull request, automatically.
 
@@ -117,7 +117,7 @@ def ensure_pr_for_entries(
                 .insert(
                     {
                         "title": title.strip() or "Untitled request",
-                        "description": "",
+                        "description": (description or "").strip(),
                         "author_id": author_id,
                         "entity_scope": "inventory",
                     }
