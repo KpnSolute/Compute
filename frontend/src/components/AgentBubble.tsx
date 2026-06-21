@@ -157,6 +157,17 @@ export function AgentBubble({ user }: { user: User }) {
         if (isOpen) setTimeout(() => inputRef.current?.focus(), 220);
     }, [isOpen]);
 
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const detail = (e as CustomEvent<{ prompt?: string }>).detail || {};
+            setIsOpen(true);
+            if (detail.prompt) setInput(detail.prompt);
+            setTimeout(() => inputRef.current?.focus(), 240);
+        };
+        window.addEventListener('mjcc:open-agent', handler);
+        return () => window.removeEventListener('mjcc:open-agent', handler);
+    }, []);
+
     const sendMessage = useCallback(async (text: string) => {
         const trimmed = text.trim();
         if (!trimmed || loading) return;

@@ -4,6 +4,106 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.9.4 — 2026-06-20 — Codex live-upload preflight for April rebuild
+
+**Codex:** Prepared Data Entry for live baseline uploads after the inventory wipe. Fixed the clean-catalog blocker where unknown SKUs would all be diverted to SKU Review and the upload would fail; full-month baseline imports and empty-catalog imports now allow new SKUs through Source Control as reviewed new items, while later weekly imports still queue unknown vendor SKUs for manager review. SKU identity is normalized by trimming whitespace and uppercasing letters while preserving leading zeros and punctuation.
+
+**Codex fixes:** Expanded deterministic spreadsheet mapping for full-month sheets with W1-W5 received/receive/receivable and issued/pulled/pull columns. Added backend month/week validation so the selected month only accepts its valid week range. Updated Data Entry UI to show W1-W4 or W1-W5 from the selected month/year, including June 2026 W1-W5, and renamed directions to `Received` and `Pulled / Issued`. Added first-run empty inventory guidance in Inventory with direct actions to Data Entry and Source Control. Wired the AI chat bubble to open from UI events and made failed Data Entry uploads open MJCC AI with a prefilled clarification prompt.
+
+**Verification:** Local Chrome DevTools MCP confirmed Data Entry shows W1-W5 for June 2026 and reveals `Received` / `Pulled / Issued` after selecting W1. Inventory empty-state guide appears with `Open Data Entry` and `Open Source Control`. Mapper smoke confirmed `Week 1 Received`, `Week 2 Pull`, `W5 Received`, and `W5 Pulled` map to `w1r`, `w2i`, `w5r`, and `w5i`; SKU `abc-001` normalizes to `ABC-001`; February 2025 has 4 weeks and June 2026 has 5. `backend/.venv/Scripts/ruff.exe format backend/` and `ruff check backend/` passed; dummy-env `import backend.main` passed; frontend `npm run build` passed with only the existing bundle-size warning.
+
+**Push:** pending — not yet pushed
+
+## v4.9.3 — 2026-06-20 — Codex split AI Studio language from Google Cloud Vision OCR
+
+**Codex:** Separated the two Google AI roles in Supabase and code. `provider='google'` / `MJCC Google AI Studio Language` is now the Gemini language + structured extraction key for Data Entry and chat. `provider='google_cloud_vision'` / `MJCC Google Cloud Vision OCR` is now the dedicated Google Cloud Vision OCR key for reading scanned PDFs and image uploads. Updated `DB.md` with the split and extraction order so future agents do not merge the two keys back into one provider slot.
+
+**Codex fixes:** Added Google Cloud Vision `DOCUMENT_TEXT_DETECTION` OCR to `backend/ai/invoice_parser.py`, including a Supabase-backed key resolver and a public text-page invoice parser. Updated the Data Entry scanned-image path so rendered PDF pages/images run through Google Cloud Vision OCR first, then deterministic invoice parsing/Source Control staging, with Gemini vision kept as structured fallback and legacy/local OCR as later fallback. Digital PDFs still use local `pdfplumber` / `pdfminer.six` extraction first.
+
+**Verification:** Production `/api/agent/chat` returned 200 using the active AI Studio/Gemini key. Direct Google Cloud Vision API smoke with a generated image returned 200 and extracted the test text. Local parser smoke confirmed `_google_cloud_vision_images()` returns OCR text with the Google Cloud key. Local `parser.parse_pdf()` extracted text from a generated text PDF without cloud calls. `backend/.venv/Scripts/ruff.exe format backend/` and `ruff check backend/` passed; frontend `npm run build` passed with only the existing bundle-size warning.
+
+**Push:** pending — not yet pushed
+
+## v4.9.2 — 2026-06-20 — Codex Google AI fallback and Source Control agent tools
+
+**Codex:** Added the user-provided Google fallback credentials to Supabase `ai_provider_keys` without exposing the raw key values. Set the active/default production AI stack to Google Gemini `gemini-2.5-flash` with vision enabled. The newly provided Google vision key is stored, but a live production `agent/chat` call returned Google `403 Forbidden`, so it was left inactive and production was restored to the existing working Google vision key. The second provided language fallback key is also stored inactive/pending validation because its format does not match the currently supported provider key formats.
+
+**Codex fixes:** Added controlled AI Source Control tools locally: `stage_inventory_save`, `stage_inventory_week_update`, and `get_source_control_status`. These tools stage inventory edits into `staging_entries` and auto-link/open a pull request instead of writing directly to inventory tables. Updated the agent route to pass authenticated user context into tools, updated the default/live `agent_config.allowed_tools`, and updated the AI Studio Tools UI so sudo/admin users can see the new Source Control staging capabilities.
+
+**Verification:** Chrome DevTools MCP confirmed local admin login as Jeremiah/Sudo Administrator, Data Entry shows Google `gemini-2.5-flash` with vision enabled, 2021-2026 import years, and Source Control available beside Data Entry. Production API checks returned 200 for `/api/data-entry/settings`, `/api/data-entry/models?provider=google`, and `/api/agent/config`; production `/api/agent/chat` returned 200 using the restored working Google key. The new provided Google key produced a real Google `403`, confirming it needs Google Cloud/API restriction fixes before activation. Local AI Tools UI now shows Stage Inventory, Stage Weekly Data, and Source Status. `npm run build` passed. `backend/.venv/Scripts/ruff.exe format backend/` and `ruff check backend/` passed; dummy-env `import backend.main` passed. `git pull --ff-only origin main` reported already up to date, with a non-blocking permission warning for stale `.git/worktrees/mjcc-origin-main-review` cleanup.
+
+**Push:** pending — not yet pushed
+
+## v4.9.1 — 2026-06-20 — Codex inventory/source-control reset and Data Entry readiness
+
+**Codex:** Reset live Supabase `MJCCv1` inventory history to a clean skeleton for rebuilding from April 2026 through Data Entry. Truncated inventory catalog/facts, invoices, purchasing period summaries, Source Control staging/PR/commit/version rows, GitHub sync queue, SKU review queue, and month/week status. Preserved logins/users, app settings, AI keys/config, inventory categories, vendors, events, menu cycle shell, opening checklist, ServSafe certifications, and operations logs. Dropped the obsolete `_backup_may2026_*` public backup tables and updated `DB.md` with the new reset baseline, preserved counts, parser stack, and April 2026 origin rule.
+
+**Codex fixes:** Set live `app_settings.agent_config.min_role` to `manager` so staff are gated away from AI tools. Patched local frontend AI navigation roles to manager+, patched local agent automation routes to enforce the same min-role check, fixed the Source Control drawer positioning so it no longer clips the main UI, expanded Data Entry year selection back to 2021-2026, and improved deterministic import support for Excel/PDF/image documents with `pandas`, `openpyxl`, `pdfplumber`, `pdfminer.six`, `PyMuPDF`, and `Pillow`.
+
+**Verification:** Supabase post-wipe counts are 0 for `inventory_items`, `item_barcodes`, `monthly_inventory`, `monthly_snapshots`, `invoices`, `invoice_items`, `month_periods`, `week_gross`, `sku_review_queue`, `staging_entries`, `pull_requests`, `commits`, `commit_changes`, `inventory_versions`, `github_sync_queue`, `month_status`, and `week_status`. Preserved counts checked: `user_profiles=13`, `app_settings=10`, `inventory_categories=11`, `vendors=3`, `events=34`, `menu_cycles=1`, `opening_checklist_items=8`, `servsafe_certifications=7`, `daily_operations_logs=8`, `ai_provider_keys=2`, `ai_stack_config=1`. Chrome DevTools MCP verified admin login as Jeremiah/Sudo Administrator and production auth/dashboard calls returning 200. `npm run build` passed; `ruff check backend/` passed after `ruff format backend/`. Parser runtime smoke was blocked by temporary Windows dependency environment setup timing out, so deploy verification still needs a real environment run.
+
+**Push:** pending — not yet pushed
+
+## v4.8.8 — 2026-06-20 — Codex Chrome DevTools MCP verification
+
+**Codex:** Re-ran the local frontend Source Control smoke through Chrome DevTools MCP after the user asked whether DevTools had been used. Opened `http://127.0.0.1:5173/`, logged in through the Staff PIN UI, opened the Source Control panel and My Requests modal, and inspected the browser Network/Console stream. Confirmed the local frontend is calling the production API and the Source Control requests are clean from the browser path.
+
+**Verification:** Chrome DevTools Network showed `POST https://mjcc-managements.onrender.com/api/auth/login` → 200, dashboard/bootstrap API calls → 200, and `GET https://mjcc-managements.onrender.com/api/pulls?status=all&limit=50&offset=0` → 200 with response `[]`. Console had no runtime errors; remaining DevTools issues are login-form accessibility warnings about unlabeled/id-less form fields.
+
+**Push:** pending — not yet pushed
+
+## v4.8.7 — 2026-06-20 — Codex Source Control production UX/API test
+
+**Codex:** Tested Source Control / user-control flow from the local frontend against the production FastAPI/Supabase stack. Staff PIN login works, staff staging writes to `staging_entries` with the correct `submitted_by`, staff commit access is blocked with 403, explicit `/api/pulls` submission creates a numbered `pull_requests` row and links the staged entry, and the staff Requests modal reloads cleanly after cleanup. Found a production bug in the automatic PR wrapper: `/api/staging` can leave new rows loose (`pull_request_id = null`) even though Data Entry and manual staging expect automatic PR wrapping. Patched the local backend wrapper to create/reuse an open PR through direct table writes and attach only the caller's pending rows, and patched PR listing to hide empty open PR shells. Also fixed the Source Control staff panel copy so a clean working tree says "No pending submissions" instead of claiming changes are pending review.
+
+**Verification:** Production test used a temporary `daily_log_save` staging row and a temporary PR, then deleted the exact Codex-tagged rows. Final Supabase cleanup check: `codex_stage=0`, `codex_prs=0`, `loose_pending_entries=0`. Local UI hot reload confirmed the clean panel copy. `ruff check backend/` passed and `frontend npm run build` passed. Production still needs these local fixes pushed/deployed before automatic PR wrapping can be considered fixed live.
+
+**Push:** pending — not yet pushed
+
+## v4.8.6 — 2026-06-20 — Codex local frontend testing server
+
+**Codex:** Started a local Vite testing instance for the frontend while preserving the production API target. `frontend/.env` confirms `VITE_API_BASE=https://mjcc-managements.onrender.com`, so the local UI at `http://127.0.0.1:5173/` exercises the live Render FastAPI backend instead of localhost backend code.
+
+**Verification:** Vite server started on port `5173` and `curl http://127.0.0.1:5173/` returns `200` with the React root and `/src/main.tsx` module. Server logs are in `%TEMP%\mjcc-vite-5173.log`; stderr log is `%TEMP%\mjcc-vite-5173.err.log`.
+
+**Push:** pending — not yet pushed
+
+## v4.8.5 — 2026-06-20 — Codex production logic smoke test and gate fixes
+
+**Codex:** Personally tested the synced `6a55cf1` production deployment and current worktree. Confirmed Render backend/frontend deploys are live at `6a55cf1`, backend `/health` returns 200, frontend static site returns 200, and authenticated production smoke tests pass for auth/me, dashboard stats, inventory, inventory items, period/month status, staging, PRs, events, menu, opening checklist, ServSafe, meal periods, HACCP/daily/compliance logs, and commits. Expected gates also behaved correctly: staff access to GitHub sync status returns 403 and retired direct `POST /api/inventory` returns 410. Live closed-month write guard was tested with a rollback-safe DB block and correctly rejected a no-op update to a published period.
+
+**Codex fixes:** Fixed frontend `Portal.tsx` lint failure where `compactDirtyRows()` captured `rows` before declaration; aligned `GET /api/inventory/reorders` to canonical `live_inventory` so it matches dashboard low-stock math; removed/expanded Ruff lint violations from backend auth-route consolidation; ran Ruff format across backend per project convention.
+
+**Remaining production data issue:** `monthly_snapshots.reorder_count` is still wrong for the open period because live `refresh_monthly_snapshot()` counts opening `monthly_inventory.on_hand`, not ending stock. Current production comparison: dashboard/live ending low stock = 77, snapshot/opening count = 156. This needs a DB function migration before snapshot-backed views can be trusted for reorder counts.
+
+**Verification:** `render services -o json`, `render deploys list` for backend/frontend, Render error/5xx logs since deploy (no rows), `curl` health/frontend checks, authenticated production API smoke suite, Supabase invariant queries, rollback-safe closed-month guard test, temp-venv `ruff check backend/`, `ruff format backend/`, frontend `eslint --quiet` initially passed after the Portal fix, `npm run build` passed after all code changes. Later ESLint invocations hung/time-boxed on Windows even for a single file, but production build remained green.
+
+**Push:** pending — not yet pushed
+
+## v4.8.4 — 2026-06-20 — Codex synced local worktree to origin/main
+
+**Codex:** Fast-forwarded local `main` from `469c489` to `origin/main` at `6a55cf1`, bringing Claude's API/database restructure into the shared worktree. Preserved the local Codex audit entries in `CHANGELOG.md` and left unrelated untracked local files untouched.
+
+**Verification:** `git pull --ff-only origin main`, `git rev-parse --short HEAD`, `git rev-parse --short origin/main`, `git status -sb`. HEAD and `origin/main` both resolve to `6a55cf1`.
+
+**Push:** pending — not yet pushed
+
+## v4.8.3 — 2026-06-20 — Codex review of Claude API/DB restructure
+
+**Codex:** Reviewed Claude's pushed API/database restructure at `origin/main` (`6a55cf1`) against source diffs and live Supabase `MJCCv1` metadata. Confirmed several real improvements: closed-month DB guard is live, `perform_rollover` includes W5, `live_inventory` computes ending stock, direct `POST /api/inventory` is retired, and canonical barcode tables are active. Findings to address before treating the restructure as fully settled: new root `DB.md` violates `AGENTS.md` markdown governance and claims source-of-truth status; migrations 007/008/010/011 are comments-only/empty instead of reproducible SQL bodies; `_apply_entries` is record-all-or-nothing but not transaction-all-or-nothing, so successful replay writes can land before a later failure aborts the commit; AI helper modules still read `monthly_inventory.on_hand` as current stock even though the restructure redefines it as opening balance; live `refresh_monthly_snapshot` still counts reorders using opening `mi.on_hand` while the rest of the read model uses ending stock.
+
+**Verification:** `git fetch origin`, `git diff HEAD..origin/main`, detached worktree review of `origin/main`, Supabase `execute_sql` for live columns/functions/triggers/views. Independent build reproduction was blocked in the detached review worktree because `ruff`, `fastapi`, and frontend `tsc` dependencies were not installed there.
+
+**Push:** pending — not yet pushed
+
+## v4.8.2 — 2026-06-20 — Codex external API connectivity check
+
+**Codex:** Verified non-invasive external access before reviewing Claude's API/database restructure. GitHub CLI is authenticated as `KpnWorld`, local `origin` points to `muttyman2000/MJCC-Managements-.git`, and `gh api` can read both the source-code repo and the `MJCC-Portal/mjcc` data-archive repo. Supabase MCP can list projects and read `MJCCv1` (`mgvyylvmkxhhataavqjz`) table metadata; `MJCCv1` reports `ACTIVE_HEALTHY`.
+
+**Verification:** `git remote -v`, `gh auth status`, `gh api repos/muttyman2000/MJCC-Managements-`, `gh api repos/MJCC-Portal/mjcc`, Supabase `list_projects`, Supabase `list_tables`.
+
+**Push:** pending — not yet pushed
+
 ## v4.6.0 — 2026-06-19
 
 ### Source Control — PRs everywhere, real push modal, archive layer audited

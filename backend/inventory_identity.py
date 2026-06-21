@@ -33,6 +33,15 @@ def gen_sku() -> str:
     return "MJC-" + uuid.uuid4().hex[:10].upper()
 
 
+def canonical_sku(sku: str | None) -> str:
+    """Normalize SKU identity without destroying vendor numbering.
+
+    Preserve leading zeros and punctuation, but trim accidental whitespace and
+    uppercase letters so `abc-001` and `ABC-001` do not fork the item catalog.
+    """
+    return (sku or "").strip().upper()
+
+
 def get_new_items_category_id(sup) -> str | None:
     """Resolve the id of the "New Items" review category (cached-friendly)."""
     r = (
@@ -66,7 +75,7 @@ def resolve_and_write_item(
     lands in the New Items bucket even if a category was guessed — so the manager
     reviews everything ingestion introduces.
     """
-    sku = (sku or "").strip() or gen_sku()
+    sku = canonical_sku(sku) or gen_sku()
     now_iso = datetime.now(timezone.utc).isoformat()
 
     existing = (

@@ -34,7 +34,9 @@ def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dic
     r = (
         _client()
         .table("inventory_items")
-        .select("id,sku,description,unit_price,par_level,unit,inventory_categories(name)")
+        .select(
+            "id,sku,description,unit_price,par_level,unit,inventory_categories(name)"
+        )
         .eq("sku", sku)
         .limit(1)
         .execute()
@@ -142,7 +144,9 @@ def _diff_inventory_week(payload: dict) -> dict:
         if qty is None:
             qty = it.get("onHand", 0)
 
-        live_r = svc.table("inventory_items").select("id").eq("sku", sku).limit(1).execute()
+        live_r = (
+            svc.table("inventory_items").select("id").eq("sku", sku).limit(1).execute()
+        )
         item_row = live_r.data[0] if live_r.data else None
         status = "update" if item_row else "new"
 

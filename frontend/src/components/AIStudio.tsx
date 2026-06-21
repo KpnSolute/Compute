@@ -65,6 +65,9 @@ function fmtCost(usd: number) {
 // ── tool metadata (mirrors backend TOOL_MIN_ROLE + TOOL_DESCRIPTIONS) ──────────
 
 const TOOL_META: Record<string, { label: string; emoji: string; desc: string; minRole: string }> = {
+    stage_inventory_save: { label: 'Stage Inventory', emoji: 'SC', desc: 'Stage month-level inventory edits into Source Control for review.', minRole: 'manager' },
+    stage_inventory_week_update: { label: 'Stage Weekly Data', emoji: 'SC', desc: 'Stage weekly received or issued quantities and attach them to a pull request.', minRole: 'manager' },
+    get_source_control_status: { label: 'Source Status', emoji: 'SC', desc: 'Check pending staged changes and open pull requests.', minRole: 'manager' },
     get_dashboard_stats: { label: 'Dashboard Stats',   emoji: '📊', desc: 'Inventory value, event count, users, and below-par item summary.',                     minRole: 'staff'   },
     get_inventory:       { label: 'Inventory',         emoji: '📦', desc: 'Full inventory list with quantities, par levels, and reorder status.',                   minRole: 'staff'   },
     get_events:          { label: 'Events',            emoji: '📅', desc: 'Upcoming and past events and programs with themes and menu suggestions.',                minRole: 'staff'   },

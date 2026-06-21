@@ -146,12 +146,12 @@ async def login(req: LoginRequest):
         if SUPABASE_JWT_SECRET:
             now = datetime.datetime.now(datetime.timezone.utc)
             payload = {
-                'sub': user['id'],
-                'role': user['role'],
-                'iat': int(now.timestamp()),
-                'exp': int((now + datetime.timedelta(hours=12)).timestamp()),
+                "sub": user["id"],
+                "role": user["role"],
+                "iat": int(now.timestamp()),
+                "exp": int((now + datetime.timedelta(hours=12)).timestamp()),
             }
-            staff_token = pyjwt.encode(payload, SUPABASE_JWT_SECRET, algorithm='HS256')
+            staff_token = pyjwt.encode(payload, SUPABASE_JWT_SECRET, algorithm="HS256")
         else:
             # Transition safety: legacy unsigned token accepted by _deps.py pin_ branch.
             staff_token = f"pin_{user['id']}"

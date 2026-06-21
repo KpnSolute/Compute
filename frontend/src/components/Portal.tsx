@@ -1028,12 +1028,14 @@ function InventoryView({
     invState,
     onSync,
     openSC,
+    go,
 }: {
     user: User;
     period: [number, number];
     invState: any;
     onSync: () => void;
     openSC?: () => void;
+    go?: (key: string) => void;
 }) {
     const lvl = ROLE_LEVEL[user.role];
     const canStage = lvl >= 10;
@@ -1317,6 +1319,39 @@ function InventoryView({
             setStagingBusy((prev) => ({ ...prev, [sku]: false }));
         }
     };
+
+    const live = invState.inv;
+    const rows: any[] = live
+        ? invToList(invState.inv).map((it: any) => ({
+            id: it.id,
+            sku: it.sku,
+            desc: it.desc,
+            cat: it.cat,
+            price: it.price || 0,
+            onHand: it.onHand || 0,
+            par: it.par || 0,
+            unit: it.unit || "",
+            active: it.active !== false,
+            w1i: it.w1i || 0,
+            w2i: it.w2i || 0,
+            w3i: it.w3i || 0,
+            w4i: it.w4i || 0,
+            w5i: it.w5i || 0,
+            w1r: it.w1r || 0,
+            w2r: it.w2r || 0,
+            w3r: it.w3r || 0,
+            w4r: it.w4r || 0,
+            w5r: it.w5r || 0,
+            sku_pending: it.sku_pending ?? String(it.sku || "").startsWith("MJC-"),
+            needs_attention: it.needs_attention ?? it.sku_pending ?? String(it.sku || "").startsWith("MJC-"),
+            status:
+                (it.onHand || 0) < (it.par || 0) && (it.par || 0) > 0
+                    ? "low"
+                    : "ok",
+            value: iTotal(it),
+        }))
+        : [];
+    const cats: string[] = live ? [...new Set(rows.map((r: any) => r.cat))] : [];
 
     // Compact view: batch-stage all rows with unsaved weekly (received/issued)
     // and/or on-hand/par edits into ONE staging entry (mirrors the Monthly
@@ -1604,42 +1639,6 @@ function InventoryView({
         }
     };
 
-    const live = invState.inv;
-    let rows: any[], cats: string[];
-    if (live) {
-        rows = invToList(invState.inv).map((it: any) => ({
-            id: it.id,
-            sku: it.sku,
-            desc: it.desc,
-            cat: it.cat,
-            price: it.price || 0,
-            onHand: it.onHand || 0,
-            par: it.par || 0,
-            unit: it.unit || "",
-            active: it.active !== false,
-            w1i: it.w1i || 0,
-            w2i: it.w2i || 0,
-            w3i: it.w3i || 0,
-            w4i: it.w4i || 0,
-            w5i: it.w5i || 0,
-            w1r: it.w1r || 0,
-            w2r: it.w2r || 0,
-            w3r: it.w3r || 0,
-            w4r: it.w4r || 0,
-            w5r: it.w5r || 0,
-            sku_pending: it.sku_pending ?? String(it.sku || "").startsWith("MJC-"),
-            needs_attention: it.needs_attention ?? it.sku_pending ?? String(it.sku || "").startsWith("MJC-"),
-            status:
-                (it.onHand || 0) < (it.par || 0) && (it.par || 0) > 0
-                    ? "low"
-                    : "ok",
-            value: iTotal(it),
-        }));
-        cats = [...new Set(rows.map((r: any) => r.cat))];
-    } else {
-        rows = [];
-        cats = [];
-    }
     // Dropdown options: API categories first (authoritative + ordered, includes
     // empty buckets like "New Items"), then any item-only categories not in it.
     const catOptions = apiCatNames.length
@@ -1726,6 +1725,30 @@ function InventoryView({
                             Retry
                         </span>
                     )}
+                </div>
+            )}
+
+            {invState.error === "empty" && !invState.loading && (
+                <div className="card" style={{ marginBottom: 14 }}>
+                    <div className="card-head">
+                        <h3>{I.database()} Inventory needs a starting month</h3>
+                        <span className="pill warn">No inventory data</span>
+                    </div>
+                    <div className="card-body">
+                        <p style={{ margin: '0 0 12px', color: 'var(--muted)', lineHeight: 1.5 }}>
+                            The live inventory is clean. Start by importing the April 2026 baseline or your approved
+                            full-month spreadsheet through Data Entry. The upload will stage changes in Source Control
+                            for review before anything becomes inventory history.
+                        </p>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            <button className="btn primary" onClick={() => go?.('dataentry')}>
+                                {I.inbox()} Open Data Entry
+                            </button>
+                            <button className="btn" onClick={() => openSC?.()}>
+                                {I.branch()} Open Source Control
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
 

@@ -3,60 +3,60 @@
 from fastapi import Header, HTTPException, Depends
 from backend.routes import supabase_service, jwt_validator
 
-ROLE_LEVEL = {'staff': 10, 'assistant': 20, 'manager': 30, 'admin': 40, 'sudo': 50}
+ROLE_LEVEL = {"staff": 10, "assistant": 20, "manager": 30, "admin": 40, "sudo": 50}
 
 
-def _get_auth_user(authorization: str = Header('')) -> dict:
+def _get_auth_user(authorization: str = Header("")) -> dict:
     """Resolve caller from Bearer token (JWT or pin_). Raises 401 if missing or invalid.
 
     Returns the full user_profiles row (single source of truth for auth across all
     routers). Selecting `*` keeps every consumer working whether it reads id/role
     or richer profile fields.
     """
-    token = (authorization or '').replace('Bearer ', '').strip()
+    token = (authorization or "").replace("Bearer ", "").strip()
     if not token:
-        raise HTTPException(status_code=401, detail='Missing authorization token')
-    if token.startswith('pin_'):
+        raise HTTPException(status_code=401, detail="Missing authorization token")
+    if token.startswith("pin_"):
         user_id = token[4:]
         try:
             r = (
-                supabase_service.table('user_profiles')
-                .select('*')
-                .eq('id', user_id)
-                .eq('active', True)
+                supabase_service.table("user_profiles")
+                .select("*")
+                .eq("id", user_id)
+                .eq("active", True)
                 .limit(1)
                 .execute()
             )
         except Exception:
-            raise HTTPException(status_code=401, detail='Invalid session')
+            raise HTTPException(status_code=401, detail="Invalid session")
         if not r.data:
-            raise HTTPException(status_code=401, detail='Invalid session')
+            raise HTTPException(status_code=401, detail="Invalid session")
         return r.data[0]
     claims = jwt_validator.verify_token(token)
     if not claims:
-        raise HTTPException(status_code=401, detail='Invalid or expired token')
-    user_id = claims.get('sub')
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    user_id = claims.get("sub")
     if not user_id:
-        raise HTTPException(status_code=401, detail='Token missing user ID')
+        raise HTTPException(status_code=401, detail="Token missing user ID")
     try:
         r = (
-            supabase_service.table('user_profiles')
-            .select('*')
-            .eq('id', user_id)
-            .eq('active', True)
+            supabase_service.table("user_profiles")
+            .select("*")
+            .eq("id", user_id)
+            .eq("active", True)
             .limit(1)
             .execute()
         )
     except Exception:
-        raise HTTPException(status_code=401, detail='User not found or inactive')
+        raise HTTPException(status_code=401, detail="User not found or inactive")
     if not r.data:
-        raise HTTPException(status_code=401, detail='User not found or inactive')
+        raise HTTPException(status_code=401, detail="User not found or inactive")
     return r.data[0]
 
 
 def _require_admin_or_manager(auth_user: dict = Depends(_get_auth_user)) -> dict:
-    if auth_user.get('role') not in ('admin', 'manager', 'sudo'):
-        raise HTTPException(status_code=403, detail='Admin or manager role required')
+    if auth_user.get("role") not in ("admin", "manager", "sudo"):
+        raise HTTPException(status_code=403, detail="Admin or manager role required")
     return auth_user
 
 
@@ -64,7 +64,9 @@ def _require_admin_or_manager(auth_user: dict = Depends(_get_auth_user)) -> dict
 _require_manager = _require_admin_or_manager
 
 
-def ensure_pr_for_entries(entry_ids: list[str], author_id: str, title: str) -> dict | None:
+def ensure_pr_for_entries(
+    entry_ids: list[str], author_id: str, title: str
+) -> dict | None:
     """Wrap newly-staged entries in a pull request, automatically.
 
     Every entry that lands in `staging_entries` as status='pending' (manual edits
@@ -86,37 +88,49 @@ def ensure_pr_for_entries(entry_ids: list[str], author_id: str, title: str) -> d
     if not entry_ids:
         return None
     try:
-        attached = (
-            supabase_service.rpc(
-                'sc_attach_to_open_pr',
-                {'p_author': author_id, 'p_entry_ids': entry_ids},
-            )
+        valid_r = (
+            supabase_service.table("staging_entries")
+            .select("entry_id")
+            .in_("entry_id", entry_ids)
+            .eq("submitted_by", author_id)
+            .eq("status", "pending")
+            .is_("pull_request_id", "null")
             .execute()
         )
-        pr = (
-            attached.data
-            if isinstance(attached.data, dict)
-            else (attached.data[0] if attached.data else None)
-        )
-        if pr:
-            return pr
+        valid_ids = [row["entry_id"] for row in valid_r.data or []]
+        if not valid_ids:
+            return None
 
-        opened = (
-            supabase_service.rpc(
-                'sc_open_pull_request',
-                {
-                    'p_author': author_id,
-                    'p_title': title,
-                    'p_description': '',
-                    'p_entry_ids': entry_ids,
-                },
-            )
+        pr_r = (
+            supabase_service.table("pull_requests")
+            .select("*")
+            .eq("author_id", author_id)
+            .eq("status", "open")
+            .order("created_at", desc=True)
+            .limit(1)
             .execute()
         )
-        return (
-            opened.data
-            if isinstance(opened.data, dict)
-            else (opened.data[0] if opened.data else None)
-        )
+        pr = (pr_r.data or [None])[0]
+        if not pr:
+            opened = (
+                supabase_service.table("pull_requests")
+                .insert(
+                    {
+                        "title": title.strip() or "Untitled request",
+                        "description": "",
+                        "author_id": author_id,
+                        "entity_scope": "inventory",
+                    }
+                )
+                .execute()
+            )
+            pr = (opened.data or [None])[0]
+        if not pr:
+            return None
+
+        supabase_service.table("staging_entries").update(
+            {"pull_request_id": pr["pr_id"]}
+        ).in_("entry_id", valid_ids).execute()
+        return pr
     except Exception:
         return None

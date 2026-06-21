@@ -1069,10 +1069,16 @@ function SCChangesView({
                     <span>Submit {unlinkedStaged.length} change{unlinkedStaged.length !== 1 ? "s" : ""} for review →</span>
                 </div>
             )}
-            {!canReview && unlinkedStaged.length === 0 && (
+            {!canReview && unlinkedStaged.length === 0 && visibleStaged.length > 0 && (
                 <div className="sc-staff-note">
                     {I.user({ style: { width: 12, height: 12 } })}
                     <span>Your changes are pending manager review.</span>
+                </div>
+            )}
+            {!canReview && visibleStaged.length === 0 && (
+                <div className="sc-staff-note">
+                    {I.user({ style: { width: 12, height: 12 } })}
+                    <span>No pending submissions.</span>
                 </div>
             )}
 

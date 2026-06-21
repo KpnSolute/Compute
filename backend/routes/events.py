@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException, Header, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
-from backend.routes import supabase_service, jwt_validator
+from backend.routes import supabase_service
 from backend.routes._deps import _get_auth_user
 
 router = APIRouter(prefix="/api/events", tags=["events"])

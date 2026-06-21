@@ -257,7 +257,11 @@ def seed_menu_entries(cycle_id: str | None = None):
             return
         cycle_id = result.data[0]["id"]
 
-    now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+    now = (
+        __import__("datetime")
+        .datetime.now(__import__("datetime").timezone.utc)
+        .isoformat()
+    )
     total = 0
 
     # delete first (matches route/dispatch pattern) to avoid constraint issues on re-seed
@@ -277,7 +281,9 @@ def seed_menu_entries(cycle_id: str | None = None):
                 "day_of_week": day,
                 "meal_type": meal_type,
                 "items": _serialize_items(items),
-                "sides": _serialize_items([]),  # now included for full §4 fidelity (plan); DB constraint on day_of_week may need user fix in dashboard for seed to succeed
+                "sides": _serialize_items(
+                    []
+                ),  # now included for full §4 fidelity (plan); DB constraint on day_of_week may need user fix in dashboard for seed to succeed
                 "sort_order": sort_order,
                 "created_at": now,
                 "updated_at": now,

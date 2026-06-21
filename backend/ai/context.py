@@ -157,11 +157,18 @@ PAYLOAD FORMAT — inventory_save operation:
       "price": <float>,
       "par": <int — minimum stock level, 0 if unknown>,
       "onHand": <int — current quantity>,
-      "w1r": 0, "w2r": 0, "w3r": 0, "w4r": 0,
-      "w1i": 0, "w2i": 0, "w3i": 0, "w4i": 0
+      "w1r": 0, "w2r": 0, "w3r": 0, "w4r": 0, "w5r": 0,
+      "w1i": 0, "w2i": 0, "w3i": 0, "w4i": 0, "w5i": 0
     }}
   ]
-}}"""
+}}
+
+Weekly cell rules:
+- received / receive / receivable / invoice quantities map to wNr columns.
+- issued / pull / pulled / pull sheet quantities map to wNi columns.
+- Week 5 exists only for months with days 29-31.
+- Preserve SKU exactly except trimming spaces and uppercasing letters; do not merge two different SKUs by description alone.
+"""
 
 
 def build_events_context() -> str:

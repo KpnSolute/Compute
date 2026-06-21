@@ -92,9 +92,9 @@ export const NAV = [
   {
     group: 'AI Studio',
     items: [
-      { key: 'ai-usage',   label: 'My Usage',   icon: 'trend',    min: 10 },
-      { key: 'ai-tools',   label: 'Tools',       icon: 'database', min: 10 },
-      { key: 'ai-presets', label: 'Automation',  icon: 'flame',    min: 10 },
+      { key: 'ai-usage',   label: 'My Usage',   icon: 'trend',    min: 30 },
+      { key: 'ai-tools',   label: 'Tools',       icon: 'database', min: 30 },
+      { key: 'ai-presets', label: 'Automation',  icon: 'flame',    min: 30 },
     ],
   },
   {

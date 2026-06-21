@@ -245,6 +245,10 @@ function DiffRowPreview({ row }: { row: DiffRow }) {
 const ACCEPTED = '.csv,.tsv,.xls,.xlsx,.pdf,.txt,.jpg,.jpeg,.png,.webp,.bmp,.gif,.tif,.tiff';
 const FILE_TYPES = 'CSV · Excel · PDF · Images · Pull sheets · Invoices';
 
+function weeksInMonth(monthIndex: number, year: number) {
+    return new Date(year, monthIndex + 1, 0).getDate() > 28 ? 5 : 4;
+}
+
 function FileZone({
     file, uploading, onFile, onClear,
 }: {
@@ -367,6 +371,11 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
     const stageTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
     const abortRef = useRef<AbortController | null>(null);
     const cancelledRef = useRef(false);
+    const weekCount = weeksInMonth(month, year);
+
+    useEffect(() => {
+        if (week > weekCount) setWeek(0);
+    }, [week, weekCount]);
     const [elapsed, setElapsed] = useState(0);
     const elapsedTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -501,6 +510,13 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                 : (e?.message || 'Upload failed');
             setUploadErr(msg);
             (window as any).toast?.(`AI parsing failed: ${msg}`);
+            if (!userCancelled) {
+                window.dispatchEvent(new CustomEvent('mjcc:open-agent', {
+                    detail: {
+                        prompt: `Data Entry could not parse ${file.name} for ${MONTHS[month]} ${year}${week > 0 ? ` W${week} ${direction}` : ' full month'}. Error: ${msg}. What information do you need from me to map this upload correctly?`,
+                    },
+                }));
+            }
         } finally {
             setUploading(false);
             abortRef.current = null;
@@ -550,7 +566,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                 <div>
                     <h2>Data Entry</h2>
                     <div className="ph-sub">
-                        AI-powered parsing — upload any file, AI extracts and routes to Source Control
+                        Import spreadsheets, invoices, PDFs, and images — deterministic parsing first, AI assist when enabled
                     </div>
                 </div>
                 {!aiCfgLoading && isSudo && (
@@ -689,7 +705,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                                 }}>
                                     <span style={{ fontSize: 14, animation: 'aiSparkFade 1.2s ease-in-out infinite' }}>⟳</span>
                                     <span style={{ flex: 1, fontWeight: 600 }}>
-                                        Waiting on AI provider — {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`} elapsed
+                                        Parsing file — {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`} elapsed
                                     </span>
                                     <button
                                         onClick={cancelUpload}
@@ -724,13 +740,13 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                             <div>
                                 <label style={LBL}>Year</label>
                                 <select className="tb-select" value={year} onChange={e => setYear(+e.target.value)}>
-                                    {[2024, 2025, 2026].map(yr => <option key={yr} value={yr}>{yr}</option>)}
+                                    {[2021, 2022, 2023, 2024, 2025, 2026].map(yr => <option key={yr} value={yr}>{yr}</option>)}
                                 </select>
                             </div>
                             <div>
                                 <label style={LBL}>Hint <span style={{ fontWeight: 400, color: 'var(--faint)' }}>(optional)</span></label>
                                 <select className="tb-select" value={hint} onChange={e => setHint(e.target.value as Hint)}>
-                                    <option value="">✦ AI auto-detect</option>
+                                    <option value="">Auto-detect</option>
                                     <option value="inventory">Inventory</option>
                                     <option value="events">Events</option>
                                     <option value="haccp">HACCP</option>
@@ -743,13 +759,16 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                         <div>
                             <label style={LBL}>Invoice week</label>
                             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                {[0, 1, 2, 3, 4].map(w => (
+                                {[0, ...Array.from({ length: weekCount }, (_, i) => i + 1)].map(w => (
                                     <button key={w} className={week === w ? 'btn primary' : 'btn'}
                                         style={{ padding: '6px 13px', fontSize: 12, fontWeight: 700, minHeight: 36 }}
                                         onClick={() => setWeek(w)}>
                                         {w === 0 ? 'Month' : `W${w}`}
                                     </button>
                                 ))}
+                            </div>
+                            <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 5 }}>
+                                {MONTHS[month]} {year} supports W1-W{weekCount}
                             </div>
                         </div>
 
@@ -759,10 +778,10 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                                 <div style={{ display: 'flex', gap: 4 }}>
                                     <button className={direction === 'received' ? 'btn primary' : 'btn'}
                                         style={{ padding: '6px 13px', fontSize: 12, fontWeight: 700, minHeight: 36 }}
-                                        onClick={() => setDirection('received')}>Down Received</button>
+                                        onClick={() => setDirection('received')}>Received</button>
                                     <button className={direction === 'issued' ? 'btn accent' : 'btn'}
                                         style={{ padding: '6px 13px', fontSize: 12, fontWeight: 700, minHeight: 36 }}
-                                        onClick={() => setDirection('issued')}>Up Issued</button>
+                                        onClick={() => setDirection('issued')}>Pulled / Issued</button>
                                 </div>
                             </div>
                         )}
@@ -806,7 +825,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                         {result && <button className="btn" onClick={clearAll} style={{ fontSize: 12 }}>Upload another</button>}
                         <button className="btn primary" onClick={doUpload} disabled={!file || uploading} style={{ minWidth: 130, minHeight: 40 }}>
                             {I.inbox({ style: { width: 14, height: 14 } })}
-                            {uploading ? 'AI parsing...' : 'Upload & Parse'}
+                            {uploading ? 'Parsing...' : 'Upload & Parse'}
                         </button>
                     </div>
                 </div>

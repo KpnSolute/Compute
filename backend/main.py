@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import logging
 import os
 import sys
@@ -15,7 +16,15 @@ logging.basicConfig(
 # Quiet noisy third-party libraries at INFO -- httpx/httpcore log every single
 # outbound request line by line, which would drown out the [AI]/[DATA-ENTRY]
 # lines we actually care about. Our own loggers (mjcc.*) stay at the level above.
-for _noisy in ("httpx", "httpcore", "hpack", "supabase", "postgrest", "gotrue", "storage3"):
+for _noisy in (
+    "httpx",
+    "httpcore",
+    "hpack",
+    "supabase",
+    "postgrest",
+    "gotrue",
+    "storage3",
+):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 from fastapi import FastAPI

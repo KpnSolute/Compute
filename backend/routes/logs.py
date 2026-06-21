@@ -12,9 +12,9 @@ Endpoints:
 """
 
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Query, Header, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, ConfigDict, Field
-from backend.routes import supabase_service, jwt_validator
+from backend.routes import supabase_service
 from backend.routes._deps import _get_auth_user
 
 router = APIRouter(prefix="/api/logs", tags=["logs"])

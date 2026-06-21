@@ -1764,7 +1764,7 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
    ══════════════════════════════════════════════════════════ */
 
 /* ── Slide-in panel shell ── */
-.sc-panel{position:absolute;top:54px;right:0;bottom:28px;width:360px;background:var(--surface);border-left:1px solid var(--line);box-shadow:-4px 0 24px rgba(9,22,51,.12);z-index:150;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .16s cubic-bezier(.4,0,.2,1);overflow:hidden;will-change:transform}
+.sc-panel{position:fixed;top:54px;right:0;bottom:28px;width:360px;background:var(--surface);border-left:1px solid var(--line);box-shadow:-4px 0 24px rgba(9,22,51,.12);z-index:150;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .16s cubic-bezier(.4,0,.2,1);overflow:hidden;will-change:transform}
 .sc-panel.open{transform:translateX(0)}
 .sc-backdrop{position:absolute;top:54px;right:0;bottom:28px;left:48px;z-index:149;background:rgba(9,22,51,.18);cursor:default}
 

@@ -10,6 +10,7 @@ import logging
 import time
 import uuid
 import os
+import calendar
 from datetime import datetime, timezone
 from typing import Any, Optional
 from fastapi import (
@@ -30,6 +31,7 @@ from backend.ai import engine as ai_engine
 from backend.ai import invoice_parser
 from backend.ai import parser as file_parser
 from backend.ai import mapper, context as ctx, diff as diff_engine
+from backend.inventory_identity import canonical_sku
 
 log = logging.getLogger("mjcc.data_entry")
 
@@ -57,6 +59,13 @@ def _expires() -> str:
     from datetime import timedelta
 
     return (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+
+
+def _weeks_in_month(month: int, year: int) -> int:
+    """MJCC inventory weeks are date buckets: 1-7, 8-14, 15-21, 22-28, 29-end."""
+    if month < 1 or month > 12:
+        return 0
+    return 5 if calendar.monthrange(year, month)[1] > 28 else 4
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -187,6 +196,41 @@ def _extract_ops(
         img_meta = img_data.get("meta", {})
         provider = ai_config.get("provider", "")
         model = ai_config.get("model", "")
+
+        # Picture-reading path: Google Cloud Vision OCR turns scans/images into
+        # text first. The text then flows through the deterministic invoice parser
+        # and normal Source Control staging. Gemini remains the structured fallback
+        # for pages OCR cannot parse into line items.
+        try:
+            ocr_pages = invoice_parser._google_cloud_vision_images(images)
+            if any((page or "").strip() for page in ocr_pages):
+                parsed = invoice_parser.parse_invoice_text_pages(
+                    ocr_pages, img_meta.get("filename", filename)
+                )
+                if parsed.get("items"):
+                    meta = {**img_meta, **parsed.get("meta", {})}
+                    categories = ctx.get_categories()
+                    ops = invoice_parser.invoice_items_to_ops(
+                        parsed["items"],
+                        meta,
+                        month,
+                        year,
+                        week,
+                        direction,
+                        categories,
+                    )
+                    log.info(
+                        "[DATA-ENTRY] Google Cloud Vision OCR parsed %d item(s) from %d page/image(s)",
+                        len(parsed["items"]),
+                        len(images),
+                    )
+                    return ops, meta
+                log.warning(
+                    "[DATA-ENTRY] Google Cloud Vision OCR returned text but no invoice items | pages=%d",
+                    len(images),
+                )
+        except Exception as e:
+            log.warning("[DATA-ENTRY] Google Cloud Vision OCR failed: %s", e)
 
         if ai_engine.is_vision_capable(provider, model, ai_config):
             try:
@@ -436,6 +480,7 @@ def _resolve_and_queue_items(
     ops: list[dict],
     source_ref: str,
     vendor_id: str | None = None,
+    allow_new_items: bool = False,
 ) -> tuple[list[dict], int]:
     """Resolve all parsed SKUs in two bulk DB reads then in-memory matching.
 
@@ -445,7 +490,8 @@ def _resolve_and_queue_items(
 
     - direct match (inventory_items.sku)  → keep in op
     - alias match  (item_barcodes.barcode) → keep in op
-    - no match                             → sku_review_queue, drop from op
+    - no match + allow_new_items           → keep in op; dispatch creates reviewed item
+    - no match otherwise                   → sku_review_queue, drop from op
     """
     svc = _client()
 
@@ -455,7 +501,9 @@ def _resolve_and_queue_items(
         if op.get("operation") not in ("inventory_save", "inventory_week_update"):
             continue
         for item in op["payload"].get("items", []):
-            sku = (item.get("sku") or "").strip()
+            sku = canonical_sku(item.get("sku"))
+            if sku:
+                item["sku"] = sku
             if sku:
                 all_skus.append(sku)
 
@@ -505,8 +553,12 @@ def _resolve_and_queue_items(
         items_kept: list[dict] = []
 
         for item in items_in:
-            sku = (item.get("sku") or "").strip()
+            sku = canonical_sku(item.get("sku"))
+            if sku:
+                item["sku"] = sku
             if not sku or sku in resolved_set:
+                items_kept.append(item)
+            elif allow_new_items:
                 items_kept.append(item)
             else:
                 queue_rows.append(
@@ -538,11 +590,12 @@ def _resolve_and_queue_items(
             log.warning("[RESOLVE] sku_review_queue batch insert failed: %s", e)
 
     log.info(
-        "[RESOLVE] %d unique SKUs → %d direct %d alias %d queued",
+        "[RESOLVE] %d unique SKUs → %d direct %d alias %d queued allow_new=%s",
         len(unique_skus),
         len(direct_set),
         len(alias_set),
         queued_count,
+        allow_new_items,
     )
     return resolved_ops, queued_count
 
@@ -679,6 +732,12 @@ async def upload_file(
         month = now.month
     if not year:
         year = now.year
+    valid_weeks = _weeks_in_month(month, year)
+    if week and (week < 1 or week > valid_weeks):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{calendar.month_name[month]} {year} has weeks W1-W{valid_weeks}; W{week} is not valid.",
+        )
 
     if await request.is_disconnected():
         log.warning("[DATA-ENTRY] Client disconnected before file read")
@@ -814,8 +873,27 @@ async def upload_file(
                 },
             )
 
-    # Resolve SKUs: unknown ones go to sku_review_queue, not staging.
-    ops, sku_queued = _resolve_and_queue_items(ops, fname)
+    # Resolve SKUs. During a clean rebuild (empty catalog) or a full-month
+    # inventory baseline, unknown SKUs are allowed through Source Control as new
+    # reviewed items. Weekly invoice imports after the catalog exists still route
+    # unknown vendor SKUs to SKU Review to avoid accidental item forks.
+    try:
+        item_count_r = (
+            _client()
+            .table("inventory_items")
+            .select("id", count="exact")
+            .limit(1)
+            .execute()
+        )
+        catalog_empty = (item_count_r.count or 0) == 0
+    except Exception:
+        catalog_empty = False
+    allow_new_items = catalog_empty or week == 0
+    ops, sku_queued = _resolve_and_queue_items(
+        ops,
+        fname,
+        allow_new_items=allow_new_items,
+    )
     if sku_queued:
         log.warning(
             "[DATA-ENTRY] SKUs queued for review | file=%s queued=%d", fname, sku_queued
@@ -1446,7 +1524,9 @@ async def get_ai_keys(auth_user: dict = Depends(_require_sudo_for_ai)):
         result = (
             _client()
             .table("ai_provider_keys")
-            .select("id,provider,label,is_active,is_default,base_url,updated_at,api_key")
+            .select(
+                "id,provider,label,is_active,is_default,base_url,updated_at,api_key"
+            )
             .order("created_at")
             .execute()
         )
@@ -1526,7 +1606,12 @@ async def update_ai_key(
             row = result.data[0] if result.data else existing_row
         else:
             # No key row exists yet — create one
-            new_row = {"provider": provider, "label": provider, "created_at": now, **update_data}
+            new_row = {
+                "provider": provider,
+                "label": provider,
+                "created_at": now,
+                **update_data,
+            }
             result = svc.table("ai_provider_keys").insert(new_row).execute()
             row = result.data[0] if result.data else new_row
         return {

@@ -29,9 +29,16 @@ def _client():
 def _is_month_published(sup, db_month: int, year: int) -> bool:
     """Return True if this period is published/closed — writes should be rejected."""
     try:
-        r = sup.table('month_status').select('status').eq('month', db_month).eq('year', year).limit(1).execute()
+        r = (
+            sup.table("month_status")
+            .select("status")
+            .eq("month", db_month)
+            .eq("year", year)
+            .limit(1)
+            .execute()
+        )
         row = (r.data or [None])[0]
-        return bool(row and row.get('status') == 'published')
+        return bool(row and row.get("status") == "published")
     except Exception:
         return False
 
@@ -48,7 +55,10 @@ def dispatch_inventory_save(payload: dict) -> dict:
     sup = _client()
     # Published periods are read-only (also enforced by the DB guard trigger).
     if _is_month_published(sup, db_month, year):
-        return {'applied': 0, 'error': f'Period {month}/{year} is published and cannot be modified'}
+        return {
+            "applied": 0,
+            "error": f"Period {month}/{year} is published and cannot be modified",
+        }
 
     cat_r = sup.table("inventory_categories").select("id,name").execute()
     cat_map = {r["name"]: r["id"] for r in (cat_r.data or [])}
@@ -102,11 +112,15 @@ def dispatch_inventory_save(payload: dict) -> dict:
         # Only write weekly columns when explicitly present in the payload — omitting
         # them preserves existing W1-W5 data instead of zeroing it on every save.
         for src, col in [
-            ("w1r", "w1_received"), ("w2r", "w2_received"),
-            ("w3r", "w3_received"), ("w4r", "w4_received"),
+            ("w1r", "w1_received"),
+            ("w2r", "w2_received"),
+            ("w3r", "w3_received"),
+            ("w4r", "w4_received"),
             ("w5r", "w5_received"),
-            ("w1i", "w1_issued"),   ("w2i", "w2_issued"),
-            ("w3i", "w3_issued"),   ("w4i", "w4_issued"),
+            ("w1i", "w1_issued"),
+            ("w2i", "w2_issued"),
+            ("w3i", "w3_issued"),
+            ("w4i", "w4_issued"),
             ("w5i", "w5_issued"),
         ]:
             if src in item:
@@ -128,12 +142,20 @@ def dispatch_inventory_save(payload: dict) -> dict:
                 on_conflict="item_id,month,year",
             ).execute()
 
-    result = {"applied": count, "dropped": dropped, "month": month, "year": year, "notes": notes}
+    result = {
+        "applied": count,
+        "dropped": dropped,
+        "month": month,
+        "year": year,
+        "notes": notes,
+    }
     # Do not let a lossy save be recorded as a clean merge. If any item was
     # dropped (unresolvable SKU), surface it as an error so _apply_entries leaves
     # the staging entry pending for review instead of marking it merged.
     if dropped:
-        result["error"] = f"{dropped} item(s) dropped (unresolved SKU); {count} applied. Entry left pending for review."
+        result["error"] = (
+            f"{dropped} item(s) dropped (unresolved SKU); {count} applied. Entry left pending for review."
+        )
     return result
 
 
@@ -147,9 +169,7 @@ def dispatch_item_update(payload: dict) -> dict:
     if not sku:
         return {"applied": 0, "error": "Missing sku"}
 
-    target = (
-        sup.table("inventory_items").select("id").eq("sku", sku).limit(1).execute()
-    )
+    target = sup.table("inventory_items").select("id").eq("sku", sku).limit(1).execute()
     row = (target.data or [None])[0]
     if not row:
         return {"applied": 0, "error": f"Unknown sku: {sku}"}
@@ -185,10 +205,22 @@ def dispatch_item_update(payload: dict) -> dict:
         sup.table("inventory_items").update(fields).eq("id", row["id"]).execute()
     except Exception as exc:
         err_str = str(exc)
-        if new_sku and new_sku != sku and (
-            "23505" in err_str or "unique" in err_str.lower() or "duplicate" in err_str.lower()
+        if (
+            new_sku
+            and new_sku != sku
+            and (
+                "23505" in err_str
+                or "unique" in err_str.lower()
+                or "duplicate" in err_str.lower()
+            )
         ):
-            conflict_r = sup.table("inventory_items").select("id,sku,description").eq("sku", new_sku).limit(1).execute()
+            conflict_r = (
+                sup.table("inventory_items")
+                .select("id,sku,description")
+                .eq("sku", new_sku)
+                .limit(1)
+                .execute()
+            )
             conflict_row = (conflict_r.data or [None])[0] or {}
             return {
                 "applied": 0,
@@ -247,7 +279,10 @@ def dispatch_inventory_week(payload: dict) -> dict:
     col = f"w{week}_{direction}"
     sup = _client()
     if _is_month_published(sup, db_month, year):
-        return {'applied': 0, 'error': f'Period {month}/{year} is published and cannot be modified'}
+        return {
+            "applied": 0,
+            "error": f"Period {month}/{year} is published and cannot be modified",
+        }
 
     cat_r = sup.table("inventory_categories").select("id,name").execute()
     cat_map = {r["name"]: r["id"] for r in (cat_r.data or [])}
@@ -319,7 +354,9 @@ def dispatch_inventory_week(payload: dict) -> dict:
         "direction": direction,
     }
     if dropped:
-        result["error"] = f"{dropped} item(s) dropped (unresolved SKU); {count} applied. Entry left pending for review."
+        result["error"] = (
+            f"{dropped} item(s) dropped (unresolved SKU); {count} applied. Entry left pending for review."
+        )
     return result
 
 
@@ -353,7 +390,9 @@ def dispatch_menu_save(payload: dict) -> dict:
                 "day_of_week": day,
                 "meal_type": meal_type,
                 "items": json.dumps(items_list),
-                "sides": json.dumps([]),  # sides as TEXT JSON per §4 real schema (plan fix for fidelity)
+                "sides": json.dumps(
+                    []
+                ),  # sides as TEXT JSON per §4 real schema (plan fix for fidelity)
                 "sort_order": sort_order,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -369,9 +408,17 @@ def dispatch_menu_save(payload: dict) -> dict:
 def dispatch_event_create(payload: dict) -> dict:
     sup = _client()
     staging_id = payload.get("_staging_entry_id")
-    clean = {k: v for k, v in payload.items() if v is not None and not k.startswith("_")}
+    clean = {
+        k: v for k, v in payload.items() if v is not None and not k.startswith("_")
+    }
     if staging_id:
-        existing = sup.table("events").select("id").eq("staging_entry_id", staging_id).limit(1).execute()
+        existing = (
+            sup.table("events")
+            .select("id")
+            .eq("staging_entry_id", staging_id)
+            .limit(1)
+            .execute()
+        )
         if existing.data:
             return {"applied": 0, "skipped": True}
         clean["staging_entry_id"] = staging_id
@@ -383,7 +430,13 @@ def dispatch_haccp_save(payload: dict) -> dict:
     sup = _client()
     staging_id = payload.get("_staging_entry_id")
     if staging_id:
-        existing = sup.table("haccp_logs").select("id").eq("staging_entry_id", staging_id).limit(1).execute()
+        existing = (
+            sup.table("haccp_logs")
+            .select("id")
+            .eq("staging_entry_id", staging_id)
+            .limit(1)
+            .execute()
+        )
         if existing.data:
             return {"applied": 0, "skipped": True}
     row = {
@@ -405,7 +458,13 @@ def dispatch_daily_log_save(payload: dict) -> dict:
     sup = _client()
     staging_id = payload.get("_staging_entry_id")
     if staging_id:
-        existing = sup.table("daily_operations_logs").select("id").eq("staging_entry_id", staging_id).limit(1).execute()
+        existing = (
+            sup.table("daily_operations_logs")
+            .select("id")
+            .eq("staging_entry_id", staging_id)
+            .limit(1)
+            .execute()
+        )
         if existing.data:
             return {"applied": 0, "skipped": True}
     row = {
@@ -452,21 +511,21 @@ def dispatch_user_update(payload: dict) -> dict:
     return {"applied": 1, "user": r.data[0] if r.data else None}
 
 
-_UNCATEGORIZED_ID_FALLBACK = '448c13cf-e5c0-404f-bf32-f299d411c944'
+_UNCATEGORIZED_ID_FALLBACK = "448c13cf-e5c0-404f-bf32-f299d411c944"
 
 
 def _resolve_uncategorized_id(sup) -> str:
     """Dynamically look up the 'Uncategorized' category ID. Falls back to hardcoded UUID."""
     try:
         r = (
-            sup.table('inventory_categories')
-            .select('id')
-            .ilike('name', 'uncategorized')
+            sup.table("inventory_categories")
+            .select("id")
+            .ilike("name", "uncategorized")
             .limit(1)
             .execute()
         )
         if r.data:
-            return r.data[0]['id']
+            return r.data[0]["id"]
     except Exception:
         pass
     return _UNCATEGORIZED_ID_FALLBACK
@@ -477,42 +536,64 @@ def dispatch_item_create(payload: dict) -> dict:
     Uncategorized when absent. Returns {"applied":1,"item_id":<uuid>} on success or
     {"applied":0,"error":"sku_conflict",...} on a unique-constraint violation."""
     sup = _client()
-    sku = (payload.get('sku') or '').strip()
+    sku = (payload.get("sku") or "").strip()
     if not sku:
-        return {'applied': 0, 'error': 'Missing sku'}
+        return {"applied": 0, "error": "Missing sku"}
 
-    desc = (payload.get('description') or sku).strip()
+    desc = (payload.get("description") or sku).strip()
     cat_id = None
-    if payload.get('category'):
-        cat_r = sup.table('inventory_categories').select('id').eq('name', payload['category']).limit(1).execute()
+    if payload.get("category"):
+        cat_r = (
+            sup.table("inventory_categories")
+            .select("id")
+            .eq("name", payload["category"])
+            .limit(1)
+            .execute()
+        )
         if cat_r.data:
-            cat_id = cat_r.data[0]['id']
+            cat_id = cat_r.data[0]["id"]
     if cat_id is None:
         cat_id = _resolve_uncategorized_id(sup)
 
     try:
-        ins = sup.table('inventory_items').insert({
-            'sku': sku,
-            'description': desc,
-            'category_id': cat_id,
-            'unit_price': payload.get('unit_price') or 0,
-            'par_level': payload.get('par_level') or 0,
-            'unit': payload.get('unit') or 'each',
-            'active': bool(payload.get('active', True)),
-        }).execute()
+        ins = (
+            sup.table("inventory_items")
+            .insert(
+                {
+                    "sku": sku,
+                    "description": desc,
+                    "category_id": cat_id,
+                    "unit_price": payload.get("unit_price") or 0,
+                    "par_level": payload.get("par_level") or 0,
+                    "unit": payload.get("unit") or "each",
+                    "active": bool(payload.get("active", True)),
+                }
+            )
+            .execute()
+        )
         new_item = ins.data[0] if ins.data else {}
-        return {'applied': 1, 'item_id': new_item.get('id'), 'sku': sku}
+        return {"applied": 1, "item_id": new_item.get("id"), "sku": sku}
     except Exception as exc:
         err_str = str(exc)
-        if '23505' in err_str or 'unique' in err_str.lower() or 'duplicate' in err_str.lower():
-            conflict_r = sup.table('inventory_items').select('id,sku,description').eq('sku', sku).limit(1).execute()
+        if (
+            "23505" in err_str
+            or "unique" in err_str.lower()
+            or "duplicate" in err_str.lower()
+        ):
+            conflict_r = (
+                sup.table("inventory_items")
+                .select("id,sku,description")
+                .eq("sku", sku)
+                .limit(1)
+                .execute()
+            )
             conflict_row = (conflict_r.data or [None])[0] or {}
             return {
-                'applied': 0,
-                'error': 'sku_conflict',
-                'conflict_sku': sku,
-                'conflict_item_id': conflict_row.get('id'),
-                'conflict_desc': conflict_row.get('description'),
+                "applied": 0,
+                "error": "sku_conflict",
+                "conflict_sku": sku,
+                "conflict_item_id": conflict_row.get("id"),
+                "conflict_desc": conflict_row.get("description"),
             }
         raise
 

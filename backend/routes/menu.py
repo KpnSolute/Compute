@@ -1,8 +1,8 @@
 import json
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Header, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from backend.routes import supabase_service, jwt_validator
+from backend.routes import supabase_service
 from backend.routes._deps import _get_auth_user
 
 router = APIRouter(prefix="/api/menu", tags=["menu"])
@@ -30,7 +30,11 @@ class MenuUpdate(BaseModel):
 
 def _get_active_cycle() -> str | None:
     result = (
-        supabase_service.table("menu_cycles").select("id").eq("active", True).limit(1).execute()
+        supabase_service.table("menu_cycles")
+        .select("id")
+        .eq("active", True)
+        .limit(1)
+        .execute()
     )
     if result.data:
         return result.data[0]["id"]
@@ -112,7 +116,9 @@ async def update_menu(
                 "day_of_week": day,
                 "meal_type": meal_type,
                 "items": json.dumps(items if isinstance(items, list) else []),
-                "sides": json.dumps([]),  # sides as TEXT JSON per real schema §4 (plan); extend payload for real sides
+                "sides": json.dumps(
+                    []
+                ),  # sides as TEXT JSON per real schema §4 (plan); extend payload for real sides
                 "sort_order": sort_order,
                 "created_at": now,
                 "updated_at": now,

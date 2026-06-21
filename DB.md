@@ -2,10 +2,34 @@
 
 **Live DB:** Supabase `MJCCv1` — project ref `mgvyylvmkxhhataavqjz` — region `us-west-1`
 **Access:** Supabase MCP tools / service-role key (backend only). Always verify live schema before trusting this doc.
-**Status:** Post-restructure (2026-06-19). **40 domain tables + 2 backup tables, 6 views, 33 functions.**
-**Supersedes:** `DATA.md` (kept temporarily as a pointer; this file is the source of truth).
+**Status:** Inventory/source-control reset completed (2026-06-20). **40 domain tables, 0 backup tables in `public`, 6 views, 33 functions.**
+**Governance:** `AGENTS.md` remains the project source of truth. This file is the live database reference.
 
 > **Golden rule:** the frontend never writes data. All writes go through the FastAPI backend using the `service_role` key. The browser (`authenticated` role) has **read-only** access enforced by RLS. This is the "Option A / backend-mediated" architecture the whole system assumes.
+
+---
+
+## 0. Reset baseline — 2026-06-20
+
+The production Supabase project was intentionally wiped clean of inventory, invoice, source-control, and period-history rows on 2026-06-20. The system is now a skeleton for rebuilding history through Data Entry.
+
+**Inventory origin for rebuild:** April 2026 is the planned starting point for the rebuilt inventory history. Earlier records may be imported from historical spreadsheets/invoices for reference and reconstruction, but the clean operational baseline starts at April 2026.
+
+**Tables confirmed empty after reset:** `inventory_items`, `item_barcodes`, `monthly_inventory`, `monthly_snapshots`, `invoices`, `invoice_items`, `month_periods`, `week_gross`, `sku_review_queue`, `staging_entries`, `pull_requests`, `commits`, `commit_changes`, `inventory_versions`, `github_sync_queue`, `month_status`, `week_status`.
+
+**Tables intentionally preserved:** `user_profiles` (13), `app_settings` (10), `inventory_categories` (11), `vendors` (3), `events` (34), `menu_cycles` (1), `opening_checklist_items` (8), `servsafe_certifications` (7), `daily_operations_logs` (8), `ai_provider_keys` (2), `ai_stack_config` (1). Logins, roles, reference data, and AI configuration were not wiped.
+
+**Backup cleanup:** `_backup_may2026_monthly_inv` and `_backup_may2026_snapshot` were dropped from `public`. No `_backup_may2026_*` public tables remain.
+
+**Data Entry rebuild path:** inventory must be repopulated through Data Entry and Source Control, not direct table edits. Supported parser stack is deterministic first and AI-assisted only when enabled: CSV/TSV, Excel through `pandas` + `openpyxl`, PDF text extraction through `pdfplumber` then `pdfminer.six`, and scanned PDF/image OCR rendering through `PyMuPDF`/`Pillow`.
+
+**AI access gate:** `app_settings.agent_config.min_role` is `manager`, so staff should not have AI tool access. Backend route code also needs deployment for the local `GET/POST /api/agent/automations` min-role guard to be active in production.
+
+**AI provider baseline:** the active default AI stack is Google Gemini with a vision-capable `gemini-2.5-flash` model. Two Google keys have separate jobs and must not be collapsed into one config:
+- `provider='google'`, label `MJCC Google AI Studio Language`: AI Studio/Gemini language and structured data extraction.
+- `provider='google_cloud_vision'`, label `MJCC Google Cloud Vision OCR`: Google Cloud Vision OCR for scanned PDFs/images before invoice parsing.
+
+**Data Entry extraction order:** digital/text PDFs are parsed locally first with `pdfplumber` / `pdfminer.six`. Scanned PDFs and images are rendered/read as images, sent to Google Cloud Vision OCR, parsed back through the deterministic invoice parser, and only then fall back to Gemini vision/legacy OCR when OCR text cannot produce line items. This keeps local PDF extraction working while using the Cloud API for picture reading.
 
 ---
 
@@ -142,9 +166,9 @@ Flow: **`staging_entries` → `pull_requests` → `commits` → `commit_changes`
 **`agent_usage`** — `id` PK · `user_id` *FK→user_profiles* NN · `created_at`
 **`archive_import_log`** — `id` PK · `source` NN · `filename` NN · `month`/`year` · `items_imported`/`items_skipped` · `imported_at` · `status`='pending' · `error`
 
-### 4.9 Backup tables (in `public` — slated for removal)
+### 4.9 Public backup tables
 
-`_backup_may2026_monthly_inv`, `_backup_may2026_snapshot` — pre-existing May snapshots. Superseded by schema `bak_20260619`; safe to drop once verified.
+No `_backup_may2026_*` backup tables remain in `public`. Historical safety snapshots still live in the dedicated backup schemas listed in Backups & rollback.
 
 ---
 
@@ -230,4 +254,4 @@ The new API authenticates as `service_role`. Frontend reads directly; **never** 
    statement-level via transition tables, refreshing each affected period once per
    write statement. The API also batches inventory writes into one statement.
 4. **Period spines:** `month_status`/`week_status` (inventory locking) vs `month_periods`/`week_gross` (purchasing) are intentionally separate — revisit only if a single spine is wanted.
-5. **Drop `_backup_may2026_*`** from `public` once confirmed redundant with `bak_20260619`.
+5. **GitHub archive payload depth:** rebuild `github_sync_queue` payloads when Source Control resumes so the data archive stores useful inventory snapshots/diffs, not only commit headers.

@@ -3,10 +3,11 @@ Invoice parser — deterministic extraction from PDF invoices and image receipts
 
 Extraction cascade for PDFs:
   1. Native text via pdfplumber (fast, zero-cost for digital PDFs)
-  2. OCR.space cloud API (scanned / image PDFs) — set OCR_API_KEY env var
-  3. Local pytesseract (optional, needs system Tesseract + pdf2image install)
+  2. Google Cloud Vision OCR (scanned / image PDFs) — DB key preferred
+  3. OCR.space cloud API (legacy fallback) — set OCR_API_KEY env var
+  4. Local pytesseract (optional, needs system Tesseract + pdf2image install)
 
-Image files (jpg/png/webp/etc.) go directly to OCR.space → pytesseract fallback.
+Image files (jpg/png/webp/etc.) use Google Cloud Vision OCR first, then legacy/local fallbacks.
 
 Public API:
   parse_invoice_bytes_pdf(content, filename, api_key, ocr_only, debug) -> dict
@@ -19,6 +20,7 @@ Item shape returned by parse_* functions:
    qty_ordered, qty_shipped, qty_adj, unit_price, ext_price, weight_lbs, raw}
 """
 
+import base64
 import io
 import logging
 import os
@@ -337,6 +339,97 @@ VENDOR_CAT_BRIDGE: dict[str, str] = {
 }
 
 OCR_SPACE_URL = "https://api.ocr.space/parse/image"
+GOOGLE_CLOUD_VISION_URL = "https://vision.googleapis.com/v1/images:annotate"
+
+
+def _db_key(provider: str, label: str | None = None) -> str:
+    """Return an active provider key from Supabase.
+
+    Secrets stay in Supabase/env; callers only receive the raw key inside the backend.
+    """
+    try:
+        from supabase import create_client
+
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_SERVICE_KEY")
+        if not url or not key:
+            return ""
+        query = (
+            create_client(url, key)
+            .table("ai_provider_keys")
+            .select("api_key")
+            .eq("provider", provider)
+            .eq("is_active", True)
+        )
+        if label:
+            query = query.eq("label", label)
+        result = query.order("updated_at", desc=True).limit(1).execute()
+        if result.data:
+            return result.data[0].get("api_key") or ""
+    except Exception:
+        pass
+    return ""
+
+
+def get_google_cloud_vision_key() -> str:
+    """Key dedicated to OCR/image reading, separate from the Gemini language key."""
+    return (
+        _db_key("google_cloud_vision", "MJCC Google Cloud Vision OCR")
+        or os.getenv("GOOGLE_CLOUD_VISION_API_KEY", "")
+        or os.getenv("GOOGLE_VISION_API_KEY", "")
+    )
+
+
+def _google_cloud_vision_images(
+    images: list[bytes], api_key: str | None = None, debug: bool = False
+) -> list[str]:
+    """OCR images via Google Cloud Vision DOCUMENT_TEXT_DETECTION."""
+    key = api_key or get_google_cloud_vision_key()
+    if not key or not images:
+        return []
+
+    pages: list[str] = []
+    # Cloud Vision annotate supports batching, but small batches keep payloads sane
+    # for rendered PDF pages.
+    for start in range(0, len(images), 4):
+        batch = images[start : start + 4]
+        try:
+            body = {
+                "requests": [
+                    {
+                        "image": {"content": base64.b64encode(img).decode("ascii")},
+                        "features": [{"type": "DOCUMENT_TEXT_DETECTION"}],
+                        "imageContext": {"languageHints": ["en"]},
+                    }
+                    for img in batch
+                ]
+            }
+            resp = httpx.post(
+                GOOGLE_CLOUD_VISION_URL,
+                params={"key": key},
+                json=body,
+                timeout=90,
+            )
+            resp.raise_for_status()
+            for item in resp.json().get("responses", []):
+                if item.get("error"):
+                    if debug:
+                        print(
+                            f"[invoice_parser] Google Vision page error: {item['error']}"
+                        )
+                    pages.append("")
+                else:
+                    pages.append(
+                        (item.get("fullTextAnnotation") or {}).get("text")
+                        or (item.get("textAnnotations") or [{}])[0].get(
+                            "description", ""
+                        )
+                    )
+        except Exception as exc:
+            if debug:
+                print(f"[invoice_parser] Google Vision OCR error: {exc}")
+            return []
+    return pages
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -760,6 +853,23 @@ def parse_invoice_bytes_pdf(
     return {"meta": meta, "items": items}
 
 
+def parse_invoice_text_pages(
+    pages: list[str], filename: str = "cloud-vision.txt"
+) -> dict:
+    """Parse OCR text pages into the standard invoice parser shape."""
+    clean_pages = [p or "" for p in pages]
+    meta = _extract_meta(clean_pages)
+    items, extra = _parse_text_pages(clean_pages)
+    meta.update(extra)
+    meta["source_file"] = filename
+    meta["ocr_engine"] = "google_cloud_vision"
+
+    items, recon = reconcile_and_adjust(items, meta)
+    meta["reconciliation"] = recon
+
+    return {"meta": meta, "items": items}
+
+
 def parse_invoice_bytes_image(
     content: bytes,
     filename: str = "receipt.jpg",
@@ -774,10 +884,16 @@ def parse_invoice_bytes_image(
     key = api_key or os.getenv("OCR_API_KEY", "")
     pages: list[str] = []
 
-    if key:
+    google_pages = _google_cloud_vision_images([content], debug=debug)
+    if any(p.strip() for p in google_pages):
+        pages = google_pages
+    elif key:
         pages = _ocr_space_image(content, filename, key, debug)
     if not any(p.strip() for p in pages):
         pages = _extract_image_local_ocr(content, debug)
+
+    if any(p.strip() for p in google_pages):
+        return parse_invoice_text_pages(pages, filename)
 
     meta = _extract_meta(pages)
     items, extra = _parse_text_pages(pages)
@@ -987,7 +1103,9 @@ def _extract_vision_page(
     )
     data = ai_engine.extract_json(raw_text)
     if not isinstance(data, dict):
-        log.warning("[invoice_parser] page %d: vision response was not a JSON object", page_num)
+        log.warning(
+            "[invoice_parser] page %d: vision response was not a JSON object", page_num
+        )
         return None
     return data
 
@@ -1121,7 +1239,9 @@ def extract_invoice_vision(
     parsed_meta["reconciliation"] = recon
 
     reconciled = recon.get("reconciled", False)
-    computed_total = recon.get("adjusted_total", round(sum(it["ext_price"] for it in norm_items), 2))
+    computed_total = recon.get(
+        "adjusted_total", round(sum(it["ext_price"] for it in norm_items), 2)
+    )
 
     log.info(
         "[invoice_parser] vision extraction complete | pages=%d pages_failed=%d "

@@ -7,7 +7,11 @@ from supabase import create_client
 from dotenv import load_dotenv
 from typing import Optional
 from backend.staging.dispatch import replay
-from backend.routes._deps import _get_auth_user, _require_admin_or_manager, ensure_pr_for_entries
+from backend.routes._deps import (
+    _get_auth_user,
+    _require_admin_or_manager,
+    ensure_pr_for_entries,
+)
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
@@ -117,9 +121,9 @@ def _apply_entries(
                 if err
                 else "Commit aborted (another change in this commit failed) — left pending for retry."
             )
-            _client().table("staging_entries").update(
-                {"review_note": note}
-            ).eq("entry_id", r["entry_id"]).execute()
+            _client().table("staging_entries").update({"review_note": note}).eq(
+                "entry_id", r["entry_id"]
+            ).execute()
         detail = "; ".join(
             f"{r['operation']}: {r['result']['error']}" for r in failed_results
         )
@@ -487,7 +491,8 @@ async def submit_staging(
         entry = r.data[0]
         # Auto-wrap in a PR so it's reviewable as a unit, not a loose pending row.
         ensure_pr_for_entries(
-            [entry["entry_id"]], auth_user["id"],
+            [entry["entry_id"]],
+            auth_user["id"],
             title=f"{body.entity_type} changes — {auth_user.get('display_name', 'staff')}",
         )
         return entry
@@ -673,6 +678,9 @@ async def list_pull_requests(
 
         result = []
         for pr in prs:
+            entry_count = count_map.get(pr["pr_id"], 0)
+            if entry_count == 0 and not pr.get("commit_id"):
+                continue
             profile = profile_map.get(pr["author_id"], {})
             result.append(
                 {
@@ -681,7 +689,7 @@ async def list_pull_requests(
                     or profile.get("username")
                     or pr["author_id"],
                     "submitter_role": profile.get("role"),
-                    "entry_count": count_map.get(pr["pr_id"], 0),
+                    "entry_count": entry_count,
                 }
             )
         return result

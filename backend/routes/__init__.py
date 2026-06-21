@@ -4,7 +4,7 @@ from pathlib import Path
 from supabase import create_client
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parents[2] / '.env')
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
@@ -17,10 +17,13 @@ if not SUPABASE_URL or not SUPABASE_ANON_KEY:
     )
 
 if not SUPABASE_SERVICE_KEY:
-    raise RuntimeError("SUPABASE_SERVICE_KEY must be set in .env for service-role data access.")
+    raise RuntimeError(
+        "SUPABASE_SERVICE_KEY must be set in .env for service-role data access."
+    )
 
 if not SUPABASE_JWT_SECRET:
     import warnings
+
     warnings.warn(
         "SUPABASE_JWT_SECRET is not set — admin/manager JWT login will be rejected. "
         "Get it from Supabase dashboard → Settings → API → JWT Secret.",
@@ -41,6 +44,7 @@ class JWTValidator:
     def _get_jwks_client(self):
         if self._jwks_client is None:
             from jwt import PyJWKClient
+
             jwks_url = f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json"
             self._jwks_client = PyJWKClient(jwks_url, cache_keys=True)
         return self._jwks_client

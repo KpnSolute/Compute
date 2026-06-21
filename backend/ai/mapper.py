@@ -6,6 +6,7 @@ Maps parsed file rows → dispatch payload shapes.
 import re
 from typing import Any
 from backend.ai import engine, context
+from backend.inventory_identity import canonical_sku
 
 # ── fuzzy column key normaliser ───────────────────────────────────────────────
 
@@ -24,6 +25,10 @@ _INV_ALIASES: dict[str, str] = {
     "item": "sku",
     "code": "sku",
     "productcode": "sku",
+    "productnumber": "sku",
+    "vendoritem": "sku",
+    "vendorsku": "sku",
+    "barcode": "sku",
     "id": "sku",
     # description
     "description": "desc",
@@ -69,20 +74,104 @@ _INV_ALIASES: dict[str, str] = {
     # weekly received/issued
     "w1r": "w1r",
     "week1received": "w1r",
+    "week1receive": "w1r",
+    "week1receivable": "w1r",
+    "w1received": "w1r",
+    "w1receive": "w1r",
+    "w1receivable": "w1r",
+    "receivedweek1": "w1r",
+    "receiveweek1": "w1r",
     "w2r": "w2r",
     "week2received": "w2r",
+    "week2receive": "w2r",
+    "week2receivable": "w2r",
+    "w2received": "w2r",
+    "w2receive": "w2r",
+    "w2receivable": "w2r",
+    "receivedweek2": "w2r",
+    "receiveweek2": "w2r",
     "w3r": "w3r",
     "week3received": "w3r",
+    "week3receive": "w3r",
+    "week3receivable": "w3r",
+    "w3received": "w3r",
+    "w3receive": "w3r",
+    "w3receivable": "w3r",
+    "receivedweek3": "w3r",
+    "receiveweek3": "w3r",
     "w4r": "w4r",
     "week4received": "w4r",
+    "week4receive": "w4r",
+    "week4receivable": "w4r",
+    "w4received": "w4r",
+    "w4receive": "w4r",
+    "w4receivable": "w4r",
+    "receivedweek4": "w4r",
+    "receiveweek4": "w4r",
+    "w5r": "w5r",
+    "week5received": "w5r",
+    "week5receive": "w5r",
+    "week5receivable": "w5r",
+    "w5received": "w5r",
+    "w5receive": "w5r",
+    "w5receivable": "w5r",
+    "receivedweek5": "w5r",
+    "receiveweek5": "w5r",
     "w1i": "w1i",
     "week1issued": "w1i",
+    "week1issue": "w1i",
+    "week1pulled": "w1i",
+    "week1pull": "w1i",
+    "w1issued": "w1i",
+    "w1issue": "w1i",
+    "w1pulled": "w1i",
+    "w1pull": "w1i",
+    "issuedweek1": "w1i",
+    "pullweek1": "w1i",
     "w2i": "w2i",
     "week2issued": "w2i",
+    "week2issue": "w2i",
+    "week2pulled": "w2i",
+    "week2pull": "w2i",
+    "w2issued": "w2i",
+    "w2issue": "w2i",
+    "w2pulled": "w2i",
+    "w2pull": "w2i",
+    "issuedweek2": "w2i",
+    "pullweek2": "w2i",
     "w3i": "w3i",
     "week3issued": "w3i",
+    "week3issue": "w3i",
+    "week3pulled": "w3i",
+    "week3pull": "w3i",
+    "w3issued": "w3i",
+    "w3issue": "w3i",
+    "w3pulled": "w3i",
+    "w3pull": "w3i",
+    "issuedweek3": "w3i",
+    "pullweek3": "w3i",
     "w4i": "w4i",
     "week4issued": "w4i",
+    "week4issue": "w4i",
+    "week4pulled": "w4i",
+    "week4pull": "w4i",
+    "w4issued": "w4i",
+    "w4issue": "w4i",
+    "w4pulled": "w4i",
+    "w4pull": "w4i",
+    "issuedweek4": "w4i",
+    "pullweek4": "w4i",
+    "w5i": "w5i",
+    "week5issued": "w5i",
+    "week5issue": "w5i",
+    "week5pulled": "w5i",
+    "week5pull": "w5i",
+    "w5issued": "w5i",
+    "w5issue": "w5i",
+    "w5pulled": "w5i",
+    "w5pull": "w5i",
+    "issuedweek5": "w5i",
+    "pullweek5": "w5i",
 }
 
 _EVENT_ALIASES: dict[str, str] = {
@@ -172,7 +261,9 @@ def map_rows_to_inventory(
 
         raw_cat = str(mapped.get("category") or "")
         category = _closest_category(raw_cat, categories) or raw_cat or "Dry Goods"
-        sku = str(mapped.get("sku") or "").strip() or _gen_sku(category, _sku_counters)
+        sku = canonical_sku(str(mapped.get("sku") or "")) or _gen_sku(
+            category, _sku_counters
+        )
         desc = str(mapped.get("desc") or sku).strip()
 
         items.append(
@@ -188,10 +279,12 @@ def map_rows_to_inventory(
                 "w2r": _safe_int(mapped.get("w2r")),
                 "w3r": _safe_int(mapped.get("w3r")),
                 "w4r": _safe_int(mapped.get("w4r")),
+                "w5r": _safe_int(mapped.get("w5r")),
                 "w1i": _safe_int(mapped.get("w1i")),
                 "w2i": _safe_int(mapped.get("w2i")),
                 "w3i": _safe_int(mapped.get("w3i")),
                 "w4i": _safe_int(mapped.get("w4i")),
+                "w5i": _safe_int(mapped.get("w5i")),
             }
         )
 

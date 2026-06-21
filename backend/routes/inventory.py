@@ -16,14 +16,10 @@ Endpoints:
 import logging
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Query, Header, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
-from backend.routes import supabase_service, jwt_validator
-from backend.routes._deps import (
-    _get_auth_user,
-    _require_admin_or_manager,
-    ROLE_LEVEL,
-)
+from backend.routes import supabase_service
+from backend.routes._deps import _get_auth_user
 from backend.inventory_identity import (
     get_new_items_category_id,
     resolve_and_write_item,
@@ -379,9 +375,7 @@ async def save_inventory(
     )
 
 
-async def _save_inventory_retired(
-    payload: "InventorySnapshot", auth_user: dict
-):
+async def _save_inventory_retired(payload: "InventorySnapshot", auth_user: dict):
     """Original direct-write implementation, retained (unreachable) for reference."""
     role = (auth_user.get("role") or "").lower()
     if role not in ("admin", "manager", "sudo"):
@@ -620,7 +614,7 @@ async def get_reorders(auth_user: dict = Depends(_get_auth_user)):
 
     Requires: Valid authentication token
 
-    Returns items where on_hand < par_level in the latest month, sorted by shortage.
+    Returns items where ending on_hand < par_level in the live inventory view, sorted by shortage.
 
     Returns:
         List of low-stock items
@@ -630,56 +624,22 @@ async def get_reorders(auth_user: dict = Depends(_get_auth_user)):
         500: Database error
     """
     try:
-        latest = (
-            supabase_service.table("monthly_inventory")
-            .select("month, year")
-            .order("year", desc=True)
-            .order("month", desc=True)
-            .limit(1)
-            .execute()
-        )
-        if not latest.data:
-            return []
-        month = latest.data[0]["month"]
-        year = latest.data[0]["year"]
-
         result = (
-            supabase_service.table("monthly_inventory")
-            .select(
-                "on_hand, "
-                "w1_received, w2_received, w3_received, w4_received, w5_received, "
-                "w1_issued, w2_issued, w3_issued, w4_issued, w5_issued, "
-                "inventory_items!inner(sku, description, par_level, "
-                "  inventory_categories!inner(name))"
-            )
-            .eq("month", month)
-            .eq("year", year)
+            supabase_service.table("live_inventory")
+            .select("sku, description, category, on_hand, par_level")
             .execute()
         )
 
         low_items = []
         for row in result.data or []:
-            inv_item = row.get("inventory_items") or {}
-            cat = inv_item.get("inventory_categories") or {}
-            # Ending/running stock = opening + received - issued (matches the
-            # read model and perform_rollover). Reorder off this, not opening.
-            opening = _to_float(row.get("on_hand"))
-            received = sum(
-                _to_float(row.get(c))
-                for c in ("w1_received", "w2_received", "w3_received", "w4_received", "w5_received")
-            )
-            issued = sum(
-                _to_float(row.get(c))
-                for c in ("w1_issued", "w2_issued", "w3_issued", "w4_issued", "w5_issued")
-            )
-            on_hand = max(0, int(opening + received - issued))
-            par = max(0, int(_to_float(inv_item.get("par_level"))))
+            on_hand = max(0, int(_to_float(row.get("on_hand"))))
+            par = max(0, int(_to_float(row.get("par_level"))))
             if par > 0 and on_hand < par:
                 low_items.append(
                     LowStockItem(
-                        sku=inv_item.get("sku") or "",
-                        desc=inv_item.get("description") or "",
-                        category=cat.get("name") or "",
+                        sku=row.get("sku") or "",
+                        desc=row.get("description") or "",
+                        category=row.get("category") or "",
                         onHand=on_hand,
                         par=par,
                         short=par - on_hand,

@@ -9,6 +9,8 @@ python-multipart
 PyJWT
 httpx
 pdfplumber
+pdfminer.six
+PyMuPDF
+pandas
 openpyxl
 Pillow
-

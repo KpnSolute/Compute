@@ -21,24 +21,53 @@ def parse_tsv(content: bytes) -> list[dict[str, Any]]:
 
 def parse_excel(content: bytes) -> list[dict[str, Any]]:
     try:
+        import pandas as pd
+
+        sheets = pd.read_excel(io.BytesIO(content), sheet_name=None, engine="openpyxl")
+        result: list[dict[str, Any]] = []
+        for sheet_name, frame in sheets.items():
+            frame = frame.dropna(how="all")
+            if frame.empty:
+                continue
+            frame.columns = [
+                str(col).strip() if col is not None else f"col_{i}"
+                for i, col in enumerate(frame.columns)
+            ]
+            for row in frame.where(pd.notnull(frame), None).to_dict(orient="records"):
+                row["__sheet"] = sheet_name
+                result.append(row)
+        if result:
+            return result
+    except ImportError:
+        pass
+    except Exception:
+        pass
+
+    try:
         import openpyxl
     except ImportError:
         raise RuntimeError(
             "openpyxl is required for Excel parsing: pip install openpyxl"
         )
     wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
-    ws = wb.active
-    rows = list(ws.iter_rows(values_only=True))
-    if not rows:
-        return []
-    headers = [
-        str(h).strip() if h is not None else f"col_{i}" for i, h in enumerate(rows[0])
-    ]
-    result = []
-    for row in rows[1:]:
-        if all(v is None for v in row):
+    result: list[dict[str, Any]] = []
+    for ws in wb.worksheets:
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
             continue
-        result.append({headers[i]: row[i] for i in range(len(headers))})
+        headers = [
+            str(h).strip() if h is not None else f"col_{i}"
+            for i, h in enumerate(rows[0])
+        ]
+        for row in rows[1:]:
+            if all(v is None for v in row):
+                continue
+            mapped = {
+                headers[i]: row[i] if i < len(row) else None
+                for i in range(len(headers))
+            }
+            mapped["__sheet"] = ws.title
+            result.append(mapped)
     return result
 
 
@@ -46,25 +75,36 @@ _PDF_PAGE_CAP = 40  # matches invoice_parser._PDF_MAX_PAGES
 
 
 def parse_pdf(content: bytes) -> str:
+    pages: list[str] = []
     try:
         import pdfplumber
+
+        with pdfplumber.open(io.BytesIO(content)) as pdf:
+            total = min(len(pdf.pages), _PDF_PAGE_CAP)
+            for i in range(total):
+                page = pdf.pages[i]
+                try:
+                    text = page.extract_text() or ""
+                except Exception:
+                    text = ""
+                finally:
+                    page.close()
+                pages.append(text)
     except ImportError:
-        raise RuntimeError(
-            "pdfplumber is required for PDF parsing: pip install pdfplumber"
-        )
-    pages: list[str] = []
-    with pdfplumber.open(io.BytesIO(content)) as pdf:
-        total = min(len(pdf.pages), _PDF_PAGE_CAP)
-        for i in range(total):
-            page = pdf.pages[i]
-            try:
-                text = page.extract_text() or ""
-            except Exception:
-                text = ""
-            finally:
-                page.close()
-            pages.append(text)
-    return "\n".join(pages).strip()
+        pass
+
+    text = "\n".join(pages).strip()
+    if text:
+        return text
+
+    try:
+        from pdfminer.high_level import extract_text
+
+        return (extract_text(io.BytesIO(content), maxpages=_PDF_PAGE_CAP) or "").strip()
+    except ImportError:
+        raise RuntimeError("pdfplumber or pdfminer.six is required for PDF parsing.")
+    except Exception:
+        return ""
 
 
 def rows_to_text(rows: list[dict]) -> str:
@@ -113,10 +153,19 @@ def detect_and_parse(
         try:
             with _zipfile.ZipFile(io.BytesIO(content)) as zf:
                 all_names = [
-                    n for n in sorted(zf.namelist())
-                    if n.lower().endswith((
-                        ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff",
-                    ))
+                    n
+                    for n in sorted(zf.namelist())
+                    if n.lower().endswith(
+                        (
+                            ".jpg",
+                            ".jpeg",
+                            ".png",
+                            ".webp",
+                            ".bmp",
+                            ".tif",
+                            ".tiff",
+                        )
+                    )
                 ]
                 names = all_names[:_ZIP_IMG_PAGE_CAP]
                 image_bytes_list: list[bytes] = []
@@ -125,12 +174,16 @@ def detect_and_parse(
                         raw = img_f.read()
                     try:
                         from PIL import Image as _PILImage
+
                         _im = _PILImage.open(io.BytesIO(raw))
                         _im.load()
                         if max(_im.size) > _ZIP_IMG_MAX_DIM:
                             _scale = _ZIP_IMG_MAX_DIM / max(_im.size)
                             _im = _im.resize(
-                                (max(1, int(_im.width * _scale)), max(1, int(_im.height * _scale)))
+                                (
+                                    max(1, int(_im.width * _scale)),
+                                    max(1, int(_im.height * _scale)),
+                                )
                             )
                         _buf = io.BytesIO()
                         _im.convert("RGB").save(_buf, format="JPEG", quality=82)
@@ -182,6 +235,31 @@ def detect_and_parse(
         # We still cap total pages to guard against pathological uploads.
         _PDF_RENDER_DPI = 150
         _PDF_PAGE_CAP = 8
+        try:
+            import fitz
+
+            page_images: list[bytes] = []
+            with fitz.open(stream=content, filetype="pdf") as _doc:
+                pages_total = _doc.page_count
+                zoom = _PDF_RENDER_DPI / 72
+                matrix = fitz.Matrix(zoom, zoom)
+                for _page_index in range(min(pages_total, _PDF_PAGE_CAP)):
+                    _page = _doc.load_page(_page_index)
+                    _pix = _page.get_pixmap(matrix=matrix, alpha=False)
+                    page_images.append(_pix.tobytes("png"))
+            if page_images:
+                return "invoice_images", {
+                    "images": page_images,
+                    "meta": {
+                        "filename": filename,
+                        "pages_total": pages_total,
+                        "pages_used": len(page_images),
+                        "pages_truncated": pages_total > _PDF_PAGE_CAP,
+                    },
+                }
+        except Exception:
+            pass
+
         try:
             import pdfplumber as _plumber
 
