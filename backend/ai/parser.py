@@ -2,9 +2,129 @@
 
 import csv
 import io
+import re
 from typing import Any
 
 from backend.ai import invoice_parser
+
+
+def _num(value: Any) -> float | int | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, int | float):
+        return value
+    text = str(value).strip().replace("$", "").replace(",", "")
+    if not text:
+        return None
+    try:
+        number = float(text)
+    except ValueError:
+        return None
+    return int(number) if number.is_integer() else number
+
+
+def _inventory_category(label: Any) -> str | None:
+    text = str(label or "").strip()
+    if not text:
+        return None
+    norm = re.sub(r"[^a-z0-9]", "", text.lower())
+    if norm in {"miamijobcorpscafeteriainventory", "itemdescription"}:
+        return None
+    if "total" in norm:
+        return None
+    category_map = {
+        "dairy": "Dairy",
+        "cereal": "Dry Goods",
+        "beverages": "Dry Goods",
+        "snacks": "Dry Goods",
+        "meats": "Meat",
+        "meat": "Meat",
+        "frozenfood": "Frozen",
+        "frozengoods": "Frozen",
+        "frozen": "Frozen",
+        "drygoods": "Dry Goods",
+        "produce": "Produce",
+        "disposibles": "Disposables",
+        "disposables": "Disposables",
+    }
+    return category_map.get(norm)
+
+
+def _inventory_sku(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if re.fullmatch(r"\d+(\.0)?", text):
+        digits = text.split(".", 1)[0]
+        if len(digits) < 4:
+            return ""
+        return digits
+    return text
+
+
+def _parse_mjcc_monthly_inventory(content: bytes) -> list[dict[str, Any]]:
+    try:
+        import openpyxl
+    except ImportError:
+        return []
+
+    wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    parsed: list[dict[str, Any]] = []
+    for ws in wb.worksheets:
+        rows = list(ws.iter_rows(values_only=True))
+        has_inventory_grid = any(
+            len(row) > 12
+            and str(row[1] or "").strip().lower() == "item description"
+            and "issued" in " ".join(str(v or "").lower() for v in row[5:9])
+            and "received" in " ".join(str(v or "").lower() for v in row[9:13])
+            for row in rows
+        )
+        if not has_inventory_grid:
+            continue
+
+        category: str | None = None
+        for row in rows:
+            cells = list(row) + [None] * max(0, 13 - len(row))
+            maybe_category = _inventory_category(cells[1])
+            row_has_item_amounts = any(
+                _num(cells[idx]) is not None for idx in (2, 3, 5, 6, 7, 8)
+            )
+            if maybe_category and not cells[0] and not row_has_item_amounts:
+                category = maybe_category
+                continue
+            if category is None:
+                continue
+
+            desc = str(cells[1] or "").strip()
+            if (
+                not desc
+                or desc.lower() == "item description"
+                or "total" in desc.lower()
+            ):
+                continue
+            if _num(cells[2]) is None and _num(cells[3]) is None and not cells[0]:
+                continue
+
+            parsed.append(
+                {
+                    "sku": _inventory_sku(cells[0]),
+                    "desc": desc,
+                    "category": category,
+                    "onHand": _num(cells[2]) or 0,
+                    "price": _num(cells[3]),
+                    "w1i": _num(cells[5]) or 0,
+                    "w2i": _num(cells[6]) or 0,
+                    "w3i": _num(cells[7]) or 0,
+                    "w4i": _num(cells[8]) or 0,
+                    "w1r": _num(cells[9]) or 0,
+                    "w2r": _num(cells[10]) or 0,
+                    "w3r": _num(cells[11]) or 0,
+                    "w4r": _num(cells[12]) or 0,
+                    "unit": "each",
+                    "__sheet": ws.title,
+                }
+            )
+    return parsed
 
 
 def parse_csv(content: bytes) -> list[dict[str, Any]]:
@@ -20,6 +140,10 @@ def parse_tsv(content: bytes) -> list[dict[str, Any]]:
 
 
 def parse_excel(content: bytes) -> list[dict[str, Any]]:
+    monthly_inventory = _parse_mjcc_monthly_inventory(content)
+    if monthly_inventory:
+        return monthly_inventory
+
     try:
         import pandas as pd
 

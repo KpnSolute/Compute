@@ -6,11 +6,17 @@ if (!envBase) {
 }
 const BASE = envBase || 'https://mjcc-managements.onrender.com';
 
+function compactErrorBody(body: any): string {
+  const text = typeof body === 'string' ? body : JSON.stringify(body);
+  const normalized = (text || 'Request failed').replace(/\s+/g, ' ').trim();
+  return normalized.length > 500 ? `${normalized.slice(0, 497).trim()}...` : normalized;
+}
+
 class ApiError extends Error {
   status: number;
   detail: any;
   constructor(status: number, body: any) {
-    super(typeof body === 'string' ? body : JSON.stringify(body));
+    super(compactErrorBody(body));
     this.status = status;
     this.detail = body;
     this.name = 'ApiError';

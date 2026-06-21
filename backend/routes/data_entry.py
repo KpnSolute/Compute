@@ -51,6 +51,20 @@ def _client():
     return _svc
 
 
+def _safe_parse_error(exc: Exception) -> str:
+    message = str(exc).strip()
+    if not message:
+        return "Extraction failed. The file could not be parsed."
+    if "AI response did not contain" in message:
+        return (
+            "Extraction failed: AI returned an incomplete JSON response. "
+            "The file was not staged; try again or split the upload into a smaller section."
+        )
+    if len(message) > 240:
+        message = message[:237].rstrip() + "..."
+    return f"Extraction failed: {message}"
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -876,7 +890,7 @@ async def upload_file(
         raise
     except Exception as e:
         log.error("[DATA-ENTRY] Parse failed | file=%s error=%s", fname, e)
-        raise HTTPException(status_code=422, detail=f"Extraction failed: {e}")
+        raise HTTPException(status_code=422, detail=_safe_parse_error(e))
 
     if not ops:
         log.warning("[DATA-ENTRY] No data extracted | file=%s", fname)

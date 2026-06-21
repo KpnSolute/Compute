@@ -4,6 +4,16 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.9.8 ? 2026-06-21 ? Codex April inventory upload crash fix
+
+**Codex:** Fixed the April full-month Excel upload path that was falling through to AI and returning a huge partial JSON error. Added an MJCC monthly inventory grid parser for Excel sheets with `Item Description`, W1-W4 Issued, and W1-W4 Received columns, so `APRIL_INVENTORY_2026.xlsx` parses deterministically before AI fallback. The parser preserves real vendor-style SKUs and treats blank or short local row-number IDs as missing, letting the existing mapper generate review SKUs such as `DAI-001` without duplicate SKU collisions.
+
+**Codex fixes:** Removed raw AI response snippets from JSON extraction failures, capped backend upload parse errors, capped frontend `ApiError.message`, and made Data Entry use a short friendly upload error for the card, toast, and MJCC AI clarification prompt. Cleaned the Data Entry callback dependency arrays so React Compiler/ESLint no longer blocks this component.
+
+**Verification:** Local parser smoke against `C:\Users\ogdev\Downloads\APRIL_INVENTORY_2026.xlsx` extracted 926 items, kept 242 vendor SKUs, generated review SKUs for 684 blank/short IDs, and produced 0 duplicate staged SKUs. `backend\.venv\Scripts\ruff.exe format` and `ruff check` passed for changed backend files. `npx tsc --noEmit` passed. `npm run build` passed with only existing Vite dynamic-import and chunk-size warnings. `npm run lint -- --quiet` passed. In-app browser verified local login as Jeremiah/Sudo Administrator, Data Entry renders with one file input, April selectable, W1-W4 only, `Upload & Parse` visible, and no console errors. I did not submit the April file through the live upload endpoint during testing, to avoid staging production inventory data.
+
+**Push:** pending ? not yet pushed
+
 ## v4.9.7 ? 2026-06-21 ? Codex UI flow standardization pass
 
 **Codex:** Standardized the floating MJCC AI chat shell onto shared CSS classes, replaced ad-hoc text glyph controls with the app icon system, and tightened the chat header, suggestions, input, send action, focus states, and mobile sheet behavior. The chat now opens as a usable mobile-width panel instead of keeping desktop dimensions on narrow screens.

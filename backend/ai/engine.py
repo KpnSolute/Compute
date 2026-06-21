@@ -758,4 +758,7 @@ def extract_json(text: str) -> dict | list:
                 depth -= 1
                 if depth == 0:
                     return json.loads(text[s : i + 1])
-    raise ValueError(f"No JSON found in AI response: {text[:200]}")
+    raise ValueError(
+        "AI response did not contain a complete JSON object. "
+        "Try the deterministic import path or ask AI to retry with a smaller file section."
+    )

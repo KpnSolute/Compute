@@ -71,6 +71,16 @@ interface PeriodSettings {
 
 // ── style helpers ─────────────────────────────────────────────────────────────
 
+const safeUploadMessage = (value: unknown): string => {
+    const raw = value instanceof Error ? value.message : String(value || 'Upload failed');
+    let msg = raw.replace(/\s+/g, ' ').trim();
+    if (msg.includes('No JSON found in AI response') || msg.includes('AI response did not contain')) {
+        msg = 'AI returned an incomplete JSON response. The file was not staged.';
+    }
+    if (msg.length > 360) msg = `${msg.slice(0, 357).trim()}...`;
+    return msg || 'Upload failed';
+};
+
 const LBL: React.CSSProperties = {
     display: 'block', fontSize: 11, fontWeight: 700,
     color: 'var(--muted)', marginBottom: 5,
@@ -431,7 +441,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                 operational_week_count: Number(cfg.period.operational_week_count ?? p.operational_week_count ?? 4),
             }));
         }
-    }, []);
+    }, [setAiKeys, setAiStatus, setPeriodSettings]);
 
     useEffect(() => {
         refreshDataEntrySettings().catch(() => {}).finally(() => setAiCfgLoading(false));
@@ -541,7 +551,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         } finally {
             setPreviewLoading(false);
         }
-    }, []);
+    }, [setPreview, setPreviewErr, setPreviewLoading, setStagingIds]);
 
     const cancelUpload = useCallback(() => {
         cancelledRef.current = true;
@@ -572,7 +582,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
             const userCancelled = cancelledRef.current;
             const msg = e?.name === 'AbortError'
                 ? (userCancelled ? 'Cancelled by user' : 'Request timed out — AI provider did not respond within 120s')
-                : (e?.message || 'Upload failed');
+                : safeUploadMessage(e);
             setUploadErr(msg);
             (window as any).toast?.(`AI parsing failed: ${msg}`);
             if (!userCancelled) {
@@ -586,7 +596,21 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
             setUploading(false);
             abortRef.current = null;
         }
-    }, [file, hint, month, year, week, direction, description, loadPreview]);
+    }, [
+        file,
+        hint,
+        month,
+        year,
+        week,
+        direction,
+        description,
+        loadPreview,
+        setPreview,
+        setResult,
+        setStagingIds,
+        setUploadErr,
+        setUploading,
+    ]);
 
     const doCommitBatch = useCallback(async () => {
         if (!stagingIds.length || !result) return;
@@ -613,7 +637,17 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         } finally {
             setCommitBusy(false);
         }
-    }, [stagingIds, result, user.id, onNavigate]);
+    }, [
+        stagingIds,
+        result,
+        user.id,
+        onNavigate,
+        setCommitBusy,
+        setPreview,
+        setResult,
+        setStagingIds,
+        setUploadErr,
+    ]);
 
     const clearAll = () => {
         setFile(null);
