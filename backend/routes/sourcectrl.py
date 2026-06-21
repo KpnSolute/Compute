@@ -31,6 +31,11 @@ def _client():
     return _svc
 
 
+def _infer_entity_scope(entries: list[dict]) -> str:
+    scopes = {entry.get("entity_type") or "unknown" for entry in entries}
+    return next(iter(scopes)) if len(scopes) == 1 else "mixed"
+
+
 ENTITY_TYPES = {"inventory", "menu", "user", "compliance", "event", "ops"}
 
 
@@ -499,11 +504,17 @@ async def submit_staging(
             raise HTTPException(status_code=500, detail="Insert returned no data.")
         entry = r.data[0]
         # Auto-wrap in a PR so it's reviewable as a unit, not a loose pending row.
-        ensure_pr_for_entries(
+        pr = ensure_pr_for_entries(
             [entry["entry_id"]],
             auth_user["id"],
-            title=f"{body.entity_type} changes — {auth_user.get('display_name', 'staff')}",
+            title=f"{body.entity_type} changes - {auth_user.get('display_name', 'staff')}",
+            entity_scope=body.entity_type,
         )
+        if pr:
+            entry["pr_id"] = pr.get("pr_id")
+            entry["pr_number"] = pr.get("pr_number")
+        else:
+            entry["warning"] = "Staging entry saved, but pull request auto-wrap failed."
         return entry
     except HTTPException:
         raise
@@ -604,6 +615,44 @@ async def open_pull_request(
                 status_code=422, detail="No pending entries to include in pull request."
             )
 
+        entries_r = (
+            _client()
+            .table("staging_entries")
+            .select("entry_id,entity_type,submitted_by,status,pull_request_id")
+            .in_("entry_id", entry_ids)
+            .execute()
+        )
+        entries = entries_r.data or []
+        found_ids = {entry["entry_id"] for entry in entries}
+        missing = [entry_id for entry_id in entry_ids if entry_id not in found_ids]
+        if missing:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "message": "Some staging entries were not found.",
+                    "missing": missing,
+                },
+            )
+        role = (auth_user.get("role") or "").lower()
+        invalid = [
+            entry["entry_id"]
+            for entry in entries
+            if entry.get("status") != "pending"
+            or entry.get("pull_request_id")
+            or (
+                role not in ("admin", "manager", "sudo")
+                and entry.get("submitted_by") != auth_user["id"]
+            )
+        ]
+        if invalid:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Some staging entries are not open for this pull request.",
+                    "entry_ids": invalid,
+                },
+            )
+
         result = (
             _client()
             .rpc(
@@ -627,6 +676,19 @@ async def open_pull_request(
             raise HTTPException(
                 status_code=500, detail="Failed to create pull request."
             )
+        scope = _infer_entity_scope(entries)
+        try:
+            updated = (
+                _client()
+                .table("pull_requests")
+                .update({"entity_scope": scope})
+                .eq("pr_id", pr["pr_id"])
+                .execute()
+            )
+            if updated.data:
+                pr = updated.data[0]
+        except Exception:
+            pass
         return pr
     except HTTPException:
         raise
@@ -796,10 +858,10 @@ async def merge_pull_request(
             raise HTTPException(status_code=404, detail="Pull request not found.")
         pr = pr_r.data[0]
 
-        if pr.get("status") not in ("open", "merged"):
+        if pr.get("status") != "open" or pr.get("commit_id"):
             raise HTTPException(
                 status_code=409,
-                detail=f"Pull request is {pr.get('status')} — cannot merge.",
+                detail=f"Pull request is {pr.get('status')} and cannot be merged again.",
             )
 
         # Only pending entries; idempotent — re-merge only replays what's still pending

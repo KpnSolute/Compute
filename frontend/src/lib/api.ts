@@ -399,7 +399,7 @@ export const api = {
     return req('/api/github-sync/run', { method: 'POST' });
   },
 
-  async getGithubSyncStatus(): Promise<{ total: number; synced: number; pending: number; failed: number }> {
+  async getGithubSyncStatus(): Promise<{ total: number; synced: number; pending: number; failed: number; recent?: Array<{ id: string; operation?: string; commit_id?: string; attempts?: number; last_error?: string; synced_at?: string; created_at?: string }> }> {
     return req('/api/github-sync/status');
   },
 

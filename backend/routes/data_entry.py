@@ -830,11 +830,18 @@ async def upload_file(
     if not content:
         log.warning("[DATA-ENTRY] Rejected: empty file | file=%s", fname)
         raise HTTPException(status_code=400, detail="Empty file.")
-    if len(content) > 10 * 1024 * 1024:  # 10 MB limit
+    max_file_size_mb = float(period_settings.get("max_file_size_mb", 10) or 10)
+    if len(content) > max_file_size_mb * 1024 * 1024:
         log.warning(
-            "[DATA-ENTRY] Rejected: file too large (%sKB) | file=%s", fsize_kb, fname
+            "[DATA-ENTRY] Rejected: file too large (%sKB, max=%sMB) | file=%s",
+            fsize_kb,
+            max_file_size_mb,
+            fname,
         )
-        raise HTTPException(status_code=413, detail="File too large (max 10 MB).")
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large (max {max_file_size_mb:g} MB).",
+        )
 
     ai_config = ctx.get_ai_config()
     tools_cfg = ctx.get_ai_tools_config()

@@ -19,7 +19,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 from backend.routes import supabase_service
-from backend.routes._deps import _get_auth_user
+from backend.routes._deps import _get_auth_user, ensure_pr_for_entries
 from backend.inventory_identity import (
     get_new_items_category_id,
     resolve_and_write_item,
@@ -657,44 +657,47 @@ async def update_item_meta(
     body: ItemMetaUpdate,
     auth_user: dict = Depends(_get_auth_user),
 ):
-    """Update par_level, unit, description, category, price, active, or SKU on
-    inventory_items for a given SKU. par is intentionally bypassed in
-    POST /api/inventory to prevent accidental zeroing during bulk saves — this
-    endpoint is the explicit manager/admin override.
+    """Stage inventory item metadata edits through Source Control.
 
-    When new_sku is provided and is already owned by another item, returns 409
-    with the conflicting item's details so the UI can offer a merge.
+    This endpoint used to write directly to inventory_items. It now preserves the
+    public API surface while routing all catalog edits through staging -> PR ->
+    merge so item changes have review, commit history, and rollback context.
     """
     role = (auth_user.get("role") or "").lower()
     if role not in ("admin", "manager", "sudo"):
         raise HTTPException(status_code=403, detail="Manager access required.")
 
-    res = (
+    item_r = (
         supabase_service.table("inventory_items")
-        .select("id")
+        .select("id,sku,description,unit_price,par_level,unit,active")
         .eq("sku", sku)
         .limit(1)
         .execute()
     )
-    row = (res.data or [None])[0]
-    if not row:
+    item = (item_r.data or [None])[0]
+    if not item:
         raise HTTPException(status_code=404, detail=f"Item not found: {sku}")
 
-    fields: dict = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    payload: dict = {"sku": sku}
+    changed: list[str] = []
     if body.par is not None:
-        fields["par_level"] = body.par
+        payload["par"] = body.par
+        changed.append("par")
     if body.unit:
-        fields["unit"] = body.unit
+        payload["unit"] = body.unit
+        changed.append("unit")
     if body.desc is not None:
-        fields["description"] = body.desc
+        payload["desc"] = body.desc
+        changed.append("description")
     if body.price is not None:
-        fields["unit_price"] = body.price
+        payload["price"] = body.price
+        changed.append("price")
     if body.active is not None:
-        fields["active"] = body.active
+        payload["active"] = body.active
+        changed.append("active")
 
     new_sku = (body.new_sku or "").strip()
     if new_sku and new_sku != sku:
-        # Check for SKU conflict before writing
         conflict_r = (
             supabase_service.table("inventory_items")
             .select("id,sku,description")
@@ -713,26 +716,85 @@ async def update_item_meta(
                     "conflict_desc": conflict_row["description"],
                 },
             )
-        fields["sku"] = new_sku
+        payload["new_sku"] = new_sku
+        changed.append("sku")
 
     if body.category:
         cat_r = (
             supabase_service.table("inventory_categories")
-            .select("id")
+            .select("id,name")
             .eq("name", body.category)
             .limit(1)
             .execute()
         )
         cat_row = (cat_r.data or [None])[0]
-        if cat_row:
-            fields["category_id"] = cat_row["id"]
+        if not cat_row:
+            valid_r = (
+                supabase_service.table("inventory_categories")
+                .select("name")
+                .order("sort_order")
+                .execute()
+            )
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": f"Unknown category: {body.category}",
+                    "valid_categories": [
+                        r.get("name") for r in (valid_r.data or []) if r.get("name")
+                    ],
+                },
+            )
+        payload["category"] = body.category
+        changed.append("category")
 
-    if len(fields) > 1:
-        supabase_service.table("inventory_items").update(fields).eq(
-            "id", row["id"]
-        ).execute()
+    if not changed:
+        raise HTTPException(status_code=422, detail="No item fields supplied.")
 
-    return {"sku": new_sku or sku, "updated": [k for k in fields if k != "updated_at"]}
+    now = datetime.now(timezone.utc).isoformat()
+    summary = f"Item update for {sku}: {', '.join(changed)}"
+    row = {
+        "entity_type": "inventory",
+        "entity_id": sku,
+        "field_name": "item_update",
+        "old_value_text": item.get("description") or sku,
+        "new_value_text": summary,
+        "change_type": "item_update",
+        "metadata": {
+            "summary": summary,
+            "source_endpoint": "PATCH /api/inventory/items/{sku}",
+            "changed_fields": changed,
+        },
+        "status": "pending",
+        "submitted_by": auth_user["id"],
+        "source": "inventory_api",
+        "operation": "item_update",
+        "full_payload": payload,
+        "created_at": now,
+    }
+    staged_r = supabase_service.table("staging_entries").insert(row).execute()
+    staged = (staged_r.data or [None])[0]
+    if not staged:
+        raise HTTPException(status_code=500, detail="Failed to stage item update.")
+
+    pr = ensure_pr_for_entries(
+        [staged["entry_id"]],
+        auth_user["id"],
+        title=f"Item update - {sku}",
+        description=summary,
+        entity_scope="inventory",
+    )
+
+    return {
+        "staged": True,
+        "sku": new_sku or sku,
+        "updated": changed,
+        "entry_id": staged["entry_id"],
+        "pr_id": pr.get("pr_id") if pr else None,
+        "pr_number": pr.get("pr_number") if pr else None,
+        "warning": None
+        if pr
+        else "Item update staged, but pull request auto-wrap failed.",
+    }
 
 
 _MONTHS = [
@@ -772,6 +834,12 @@ def _label(month: int | None, year: int | None) -> str:
     if month is None or year is None or not (0 <= month <= 11):
         return ""
     return f"{_MONTHS[month]} {year}"
+
+
+def _next_period(db_month: int, year: int) -> tuple[int, int]:
+    if db_month >= 11:
+        return 0, year + 1
+    return db_month + 1, year
 
 
 @router.get("/month-status")
@@ -836,10 +904,7 @@ async def get_period_status(auth_user: dict = Depends(_get_auth_user)):
 
     lm = int(latest.data[0]["month"])
     ly = int(latest.data[0]["year"])
-    if lm >= 11:
-        nm, ny = 0, ly + 1
-    else:
-        nm, ny = lm + 1, ly
+    nm, ny = _next_period(lm, ly)
 
     needs = (current_year, current_month) > (ly, lm)
     return PeriodStatus(
@@ -886,6 +951,57 @@ async def rollover_period(
         )
     from_month = int(latest.data[0]["month"])
     from_year = int(latest.data[0]["year"])
+    next_month, next_year = _next_period(from_month, from_year)
+
+    source_status_r = (
+        supabase_service.table("month_status")
+        .select("status")
+        .eq("month", from_month)
+        .eq("year", from_year)
+        .limit(1)
+        .execute()
+    )
+    source_status = (source_status_r.data or [{}])[0].get("status", "open")
+    if source_status == "published":
+        raise HTTPException(
+            status_code=409,
+            detail=f"{_label(from_month, from_year)} is already published and cannot be rolled again.",
+        )
+
+    target_status_r = (
+        supabase_service.table("month_status")
+        .select("status")
+        .eq("month", next_month)
+        .eq("year", next_year)
+        .limit(1)
+        .execute()
+    )
+    if target_status_r.data:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{_label(next_month, next_year)} is already initialized; rollover would overwrite an existing period.",
+        )
+
+    target_rows_r = (
+        supabase_service.table("monthly_inventory")
+        .select("id")
+        .eq("month", next_month)
+        .eq("year", next_year)
+        .limit(1)
+        .execute()
+    )
+    if target_rows_r.data:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{_label(next_month, next_year)} already has inventory rows; rollover refused.",
+        )
+
+    now = datetime.now(timezone.utc)
+    if (next_year, next_month) > (now.year, now.month):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot roll into future period {_label(next_month, next_year)} yet.",
+        )
 
     try:
         result = supabase_service.rpc(
@@ -909,7 +1025,7 @@ async def rollover_period(
 class WeekStatusRequest(BaseModel):
     month: int  # 1-indexed
     year: int
-    week: int  # 1–5
+    week: int  # 1-4
     status: str  # open | locked | published
 
 
@@ -964,8 +1080,8 @@ async def set_week_status(
         raise HTTPException(
             status_code=422, detail="status must be open, locked, or published."
         )
-    if body.week not in (1, 2, 3, 4, 5):
-        raise HTTPException(status_code=422, detail="week must be 1–5.")
+    if body.week not in (1, 2, 3, 4):
+        raise HTTPException(status_code=422, detail="week must be 1-4.")
     db_month = body.month - 1
     try:
         supabase_service.rpc(

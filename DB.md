@@ -107,7 +107,7 @@ Triggers: `guard_closed_month_writes`, `guard_locked_week_writes`, `touch_update
 
 **`month_status`** — inventory period lock. `id` serial PK · `month` int NN (0–11) · `year` int NN (2020–2040) · `status` text ∈ {`open`,`published`} · `opened_at` · `published_at` · `published_by` *FK→user_profiles* · **UQ(month, year)**
 
-**`week_status`** — per-week lock. `id` PK · `month` NN · `year` NN · `week` int NN (1–5) · `status` ∈ {`open`,`locked`,`published`} · `locked_by` *FK→user_profiles* · `locked_at` · `created_at` · **UQ(month, year, week)**
+**`week_status`** — per-week lock. `id` PK · `month` NN · `year` NN · `week` int NN (1-4) · `status` ∈ {`open`,`locked`,`published`} · `locked_by` *FK→user_profiles* · `locked_at` · `created_at` · **UQ(month, year, week)**
 
 **`monthly_snapshots`** — period rollup (computed). `id` PK · `month` NN · `year` NN · `grand_total` · `category_totals` jsonb · `item_count` · `reorder_count` · `preset` bool · `data` jsonb · `wk1_total`..`wk4_total` plus legacy `wk5_total` constrained unused · `starting_total` · `saved_by` · `saved_at` · **UQ(month, year)**. Maintained by `trg_refresh_snapshot` / `refresh_monthly_snapshot`.
 
@@ -126,6 +126,8 @@ Triggers: `guard_closed_month_writes`, `guard_locked_week_writes`, `touch_update
 Flow: **`staging_entries` → `pull_requests` → `commits` → `commit_changes`**, with `inventory_versions` (snapshots) and `github_sync_queue` (archive push).
 
 **`staging_entries`** — pending changes. `entry_id` PK · `status` ∈ {`pending`,`merged`,`rejected`} · `submitted_by`/`reviewed_by` *FK→user_profiles* · `expires_at` (now+15d) · `source`/`file_ref`/`batch_id` · `entity_type`/`entity_id`/`field_name` · `old_value_text`/`new_value_text` · `change_type` · `metadata` jsonb · `operation` · `full_payload` jsonb · `pull_request_id` *FK→pull_requests*
+
+**Catalog edit rule:** item metadata changes from `PATCH /api/inventory/items/{sku}` stage an `item_update` entry and auto-wrap into an inventory-scoped PR. The endpoint no longer writes directly to `inventory_items`; merge/replay owns the DB write so SKU/category/par edits stay under Source Control. `GET /api/github-sync/status` returns full queue counts plus the 25 latest queue rows for admin visibility.
 
 **`pull_requests`** — `pr_id` PK · `pr_number` bigint NN `UQ` (seq) · `title` NN · `description` · `author_id` *FK→user_profiles* · `status` ∈ {`draft`,`open`,`merged`,`closed`} · `branch`='main' · `entity_scope`/`source`/`review_note` · `commit_id` *FK→commits* · +ts · `merged_at`/`merged_by` · `closed_at`/`closed_by`
 
@@ -222,7 +224,7 @@ The new API authenticates as `service_role`. Frontend reads directly; **never** 
 ## 9. Constraints quick-reference
 
 - **Status enums:** `month_status` {open,published}; `week_status` {open,locked,published}; `staging_entries` {pending,merged,rejected}; `pull_requests` {draft,open,merged,closed}; `commits` {merged,reverted}; `user_profiles.role` {staff,assistant,manager,admin,sudo}.
-- **Ranges:** `month` 0–11; `week` 1–5; `year` 2020–2040.
+- **Ranges:** `month` 0–11; `week` 1-4; `year` 2020–2040.
 - **Key unique constraints:** `monthly_inventory(item_id,month,year)`, `inventory_items(sku)` & `(barcode_id)`, `item_barcodes(barcode)`, `month_status(month,year)`, `week_status(month,year,week)`, `month_periods(month,year)`, `week_gross(month_period_id,week_number)`, `monthly_snapshots(month,year)`, `menu_entries(cycle_id,week_number,day_of_week,meal_type)`, `user_profiles(username)`, `pull_requests(pr_number)`.
 
 ---

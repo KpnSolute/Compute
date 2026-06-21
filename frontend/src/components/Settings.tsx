@@ -532,6 +532,8 @@ function ProvidersTab() {
         setStackSaving(true); setStackSaved(false); setErr(null);
         try {
             await api.setAIStack({ provider: stackProvider, key_id: stackKeyId, model: stackModel, vision_capable: stackVision });
+            window.dispatchEvent(new CustomEvent('mjcc:ai-config-changed'));
+            window.dispatchEvent(new CustomEvent('mjcc:settings-changed'));
             setStackSaved(true);
             setTimeout(() => setStackSaved(false), 2500);
             await reload();
@@ -554,6 +556,8 @@ function ProvidersTab() {
                 base_url:       form.url || undefined,
                 model_override: form.model_override || undefined,
             });
+            window.dispatchEvent(new CustomEvent('mjcc:ai-config-changed'));
+            window.dispatchEvent(new CustomEvent('mjcc:settings-changed'));
             setAddOpen(o => ({ ...o, [provider]: false }));
             setAddForm(f => ({ ...f, [provider]: { label: '', key: '', url: '', model_override: '' } }));
             await reload();
@@ -579,6 +583,8 @@ function ProvidersTab() {
             if (form.url !== (k.base_url || '')) body.base_url = form.url || null;
             if (form.model_override !== (k.model_override || '')) body.model_override = form.model_override || null;
             await api.updateAIKeyById(k.id, body);
+            window.dispatchEvent(new CustomEvent('mjcc:ai-config-changed'));
+            window.dispatchEvent(new CustomEvent('mjcc:settings-changed'));
             setEditOpen(o => ({ ...o, [k.id]: false }));
             await reload();
         } catch (e: any) {
@@ -592,6 +598,8 @@ function ProvidersTab() {
         setKeyErr(null);
         try {
             await api.updateAIKeyById(k.id, { is_active: true });
+            window.dispatchEvent(new CustomEvent('mjcc:ai-config-changed'));
+            window.dispatchEvent(new CustomEvent('mjcc:settings-changed'));
             await reload();
         } catch (e: any) {
             setKeyErr(e?.message || 'Failed to activate');

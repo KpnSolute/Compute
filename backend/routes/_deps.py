@@ -1,9 +1,13 @@
 """Shared FastAPI dependencies for MJCC routes — auth resolution and role guards."""
 
+import logging
+
 from fastapi import Header, HTTPException, Depends
 from backend.routes import supabase_service, jwt_validator
 
 ROLE_LEVEL = {"staff": 10, "assistant": 20, "manager": 30, "admin": 40, "sudo": 50}
+
+log = logging.getLogger("mjcc.routes.deps")
 
 
 def _get_auth_user(authorization: str = Header("")) -> dict:
@@ -65,7 +69,11 @@ _require_manager = _require_admin_or_manager
 
 
 def ensure_pr_for_entries(
-    entry_ids: list[str], author_id: str, title: str, description: str = ""
+    entry_ids: list[str],
+    author_id: str,
+    title: str,
+    description: str = "",
+    entity_scope: str | None = None,
 ) -> dict | None:
     """Wrap newly-staged entries in a pull request, automatically.
 
@@ -90,22 +98,29 @@ def ensure_pr_for_entries(
     try:
         valid_r = (
             supabase_service.table("staging_entries")
-            .select("entry_id")
+            .select("entry_id,entity_type")
             .in_("entry_id", entry_ids)
             .eq("submitted_by", author_id)
             .eq("status", "pending")
             .is_("pull_request_id", "null")
             .execute()
         )
-        valid_ids = [row["entry_id"] for row in valid_r.data or []]
+        valid_rows = valid_r.data or []
+        valid_ids = [row["entry_id"] for row in valid_rows]
         if not valid_ids:
             return None
+
+        inferred_scope = entity_scope or "mixed"
+        scopes = {row.get("entity_type") or "unknown" for row in valid_rows}
+        if not entity_scope and len(scopes) == 1:
+            inferred_scope = next(iter(scopes))
 
         pr_r = (
             supabase_service.table("pull_requests")
             .select("*")
             .eq("author_id", author_id)
             .eq("status", "open")
+            .eq("entity_scope", inferred_scope)
             .order("created_at", desc=True)
             .limit(1)
             .execute()
@@ -119,7 +134,7 @@ def ensure_pr_for_entries(
                         "title": title.strip() or "Untitled request",
                         "description": (description or "").strip(),
                         "author_id": author_id,
-                        "entity_scope": "inventory",
+                        "entity_scope": inferred_scope,
                     }
                 )
                 .execute()
@@ -133,4 +148,5 @@ def ensure_pr_for_entries(
         ).in_("entry_id", valid_ids).execute()
         return pr
     except Exception:
+        log.exception("Failed to auto-wrap staging entries in pull request")
         return None

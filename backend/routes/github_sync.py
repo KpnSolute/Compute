@@ -178,24 +178,34 @@ async def run_sync(
 
 @router.get("/status")
 async def sync_status(auth_user: dict = Depends(_require_admin_or_manager)):
-    """Return counts of pending, synced, and failed queue entries."""
+    """Return queue counts plus the latest sync rows for archive visibility."""
     try:
         all_r = (
-            _client()
-            .table("github_sync_queue")
-            .select("synced_at,attempts,last_error")
-            .execute()
+            _client().table("github_sync_queue").select("attempts,synced_at").execute()
         )
         rows = all_r.data or []
+        recent_r = (
+            _client()
+            .table("github_sync_queue")
+            .select("id,operation,commit_id,attempts,last_error,synced_at,created_at")
+            .order("created_at", desc=True)
+            .limit(25)
+            .execute()
+        )
         return {
             "total": len(rows),
-            "synced": sum(1 for r in rows if r["synced_at"]),
+            "synced": sum(1 for r in rows if r.get("synced_at")),
             "pending": sum(
-                1 for r in rows if not r["synced_at"] and r["attempts"] < MAX_ATTEMPTS
+                1
+                for r in rows
+                if not r.get("synced_at") and (r.get("attempts") or 0) < MAX_ATTEMPTS
             ),
             "failed": sum(
-                1 for r in rows if not r["synced_at"] and r["attempts"] >= MAX_ATTEMPTS
+                1
+                for r in rows
+                if not r.get("synced_at") and (r.get("attempts") or 0) >= MAX_ATTEMPTS
             ),
+            "recent": recent_r.data or [],
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

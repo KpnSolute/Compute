@@ -416,23 +416,38 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
     const [elapsed, setElapsed] = useState(0);
     const elapsedTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-    useEffect(() => {
-        api.getDataEntrySettings().then(cfg => {
-            if (cfg?.current?.provider) setAiStatus(cfg.current);
-            setAiKeys((cfg?.keys || []).filter((k: any) => k.has_key));
-            if (cfg?.period) {
-                setPeriodSettings(p => ({
-                    ...p,
-                    ...cfg.period,
-                    floor_year: Number(cfg.period.floor_year ?? p.floor_year),
-                    floor_month: Number(cfg.period.floor_month ?? p.floor_month),
-                    max_year: Number(cfg.period.max_year ?? p.max_year),
-                    max_month: Number(cfg.period.max_month ?? p.max_month),
-                    operational_week_count: Number(cfg.period.operational_week_count ?? p.operational_week_count ?? 4),
-                }));
-            }
-        }).catch(() => {}).finally(() => setAiCfgLoading(false));
+    const refreshDataEntrySettings = useCallback(async () => {
+        const cfg = await api.getDataEntrySettings();
+        if (cfg?.current?.provider) setAiStatus(cfg.current);
+        setAiKeys((cfg?.keys || []).filter((k: any) => k.has_key));
+        if (cfg?.period) {
+            setPeriodSettings(p => ({
+                ...p,
+                ...cfg.period,
+                floor_year: Number(cfg.period.floor_year ?? p.floor_year),
+                floor_month: Number(cfg.period.floor_month ?? p.floor_month),
+                max_year: Number(cfg.period.max_year ?? p.max_year),
+                max_month: Number(cfg.period.max_month ?? p.max_month),
+                operational_week_count: Number(cfg.period.operational_week_count ?? p.operational_week_count ?? 4),
+            }));
+        }
     }, []);
+
+    useEffect(() => {
+        refreshDataEntrySettings().catch(() => {}).finally(() => setAiCfgLoading(false));
+    }, [refreshDataEntrySettings]);
+
+    useEffect(() => {
+        const refresh = () => { refreshDataEntrySettings().catch(() => {}); };
+        window.addEventListener('mjcc:settings-changed', refresh);
+        window.addEventListener('mjcc:ai-config-changed', refresh);
+        window.addEventListener('focus', refresh);
+        return () => {
+            window.removeEventListener('mjcc:settings-changed', refresh);
+            window.removeEventListener('mjcc:ai-config-changed', refresh);
+            window.removeEventListener('focus', refresh);
+        };
+    }, [refreshDataEntrySettings]);
 
     // Load live model list whenever the picker's selected key changes
     useEffect(() => {
@@ -466,6 +481,8 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                 vision_capable: !!visionModel?.vision,
             });
             setAiStatus({ provider: key.provider, model: pickerModel, is_vision: !!visionModel?.vision, key_id: key.id });
+            window.dispatchEvent(new CustomEvent('mjcc:ai-config-changed'));
+            window.dispatchEvent(new CustomEvent('mjcc:settings-changed'));
             setPickerOpen(false);
         } catch (e: any) {
             setUploadErr(e?.message || 'Failed to switch AI model');
