@@ -12,7 +12,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** Local parser smoke against `C:\Users\ogdev\Downloads\APRIL_INVENTORY_2026.xlsx` extracted 926 items, kept 242 vendor SKUs, generated review SKUs for 684 blank/short IDs, and produced 0 duplicate staged SKUs. `backend\.venv\Scripts\ruff.exe format` and `ruff check` passed for changed backend files. `npx tsc --noEmit` passed. `npm run build` passed with only existing Vite dynamic-import and chunk-size warnings. `npm run lint -- --quiet` passed. In-app browser verified local login as Jeremiah/Sudo Administrator, Data Entry renders with one file input, April selectable, W1-W4 only, `Upload & Parse` visible, and no console errors. I did not submit the April file through the live upload endpoint during testing, to avoid staging production inventory data.
 
-**Push:** pending ? not yet pushed
+**Push:** Codex -> e73ed4f - 2026-06-21
 
 ## v4.9.7 ? 2026-06-21 ? Codex UI flow standardization pass
 
