@@ -12,7 +12,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** Supabase MCP confirmed `app_settings.data_entry.operational_week_count=4` and live constraints `monthly_inventory_w5_unused_check`, `monthly_snapshots_wk5_unused_check`, and `week_status_week_1_4_check`. `backend/.venv/Scripts/ruff.exe check` passed for changed backend modules. `npx.cmd tsc --noEmit` passed. `npm.cmd run build` passed with only the existing Vite bundle-size/dynamic-import warnings. Browser smoke was attempted, but the in-app browser helper failed to launch in the sandbox with a Windows permission error, so UI visual verification is still pending.
 
-**Push:** Codex -> cbf782e ? 2026-06-21
+**Push:** Codex -> bb0b9f2 ? 2026-06-21
 
 ## v4.9.4 — 2026-06-20 — Codex live-upload preflight for April rebuild
 
