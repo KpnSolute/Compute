@@ -12,7 +12,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** `tsc --noEmit` passed. `npm run build` passed with only the existing Vite dynamic-import and chunk-size warnings. In-app browser checks against `http://127.0.0.1:5173/` showed no console warnings/errors. Desktop viewport 1280x720: Source Control opens at `x=880`, width `400`. Mobile viewport 390x720: Source Control opens at `x=0`, width `390`; mobile AI modal opens centered at width `354`; floating MJCC AI opens as a mobile sheet at `x=8`, width `374`, with 42px input/send controls. Browser viewport was reset after testing.
 
-**Push:** pending - not yet pushed
+**Push:** Codex -> f095540 - 2026-06-21
 ## v4.9.6 ? 2026-06-21 ? Codex Source Control and Data Entry production hardening
 
 **Codex:** Finished the implementation pass from the subagent findings. Inventory item metadata edits now stage through Source Control instead of writing directly to `inventory_items`, auto-wrap into inventory-scoped PRs, and return PR metadata to the caller. Manual staging now scopes auto-created PRs by entity type and reports auto-wrap failures back to the UI/API response instead of silently hiding them.
