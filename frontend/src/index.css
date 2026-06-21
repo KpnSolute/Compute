@@ -572,6 +572,37 @@ table.data.logtbl td{padding:6px 10px}
 /* Agent bubble */
 .agent-dot{width:6px;height:6px;border-radius:50%;background:var(--navy);animation:agentBounce 1.2s infinite ease-in-out}
 @keyframes agentBounce{0%,80%,100%{transform:translateY(0);opacity:.6}40%{transform:translateY(-6px);opacity:1}}
+.agent-shell{isolation:isolate}
+.agent-launch-icon{display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#fff;pointer-events:none}
+.agent-launch-icon svg{width:21px;height:21px;transition:width .18s ease,height .18s ease}
+.agent-shell.nearby .agent-launch-icon svg{width:25px;height:25px}
+.agent-head{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line);flex-shrink:0;background:var(--surface)}
+.agent-status-dot{width:8px;height:8px;border-radius:50%;background:#22c55e;transition:background .3s;flex-shrink:0}
+.agent-status-dot.busy{background:#f59e0b}
+.agent-title{font-weight:800;font-size:13px;flex:1;color:var(--ink);min-width:0}
+.agent-rate{font-size:10px;color:var(--faint);white-space:nowrap}
+.agent-head-btn,.agent-close-btn{border:none;background:none;color:var(--faint);cursor:pointer;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;min-height:30px}
+.agent-head-btn{font-size:11px;padding:2px 8px;font-weight:700}
+.agent-close-btn{width:30px;height:30px}
+.agent-head-btn:hover,.agent-close-btn:hover{background:var(--surface-2);color:var(--ink)}
+.agent-close-btn svg{width:16px;height:16px}
+.agent-messages{flex:1;overflow-y:auto;padding:14px 12px;display:flex;flex-direction:column;gap:10px;min-height:0}
+.agent-empty{text-align:center;margin-top:32px}
+.agent-empty-icon{display:flex;justify-content:center;color:var(--accent);margin-bottom:8px}
+.agent-empty-icon svg{width:30px;height:30px}
+.agent-empty-text{font-size:12.5px;color:var(--muted);margin-bottom:14px;line-height:1.45}
+.agent-suggestions{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
+.agent-suggestion{font-size:11.5px;padding:6px 12px;border:1px solid var(--line);border-radius:14px;background:var(--surface-2);cursor:pointer;color:var(--ink);font-weight:700;min-height:32px}
+.agent-suggestion:hover{background:var(--accent-soft);border-color:var(--accent);color:var(--navy)}
+.agent-inputbar{padding:10px 12px;border-top:1px solid var(--line);display:flex;gap:8px;flex-shrink:0;background:var(--surface)}
+.agent-input{flex:1;padding:8px 13px;border-radius:20px;border:1px solid var(--line);background:var(--surface-2);font-size:13px;outline:none;color:var(--ink);min-width:0}
+.agent-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(30,115,232,.1)}
+.agent-input:disabled{opacity:.6}
+.agent-send-btn{width:36px;height:36px;border-radius:50%;flex-shrink:0;background:var(--navy);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,transform .05s}
+.agent-send-btn svg{width:17px;height:17px}
+.agent-send-btn:hover:not(:disabled){background:var(--navy-hover)}
+.agent-send-btn:active:not(:disabled){transform:translateY(1px)}
+.agent-send-btn:disabled{background:var(--line);cursor:default}
 
 /* AI data-entry glow */
 .ai-glow-zone{animation:aiGlowPulse 1.6s ease-in-out infinite!important;border-style:solid!important}
@@ -1338,8 +1369,8 @@ table.data.logtbl td{padding:6px 10px}
 .stage-cb input{width:15px;height:15px;cursor:pointer;accent-color:var(--primary)}
 
 /* ── Confirmation modal overlay ── */
-.modal-overlay{position:fixed;inset:0;z-index:100;background:rgba(9,22,51,.45);display:flex;align-items:center;justify-content:center}
-.modal{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 32px rgba(9,22,51,.18);max-width:400px;width:90vw}
+.modal-overlay{position:fixed;inset:0;z-index:100;background:rgba(9,22,51,.45);display:flex;align-items:center;justify-content:center;padding:16px}
+.modal-overlay .modal{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 32px rgba(9,22,51,.18);max-width:400px;width:90vw}
 
 /* ════════════════════════════════════════════════════════════
    Phone overflow hardening + premium mobile polish (≤640px + ultra small)
@@ -1764,8 +1795,8 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
    ══════════════════════════════════════════════════════════ */
 
 /* ── Slide-in panel shell ── */
-.sc-panel{position:fixed;top:54px;right:0;bottom:28px;width:360px;background:var(--surface);border-left:1px solid var(--line);box-shadow:-4px 0 24px rgba(9,22,51,.12);z-index:150;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .16s cubic-bezier(.4,0,.2,1);overflow:hidden;will-change:transform}
-.sc-panel.open{transform:translateX(0)}
+.sc-panel{position:fixed;top:54px;right:0;bottom:28px;width:min(400px,calc(100vw - 48px));background:var(--surface);border-left:1px solid var(--line);box-shadow:-4px 0 24px rgba(9,22,51,.12);z-index:150;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .16s cubic-bezier(.4,0,.2,1);overflow:hidden;will-change:transform}
+.sc-panel.open{transform:translateX(0)!important}
 .sc-backdrop{position:absolute;top:54px;right:0;bottom:28px;left:48px;z-index:149;background:rgba(9,22,51,.18);cursor:default}
 
 /* ── Header ── */
@@ -1820,14 +1851,15 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
 .sc-vsc-file-actions{display:flex;gap:2px;flex-shrink:0;opacity:0;pointer-events:none;transition:opacity .1s;align-items:center}
 
 /* ── Shared icon button ── */
-.sc-icon-btn{background:none;border:none;cursor:pointer;color:var(--muted);padding:3px 4px;border-radius:4px;display:flex;align-items:center;justify-content:center;transition:background .1s,color .1s}
+.sc-icon-btn{background:none;border:1px solid transparent;cursor:pointer;color:var(--muted);padding:4px 6px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;gap:5px;transition:background .1s,color .1s,border-color .1s;min-height:30px;font-size:11.5px;font-weight:700;white-space:nowrap}
+.sc-icon-btn svg{width:14px;height:14px;flex-shrink:0}
 .sc-icon-btn:hover{background:var(--surface);color:var(--ink)}
 .sc-icon-btn:disabled{opacity:.4;cursor:not-allowed}
 .sc-icon-btn.danger:hover{background:var(--red-bg);color:var(--red)}
 .sc-icon-btn.ok:hover{background:var(--green-bg);color:var(--green-ink)}
 
 /* ── SC nav toolbar buttons ── */
-.sc-nav-btn{background:none;border:none;cursor:pointer;color:var(--muted);padding:5px 9px;border-radius:6px;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;font-family:var(--font);transition:background .12s,color .12s;white-space:nowrap;height:30px}
+.sc-nav-btn{background:none;border:1px solid transparent;cursor:pointer;color:var(--muted);padding:6px 10px;border-radius:7px;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;font-family:var(--font);transition:background .12s,color .12s,border-color .12s;white-space:nowrap;min-height:34px}
 .sc-nav-btn svg{flex-shrink:0;opacity:.75}
 .sc-nav-btn:hover{background:var(--surface);color:var(--ink)}
 .sc-nav-btn:hover svg{opacity:1}
@@ -1890,7 +1922,24 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
 
 /* ── Mobile ── */
 @media(max-width:640px){
-  .sc-panel{width:100%;max-width:100%}
+  .agent-shell.open{left:8px!important;right:8px!important;bottom:8px!important;width:auto!important;height:min(78vh,560px)!important;border-radius:12px!important}
+  .agent-shell:not(.open){right:12px!important;bottom:38px!important}
+  .agent-inputbar{padding:10px}
+  .agent-input{font-size:16px;min-height:42px}
+  .agent-send-btn{width:42px;height:42px}
+  .sc-panel{top:48px;bottom:28px;width:100%;max-width:100%;border-left:none}
+  .sc-panel.open{left:0;right:0;transform:translateX(0)!important}
+  .sc-backdrop{top:48px;left:0;bottom:28px}
+  .sc-title-row{padding:10px 10px 6px}
+  .sc-status-bar{overflow-x:auto;padding:6px 10px 9px}
+  .sc-vsc-file-row{padding:8px 10px 8px 14px;min-height:44px;align-items:flex-start}
+  .sc-vsc-file-actions{opacity:1;pointer-events:auto}
+  .sc-icon-btn{min-height:38px;min-width:38px}
+  .sc-nav-btn{min-height:40px;flex:1;justify-content:center}
+  .modal,.modal-box{max-width:100%;max-height:calc(100dvh - 24px);border-radius:12px}
+  .modal-head{padding:14px}
+  .modal-body{padding:14px}
+  .modal-foot{padding:12px 14px 14px;flex-direction:column}
 }
 
 /* ── Dark theme ── */

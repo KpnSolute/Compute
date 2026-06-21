@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../lib/api';
 import { ROLE_LEVEL } from '../lib/constants';
 import type { User } from '../lib/constants';
+import { I } from '../lib/icons';
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -229,6 +230,7 @@ export function AgentBubble({ user }: { user: User }) {
     return (
         <div
             ref={bubbleRef}
+            className={`agent-shell${isOpen ? ' open' : ''}${nearby ? ' nearby' : ''}`}
             onClick={!isOpen ? () => setIsOpen(true) : undefined}
             style={{
                 position:   'fixed',
@@ -256,14 +258,8 @@ export function AgentBubble({ user }: { user: User }) {
         >
             {/* ── collapsed: spark icon ──────────────────────────────────── */}
             {!isOpen && (
-                <div style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    width: '100%', height: '100%', color: '#fff',
-                    fontSize: nearby ? 24 : 20,
-                    transition: 'font-size .18s ease',
-                    pointerEvents: 'none',
-                }}>
-                    ✦
+                <div className="agent-launch-icon">
+                    {I.flame({ 'aria-hidden': true })}
                 </div>
             )}
 
@@ -271,60 +267,42 @@ export function AgentBubble({ user }: { user: User }) {
             {isOpen && (
                 <>
                     {/* Header */}
-                    <div style={{
-                        display: 'flex', alignItems: 'center', gap: 8,
-                        padding: '11px 14px',
-                        borderBottom: '1px solid var(--line)',
-                        flexShrink: 0,
-                        background: 'var(--surface)',
-                    }}>
-                        <div style={{
-                            width: 8, height: 8, borderRadius: '50%',
-                            background: loading ? '#f59e0b' : '#22c55e',
-                            transition: 'background .3s',
-                            flexShrink: 0,
-                        }} />
-                        <span style={{ fontWeight: 800, fontSize: 13, flex: 1, color: 'var(--ink)' }}>MJCC AI</span>
+                    <div className="agent-head">
+                        <div className={`agent-status-dot${loading ? ' busy' : ''}`} />
+                        <span className="agent-title">MJCC AI</span>
                         {rateInfo != null && (
-                            <span style={{ fontSize: 10, color: 'var(--faint)' }}>{rateInfo.remaining_hour}⁄h left</span>
+                            <span className="agent-rate">{rateInfo.remaining_hour}/h left</span>
                         )}
                         <button
                             onClick={clearHistory}
                             title="Clear conversation"
-                            style={{ fontSize: 11, color: 'var(--faint)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}
+                            className="agent-head-btn"
                         >
                             Clear
                         </button>
                         <button
                             onClick={() => setIsOpen(false)}
-                            style={{ fontSize: 18, color: 'var(--faint)', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1, padding: '0 2px' }}
+                            className="agent-close-btn"
+                            aria-label="Close MJCC AI"
                         >
-                            ×
+                            {I.x({ 'aria-hidden': true })}
                         </button>
                     </div>
 
                     {/* Message list */}
-                    <div style={{
-                        flex: 1, overflowY: 'auto', padding: '14px 12px',
-                        display: 'flex', flexDirection: 'column', gap: 10,
-                    }}>
+                    <div className="agent-messages">
                         {messages.length === 0 && !loading && (
-                            <div style={{ textAlign: 'center', marginTop: 32 }}>
-                                <div style={{ fontSize: 30, marginBottom: 8 }}>✦</div>
-                                <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>
+                            <div className="agent-empty">
+                                <div className="agent-empty-icon">{I.flame({ 'aria-hidden': true })}</div>
+                                <div className="agent-empty-text">
                                     Ask me anything about MJCC operations
                                 </div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
+                                <div className="agent-suggestions">
                                     {SUGGESTIONS.map(s => (
                                         <button
                                             key={s}
                                             onClick={() => sendMessage(s)}
-                                            style={{
-                                                fontSize: 11.5, padding: '5px 12px',
-                                                border: '1px solid var(--line)', borderRadius: 14,
-                                                background: 'var(--surface-2)', cursor: 'pointer',
-                                                color: 'var(--ink)',
-                                            }}
+                                            className="agent-suggestion"
                                         >
                                             {s}
                                         </button>
@@ -342,12 +320,7 @@ export function AgentBubble({ user }: { user: User }) {
                     </div>
 
                     {/* Input bar */}
-                    <div style={{
-                        padding: '10px 12px',
-                        borderTop: '1px solid var(--line)',
-                        display: 'flex', gap: 8, flexShrink: 0,
-                        background: 'var(--surface)',
-                    }}>
+                    <div className="agent-inputbar">
                         <input
                             ref={inputRef}
                             value={input}
@@ -360,28 +333,15 @@ export function AgentBubble({ user }: { user: User }) {
                             }}
                             placeholder="Ask MJCC AI…"
                             disabled={loading}
-                            style={{
-                                flex: 1, padding: '8px 13px',
-                                borderRadius: 20,
-                                border: '1px solid var(--line)',
-                                background: 'var(--surface-2)',
-                                fontSize: 13, outline: 'none',
-                                color: 'var(--ink)',
-                                opacity: loading ? 0.6 : 1,
-                            }}
+                            className="agent-input"
                         />
                         <button
                             onClick={() => sendMessage(input)}
                             disabled={loading || !input.trim()}
-                            style={{
-                                width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
-                                background: loading || !input.trim() ? 'var(--line)' : 'var(--navy)',
-                                color: '#fff', border: 'none', cursor: loading || !input.trim() ? 'default' : 'pointer',
-                                fontSize: 15, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                transition: 'background .15s',
-                            }}
+                            className="agent-send-btn"
+                            aria-label="Send message"
                         >
-                            ▶
+                            {I.chevR({ 'aria-hidden': true })}
                         </button>
                     </div>
                 </>

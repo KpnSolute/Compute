@@ -4,6 +4,15 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.9.7 ? 2026-06-21 ? Codex UI flow standardization pass
+
+**Codex:** Standardized the floating MJCC AI chat shell onto shared CSS classes, replaced ad-hoc text glyph controls with the app icon system, and tightened the chat header, suggestions, input, send action, focus states, and mobile sheet behavior. The chat now opens as a usable mobile-width panel instead of keeping desktop dimensions on narrow screens.
+
+**Codex fixes:** Scoped the legacy `.modal-overlay .modal` rule so it no longer overrides every standard modal. Hardened Source Control drawer sizing and open-state transforms for desktop and mobile, widened the drawer to a predictable 400px desktop panel, made mobile Source Control full-width at `x=0`, and standardized Source Control icon/nav buttons to consistent touch-friendly dimensions.
+
+**Verification:** `tsc --noEmit` passed. `npm run build` passed with only the existing Vite dynamic-import and chunk-size warnings. In-app browser checks against `http://127.0.0.1:5173/` showed no console warnings/errors. Desktop viewport 1280x720: Source Control opens at `x=880`, width `400`. Mobile viewport 390x720: Source Control opens at `x=0`, width `390`; mobile AI modal opens centered at width `354`; floating MJCC AI opens as a mobile sheet at `x=8`, width `374`, with 42px input/send controls. Browser viewport was reset after testing.
+
+**Push:** pending - not yet pushed
 ## v4.9.6 ? 2026-06-21 ? Codex Source Control and Data Entry production hardening
 
 **Codex:** Finished the implementation pass from the subagent findings. Inventory item metadata edits now stage through Source Control instead of writing directly to `inventory_items`, auto-wrap into inventory-scoped PRs, and return PR metadata to the caller. Manual staging now scopes auto-created PRs by entity type and reports auto-wrap failures back to the UI/API response instead of silently hiding them.
