@@ -12,7 +12,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** Current local environment did not return Google OCR text, so the real WebP/PDF still route as `invoice_images` locally. Router smoke confirmed `June2026W1 - Weekly Invoice.pdf` renders 13/13 pages and `May2026W1 - Beverage Invoice.webp` normalizes to a single JPEG image. Synthetic OCR smoke based on the provided Multi-Flow receipt extracted rows such as `F00416005 / MF Harvest Squeeze Pink / qty 2 / $43.70`, preserved literal pricing when totals were partial, and converted a matching line into a W1 `inventory_week_update` received payload. April workbook regression still extracted 926 items with 0 duplicate SKUs. `ruff format` and `ruff check` passed for changed backend files. `npx tsc --noEmit` passed.
 
-**Push:** pending ? not yet pushed
+**Push:** Codex -> e959d89 - 2026-06-21
 
 ## v4.9.8 ? 2026-06-21 ? Codex April inventory upload crash fix
 
