@@ -45,7 +45,7 @@ def _groq_complete(messages: list[dict], model: str, api_key: str) -> tuple[str,
             "model": model,
             "messages": messages,
             "temperature": 0.1,
-            "max_tokens": 4096,
+            "max_tokens": 8192,
         },
         timeout=60,
     )
@@ -69,7 +69,7 @@ def _anthropic_complete(
 ) -> tuple[str, dict]:
     system_parts = [m["content"] for m in messages if m.get("role") == "system"]
     user_messages = [m for m in messages if m.get("role") != "system"]
-    body: dict = {"model": model, "max_tokens": 4096, "messages": user_messages}
+    body: dict = {"model": model, "max_tokens": 16384, "messages": user_messages}
     if system_parts:
         body["system"] = "\n\n".join(system_parts)
     headers = {
@@ -137,7 +137,7 @@ def _openai_complete(
             "model": model,
             "messages": messages,
             "temperature": 0.1,
-            "max_tokens": 4096,
+            "max_tokens": 16384,
         },
         timeout=60,
     )
@@ -166,7 +166,7 @@ def _mistral_complete(
             "model": model,
             "messages": messages,
             "temperature": 0.1,
-            "max_tokens": 4096,
+            "max_tokens": 8192,
         },
         timeout=60,
     )
@@ -202,7 +202,7 @@ def _gemini_complete(
             }
             for m in turns
         ],
-        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 4096},
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 32768},
     }
     if system_parts:
         body["systemInstruction"] = {"parts": [{"text": "\n\n".join(system_parts)}]}
