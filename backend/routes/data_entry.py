@@ -133,7 +133,7 @@ def _data_entry_period_settings() -> dict:
     now = datetime.now(timezone.utc)
     defaults = {
         "floor_year": 2026,
-        "floor_month": 3,  # 0-indexed: April
+        "floor_month": 4,  # 0-indexed: May
         "max_year": now.year,
         "max_month": min(now.month, 11),  # 0-indexed current month + one
         "operational_week_count": 4,
@@ -161,7 +161,7 @@ def _data_entry_period_settings() -> dict:
 
 def _validate_period(month: int, year: int, settings: dict) -> None:
     floor_year = int(settings.get("floor_year", 2026))
-    floor_month = int(settings.get("floor_month", 3))
+    floor_month = int(settings.get("floor_month", 4))
     max_year = int(settings.get("max_year", datetime.now(timezone.utc).year))
     max_month = int(
         settings.get("max_month", min(datetime.now(timezone.utc).month, 11))

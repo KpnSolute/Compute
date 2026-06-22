@@ -409,7 +409,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
     const [pickerSaving, setPickerSaving] = useState(false);
     const [periodSettings, setPeriodSettings] = useState<PeriodSettings>({
         floor_year: 2026,
-        floor_month: 3,
+        floor_month: 4,
         max_year: now.getFullYear(),
         max_month: Math.min(now.getMonth() + 1, 11),
         operational_week_count: 4,

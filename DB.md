@@ -13,7 +13,7 @@
 
 The production Supabase project was intentionally wiped clean of inventory, invoice, source-control, and period-history rows on 2026-06-20. The system is now a skeleton for rebuilding history through Data Entry.
 
-**Inventory origin for rebuild:** April 2026 is the planned starting point for the rebuilt inventory history. Earlier records may be imported from historical spreadsheets/invoices for reference and reconstruction, but the clean operational baseline starts at April 2026.
+**Inventory origin for rebuild:** May 2026 is the baseline for the rebuilt inventory history. April 2026 was wiped on 2026-06-22. The clean operational baseline starts at May 2026.
 
 **Tables confirmed empty after reset:** `inventory_items`, `item_barcodes`, `monthly_inventory`, `monthly_snapshots`, `invoices`, `invoice_items`, `month_periods`, `week_gross`, `sku_review_queue`, `staging_entries`, `pull_requests`, `commits`, `commit_changes`, `inventory_versions`, `github_sync_queue`, `month_status`, `week_status`.
 
@@ -31,7 +31,7 @@ The production Supabase project was intentionally wiped clean of inventory, invo
 
 **Data Entry extraction order:** digital/text PDFs are parsed locally first with `pdfplumber` / `pdfminer.six`. Scanned PDFs and images are rendered/read as images, sent to Google Cloud Vision OCR, parsed back through the deterministic invoice parser, and only then fall back to Gemini vision/legacy OCR when OCR text cannot produce line items. This keeps local PDF extraction working while using the Cloud API for picture reading.
 
-**Data Entry period gate:** `app_settings.data_entry` controls the live upload window. Defaults are `floor_year=2026`, `floor_month=3` (April, 0-indexed), and max month = current calendar month plus one. The UI and backend both reject periods outside that window. For the June 2026 rebuild this means April, May, June, and July 2026 are selectable while earlier historical months stay out of the operational import path.
+**Data Entry period gate:** `app_settings.data_entry` controls the live upload window. Defaults are `floor_year=2026`, `floor_month=4` (May, 0-indexed), and max month = current calendar month plus one. The UI and backend both reject periods outside that window. May, June, and July 2026 are selectable; April and earlier are blocked.
 
 **Operational week model:** MJCC inventory uses four operational weeks per month: W1-W4. Calendar days after the 28th are treated operationally as the next month's W1, not as W5. The legacy `w5_*` / `wk5_total` columns still exist for compatibility, but live Supabase migration `013_enforce_four_operational_weeks` forces them to remain zero and constrains `week_status.week` to 1-4.
 

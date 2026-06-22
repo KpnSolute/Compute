@@ -17,7 +17,7 @@ values (
   'data_entry',
   '{
     "floor_year": 2026,
-    "floor_month": 3,
+    "floor_month": 4,
     "operational_week_count": 4,
     "calendar_rollover_rule": "days_after_28_to_next_month_w1",
     "allow_new_items_on_weekly": false,

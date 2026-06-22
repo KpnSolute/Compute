@@ -1750,7 +1750,7 @@ function InventoryView({
                     </div>
                     <div className="card-body">
                         <p style={{ margin: '0 0 12px', color: 'var(--muted)', lineHeight: 1.5 }}>
-                            The live inventory is clean. Start by importing the April 2026 baseline or your approved
+                            The live inventory is clean. Start by importing your May 2026 baseline or approved
                             full-month spreadsheet through Data Entry. The upload will stage changes in Source Control
                             for review before anything becomes inventory history.
                         </p>
