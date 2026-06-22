@@ -152,11 +152,13 @@ def _mistral_complete(
     )
 
 
+_GEMINI_RETRYABLE = {429, 500, 502, 503, 504}
+
+
 def _gemini_complete(
     messages: list[dict], model: str, api_key: str
 ) -> tuple[str, dict]:
-    """Call Google Gemini generateContent API."""
-    # Split system messages from conversation turns
+    """Call Google Gemini generateContent API with exponential-backoff retry."""
     system_parts = [m["content"] for m in messages if m.get("role") == "system"]
     turns = [m for m in messages if m.get("role") != "system"]
 
@@ -176,20 +178,43 @@ def _gemini_complete(
         body["systemInstruction"] = {"parts": [{"text": "\n\n".join(system_parts)}]}
 
     timeout_sec = 120 if any(isinstance(m.get("content"), list) for m in turns) else 60
-    resp = httpx.post(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-        headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-        json=body,
-        timeout=timeout_sec,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    text = data["candidates"][0]["content"]["parts"][0]["text"]
-    meta = data.get("usageMetadata", {})
-    return text, {
-        "tokens_in": meta.get("promptTokenCount", 0),
-        "tokens_out": meta.get("candidatesTokenCount", 0),
-    }
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
+
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            resp = httpx.post(url, headers=headers, json=body, timeout=timeout_sec)
+            resp.raise_for_status()
+            data = resp.json()
+            text = data["candidates"][0]["content"]["parts"][0]["text"]
+            meta = data.get("usageMetadata", {})
+            return text, {
+                "tokens_in": meta.get("promptTokenCount", 0),
+                "tokens_out": meta.get("candidatesTokenCount", 0),
+            }
+        except httpx.HTTPStatusError as exc:
+            last_exc = exc
+            if exc.response.status_code in _GEMINI_RETRYABLE and attempt < 2:
+                wait = 2 ** (attempt + 1)  # 2s, 4s
+                log.warning(
+                    "[GEMINI] %s on attempt %d — retrying in %ds",
+                    exc.response.status_code,
+                    attempt + 1,
+                    wait,
+                )
+                time.sleep(wait)
+                continue
+            raise
+        except httpx.TimeoutException as exc:
+            last_exc = exc
+            if attempt < 2:
+                wait = 2 ** (attempt + 1)
+                log.warning("[GEMINI] Timeout on attempt %d — retrying in %ds", attempt + 1, wait)
+                time.sleep(wait)
+                continue
+            raise
+    raise last_exc  # type: ignore[misc]
 
 
 def _ollama_complete(
