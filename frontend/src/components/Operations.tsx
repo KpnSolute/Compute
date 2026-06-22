@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { I } from '../lib/icons';
 import { type User, ROLE_LEVEL, MONTHS } from '../lib/constants';
 import { catColor, fmtMoney, fmtMoneyFull } from '../lib/supabase';
 import { api } from '../lib/api';
+import { matchesInventoryQuery, parseInventoryQuery } from '../lib/inventorySearch';
 
 const SNACK_HOURS = [
   { day: 'Monday – Friday', lunch: '11:00 AM – 1:30 PM', eve: '' },
@@ -366,8 +367,9 @@ export function MonthlyInventory({
     { open: 0, recv: 0, iss: 0, close: 0 },
   );
 
-  const filtered = q
-    ? rows.filter((r: any) => r.item.toLowerCase().includes(q.toLowerCase()))
+  const searchQuery = useMemo(() => parseInventoryQuery(q), [q]);
+  const filtered = q.trim()
+    ? rows.filter((r: any) => matchesInventoryQuery(r, searchQuery))
     : rows;
 
   const categories = [...new Set(filtered.map((r: any) => r.cat as string))].sort();
@@ -532,10 +534,11 @@ export function MonthlyInventory({
                     {I.search({ style: { width: 14, height: 14 } })}
                   </span>
                   <input
+                    className="ipt inventory-search-input"
                     value={q}
                     onChange={(e) => setQ(e.target.value)}
-                    placeholder="Search items…"
-                    style={{ width: '100%', padding: '6px 10px 6px 28px', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12 }}
+                    placeholder="Search SKU, name, category, or $price"
+                    style={{ width: '100%', paddingLeft: 28 }}
                   />
                 </div>
                 {/* View mode */}

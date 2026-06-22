@@ -4,6 +4,16 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.10.3 ? 2026-06-22 ? Codex responsive input and inventory search standardization
+
+**Codex:** Standardized shared editor/search input styling across light mode, dark mode, and mobile. Plain `.ipt` fields, modal form-grid controls, select-style inputs, sheet editor cells, AI-ring inputs, and chat inputs now share consistent surfaces, borders, focus rings, placeholder colors, disabled states, and mobile touch sizing. Dark mode now uses dedicated input surfaces so controls do not visually drift from the rest of the theme.
+
+**Codex search:** Added a reusable inventory search parser and applied it to Monthly Inventory and Source Control SKU Review. Inventory searches now match SKU, item name/description, category, unit, and price; supported examples include `butter`, `sku:DAI`, `name:margarine $12.50`, `$>10`, and `$<10`. SKU Review item results now show price when available.
+
+**Verification:** `npx tsc --noEmit`, `npm run build`, and `npm run lint -- --quiet` passed for the frontend. A direct Node smoke test passed for plain text, `sku:`, exact `$price`, and price comparison query matching.
+
+**Push:** pending - not yet pushed
+
 ## v4.10.2 ? 2026-06-22 ? Codex mobile topbar responsiveness
 
 **Codex:** Fixed the mobile topbar squish by adding a final authoritative responsive layout for phone widths. The header now wraps into a stable two-row mobile layout: brand/menu/user on the first row, then inventory status, month/year selectors, period status, and Source Control controls on a dedicated controls row. The user chip becomes an avatar button, controls get fixed touch-friendly heights, and the Source Control drawer/backdrop start below the taller mobile header.

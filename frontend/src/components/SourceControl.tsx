@@ -4,6 +4,7 @@ import { type User, ROLE_LEVEL, ROLE_LABEL } from "../lib/constants";
 import { api, type Commit, type StagingEntry } from "../lib/api";
 import { useEscapeClose } from "../lib/useEscapeClose";
 import { SaveBar, PageToolbar } from "./ui/ActionBars";
+import { matchesInventoryQuery, parseInventoryQuery } from "../lib/inventorySearch";
 
 const t = (msg: string) => (window as any).toast?.(msg);
 
@@ -724,12 +725,9 @@ function SCChangesView({
     // Computed before any conditional returns (rules of hooks)
     const skuFilteredItems = useMemo(() => {
         if (!skuItemSearch.trim()) return allItems.slice(0, 8);
-        const q = skuItemSearch.toLowerCase();
+        const q = parseInventoryQuery(skuItemSearch);
         return allItems
-            .filter((it: any) =>
-                String(it.sku || '').toLowerCase().includes(q) ||
-                String(it.desc || '').toLowerCase().includes(q)
-            )
+            .filter((it: any) => matchesInventoryQuery(it, q))
             .slice(0, 8);
     }, [allItems, skuItemSearch]);
 
@@ -854,7 +852,7 @@ function SCChangesView({
                                                     <div style={{ position: "relative" }}>
                                                         <input
                                                             className="ipt"
-                                                            placeholder="Search existing item by SKU or description…"
+                                                            placeholder="Search SKU, description, or $price"
                                                             value={skuSelectedItem ? `${skuSelectedItem.sku} — ${skuSelectedItem.desc || skuSelectedItem.description || ''}` : skuItemSearch}
                                                             onChange={(e) => { setSkuItemSearch(e.target.value); setSkuSelectedItem(null); }}
                                                             style={{ fontSize: 12, width: "100%" }}
@@ -872,6 +870,11 @@ function SCChangesView({
                                                                     >
                                                                         <span className="mono" style={{ fontSize: 10.5, color: "var(--muted)", marginRight: 6 }}>{it.sku}</span>
                                                                         {it.desc || it.description}
+                                                                        {(it.price ?? it.unit_price) != null && (
+                                                                            <span className="mono" style={{ fontSize: 10.5, color: "var(--faint)", marginLeft: 6 }}>
+                                                                                ${Number(it.price ?? it.unit_price).toFixed(2)}
+                                                                            </span>
+                                                                        )}
                                                                     </div>
                                                                 ))}
                                                             </div>
