@@ -8,6 +8,8 @@ This is the **central development memory and discussion board** for development 
 
 **Codex:** First automation health check caught `/health/ready` returning 503 because the new status checker used generic `id` columns against tables that use real schema keys. Fixed the public health layer to count `app_settings.setting_key` and `staging_entries.entry_id`, and replaced the broken GitHub queue not-null filter with a safe queue sample.
 
+**Codex follow-up:** The post-deploy check showed `/health/ready` recovered to 200, but detailed status still marked Source Control as outage because `pull_requests` uses `pr_id`, not `id`. Patched that final schema key so the status page can report Source Control accurately.
+
 **Verification:** Live production endpoints deployed at `8ea7ab1`; `/health` and `/health/live` returned 200, `/status` rendered HTML, and `/api/system/status` exposed the false outage details. `ruff format` and `ruff check` passed for the patched health route. Local route smoke with dummy env confirmed `/health/live`, `/api/system/info`, and `/status` response shapes.
 
 **Push:** Codex -> 0773a10 - 2026-06-22

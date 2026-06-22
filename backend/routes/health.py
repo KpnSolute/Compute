@@ -170,7 +170,7 @@ def collect_system_status() -> dict:
     staging_count, staging_error = _count(
         "staging_entries", "entry_id", status="pending"
     )
-    pr_count, pr_error = _count("pull_requests", status="open")
+    pr_count, pr_error = _count("pull_requests", "pr_id", status="open")
     source_error = staging_error or pr_error
     checks.append(
         _component(
