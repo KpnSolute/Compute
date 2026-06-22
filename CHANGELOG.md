@@ -4,6 +4,16 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.10.7 ? 2026-06-22 ? Codex production push verification
+
+**Codex:** Checked the post-Claude/push production state after the April backfill guard fix deployed. `origin` remains the source-code repo, local `main` and `origin/main` are both at `dcda1bb`, Claude CLI is available (`2.1.183`), and the only local dirty items are Claude/agent workspace files that were not touched.
+
+**Codex ops:** Verified the April Source Control merge completed in production: latest commit `Invoice import — APRIL_INVENTORY_2026.xlsx` is merged with 926 changes, staging is empty, and the API reports 926 `inventory_items` plus 926 `monthly_inventory` rows. Ran the pending GitHub archive sync job; the queue moved from `pending=1` to `pending=0`, `synced=1`, `failed=0`.
+
+**Verification:** `/health/live`, `/health/ready`, and `/api/system/status` returned 200/operational. Final system status reports Source Control `pending_staging=0`, `open_pull_requests=0`, and GitHub Archive Sync `pending_queue=0`, `failed_queue=0`.
+
+**Push:** pending - not yet pushed
+
 ## v4.10.6 ? 2026-06-22 ? Codex April backfill commit guard fix
 
 **Codex:** Tracked the live commit error from the user's 6:30 AM Eastern retry. The active April PR staged correctly with 926 rows, but `POST /api/commits` returned 500 because the Supabase `guard_closed_month_writes` trigger rejected April 2026 (`db month=3`) with: `only the open month (5/2026) is writable`.
