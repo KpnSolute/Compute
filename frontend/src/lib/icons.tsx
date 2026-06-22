@@ -164,6 +164,7 @@ export const I: Record<string, (props?: React.SVGProps<SVGSVGElement>) => React.
     <circle key={0} cx={12} cy={8} r={6} />,
     <path key={1} d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11" />,
   ]),
+  terminal: mk(['M4 17l6-6-6-6', 'M12 19h8']),
 };
 
 export function KpnMark({ size = 52 }: { size?: number }) {

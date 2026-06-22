@@ -41,6 +41,7 @@ import {
     fmtMoney,
     fmtMoneyFull,
     catColor,
+    getBackendToken,
 } from "../lib/supabase";
 import { api } from "../lib/api";
 import { ComplianceHub } from "./ComplianceHub";
@@ -446,6 +447,17 @@ function ActivityBar({
                     >
                         {I.settings({})}
                     </button>
+                )}
+                {lvl >= 40 && (
+                    <a
+                        className="ab-btn"
+                        href={`${import.meta.env.VITE_API_BASE}/portal/logs?token=${encodeURIComponent(getBackendToken() ?? '')}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Live server logs"
+                    >
+                        {I.terminal({})}
+                    </a>
                 )}
                 <button
                     className={"ab-btn ab-user-btn" + (userMenu ? " active" : "")}

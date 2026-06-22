@@ -2,6 +2,7 @@
 import logging
 import os
 import sys
+import time
 
 # Configure root logging BEFORE any module-level `logging.getLogger(...)` calls
 # happen on import (engine.py, data_entry.py, etc.) -- otherwise those loggers
@@ -27,7 +28,7 @@ for _noisy in (
 ):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from backend.routes.auth import router as auth_router
@@ -44,11 +45,19 @@ from backend.routes.agent import router as agent_router
 from backend.routes.sku_review import router as sku_review_router
 from backend.routes.health import router as health_router
 from backend.routes.health import collect_system_status, render_status_page
+from backend.routes.api_logs import (
+    install_log_capture,
+    record_log,
+    record_request,
+    router as api_logs_router,
+    _token_user_hint,
+)
 from fastapi.responses import HTMLResponse
 
 load_dotenv()
 
 app = FastAPI(title="MJCC API")
+install_log_capture()
 
 origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
 app.add_middleware(
@@ -58,6 +67,52 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_SKIP_REQUEST_LOG_PREFIXES = ("/api/system/logs/stream",)
+
+
+@app.middleware("http")
+async def api_request_logger(request: Request, call_next):
+    path = request.url.path
+    started = time.monotonic()
+    skip = any(path.startswith(prefix) for prefix in _SKIP_REQUEST_LOG_PREFIXES)
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        if not skip:
+            duration_ms = int((time.monotonic() - started) * 1000)
+            query = f"?{request.url.query}" if request.url.query else ""
+            client_ip = (
+                (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+            )
+            record_request(
+                method=request.method,
+                path=f"{path}{query}",
+                status_code=500,
+                duration_ms=duration_ms,
+                user_hint=_token_user_hint(request.headers.get("authorization")),
+                client_ip=client_ip or (request.client.host if request.client else ""),
+            )
+            record_log(
+                "error",
+                "mjcc.api",
+                f"Unhandled request error on {request.method} {path}: {exc}",
+            )
+        raise
+    if not skip:
+        duration_ms = int((time.monotonic() - started) * 1000)
+        query = f"?{request.url.query}" if request.url.query else ""
+        client_ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+        record_request(
+            method=request.method,
+            path=f"{path}{query}",
+            status_code=response.status_code,
+            duration_ms=duration_ms,
+            user_hint=_token_user_hint(request.headers.get("authorization")),
+            client_ip=client_ip or (request.client.host if request.client else ""),
+        )
+    return response
+
 
 app.include_router(auth_router)
 app.include_router(users_router)
@@ -72,6 +127,7 @@ app.include_router(data_entry_router)
 app.include_router(agent_router)
 app.include_router(sku_review_router)
 app.include_router(health_router)
+app.include_router(api_logs_router)
 
 
 @app.get("/health")

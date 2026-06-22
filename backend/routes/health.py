@@ -243,6 +243,7 @@ def system_info() -> dict:
             "status_json": "/api/system/status",
             "info": "/api/system/info",
             "status_page": "/status",
+            "log_portal": "/portal/logs",
         },
     }
 
@@ -344,6 +345,7 @@ def render_status_page(payload: dict) -> str:
       <a href="/health/ready">Readiness JSON</a>
       <a href="/api/system/status">Detailed JSON</a>
       <a href="/api/system/info">System Info</a>
+      <a href="/portal/logs">API Log Portal</a>
     </nav>
   </main>
 </body>
