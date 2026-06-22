@@ -4,6 +4,16 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.10.9 ? 2026-06-22 ? Codex Claude delegated build workflow
+
+**Codex:** Extended the local `claude-opus-review` Codex skill into a two-lane workflow: read-only Opus/Sonnet review plus isolated Claude Code build delegation. The new `claude_delegate_build.py` wrapper creates a separate git worktree/branch, lets Claude build there, prints Claude's response, then reports `git status` and diff stats for Codex review.
+
+**Codex workflow:** Delegated builds default to `sonnet` for implementation and can use `--model opus` for hard architecture work. Claude is allowed to edit only inside the delegated worktree and is explicitly blocked from staging, committing, pushing, schema migration commands, Render deploy/restart commands, and production data operations. Codex remains responsible for reviewing diffs, applying accepted changes, verification, and final push.
+
+**Verification:** `quick_validate.py` passed for the updated skill. A smoke delegation created a temporary worktree, Claude returned `DELEGATE_BUILD_READY`, the worktree stayed clean with no diff, and the temporary worktree/branch were removed afterward.
+
+**Push:** pending - not yet pushed
+
 ## v4.10.8 ? 2026-06-22 ? Codex Claude Opus review integration
 
 **Codex:** Added a user-level Codex skill at `C:\Users\ogdev\.codex\skills\claude-opus-review` so future Codex turns can delegate heavyweight analysis, second-pass code review, architecture checks, and production-readiness review to the local Claude Code CLI using `--model opus`.
