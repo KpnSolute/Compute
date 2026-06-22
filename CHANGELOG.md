@@ -12,7 +12,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** Live Supabase migration applied successfully. Rollback-safe SQL smoke inserted a temporary April 2026 `monthly_inventory` row inside a transaction and rolled back; `monthly_inventory` remained at 0 rows afterward. No inventory data was committed or changed by Codex.
 
-**Push:** pending - not yet pushed
+**Push:** Codex -> f5f9828 - 2026-06-22
 
 ## v4.10.5 ? 2026-06-22 ? Codex Source Control bulk staging cleanup and hardening
 
