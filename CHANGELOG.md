@@ -4,6 +4,16 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.10.6 ? 2026-06-22 ? Codex April backfill commit guard fix
+
+**Codex:** Tracked the live commit error from the user's 6:30 AM Eastern retry. The active April PR staged correctly with 926 rows, but `POST /api/commits` returned 500 because the Supabase `guard_closed_month_writes` trigger rejected April 2026 (`db month=3`) with: `only the open month (5/2026) is writable`.
+
+**Codex DB:** Applied Supabase migration `allow_inventory_backfill_from_april_2026`. The guard still blocks explicit non-open `month_status` rows such as `published`, but unregistered periods from the configured Data Entry floor (April 2026 / `floor_month=3`) through the current open/current month are writable. This matches the reset/backfill rule while preserving published-month protection.
+
+**Verification:** Live Supabase migration applied successfully. Rollback-safe SQL smoke inserted a temporary April 2026 `monthly_inventory` row inside a transaction and rolled back; `monthly_inventory` remained at 0 rows afterward. No inventory data was committed or changed by Codex.
+
+**Push:** pending - not yet pushed
+
 ## v4.10.5 ? 2026-06-22 ? Codex Source Control bulk staging cleanup and hardening
 
 **Codex:** Reviewed Render logs around June 21, 2026 10:00 PM Eastern / June 22, 2026 03:00 UTC. The April workbook parsed successfully, but auto-wrapping 926 staging rows into a Source Control PR failed with a PostgREST JSON-generation error, and later direct `/api/commits` attempts returned 500 while trying to process the same large pending batch.
