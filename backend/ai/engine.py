@@ -110,13 +110,7 @@ def _anthropic_complete(
                 time.sleep(wait)
                 continue
             raise
-        except httpx.TimeoutException as exc:
-            last_exc = exc
-            if attempt < 2:
-                wait = 2 ** (attempt + 1)
-                log.warning("[ANTHROPIC] Timeout on attempt %d — retrying in %ds", attempt + 1, wait)
-                time.sleep(wait)
-                continue
+        except httpx.TimeoutException:
             raise
     raise last_exc  # type: ignore[misc]
 
@@ -236,13 +230,7 @@ def _gemini_complete(
                 time.sleep(wait)
                 continue
             raise
-        except httpx.TimeoutException as exc:
-            last_exc = exc
-            if attempt < 2:
-                wait = 2 ** (attempt + 1)
-                log.warning("[GEMINI] Timeout on attempt %d — retrying in %ds", attempt + 1, wait)
-                time.sleep(wait)
-                continue
+        except httpx.TimeoutException:
             raise
     raise last_exc  # type: ignore[misc]
 

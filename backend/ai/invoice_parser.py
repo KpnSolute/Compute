@@ -1335,7 +1335,7 @@ def extract_invoice_vision(
             unit_price = round(ext_price / qty, 4)
         norm_items.append(
             {
-                "category": "",
+                "category": str(it.get("category") or ""),
                 "sku": sku,
                 "description": desc,
                 "label": str(it.get("label") or desc),

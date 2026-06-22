@@ -4,6 +4,36 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.10.14 — 2026-06-22 — Fix AI timeout cascade + restore vision category
+
+**Claude (Senior Dev Manager):** Root-cause fix for two parsing failures that combined to break the invoice import pipeline.
+
+**Bug 1 — Category discarded on vision path (categorization issue from last night)**
+
+`extract_invoice_vision` in `backend/ai/invoice_parser.py` was hardcoding `"category": ""` in the `norm_items` loop, throwing away whatever category the AI returned per item. The vision prompt correctly asks the AI to classify each item into the MJCC taxonomy (Dairy, Cereal, Beverages, Snacks, Meats, Frozen Food, Dry Goods, Produce, Disposables), and the AI does so — but the normalization step overrode it with an empty string before handing off to `bridge_category()`. With an empty string, `bridge_category` returned `""`, and dispatch routed everything to "New Items".
+
+**Fix:** Changed `"category": ""` → `"category": str(it.get("category") or "")`. The AI's per-item classification is now preserved and passed through `bridge_category()` to the dispatch layer.
+
+**Bug 2 — Timeout retry cascade blocks Render HTTP worker (timeout issue post-7am)**
+
+Commits `5dc159d` and `70c39fe` added `TimeoutException` retry logic to both `_gemini_complete` and `_anthropic_complete`. This is wrong for vision calls:
+- Anthropic vision: 60s timeout × 3 attempts = up to 180s total. Render kills the web request at ~120s.
+- Gemini vision: 120s timeout × 3 attempts = up to 360s total. Render kills the web request at ~120s.
+
+A timeout on a vision call means the request itself is too heavy for that path, not a transient server glitch. Retrying just burns extra time past Render's HTTP deadline, causing the "AI provider did not respond within 120s" error visible in the frontend.
+
+**Fix:** Removed `TimeoutException` from the retry block in both `_anthropic_complete` and `_gemini_complete`. HTTP 429/5xx retries remain intact (those are transient server errors worth retrying). Timeouts now fail immediately so the `extract_invoice_vision` per-page error handler can catch them, skip the bad page, and continue with the rest of the invoice. Google Cloud Vision OCR (the fast first-pass path) is unaffected.
+
+**Files changed:**
+- `backend/ai/engine.py` — removed `TimeoutException` retry from `_anthropic_complete` and `_gemini_complete`
+- `backend/ai/invoice_parser.py` — `extract_invoice_vision` norm_items: `"category": ""` → `"category": str(it.get("category") or "")`
+
+**Verification:** `ruff check` and `ruff format --check` passed on both files.
+
+**Push:** pending
+
+---
+
 ## v4.10.13 — 2026-06-22 — Live log tail portal
 
 **Claude:** Added full live log tail accessible from within the Portal sidebar.
