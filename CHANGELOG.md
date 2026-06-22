@@ -4,6 +4,18 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.10.4 ? 2026-06-22 ? Codex Data Entry overwrite and responsive upload flow
+
+**Codex:** Fixed the Data Entry light-mode upload card so period controls, file summary, and the Upload & Parse action stay inside the card on desktop and mobile. Month/year/hint controls now use the standardized `.ipt sel` input styling instead of the dark toolbar select styling, and the upload card/action row has responsive width guards.
+
+**Codex data-entry:** Added full-month `Both` direction support for spreadsheets that contain received and pulled/issued columns together. Weekly uploads still require one direction at a time. Data Entry now preflights inventory imports against existing `monthly_inventory` data and returns an overwrite-required confirmation instead of silently staging a replacement over existing rows.
+
+**Codex source control:** Confirmed overwrites are staged through Source Control. On merge, full-month replacements clear that month/year's `monthly_inventory` rows before replaying the parsed upload; weekly replacements clear only the selected W1-W4 received/issued column before replay. Published months are guarded and cannot be overwritten through this path. No live inventory rows were altered during implementation or testing.
+
+**Verification:** `backend\.venv\Scripts\ruff.exe format backend/routes/data_entry.py backend/routes/sourcectrl.py`, `backend\.venv\Scripts\ruff.exe check backend/routes/data_entry.py backend/routes/sourcectrl.py`, `npx tsc --noEmit`, `npm run build`, and `npm run lint -- --quiet` passed. In-app browser verified local Data Entry as Jeremiah/Sudo Administrator: desktop 1280px and mobile 390px both had zero horizontal overflow, visible Upload & Parse action, visible full-month `Both` direction, standardized selects, and no console errors.
+
+**Push:** Codex -> ddf94ce - 2026-06-22
+
 ## v4.10.3 ? 2026-06-22 ? Codex responsive input and inventory search standardization
 
 **Codex:** Standardized shared editor/search input styling across light mode, dark mode, and mobile. Plain `.ipt` fields, modal form-grid controls, select-style inputs, sheet editor cells, AI-ring inputs, and chat inputs now share consistent surfaces, borders, focus rings, placeholder colors, disabled states, and mobile touch sizing. Dark mode now uses dedicated input surfaces so controls do not visually drift from the rest of the theme.

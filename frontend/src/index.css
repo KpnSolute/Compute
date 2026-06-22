@@ -533,6 +533,14 @@ select.btn{appearance:auto;-webkit-appearance:menulist;background:#fff}
 .ft-field span{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--faint)}
 .ipt.sel{min-height:38px;padding:8px 11px;border:1px solid var(--line);border-radius:8px;font-size:12.5px;background:var(--surface);color:var(--ink);transition:border-color .14s,background .14s,box-shadow .14s}
 .ipt.sel.sm{padding:5px 8px;font-size:11.5px}
+.btn.danger{background:var(--red);border-color:var(--red);color:#fff}
+.btn.danger:hover:not(:disabled){background:#dc2626;border-color:#dc2626;color:#fff}
+.de-upload-card{max-width:100%;min-width:0;overflow:hidden}
+.de-upload-card .card-body,.de-upload-card .card-head{min-width:0}
+.de-target-grid,.de-period-controls,.de-submit-row,.de-submit-actions{min-width:0;max-width:100%}
+.de-file-summary{flex:1 1 240px;min-width:0;overflow:hidden}
+.de-submit-actions{justify-content:flex-end;flex:0 1 auto}
+.de-upload-card .ipt.sel{max-width:100%}
 .thresh-chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:7px 12px;border-radius:8px}
 .thresh-chip.rfg{background:var(--accent-soft);color:var(--navy-2)}
 .thresh-chip.frz{background:#ECFEFF;color:#0E7490}
@@ -709,7 +717,20 @@ table.data.logtbl td{padding:6px 10px}
 [data-theme="dark"] .ai-ring-wrap>*,.dark .ai-ring-wrap>*{background:var(--input-bg)}
 
 /* mobile responsive helpers */
-@media(max-width:640px){.de-controls-row{flex-direction:column!important;gap:12px!important}.ai-studio-grid{grid-template-columns:1fr!important}.ai-preset-grid{grid-template-columns:1fr!important}.ai-stat-row{flex-direction:column!important}.de-file-zone{padding:18px 14px!important}}
+@media(max-width:640px){
+  .de-controls-row{flex-direction:column!important;gap:12px!important}
+  .ai-studio-grid{grid-template-columns:1fr!important}
+  .ai-preset-grid{grid-template-columns:1fr!important}
+  .ai-stat-row{flex-direction:column!important}
+  .de-file-zone{padding:18px 14px!important}
+  .de-upload-card .card-body{padding:14px!important}
+  .de-period-controls,.de-target-grid,.de-submit-row,.de-submit-actions{width:100%}
+  .de-period-controls>div{flex:1 1 130px}
+  .de-upload-card .ipt.sel{width:100%}
+  .de-file-summary{flex-basis:100%}
+  .de-submit-actions{justify-content:stretch}
+  .de-submit-actions .btn{flex:1 1 auto}
+}
 
 .day-pills{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:18px}
 .day-pill{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border:1.5px solid var(--line);background:#fff;border-radius:22px;font-size:12.5px;font-weight:700;color:var(--muted);cursor:pointer;transition:all .14s}

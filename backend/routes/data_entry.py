@@ -82,6 +82,46 @@ def _weeks_in_month(month: int, year: int) -> int:
     return 4
 
 
+def _overwrite_scope(month: int, year: int, week: int, direction: str) -> dict:
+    if week in (1, 2, 3, 4):
+        return {
+            "kind": "week",
+            "month": month,
+            "year": year,
+            "week": week,
+            "direction": direction,
+            "label": f"W{week} {direction}",
+        }
+    return {
+        "kind": "month",
+        "month": month,
+        "year": year,
+        "week": 0,
+        "direction": "both",
+        "label": "full month",
+    }
+
+
+def _existing_inventory_scope_count(
+    month: int, year: int, week: int, direction: str
+) -> int:
+    """Count existing live rows that would be replaced by an overwrite import."""
+    db_month = max(0, month - 1)
+    svc = _client()
+    query = (
+        svc.table("monthly_inventory")
+        .select("id", count="exact")
+        .eq("month", db_month)
+        .eq("year", year)
+        .limit(1)
+    )
+    if week in (1, 2, 3, 4):
+        col = f"w{week}_{direction}"
+        query = query.gt(col, 0)
+    result = query.execute()
+    return int(result.count or 0)
+
+
 def _data_entry_period_settings() -> dict:
     now = datetime.now(timezone.utc)
     defaults = {
@@ -207,6 +247,8 @@ def _stage_entries(
                     "summary": summary,
                     "file_ref": file_ref,
                     "description": description[:500] if description else None,
+                    "overwrite": bool(payload.get("overwrite")),
+                    "overwrite_scope": payload.get("overwrite_scope"),
                 },
                 "status": "pending",
                 "submitted_by": submitter,
@@ -794,6 +836,7 @@ async def upload_file(
     week: int = Form(default=0),
     direction: str = Form(default="received"),
     description: Optional[str] = Form(None),
+    overwrite: bool = Form(default=False),
     auth_user: dict = Depends(_get_auth_user),
 ):
     """
@@ -801,7 +844,8 @@ async def upload_file(
     - hint: optional operation type hint (inventory / events / haccp / menu / log)
     - month/year: target period for inventory imports (defaults to current month/year)
     - week: 1-4 to post a weekly invoice into that week's column (0 = whole-month save)
-    - direction: 'received' (Imports) or 'issued' (Exports) for a weekly post
+    - direction: 'received' (Imports), 'issued' (Exports), or 'both' for whole-month imports
+    - overwrite: confirmed replacement; clears the target inventory scope on merge before applying parsed rows
     """
     job_start = time.monotonic()
     now = datetime.now(timezone.utc)
@@ -812,9 +856,14 @@ async def upload_file(
     period_settings = _data_entry_period_settings()
     _validate_period(month, year, period_settings)
     direction = direction.lower().strip()
-    if direction not in ("received", "issued"):
+    if direction not in ("received", "issued", "both"):
         raise HTTPException(
-            status_code=422, detail="Direction must be received or issued."
+            status_code=422, detail="Direction must be received, issued, or both."
+        )
+    if week and direction == "both":
+        raise HTTPException(
+            status_code=422,
+            detail="Direction 'both' is only available for full-month uploads. Choose Received or Pulled / Issued for weekly uploads.",
         )
     valid_weeks = _weeks_in_month(month, year)
     if week and (week < 1 or week > valid_weeks):
@@ -831,13 +880,14 @@ async def upload_file(
     fsize_kb = round(len(content) / 1024, 1)
 
     log.info(
-        "[DATA-ENTRY] Job started | file=%s size=%sKB month=%s year=%s week=%s dir=%s user=%s",
+        "[DATA-ENTRY] Job started | file=%s size=%sKB month=%s year=%s week=%s dir=%s overwrite=%s user=%s",
         fname,
         fsize_kb,
         month,
         year,
         week,
         direction,
+        overwrite,
         auth_user.get("username", auth_user["id"]),
     )
 
@@ -1008,6 +1058,47 @@ async def upload_file(
                 "manager review (GET /api/sku-review)."
             ),
         )
+
+    inventory_ops = [
+        op
+        for op in ops
+        if op.get("operation") in ("inventory_save", "inventory_week_update")
+    ]
+    overwrite_scope = _overwrite_scope(month, year, week, direction)
+    if inventory_ops:
+        existing_count = _existing_inventory_scope_count(month, year, week, direction)
+        if existing_count > 0 and not overwrite:
+            log.warning(
+                "[DATA-ENTRY] BLOCKED overwrite_required | file=%s scope=%s month=%s year=%s week=%s dir=%s existing=%d",
+                fname,
+                overwrite_scope["kind"],
+                month,
+                year,
+                week,
+                direction,
+                existing_count,
+            )
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "overwrite_required",
+                    "message": (
+                        f"{calendar.month_name[month]} {year} already has "
+                        f"{overwrite_scope['label']} inventory data. Confirm overwrite to "
+                        "replace that scope with this parsed upload."
+                    ),
+                    "month": month,
+                    "year": year,
+                    "week": week,
+                    "direction": direction,
+                    "scope": overwrite_scope["kind"],
+                    "scope_label": overwrite_scope["label"],
+                    "existing_rows": existing_count,
+                },
+            )
+        for op in inventory_ops:
+            op["payload"]["overwrite"] = bool(overwrite)
+            op["payload"]["overwrite_scope"] = overwrite_scope
 
     batch_id = str(uuid.uuid4())
     submitter = auth_user["id"]

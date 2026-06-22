@@ -4,6 +4,7 @@ import { ROLE_LEVEL, MONTHS, loadAIPrefs } from '../lib/constants';
 import { api } from '../lib/api';
 
 type Hint = '' | 'inventory' | 'events' | 'haccp' | 'menu' | 'log';
+type Direction = 'received' | 'issued' | 'both';
 
 interface ReconciliationStats {
     computed_subtotal: number;
@@ -35,6 +36,26 @@ interface UploadResult {
     ai_model?: string;
     pr_id?: string | null;
     pr_number?: number | null;
+    overwrite?: boolean;
+    overwrite_scope?: {
+        kind: string;
+        label: string;
+        month: number;
+        year: number;
+        week?: number;
+        direction?: string;
+    };
+}
+
+interface OverwritePrompt {
+    message: string;
+    month: number;
+    year: number;
+    week: number;
+    direction: Direction;
+    scope: string;
+    scope_label: string;
+    existing_rows: number;
 }
 
 interface DiffRow {
@@ -362,8 +383,9 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
     const [month, setMonth]         = useState<number>(now.getMonth());
     const [year, setYear]           = useState<number>(now.getFullYear());
     const [week, setWeek]           = useState<number>(0);
-    const [direction, setDirection] = useState<'received' | 'issued'>('received');
+    const [direction, setDirection] = useState<Direction>('received');
     const [description, setDescription] = useState('');
+    const [overwritePrompt, setOverwritePrompt] = useState<OverwritePrompt | null>(null);
 
     const [uploading, setUploading]     = useState(false);
     const [aiStage, setAiStage]         = useState(0);
@@ -414,6 +436,9 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
     useEffect(() => {
         if (week > weekCount) setWeek(0);
     }, [week, weekCount]);
+    useEffect(() => {
+        if (week > 0 && direction === 'both') setDirection('received');
+    }, [direction, week]);
     useEffect(() => {
         if (!allowedYears.includes(year)) {
             setYear(allowedYears[allowedYears.length - 1]);
@@ -558,18 +583,19 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         abortRef.current?.abort();
     }, []);
 
-    const doUpload = useCallback(async () => {
+    const doUpload = useCallback(async (confirmedOverwrite = false) => {
         if (!file) return;
         cancelledRef.current = false;
         abortRef.current?.abort();
         abortRef.current = new AbortController();
         setUploading(true);
         setUploadErr(null);
+        setOverwritePrompt(null);
         setResult(null);
         setPreview(null);
         const timeoutId = setTimeout(() => abortRef.current?.abort(), 120_000);
         try {
-            const res = await api.uploadDataEntry(file, hint, month + 1, year, week, direction, description, abortRef.current?.signal);
+            const res = await api.uploadDataEntry(file, hint, month + 1, year, week, direction, description, abortRef.current?.signal, confirmedOverwrite);
             clearTimeout(timeoutId);
             setResult(res);
             setStagingIds(res.staging_ids || []);
@@ -583,6 +609,13 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
             const msg = e?.name === 'AbortError'
                 ? (userCancelled ? 'Cancelled by user' : 'Request timed out — AI provider did not respond within 120s')
                 : safeUploadMessage(e);
+            const detail = e?.detail;
+            if (!userCancelled && e?.status === 409 && detail?.error === 'overwrite_required') {
+                setOverwritePrompt(detail as OverwritePrompt);
+                setUploadErr(null);
+                (window as any).toast?.('Overwrite confirmation required');
+                return;
+            }
             setUploadErr(msg);
             (window as any).toast?.(`AI parsing failed: ${msg}`);
             if (!userCancelled) {
@@ -608,6 +641,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         setPreview,
         setResult,
         setStagingIds,
+        setOverwritePrompt,
         setUploadErr,
         setUploading,
     ]);
@@ -653,6 +687,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         setFile(null);
         setResult(null);
         setUploadErr(null);
+        setOverwritePrompt(null);
         setPreview(null);
         setStagingIds([]);
     };
@@ -779,9 +814,47 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
             )}
 
             {/* ── Upload card ─────────────────────────────────────────── */}
+            {overwritePrompt && (
+                <div className="overlay" onClick={() => !uploading && setOverwritePrompt(null)}>
+                    <div className="modal" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+                        <div className="modal-head">
+                            <h3>{I.alert()} Replace existing inventory data?</h3>
+                            <button className="modal-x" onClick={() => setOverwritePrompt(null)} disabled={uploading}>
+                                {I.x()}
+                            </button>
+                        </div>
+                        <div className="modal-body">
+                            <div className="banner warn" style={{ marginBottom: 12 }}>
+                                {I.alert()}<span>{overwritePrompt.message}</span>
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+                                This replacement will be staged through Source Control. When the pull request is merged,
+                                MJCC will clear the current {overwritePrompt.scope_label} values for{' '}
+                                {MONTHS[overwritePrompt.month - 1]} {overwritePrompt.year} and then apply the parsed upload.
+                            </div>
+                            <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                <span className="pill warn">
+                                    {overwritePrompt.existing_rows} existing row{overwritePrompt.existing_rows === 1 ? '' : 's'}
+                                </span>
+                                <span className="pill off">{overwritePrompt.scope_label}</span>
+                            </div>
+                        </div>
+                        <div className="modal-foot">
+                            <button className="btn" onClick={() => setOverwritePrompt(null)} disabled={uploading}>
+                                Cancel
+                            </button>
+                            <button className="btn danger" onClick={() => doUpload(true)} disabled={uploading}>
+                                {uploading ? 'Replacing...' : 'Overwrite & Parse'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <WinCard
                 title="Upload file"
                 dots
+                className="de-upload-card"
                 link={result ? `✓ ${stagedCount} staged` : undefined}
             >
                 <div>
@@ -789,7 +862,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                     <div className={aiPrefs.effects && uploading ? 'ai-ring-wrap' : ''} style={{ borderRadius: 12 }}>
                         <FileZone
                             file={file} uploading={uploading}
-                            onFile={f => { setFile(f); setResult(null); setUploadErr(null); setPreview(null); }}
+                            onFile={f => { setFile(f); setResult(null); setUploadErr(null); setOverwritePrompt(null); setPreview(null); }}
                             onClear={clearAll}
                         />
                     </div>
@@ -828,23 +901,23 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
 
                 <div>
                     <div style={STEP_LBL}>2 — Period &amp; target</div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    <div className="de-target-grid" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
+                        <div className="de-period-controls" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                             <div>
                                 <label style={LBL}>Month</label>
-                                <select className="tb-select" value={month} onChange={e => setMonth(+e.target.value)}>
+                                <select className="ipt sel" value={month} onChange={e => setMonth(+e.target.value)}>
                                     {allowedMonths.map(i => <option key={i} value={i}>{MONTHS[i]}</option>)}
                                 </select>
                             </div>
                             <div>
                                 <label style={LBL}>Year</label>
-                                <select className="tb-select" value={year} onChange={e => setYear(+e.target.value)}>
+                                <select className="ipt sel" value={year} onChange={e => setYear(+e.target.value)}>
                                     {allowedYears.map(yr => <option key={yr} value={yr}>{yr}</option>)}
                                 </select>
                             </div>
                             <div>
                                 <label style={LBL}>Hint <span style={{ fontWeight: 400, color: 'var(--faint)' }}>(optional)</span></label>
-                                <select className="tb-select" value={hint} onChange={e => setHint(e.target.value as Hint)}>
+                                <select className="ipt sel" value={hint} onChange={e => setHint(e.target.value as Hint)}>
                                     <option value="">Auto-detect</option>
                                     <option value="inventory">Inventory</option>
                                     <option value="events">Events</option>
@@ -875,13 +948,23 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
 
                         <div>
                             <label style={LBL}>Direction</label>
-                            <div style={{ display: 'flex', gap: 4 }}>
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                                 <button className={direction === 'received' ? 'btn primary' : 'btn'}
                                     style={{ padding: '6px 13px', fontSize: 12, fontWeight: 700, minHeight: 36 }}
                                     onClick={() => setDirection('received')}>Received</button>
                                 <button className={direction === 'issued' ? 'btn accent' : 'btn'}
                                     style={{ padding: '6px 13px', fontSize: 12, fontWeight: 700, minHeight: 36 }}
                                     onClick={() => setDirection('issued')}>Pulled / Issued</button>
+                                {week === 0 && (
+                                    <button className={direction === 'both' ? 'btn primary' : 'btn'}
+                                        style={{ padding: '6px 13px', fontSize: 12, fontWeight: 700, minHeight: 36 }}
+                                        onClick={() => setDirection('both')}>Both</button>
+                                )}
+                            </div>
+                            <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 5 }}>
+                                {week === 0
+                                    ? 'Full-month uploads can include received and pulled/issued columns.'
+                                    : 'Weekly uploads post into one direction at a time.'}
                             </div>
                         </div>
                     </div>
@@ -908,8 +991,8 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
 
                 <Hr />
 
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', minWidth: 0 }}>
+                <div className="de-submit-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+                    <div className="de-file-summary" style={{ fontSize: 12, color: 'var(--muted)', minWidth: 0 }}>
                         {file ? (
                             <>
                                 <span style={{ fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', maxWidth: 200, verticalAlign: 'bottom' }}>
@@ -920,9 +1003,9 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                             </>
                         ) : 'Select a file to upload'}
                     </div>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <div className="de-submit-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         {result && <button className="btn" onClick={clearAll} style={{ fontSize: 12 }}>Upload another</button>}
-                        <button className="btn primary" onClick={doUpload} disabled={!file || uploading} style={{ minWidth: 130, minHeight: 40 }}>
+                        <button className="btn primary" onClick={() => doUpload()} disabled={!file || uploading} style={{ minWidth: 130, minHeight: 40 }}>
                             {I.inbox({ style: { width: 14, height: 14 } })}
                             {uploading ? 'Parsing...' : 'Upload & Parse'}
                         </button>

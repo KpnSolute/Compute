@@ -39,6 +39,85 @@ def _infer_entity_scope(entries: list[dict]) -> str:
 ENTITY_TYPES = {"inventory", "menu", "user", "compliance", "event", "ops"}
 
 
+def _inventory_overwrite_key(payload: dict) -> tuple | None:
+    if not payload.get("overwrite"):
+        return None
+    month = int(payload.get("month") or 0)
+    year = int(payload.get("year") or 0)
+    week = int(payload.get("week") or 0)
+    direction = (payload.get("direction") or "both").lower()
+    if not month or not year:
+        return None
+    if week in (1, 2, 3, 4):
+        return ("week", month, year, week, direction)
+    return ("month", month, year)
+
+
+def _assert_inventory_overwrite_allowed(
+    sup, db_month: int, year: int, display_month: int
+) -> None:
+    status = (
+        sup.table("month_status")
+        .select("status")
+        .eq("month", db_month)
+        .eq("year", year)
+        .limit(1)
+        .execute()
+    )
+    row = (status.data or [None])[0]
+    if row and row.get("status") == "published":
+        raise HTTPException(
+            status_code=403,
+            detail=f"Cannot overwrite published inventory data for {display_month}/{year}.",
+        )
+
+
+def _apply_confirmed_inventory_overwrites(entries: list[dict]) -> list[dict]:
+    """Clear confirmed Data Entry replacement scopes once per commit merge."""
+    sup = _client()
+    cleared: list[dict] = []
+    seen: set[tuple] = set()
+    for entry in entries:
+        op = entry.get("operation")
+        payload = entry.get("full_payload") or {}
+        if op not in ("inventory_save", "inventory_week_update"):
+            continue
+        key = _inventory_overwrite_key(payload)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+
+        if key[0] == "month":
+            _, month, year = key
+            db_month = max(0, month - 1)
+            _assert_inventory_overwrite_allowed(sup, db_month, year, month)
+            sup.table("monthly_inventory").delete().eq("month", db_month).eq(
+                "year", year
+            ).execute()
+            cleared.append({"scope": "month", "month": month, "year": year})
+            continue
+
+        _, month, year, week, direction = key
+        if direction not in ("received", "issued"):
+            continue
+        db_month = max(0, month - 1)
+        _assert_inventory_overwrite_allowed(sup, db_month, year, month)
+        col = f"w{week}_{direction}"
+        sup.table("monthly_inventory").update({col: 0}).eq("month", db_month).eq(
+            "year", year
+        ).execute()
+        cleared.append(
+            {
+                "scope": "week",
+                "month": month,
+                "year": year,
+                "week": week,
+                "direction": direction,
+            }
+        )
+    return cleared
+
+
 # ── models ──────────────────────────────────────────────────────────────────
 
 
@@ -98,6 +177,7 @@ def _apply_entries(
     # 1 — replay all operations. Published periods are read-only (enforced by the
     #     DB guard and the dispatch published-check); there is no override — to edit
     #     a closed period an admin reopens it (month_status.status='open') first.
+    overwrite_clears = _apply_confirmed_inventory_overwrites(entries)
     replay_results = []
     for entry in entries:
         op = entry.get("operation")
@@ -212,6 +292,7 @@ def _apply_entries(
         "change_count": len(changes),
         "replayed": len(applied_results),
         "applied": len(applied_results),
+        "overwrite_clears": overwrite_clears,
         "failed": [],
     }
 
