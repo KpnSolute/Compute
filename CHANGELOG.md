@@ -10,7 +10,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** Live production endpoints deployed at `8ea7ab1`; `/health` and `/health/live` returned 200, `/status` rendered HTML, and `/api/system/status` exposed the false outage details. `ruff format` and `ruff check` passed for the patched health route. Local route smoke with dummy env confirmed `/health/live`, `/api/system/info`, and `/status` response shapes.
 
-**Push:** pending ? not yet pushed
+**Push:** Codex -> 0773a10 - 2026-06-22
 
 ## v4.10.0 ? 2026-06-21 ? Codex public API status and health layer
 
