@@ -12,7 +12,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** `ruff format` and `ruff check` passed for `backend/routes/health.py` and `backend/main.py`. Local FastAPI route smoke with dummy env confirmed `/health`, `/health/live`, `/api/system/info`, and `/status` return the expected JSON/HTML response shapes. Full local dependency status was not run because this shell does not expose live Supabase env vars; Render has the production env.
 
-**Push:** pending ? not yet pushed
+**Push:** Codex -> 8e9db6b - 2026-06-21
 
 ## v4.9.9 ? 2026-06-21 ? Codex Multi-Flow invoice template hardening
 
