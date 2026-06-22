@@ -14,7 +14,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** `backend\.venv\Scripts\ruff.exe format backend/routes/data_entry.py backend/routes/sourcectrl.py`, `backend\.venv\Scripts\ruff.exe check backend/routes/data_entry.py backend/routes/sourcectrl.py`, `npx tsc --noEmit`, `npm run build`, and `npm run lint -- --quiet` passed. In-app browser verified local Data Entry as Jeremiah/Sudo Administrator: desktop 1280px and mobile 390px both had zero horizontal overflow, visible Upload & Parse action, visible full-month `Both` direction, standardized selects, and no console errors.
 
-**Push:** Codex -> ddf94ce - 2026-06-22
+**Push:** Codex -> 885cf0f - 2026-06-22
 
 ## v4.10.3 ? 2026-06-22 ? Codex responsive input and inventory search standardization
 
