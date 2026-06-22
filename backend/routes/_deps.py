@@ -8,6 +8,12 @@ from backend.routes import supabase_service, jwt_validator
 ROLE_LEVEL = {"staff": 10, "assistant": 20, "manager": 30, "admin": 40, "sudo": 50}
 
 log = logging.getLogger("mjcc.routes.deps")
+BULK_CHUNK_SIZE = 100
+
+
+def _chunks(values: list, size: int = BULK_CHUNK_SIZE):
+    for idx in range(0, len(values), size):
+        yield values[idx : idx + size]
 
 
 def _get_auth_user(authorization: str = Header("")) -> dict:
@@ -96,16 +102,18 @@ def ensure_pr_for_entries(
     if not entry_ids:
         return None
     try:
-        valid_r = (
-            supabase_service.table("staging_entries")
-            .select("entry_id,entity_type")
-            .in_("entry_id", entry_ids)
-            .eq("submitted_by", author_id)
-            .eq("status", "pending")
-            .is_("pull_request_id", "null")
-            .execute()
-        )
-        valid_rows = valid_r.data or []
+        valid_rows = []
+        for entry_chunk in _chunks(entry_ids):
+            valid_r = (
+                supabase_service.table("staging_entries")
+                .select("entry_id,entity_type")
+                .in_("entry_id", entry_chunk)
+                .eq("submitted_by", author_id)
+                .eq("status", "pending")
+                .is_("pull_request_id", "null")
+                .execute()
+            )
+            valid_rows.extend(valid_r.data or [])
         valid_ids = [row["entry_id"] for row in valid_rows]
         if not valid_ids:
             return None
@@ -143,9 +151,10 @@ def ensure_pr_for_entries(
         if not pr:
             return None
 
-        supabase_service.table("staging_entries").update(
-            {"pull_request_id": pr["pr_id"]}
-        ).in_("entry_id", valid_ids).execute()
+        for entry_chunk in _chunks(valid_ids):
+            supabase_service.table("staging_entries").update(
+                {"pull_request_id": pr["pr_id"]}
+            ).in_("entry_id", entry_chunk).execute()
         return pr
     except Exception:
         log.exception("Failed to auto-wrap staging entries in pull request")

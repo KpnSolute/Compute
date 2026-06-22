@@ -34,6 +34,13 @@ from backend.ai import mapper, context as ctx, diff as diff_engine
 from backend.inventory_identity import canonical_sku
 
 log = logging.getLogger("mjcc.data_entry")
+BULK_CHUNK_SIZE = 100
+
+
+def _chunks(values: list, size: int = BULK_CHUNK_SIZE):
+    for idx in range(0, len(values), size):
+        yield values[idx : idx + size]
+
 
 router = APIRouter(prefix="/api/data-entry")
 
@@ -1120,9 +1127,10 @@ async def upload_file(
             stale_batches = list(
                 {r["batch_id"] for r in stale.data if r.get("batch_id")}
             )
-            svc.table("staging_entries").update(
-                {"status": "rejected", "review_note": "superseded by re-upload"}
-            ).in_("entry_id", stale_ids).execute()
+            for stale_chunk in _chunks(stale_ids):
+                svc.table("staging_entries").update(
+                    {"status": "rejected", "review_note": "superseded by re-upload"}
+                ).in_("entry_id", stale_chunk).execute()
             log.info(
                 "[DATA-ENTRY] Superseded %d stale pending entries | file=%s old_batches=%s",
                 len(stale_ids),

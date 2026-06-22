@@ -4,6 +4,18 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.10.5 ? 2026-06-22 ? Codex Source Control bulk staging cleanup and hardening
+
+**Codex:** Reviewed Render logs around June 21, 2026 10:00 PM Eastern / June 22, 2026 03:00 UTC. The April workbook parsed successfully, but auto-wrapping 926 staging rows into a Source Control PR failed with a PostgREST JSON-generation error, and later direct `/api/commits` attempts returned 500 while trying to process the same large pending batch.
+
+**Codex cleanup:** Cleared the 926 pending April `inventory_save` staging rows through the authenticated Source Control API with a review note. Production `/api/staging` now returns 0 visible pending rows and `/api/system/status` reports Source Control `pending_staging=0`. No committed inventory/monthly inventory rows were changed.
+
+**Codex fix:** Hardened Source Control for large month imports by chunking staging row lookups, PR staging updates, commit_changes inserts, and merged-status updates. Data Entry stale re-upload cleanup is chunked too. Explicit PR creation no longer sends hundreds of ids through the large RPC path; it opens the PR row and attaches staging rows in bounded chunks.
+
+**Verification:** `backend\.venv\Scripts\ruff.exe format backend/routes/_deps.py backend/routes/sourcectrl.py backend/routes/data_entry.py`, `backend\.venv\Scripts\ruff.exe check backend/routes/_deps.py backend/routes/sourcectrl.py backend/routes/data_entry.py`, and `python -m py_compile backend/routes/_deps.py backend/routes/sourcectrl.py backend/routes/data_entry.py` passed. Production health returned 200/operational with Source Control pending staging at 0.
+
+**Push:** pending - not yet pushed
+
 ## v4.10.4 ? 2026-06-22 ? Codex Data Entry overwrite and responsive upload flow
 
 **Codex:** Fixed the Data Entry light-mode upload card so period controls, file summary, and the Upload & Parse action stay inside the card on desktop and mobile. Month/year/hint controls now use the standardized `.ipt sel` input styling instead of the dark toolbar select styling, and the upload card/action row has responsive width guards.

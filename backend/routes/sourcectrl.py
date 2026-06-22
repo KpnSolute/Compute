@@ -37,6 +37,38 @@ def _infer_entity_scope(entries: list[dict]) -> str:
 
 
 ENTITY_TYPES = {"inventory", "menu", "user", "compliance", "event", "ops"}
+BULK_CHUNK_SIZE = 100
+
+
+def _chunks(values: list, size: int = BULK_CHUNK_SIZE):
+    for idx in range(0, len(values), size):
+        yield values[idx : idx + size]
+
+
+def _select_staging_entries(entry_ids: list[str], columns: str = "*") -> list[dict]:
+    rows: list[dict] = []
+    for entry_chunk in _chunks(entry_ids):
+        r = (
+            _client()
+            .table("staging_entries")
+            .select(columns)
+            .in_("entry_id", entry_chunk)
+            .execute()
+        )
+        rows.extend(r.data or [])
+    return rows
+
+
+def _update_staging_entries(entry_ids: list[str], values: dict) -> None:
+    for entry_chunk in _chunks(entry_ids):
+        _client().table("staging_entries").update(values).in_(
+            "entry_id", entry_chunk
+        ).execute()
+
+
+def _insert_commit_changes(changes: list[dict]) -> None:
+    for change_chunk in _chunks(changes):
+        _client().table("commit_changes").insert(change_chunk).execute()
 
 
 def _inventory_overwrite_key(payload: dict) -> tuple | None:
@@ -260,17 +292,18 @@ def _apply_entries(
             }
         )
     if changes:
-        _client().table("commit_changes").insert(changes).execute()
+        _insert_commit_changes(changes)
 
     # 5 — mark the whole set merged
     if applied_entry_ids:
-        _client().table("staging_entries").update(
+        _update_staging_entries(
+            applied_entry_ids,
             {
                 "status": "merged",
                 "reviewed_by": author_id,
                 "reviewed_at": now,
-            }
-        ).in_("entry_id", applied_entry_ids).execute()
+            },
+        )
 
     # 6 — enqueue github sync
     # NOTE: github_sync_queue_operation_check permits push_archive_snapshot, not push_snapshot.
@@ -612,15 +645,11 @@ async def approve_commit(
     if not body.staging_ids:
         raise HTTPException(status_code=422, detail="staging_ids must not be empty.")
     try:
-        staging_r = (
-            _client()
-            .table("staging_entries")
-            .select("*")
-            .in_("entry_id", body.staging_ids)
-            .eq("status", "pending")
-            .execute()
-        )
-        entries = staging_r.data or []
+        entries = [
+            entry
+            for entry in _select_staging_entries(body.staging_ids)
+            if entry.get("status") == "pending"
+        ]
         return _apply_entries(
             entries,
             author_id=auth_user["id"],
@@ -696,14 +725,9 @@ async def open_pull_request(
                 status_code=422, detail="No pending entries to include in pull request."
             )
 
-        entries_r = (
-            _client()
-            .table("staging_entries")
-            .select("entry_id,entity_type,submitted_by,status,pull_request_id")
-            .in_("entry_id", entry_ids)
-            .execute()
+        entries = _select_staging_entries(
+            entry_ids, "entry_id,entity_type,submitted_by,status,pull_request_id"
         )
-        entries = entries_r.data or []
         found_ids = {entry["entry_id"] for entry in entries}
         missing = [entry_id for entry_id in entry_ids if entry_id not in found_ids]
         if missing:
@@ -734,42 +758,26 @@ async def open_pull_request(
                 },
             )
 
-        result = (
+        scope = _infer_entity_scope(entries)
+        opened = (
             _client()
-            .rpc(
-                "sc_open_pull_request",
+            .table("pull_requests")
+            .insert(
                 {
-                    "p_author": auth_user["id"],
-                    "p_title": body.title,
-                    "p_description": body.description or "",
-                    "p_entry_ids": entry_ids,
-                },
+                    "title": body.title.strip() or "Untitled request",
+                    "description": (body.description or "").strip(),
+                    "author_id": auth_user["id"],
+                    "entity_scope": scope,
+                }
             )
             .execute()
         )
-
-        pr = (
-            result.data
-            if isinstance(result.data, dict)
-            else (result.data[0] if result.data else None)
-        )
+        pr = (opened.data or [None])[0]
         if not pr:
             raise HTTPException(
                 status_code=500, detail="Failed to create pull request."
             )
-        scope = _infer_entity_scope(entries)
-        try:
-            updated = (
-                _client()
-                .table("pull_requests")
-                .update({"entity_scope": scope})
-                .eq("pr_id", pr["pr_id"])
-                .execute()
-            )
-            if updated.data:
-                pr = updated.data[0]
-        except Exception:
-            pass
+        _update_staging_entries(entry_ids, {"pull_request_id": pr["pr_id"]})
         return pr
     except HTTPException:
         raise
