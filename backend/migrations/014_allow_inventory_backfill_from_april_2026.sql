@@ -1,10 +1,13 @@
 -- Allow MJCC's initial historical backfill window while preserving published-period locks.
 --
 -- After the inventory reset, month_status can be empty while Data Entry still
--- allows imports from the configured floor (April 2026) through the current
+-- allows imports from the configured floor (May 2026) through the current
 -- operational month. The previous guard treated unregistered months as writable
--- only when they exactly matched the single open/current month, so April backfill
+-- only when they exactly matched the single open/current month, so backfill
 -- commits failed even though the API accepted the upload.
+--
+-- Updated 2026-06-22: floor raised from April (month=3) to May (month=4)
+-- after the April 2026 inventory data was wiped and source control reset.
 
 CREATE OR REPLACE FUNCTION public.guard_closed_month_writes()
  RETURNS trigger
@@ -16,7 +19,7 @@ DECLARE
   v_status      text;
   open_month    integer;
   open_year     integer;
-  floor_month   integer := 3;
+  floor_month   integer := 4;
   floor_year    integer := 2026;
   floor_setting jsonb;
 BEGIN

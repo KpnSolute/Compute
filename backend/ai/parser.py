@@ -32,20 +32,31 @@ def _inventory_category(label: Any) -> str | None:
         return None
     if "total" in norm:
         return None
+    # Maps normalized cell text from MJCC monthly inventory workbooks to exact
+    # inventory_categories names. Taxonomy: Dairy, Cereal, Beverages, Snacks,
+    # Meats, Frozen Food, Dry Goods, Produce, Disposables.
     category_map = {
         "dairy": "Dairy",
-        "cereal": "Dry Goods",
-        "beverages": "Dry Goods",
-        "snacks": "Dry Goods",
-        "meats": "Meat",
-        "meat": "Meat",
-        "frozenfood": "Frozen",
-        "frozengoods": "Frozen",
-        "frozen": "Frozen",
+        "cereal": "Cereal",
+        "beverages": "Beverages",
+        "beverage": "Beverages",
+        "snacks": "Snacks",
+        "snack": "Snacks",
+        "meats": "Meats",
+        "meat": "Meats",
+        "protein": "Meats",
+        "frozenfood": "Frozen Food",
+        "frozenfoods": "Frozen Food",
+        "frozengoods": "Frozen Food",
+        "frozen": "Frozen Food",
         "drygoods": "Dry Goods",
+        "dry": "Dry Goods",
         "produce": "Produce",
+        "fresh": "Produce",
         "disposibles": "Disposables",
         "disposables": "Disposables",
+        "supplies": "Disposables",
+        "supply": "Disposables",
     }
     return category_map.get(norm)
 

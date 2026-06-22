@@ -25,7 +25,7 @@ Rules:
 import uuid
 from datetime import datetime, timezone
 
-NEW_ITEMS_CATEGORY = "Uncategorized"
+NEW_ITEMS_CATEGORY = "New Items"
 
 
 def gen_sku() -> str:
@@ -105,9 +105,10 @@ def resolve_and_write_item(
         return item_id, sku, False
 
     # New item: honor a known category, else route to the New Items review
-    # bucket. data-entry forces review regardless of any guessed category.
-    if force_review_category:
-        fields["category_id"] = fallback_category_id or category_id
+    # bucket. force_review_category only redirects items whose category is
+    # unknown (None) — a recognized category from the parsed payload is kept.
+    if force_review_category and not category_id:
+        fields["category_id"] = fallback_category_id
     else:
         fields["category_id"] = category_id or fallback_category_id
     fields["active"] = True

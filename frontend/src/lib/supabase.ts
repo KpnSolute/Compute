@@ -433,11 +433,18 @@ export async function fetchProfiles() {
 
 /* ── INVENTORY MATH (mirrors dashboard) ── */
 export const CCOLOR: Record<string, string> = {
+  // Current taxonomy (as of June 2026 rename)
   Dairy: '#0D9488',
   Cereal: '#B45309',
   Beverages: '#2563EB',
   Snacks: '#7C3AED',
   'Dry Goods': '#92400E',
+  Produce: '#15803D',
+  Meats: '#B91C1C',
+  'Frozen Food': '#0369A1',
+  Disposables: '#6B7280',
+  'New Items': '#F59E0B',
+  // Legacy aliases — kept for backward compatibility with items not yet remapped
   'Produce & Fresh': '#15803D',
   'Protein & Meat': '#B91C1C',
   'Frozen Foods': '#0369A1',

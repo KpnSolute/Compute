@@ -322,31 +322,33 @@ INVOICE_EXTRACTION_TOOLS: list[dict] = [
 ]
 
 # ── vendor category → MJCC category bridge ───────────────────────────────────
+# Target taxonomy: Dairy, Cereal, Beverages, Snacks, Meats, Frozen Food,
+#                  Dry Goods, Produce, Disposables, Uncategorized, New Items
 VENDOR_CAT_BRIDGE: dict[str, str] = {
     "DRY": "Dry Goods",
     "DRY GROCERY": "Dry Goods",
     "GROCERY": "Dry Goods",
-    "REFRIGERATED": "Refrigerated",
-    "CHILLED": "Refrigerated",
-    "FROZEN": "Frozen",
+    "REFRIGERATED": "Dairy",
+    "CHILLED": "Dairy",
+    "FROZEN": "Frozen Food",
     "BEVERAGES": "Beverages",
     "BEVERAGE": "Beverages",
-    "NON-FOOD": "Supplies",
-    "NON FOOD": "Supplies",
-    "NONFOOD": "Supplies",
+    "NON-FOOD": "Disposables",
+    "NON FOOD": "Disposables",
+    "NONFOOD": "Disposables",
     "PRODUCE": "Produce",
     "FRESH PRODUCE": "Produce",
     "DAIRY": "Dairy",
-    "BAKERY": "Bakery",
-    "BREAD": "Bakery",
-    "MEAT": "Meat",
-    "POULTRY": "Meat",
-    "SEAFOOD": "Seafood",
-    "FISH": "Seafood",
-    "PAPER": "Supplies",
-    "CLEANING": "Supplies",
-    "JANITORIAL": "Supplies",
-    "CHEMICAL": "Supplies",
+    "BAKERY": "Dry Goods",
+    "BREAD": "Dry Goods",
+    "MEAT": "Meats",
+    "POULTRY": "Meats",
+    "SEAFOOD": "Meats",
+    "FISH": "Meats",
+    "PAPER": "Disposables",
+    "CLEANING": "Disposables",
+    "JANITORIAL": "Disposables",
+    "CHEMICAL": "Disposables",
 }
 
 OCR_SPACE_URL = "https://api.ocr.space/parse/image"
@@ -1173,7 +1175,8 @@ If the model does not support tool calling, return ONLY valid JSON matching this
       "qty_adj": 0,
       "unit_price": 12.34,
       "ext_price": 12.34,
-      "weight_lbs": 0.0
+      "weight_lbs": 0.0,
+      "category": "one of the valid category names below"
     }
   ]
 }
@@ -1186,6 +1189,12 @@ Rules:
   return "items": []  — do not invent items.
 - Any field you cannot find on this page (vendor, invoice_number, totals, etc.):
   use null / 0.0, do not guess.
+- category: classify each item into EXACTLY one of these valid MJCC categories:
+  Dairy, Cereal, Beverages, Snacks, Meats, Frozen Food, Dry Goods, Produce, Disposables
+  Examples: chicken breast → Meats, whole milk → Dairy, plastic gloves → Disposables,
+  orange juice → Beverages, frozen pizza → Frozen Food, lettuce → Produce,
+  flour → Dry Goods, corn flakes → Cereal, paper cups → Disposables, chips → Snacks.
+  If uncertain, use Dry Goods.
 - Return ONLY the JSON object, no explanation."""
 
 

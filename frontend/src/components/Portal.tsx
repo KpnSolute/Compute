@@ -1022,6 +1022,14 @@ function Dashboard({
     );
 }
 
+// Canonical inventory category taxonomy — used as a last-resort fallback when
+// both the API call and inventory-derived category lists are empty (e.g. a new
+// period with no items yet, or an API 500 on /api/inventory-categories).
+const FALLBACK_CATS = [
+    "Dairy", "Cereal", "Beverages", "Snacks", "Meats",
+    "Frozen Food", "Dry Goods", "Produce", "Disposables", "New Items",
+];
+
 function InventoryView({
     user,
     period,
@@ -1171,15 +1179,19 @@ function InventoryView({
 
     // Authoritative category list from the API (includes empty categories like
     // "New Items"), so the add/edit dropdowns can target a bucket even when no
-    // item is in it yet. Falls back to item-derived names if the fetch fails.
+    // item is in it yet. Falls back to FALLBACK_CATS (module-level const) if
+    // both the API call and the inventory-derived list are empty.
     const [apiCatNames, setApiCatNames] = useState<string[]>([]);
     const reloadCatNames = useCallback(() => {
         api.getInventoryCategories()
             .then((rows: any[]) => {
-                if (Array.isArray(rows))
-                    setApiCatNames(rows.map((c) => c.name).filter(Boolean));
+                if (Array.isArray(rows) && rows.length > 0)
+                    setApiCatNames(rows.map((c: any) => c.name).filter(Boolean));
             })
-            .catch(() => {});
+            .catch((err: any) => {
+                if (import.meta.env.DEV)
+                    console.warn("[InventoryView] Failed to load categories from API:", err?.message || err);
+            });
     }, []);
     useEffect(() => { reloadCatNames(); }, [reloadCatNames]);
 
@@ -1639,9 +1651,13 @@ function InventoryView({
 
     // Dropdown options: API categories first (authoritative + ordered, includes
     // empty buckets like "New Items"), then any item-only categories not in it.
+    // If both sources are empty (e.g. new period with no items, API error),
+    // fall back to the canonical FALLBACK_CATS list so the dropdown is never blank.
     const catOptions = apiCatNames.length
         ? Array.from(new Set([...apiCatNames, ...cats]))
-        : cats;
+        : cats.length
+            ? cats
+            : FALLBACK_CATS;
     const filtered = rows.filter(
         (r: any) =>
             (!cat || r.cat === cat) &&
