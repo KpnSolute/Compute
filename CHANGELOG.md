@@ -12,7 +12,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** `quick_validate.py` passed for the updated skill. A smoke delegation created a temporary worktree, Claude returned `DELEGATE_BUILD_READY`, the worktree stayed clean with no diff, and the temporary worktree/branch were removed afterward.
 
-**Push:** pending - not yet pushed
+**Push:** Codex -> 6928e1a - 2026-06-22
 
 ## v4.10.8 ? 2026-06-22 ? Codex Claude Opus review integration
 
