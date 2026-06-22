@@ -4,6 +4,134 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.10.13 — 2026-06-22 — Live log tail portal
+
+**Claude:** Added full live log tail accessible from within the Portal sidebar.
+
+**backend/routes/api_logs.py (new):**
+- `InMemoryLogHandler` captures Python `logging` records into a 1000-event rolling deque
+- `install_log_capture()` installs handler once (idempotent guard)
+- `record_request()` / `record_log()` append structured events to the deque + fan-out to SSE subscribers
+- `GET /api/system/logs` — paginated JSON history (admin+)
+- `GET /api/system/logs/stream?token=` — SSE live stream with 80-event replay buffer, 25s keepalive
+- `POST /portal/logs/login` — standalone credential check for users visiting the page directly
+- `GET /portal/logs` — HTML portal; now accepts `?token=` — if valid admin/sudo JWT present, JS skips login form and connects immediately
+
+**backend/main.py:**
+- `install_log_capture()` called at startup
+- HTTP middleware records every non-stream request (method, path, status, duration, user hint, IP) via `record_request()`
+- `api_logs_router` registered alongside all other routers
+
+**frontend/src/lib/icons.tsx:** Added `terminal` icon (Feather `▸_` chevron + underline, 24-box stroke)
+
+**frontend/src/components/Portal.tsx:**
+- Added `getBackendToken` to supabase imports
+- Admin/sudo sidebar button (`lvl >= 40`) in `ab-bottom` opens `${VITE_API_BASE}/portal/logs?token=<backend_token>` in a new tab — auto-authenticated, no re-login needed
+
+**Build:** tsc clean, ruff clean
+**Push:** `85e1a31..0bf6dc8` → main → Render deploy in progress
+
+---
+
+## v4.10.12 — 2026-06-22 — April 2026 inventory wipe + category taxonomy rename applied to DB
+
+**mjcc-data:** Executed full data cleanup requested after PR #20 (April inventory import) was voided. All operations applied to live Supabase project `MJCCv1` (`mgvyylvmkxhhataavqjz`) via Management API.
+
+**Step 1 — April 2026 inventory deleted:**
+- `monthly_inventory` WHERE month=3 AND year=2026: 926 rows deleted.
+- `inventory_items` (all rows, all from the April import): 926 rows deleted.
+- Delete order respected FK: `monthly_inventory` first, then `inventory_items`.
+
+**Step 2 — Source control records for PR #20 purged:**
+- PR id: `dcad0608-877c-4729-80cf-a4a55def23f8`, commit id: `b77974f5-3fc1-4a3b-8dba-595afc5c119f`.
+- FK resolution order: `commit_changes` (926 rows), `github_sync_queue` (1 row), `staging_entries` (926 rows), then nulled `pull_requests.commit_id` to break circular FK, then deleted `commits` row, then `pull_requests` row.
+- All counts verified at zero post-delete.
+
+**Step 3 — Category taxonomy renamed in `inventory_categories`:**
+- "Protein & Meat" -> "Meats" (sort_order 7)
+- "Produce & Fresh" -> "Produce" (sort_order 6)
+- "Supplies" -> "Disposables" (sort_order 9)
+- "Frozen Foods" -> "Frozen Food" (sort_order 8)
+- Unchanged: Dairy, Cereal, Beverages, Snacks, Dry Goods, Uncategorized, New Items.
+
+**Step 4 — Trigger function floor raised from April to May 2026:**
+- `guard_closed_month_writes()` default `floor_month` changed: `integer := 3` -> `integer := 4`.
+- File updated: `backend/migrations/014_allow_inventory_backfill_from_april_2026.sql` (header comment also updated to reference May 2026).
+- CREATE OR REPLACE applied to live DB. Verified via `pg_proc.prosrc`: `floor_month   integer := 4;` confirmed.
+
+**Final state verified:**
+- `inventory_items` count: 0
+- `monthly_inventory` WHERE month=3/year=2026 count: 0
+- `pull_requests` WHERE pr_id='dcad0608...': 0
+- `commits` WHERE commit_id='b77974f5...': 0
+- `staging_entries` WHERE pull_request_id='dcad0608...': 0
+- Categories: Dairy(1), Cereal(2), Beverages(3), Snacks(4), Dry Goods(5), Produce(6), Meats(7), Frozen Food(8), Disposables(9), Uncategorized(10), New Items(99)
+
+**Push:** N/A — DB operations applied directly via Supabase Management API. Migration file `014_allow_inventory_backfill_from_april_2026.sql` updated on disk (pending commit by manager/Codex).
+
+## v4.10.11 — 2026-06-22 — Fix empty category dropdown in inventory add/edit modals
+
+**mjcc-ui:** Fixed two bugs that caused the category `<select>` in the Inventory add-item and edit-item modals to show no options.
+
+**Root cause:** The dropdown is driven by `catOptions`, built from two sources: (1) `apiCatNames` fetched via `api.getInventoryCategories()` at component mount, and (2) `cats` derived from loaded inventory items. When both were empty — new period with no items, or a silent API failure — `catOptions` was `[]` and the dropdown showed nothing but the placeholder.
+
+**Bug 1 — Silent API failure:** `reloadCatNames` was using `.catch(() => {})` which completely swallowed errors. Any 500 from `/api/inventory-categories` (e.g. DB timeout) left `apiCatNames` empty with no visible indication. Also the API response array check didn't guard against a 0-length result keeping the fallback alive. Fixed: added `rows.length > 0` check before calling `setApiCatNames`, and added a `console.warn` in DEV mode on catch so failures surface during development.
+
+**Bug 2 — No fallback when both sources empty:** `catOptions` computed as `apiCatNames.length ? merged : cats` — if `cats` was also `[]` (empty period), the dropdown had zero options. Fixed: added a module-level `FALLBACK_CATS` constant with the full canonical taxonomy (`Dairy, Cereal, Beverages, Snacks, Meats, Frozen Food, Dry Goods, Produce, Disposables, New Items`). `catOptions` now uses a three-tier fallback: API list → item-derived list → `FALLBACK_CATS`. The dropdown can never be empty.
+
+**Bug 3 — Stale category colors:** `CCOLOR` in `supabase.ts` mapped old category names (`Produce & Fresh`, `Protein & Meat`, `Frozen Foods`, `Supplies`). After the June 2026 taxonomy rename, `catColor()` returned the generic blue fallback for all renamed categories instead of their designated colors. Fixed: added new-name entries (`Produce`, `Meats`, `Frozen Food`, `Disposables`, `New Items`) to `CCOLOR` with the correct colors. Old names retained as legacy aliases for backward compatibility with any items not yet remapped.
+
+**Files changed:**
+- `frontend/src/components/Portal.tsx` — `FALLBACK_CATS` const (module-level), improved `reloadCatNames` error handling, three-tier `catOptions` fallback
+- `frontend/src/lib/supabase.ts` — `CCOLOR` updated with new category names + New Items; old names kept as aliases
+
+**Verification:** `tsc --noEmit` clean, `npm run build` passing, `npm run lint` exit 0 (warnings only, pre-existing).
+
+**Push:** pending
+
+## v4.10.10 — 2026-06-22 — Category taxonomy rename + AI detection update
+
+**mjcc-api:** Updated all hardcoded category name references in the backend to match the renamed `inventory_categories` taxonomy. No changes to schema — names are being updated in the DB by the data agent; this PR updates the backend strings to match.
+
+**Renamed categories (old → new):**
+- "Protein & Meat" → "Meats" (no backend hardcoding found for old name)
+- "Produce & Fresh" → "Produce" (no backend hardcoding found for old name)
+- "Supplies" → "Disposables"
+- "Frozen Foods" → "Frozen Food" (literal "Frozen Foods" had no occurrences; intermediate string "Frozen" did — fixed)
+
+**Files changed:**
+
+`backend/ai/invoice_parser.py` — `VENDOR_CAT_BRIDGE` dict:
+- 7 entries mapping to `"Supplies"` → updated to `"Disposables"` (NON-FOOD, NON FOOD, NONFOOD, PAPER, CLEANING, JANITORIAL, CHEMICAL)
+- `"FROZEN"` → `"Frozen Food"` (was `"Frozen"`, non-existent in taxonomy)
+- `"MEAT"` and `"POULTRY"` → `"Meats"` (was `"Meat"`, non-existent)
+- `"SEAFOOD"` and `"FISH"` → `"Meats"` (was `"Seafood"`, not in taxonomy; closest valid match)
+- `"BAKERY"` and `"BREAD"` → `"Dry Goods"` (was `"Bakery"`, not in taxonomy)
+- `"REFRIGERATED"` and `"CHILLED"` → `"Dairy"` (was `"Refrigerated"`, not in taxonomy)
+
+`backend/ai/invoice_parser.py` — `_VISION_PROMPT`:
+- Added explicit `category` field to the JSON schema the AI returns per item.
+- Added category classification rule with all 9 valid MJCC names and examples.
+- Full list now in prompt: Dairy, Cereal, Beverages, Snacks, Meats, Frozen Food, Dry Goods, Produce, Disposables.
+
+`backend/ai/parser.py` — `_inventory_category()` lookup map (MJCC monthly inventory Excel workbook parser):
+- `"cereal"` → `"Cereal"` (was `"Dry Goods"`)
+- `"beverages"` → `"Beverages"` (was `"Dry Goods"`)
+- `"snacks"` → `"Snacks"` (was `"Dry Goods"`)
+- `"meats"` / `"meat"` → `"Meats"` (was `"Meat"`, non-existent)
+- `"frozenfood"` / `"frozengoods"` / `"frozen"` → `"Frozen Food"` (was `"Frozen"`, non-existent)
+- Added aliases: `"beverage"`, `"snack"`, `"protein"`, `"frozenfoods"`, `"dry"`, `"fresh"`, `"supplies"`, `"supply"`
+
+**Files confirmed clean (no old names):** `backend/ai/diff.py`, `backend/staging/dispatch.py`, `backend/routes/inventory.py`, `backend/seed_data.py`
+
+**`backend/inventory_identity.py`** — verified already correct: `NEW_ITEMS_CATEGORY = "New Items"`, `if force_review_category and not category_id:` — no changes needed.
+
+**Verification:** `ruff check backend/ && ruff format backend/ --check` — all checks passed, 31 files already formatted.
+
+**Push:** pending
+
+---
+
 ## v4.10.9 ? 2026-06-22 ? Codex Claude delegated build workflow
 
 **Codex:** Extended the local `claude-opus-review` Codex skill into a two-lane workflow: read-only Opus/Sonnet review plus isolated Claude Code build delegation. The new `claude_delegate_build.py` wrapper creates a separate git worktree/branch, lets Claude build there, prints Claude's response, then reports `git status` and diff stats for Codex review.
