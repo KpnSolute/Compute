@@ -61,6 +61,9 @@ def _groq_complete(messages: list[dict], model: str, api_key: str) -> tuple[str,
     )
 
 
+_ANTHROPIC_RETRYABLE = {429, 500, 502, 503, 504}
+
+
 def _anthropic_complete(
     messages: list[dict], model: str, api_key: str
 ) -> tuple[str, dict]:
@@ -69,26 +72,53 @@ def _anthropic_complete(
     body: dict = {"model": model, "max_tokens": 4096, "messages": user_messages}
     if system_parts:
         body["system"] = "\n\n".join(system_parts)
-    resp = httpx.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        },
-        json=body,
-        timeout=60,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    usage = data.get("usage", {})
-    return (
-        data["content"][0]["text"],
-        {
-            "tokens_in": usage.get("input_tokens", 0),
-            "tokens_out": usage.get("output_tokens", 0),
-        },
-    )
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            resp = httpx.post(
+                "https://api.anthropic.com/v1/messages",
+                headers=headers,
+                json=body,
+                timeout=60,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            usage = data.get("usage", {})
+            return (
+                data["content"][0]["text"],
+                {
+                    "tokens_in": usage.get("input_tokens", 0),
+                    "tokens_out": usage.get("output_tokens", 0),
+                },
+            )
+        except httpx.HTTPStatusError as exc:
+            last_exc = exc
+            if exc.response.status_code in _ANTHROPIC_RETRYABLE and attempt < 2:
+                wait = 2 ** (attempt + 1)
+                log.warning(
+                    "[ANTHROPIC] %s on attempt %d — retrying in %ds",
+                    exc.response.status_code,
+                    attempt + 1,
+                    wait,
+                )
+                time.sleep(wait)
+                continue
+            raise
+        except httpx.TimeoutException as exc:
+            last_exc = exc
+            if attempt < 2:
+                wait = 2 ** (attempt + 1)
+                log.warning("[ANTHROPIC] Timeout on attempt %d — retrying in %ds", attempt + 1, wait)
+                time.sleep(wait)
+                continue
+            raise
+    raise last_exc  # type: ignore[misc]
 
 
 def _openai_complete(
