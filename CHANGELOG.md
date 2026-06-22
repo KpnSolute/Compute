@@ -4,6 +4,16 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.10.8 ? 2026-06-22 ? Codex Claude Opus review integration
+
+**Codex:** Added a user-level Codex skill at `C:\Users\ogdev\.codex\skills\claude-opus-review` so future Codex turns can delegate heavyweight analysis, second-pass code review, architecture checks, and production-readiness review to the local Claude Code CLI using `--model opus`.
+
+**Codex tooling:** The skill includes a read-only wrapper script, `scripts/claude_opus_review.py`, which runs `claude --print --model opus` with review-oriented tool permissions and a no-edit system prompt. It supports `--no-tools` for smoke tests and `--model sonnet` for cheaper/faster passes.
+
+**Verification:** Confirmed `claude.exe` resolves from `C:\Users\ogdev\.local\bin\claude.exe`, Claude Code version `2.1.183` is installed, the new skill validates with `quick_validate.py`, and a no-tools Opus smoke test returned `OPUS_REVIEW_READY`.
+
+**Push:** pending - not yet pushed
+
 ## v4.10.7 ? 2026-06-22 ? Codex production push verification
 
 **Codex:** Checked the post-Claude/push production state after the April backfill guard fix deployed. `origin` remains the source-code repo, local `main` and `origin/main` are both at `dcda1bb`, Claude CLI is available (`2.1.183`), and the only local dirty items are Claude/agent workspace files that were not touched.
