@@ -4,6 +4,16 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.10.0 ? 2026-06-21 ? Codex public API status and health layer
+
+**Codex:** Added an external-safe production status layer for uptime pingers and operators. New public endpoints: `/health/live` for fast liveness checks, `/health/ready` for dependency readiness, `/api/system/status` for detailed service JSON, `/api/system/info` for sanitized build/config info, and `/status` for an uptime-style HTML status page. The API root `/` now renders the same status page, while the legacy `/health` JSON remains available.
+
+**Codex checks:** The status JSON covers FastAPI process health, Supabase database reachability, active auth profiles, inventory tables, AI stack/provider/model/key presence, Source Control staging/PR tables, and GitHub archive sync queue/configuration. The HTML page auto-refreshes and links directly to the JSON endpoints for external monitors.
+
+**Verification:** `ruff format` and `ruff check` passed for `backend/routes/health.py` and `backend/main.py`. Local FastAPI route smoke with dummy env confirmed `/health`, `/health/live`, `/api/system/info`, and `/status` return the expected JSON/HTML response shapes. Full local dependency status was not run because this shell does not expose live Supabase env vars; Render has the production env.
+
+**Push:** pending ? not yet pushed
+
 ## v4.9.9 ? 2026-06-21 ? Codex Multi-Flow invoice template hardening
 
 **Codex:** Added a deterministic Multi-Flow thermal invoice template for real MJCC beverage receipts. The parser now understands `Qty / PO / Item / Description / Price / Total` rows, preserves `F...` item codes as SKUs, defaults these rows to the Beverages category, joins OCR-wrapped price lines, recognizes `Multi-Flow Industries` as a vendor, and ignores the false `PO Item` header capture.

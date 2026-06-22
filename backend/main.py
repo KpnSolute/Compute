@@ -42,6 +42,9 @@ from backend.routes.data import router as data_router
 from backend.routes.data_entry import router as data_entry_router
 from backend.routes.agent import router as agent_router
 from backend.routes.sku_review import router as sku_review_router
+from backend.routes.health import router as health_router
+from backend.routes.health import collect_system_status, render_status_page
+from fastapi.responses import HTMLResponse
 
 load_dotenv()
 
@@ -68,16 +71,17 @@ app.include_router(data_router)
 app.include_router(data_entry_router)
 app.include_router(agent_router)
 app.include_router(sku_review_router)
+app.include_router(health_router)
 
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "service": "MJCC Management API"}
 
 
-@app.api_route("/", methods=["GET", "HEAD"])
+@app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 async def root():
-    return {"message": "MJCC API"}
+    return HTMLResponse(render_status_page(collect_system_status()))
 
 
 if __name__ == "__main__":
