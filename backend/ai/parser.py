@@ -271,7 +271,7 @@ def detect_and_parse(
     # forced the 6-page/96dpi cap on the PDF-render fallback below. Apply the
     # same discipline here: cap pages AND re-encode/downscale each image so
     # peak heap stays bounded regardless of how the scan was captured.
-    _ZIP_IMG_PAGE_CAP = 8
+    _ZIP_IMG_PAGE_CAP = 16
     _ZIP_IMG_MAX_DIM = 1600  # px, longest side
     if is_zip:
         try:
@@ -358,7 +358,7 @@ def detect_and_parse(
         # memory is bounded by ONE page image at a time, not all pages at once.
         # We still cap total pages to guard against pathological uploads.
         _PDF_RENDER_DPI = 150
-        _PDF_PAGE_CAP = 8
+        _PDF_PAGE_CAP = 16
         try:
             import fitz
 
@@ -424,6 +424,10 @@ def detect_and_parse(
         except Exception:
             pass
         # Return as invoice_images so caller can route to vision AI
+        try:
+            content = invoice_parser._normalize_image_for_ocr(content)
+        except Exception:
+            pass
         return "invoice_images", {"images": [content], "meta": {"filename": filename}}
 
     if ext == "csv":

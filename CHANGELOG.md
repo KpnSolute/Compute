@@ -4,6 +4,16 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.9.9 ? 2026-06-21 ? Codex Multi-Flow invoice template hardening
+
+**Codex:** Added a deterministic Multi-Flow thermal invoice template for real MJCC beverage receipts. The parser now understands `Qty / PO / Item / Description / Price / Total` rows, preserves `F...` item codes as SKUs, defaults these rows to the Beverages category, joins OCR-wrapped price lines, recognizes `Multi-Flow Industries` as a vendor, and ignores the false `PO Item` header capture.
+
+**Codex fixes:** Phone/image receipts are normalized to bounded JPEG bytes before OCR/vision fallback so WebP and camera uploads get cleaner provider input. Scanned PDF invoice packets now render up to 16 pages instead of 8; the June weekly invoice sample routes all 13 pages with `pages_truncated=False`. Multi-Flow reconciliation no longer scales item prices when a scanned total does not match parsed line totals, which is expected for partial OCR or multi-receipt photos; it keeps literal prices and marks the total as untrusted so Data Entry can still stage line items.
+
+**Verification:** Current local environment did not return Google OCR text, so the real WebP/PDF still route as `invoice_images` locally. Router smoke confirmed `June2026W1 - Weekly Invoice.pdf` renders 13/13 pages and `May2026W1 - Beverage Invoice.webp` normalizes to a single JPEG image. Synthetic OCR smoke based on the provided Multi-Flow receipt extracted rows such as `F00416005 / MF Harvest Squeeze Pink / qty 2 / $43.70`, preserved literal pricing when totals were partial, and converted a matching line into a W1 `inventory_week_update` received payload. April workbook regression still extracted 926 items with 0 duplicate SKUs. `ruff format` and `ruff check` passed for changed backend files. `npx tsc --noEmit` passed.
+
+**Push:** pending ? not yet pushed
+
 ## v4.9.8 ? 2026-06-21 ? Codex April inventory upload crash fix
 
 **Codex:** Fixed the April full-month Excel upload path that was falling through to AI and returning a huge partial JSON error. Added an MJCC monthly inventory grid parser for Excel sheets with `Item Description`, W1-W4 Issued, and W1-W4 Received columns, so `APRIL_INVENTORY_2026.xlsx` parses deterministically before AI fallback. The parser preserves real vendor-style SKUs and treats blank or short local row-number IDs as missing, letting the existing mapper generate review SKUs such as `DAI-001` without duplicate SKU collisions.

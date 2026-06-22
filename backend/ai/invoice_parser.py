@@ -82,6 +82,17 @@ USFOODS_SKIP_RE = re.compile(
 )
 
 # Thermal / Multi-Flow receipt: QTY  ITEM#  Description  UNIT_PRICE  TOTAL
+MULTIFLOW_LINE_RE = re.compile(
+    r"^\s*(\d{1,3}(?:\.\d+)?)"  # quantity
+    r"\s+([A-Z0-9]{1,6})"  # PO / route column, often 0
+    r"\s+([A-Z]?\d{5,12})"  # item / sku code
+    r"\s+(.+?)"  # description
+    r"\s+\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2})"  # unit price
+    r"\s+\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2})"  # total
+    r"\s*$",
+    re.IGNORECASE,
+)
+
 RECEIPT_LINE_RE = re.compile(
     r"^\s*(\d{1,3}(?:\.\d+)?)"  # quantity (may be fractional)
     r"\s+([A-Z0-9]{3,12})"  # item / sku code
@@ -144,7 +155,7 @@ META_PATTERNS: list[tuple[str, re.Pattern]] = [
     (
         "vendor_name",
         re.compile(
-            r"^(U\.?S\.?\s*FOODS?|SYSCO|PERFORMANCE\s*FOOD|GORDON\s*FOOD)",
+            r"^(U\.?S\.?\s*FOODS?|SYSCO|PERFORMANCE\s*FOOD|GORDON\s*FOOD|MULTI[\-\s]?FLOW\s+INDUSTRIES)",
             re.IGNORECASE | re.MULTILINE,
         ),
     ),
@@ -477,6 +488,64 @@ def _split_body(body: str) -> tuple[str, str, str]:
 # ── OCR ───────────────────────────────────────────────────────────────────────
 
 
+def _normalize_receipt_lines(text: str) -> list[str]:
+    """Make OCR output from narrow thermal invoices more row-like."""
+    lines = [_clean(line) for line in text.splitlines()]
+    normalized: list[str] = []
+    pending = ""
+    price_pair_re = re.compile(
+        r"^\$?\s*\d{1,3}(?:,\d{3})*\.\d{2}\s+\$?\s*\d{1,3}(?:,\d{3})*\.\d{2}$"
+    )
+    item_start_re = re.compile(
+        r"^\d{1,3}(?:\.\d+)?\s+[A-Z0-9]{1,6}\s+[A-Z]?\d{5,12}\b",
+        re.IGNORECASE,
+    )
+
+    for line in lines:
+        if not line:
+            if pending:
+                normalized.append(pending)
+                pending = ""
+            continue
+        compact = re.sub(r"\s+", " ", line)
+        if pending and price_pair_re.match(compact):
+            normalized.append(f"{pending} {compact}")
+            pending = ""
+            continue
+        if pending:
+            normalized.append(pending)
+            pending = ""
+        if item_start_re.match(compact) and not re.search(
+            r"\d{1,3}(?:,\d{3})*\.\d{2}\s+\$?\d", compact
+        ):
+            pending = compact
+        else:
+            normalized.append(compact)
+    if pending:
+        normalized.append(pending)
+    return normalized
+
+
+def _normalize_image_for_ocr(content: bytes, max_dim: int = 1800) -> bytes:
+    """Convert phone/image receipts to bounded JPEG bytes for OCR providers."""
+    try:
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(content))
+        img.load()
+        if max(img.size) > max_dim:
+            scale = max_dim / max(img.size)
+            img = img.resize(
+                (max(1, int(img.width * scale)), max(1, int(img.height * scale)))
+            )
+        buf = io.BytesIO()
+        img.convert("RGB").save(buf, format="JPEG", quality=88)
+        img.close()
+        return buf.getvalue()
+    except Exception:
+        return content
+
+
 def _ocr_space_image(
     content: bytes, filename: str, api_key: str, debug: bool = False
 ) -> list[str]:
@@ -613,13 +682,15 @@ def _extract_meta(pages: list[str]) -> dict[str, str]:
         m = pattern.search(combined)
         if m:
             meta[key] = _clean(m.group(1))
+    if meta.get("po_number", "").upper() == "ITEM":
+        meta.pop("po_number", None)
     return meta
 
 
 def _parse_page_lines(text: str, current_cat: str) -> tuple[list[dict], str]:
     """Parse one page worth of lines into item dicts. Returns (items, updated_category)."""
     items: list[dict] = []
-    for line in text.splitlines():
+    for line in _normalize_receipt_lines(text):
         stripped = line.strip()
         if not stripped:
             continue
@@ -664,6 +735,31 @@ def _parse_page_lines(text: str, current_cat: str) -> tuple[list[dict], str]:
                     "unit_price": unit_price,
                     "ext_price": ext_price,
                     "weight_lbs": 0.0,
+                    "raw": stripped,
+                }
+            )
+            continue
+
+        # Multi-Flow thermal format:
+        # Qty  PO  Item  Description  Price  Total
+        m = MULTIFLOW_LINE_RE.match(stripped)
+        if m:
+            qty_raw = _money(m.group(1))
+            qty = int(qty_raw) if qty_raw == int(qty_raw) else 1
+            items.append(
+                {
+                    "category": current_cat or "BEVERAGES",
+                    "sku": _clean(m.group(3)).upper(),
+                    "description": _clean(m.group(4)),
+                    "label": "Multi-Flow",
+                    "pack_size": "",
+                    "unit": "EA",
+                    "qty_ordered": qty,
+                    "qty_shipped": qty,
+                    "qty_adj": 0,
+                    "unit_price": _money(m.group(5)),
+                    "ext_price": _money(m.group(6)),
+                    "weight_lbs": 0,
                     "raw": stripped,
                 }
             )
@@ -785,6 +881,14 @@ def reconcile_and_adjust(items: list[dict], meta: dict) -> tuple[list[dict], dic
     discount_factor = 1.0
     if net_total > 0 and computed_subtotal > 0:
         discount_factor = net_total / computed_subtotal
+    has_multiflow = any(
+        str(item.get("label", "")).lower() == "multi-flow" for item in items
+    )
+    raw_delta = round(abs(computed_subtotal - net_total), 2) if net_total > 0 else 0.0
+    raw_delta_pct = round(raw_delta / net_total * 100, 3) if net_total > 0 else 0.0
+    if has_multiflow and raw_delta_pct > 5.0:
+        discount_factor = 1.0
+        net_total = 0.0
 
     adjusted: list[dict] = []
     for item in items:
@@ -811,6 +915,10 @@ def reconcile_and_adjust(items: list[dict], meta: dict) -> tuple[list[dict], dic
         "reconciled": delta_pct < 1.0,
         "item_count": len(adjusted),
     }
+    if has_multiflow and raw_delta_pct > 5.0:
+        stats["total_untrusted"] = True
+        stats["raw_net_total"] = _f(meta.get("net_total") or meta.get("total_amount"))
+        stats["raw_delta_pct"] = raw_delta_pct
     return adjusted, stats
 
 
@@ -882,13 +990,14 @@ def parse_invoice_bytes_image(
     Tries OCR.space first; falls back to local pytesseract.
     """
     key = api_key or os.getenv("OCR_API_KEY", "")
+    ocr_content = _normalize_image_for_ocr(content)
     pages: list[str] = []
 
-    google_pages = _google_cloud_vision_images([content], debug=debug)
+    google_pages = _google_cloud_vision_images([ocr_content], debug=debug)
     if any(p.strip() for p in google_pages):
         pages = google_pages
     elif key:
-        pages = _ocr_space_image(content, filename, key, debug)
+        pages = _ocr_space_image(ocr_content, filename, key, debug)
     if not any(p.strip() for p in pages):
         pages = _extract_image_local_ocr(content, debug)
 
