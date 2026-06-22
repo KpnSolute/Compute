@@ -1958,6 +1958,151 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
 /* ════════════════════════════════════════════════════════════
    Print styles — Monthly Inventory report
    ════════════════════════════════════════════════════════════ */
+/* Final mobile topbar layout. This block stays near the end so it wins over
+   the older scattered mobile overrides above. */
+@media(max-width:640px){
+  html,body,#root{max-width:100%;overflow-x:hidden}
+  .portal{
+    grid-template-columns:minmax(0,1fr)!important;
+    grid-template-rows:auto minmax(0,1fr) 28px!important;
+    height:100dvh;
+  }
+  .topbar{
+    height:auto!important;
+    min-height:54px;
+    padding:7px 8px 8px!important;
+    align-items:center;
+    align-content:center;
+    flex-wrap:wrap;
+    justify-content:flex-start;
+    gap:7px 8px!important;
+    overflow:visible;
+  }
+  .tb-left{
+    flex:1 1 calc(100% - 48px)!important;
+    max-width:calc(100% - 48px);
+    min-width:0;
+    padding-right:40px;
+    gap:8px!important;
+  }
+  .tb-left>div{min-width:0;overflow:hidden}
+  .tb-title{
+    display:block!important;
+    max-width:100%;
+    font-size:12px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .tb-sub{display:none!important}
+  .tb-right{
+    flex:1 0 100%!important;
+    width:100%;
+    min-width:0;
+    display:grid!important;
+    grid-template-columns:minmax(66px,auto) minmax(0,1fr) minmax(66px,74px) auto auto;
+    align-items:center;
+    gap:6px!important;
+  }
+  .tb-right>*{min-width:0}
+  .inv-badge{
+    display:inline-flex!important;
+    min-width:0;
+    height:34px;
+    padding:0 8px;
+    border-radius:8px;
+    justify-content:center;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    font-size:9.5px;
+  }
+  .inv-badge .rt{flex:0 0 7px}
+  .tb-select{
+    width:100%;
+    max-width:none!important;
+    min-width:0;
+    height:34px;
+    padding:0 8px!important;
+    border-radius:8px;
+    font-size:12px!important;
+  }
+  .period-status-pill{
+    height:34px;
+    padding:0 8px;
+    border-radius:8px;
+    justify-content:center;
+    font-size:10px;
+  }
+  .period-status-pill .psp-dot{flex:0 0 6px}
+  .tb-sc-btn{
+    width:34px;
+    min-width:34px;
+    height:34px;
+    padding:0!important;
+    justify-content:center;
+    gap:0;
+    border-color:rgba(255,255,255,.28);
+    color:#fff;
+    background:rgba(255,255,255,.08);
+  }
+  .tb-sc-btn .nb{
+    position:absolute;
+    top:-5px;
+    right:-5px;
+    min-width:15px;
+    padding:1px 4px;
+  }
+  .tb-user{
+    position:absolute;
+    top:7px;
+    right:8px;
+    width:34px;
+    height:34px;
+    padding:0!important;
+    justify-content:center;
+    gap:0;
+    border-radius:9px;
+    background:rgba(255,255,255,.08);
+  }
+  .tb-user .hide-sm{display:none!important}
+  .tb-user .avatar{width:30px;height:30px;border-radius:8px}
+  .tb-user .usermenu{
+    top:41px;
+    right:0;
+    width:min(270px,calc(100vw - 16px));
+  }
+  .sc-panel{top:94px!important}
+  .sc-backdrop{top:94px!important}
+  .main{min-width:0;overflow-x:hidden}
+}
+
+@media(max-width:374px){
+  .topbar{padding:6px 6px 7px!important;gap:6px!important}
+  .tb-left{max-width:calc(100% - 44px);padding-right:36px;gap:6px!important}
+  .tb-title{font-size:11px}
+  .tb-right{
+    grid-template-columns:34px minmax(0,1fr) minmax(60px,68px) auto auto;
+    gap:5px!important;
+  }
+  .inv-badge{
+    width:34px;
+    padding:0;
+    font-size:0;
+  }
+  .inv-badge .rt{margin:0}
+  .tb-select{height:32px;font-size:11px!important;padding:0 6px!important}
+  .period-status-pill{
+    width:32px;
+    height:32px;
+    padding:0;
+    font-size:0;
+  }
+  .tb-sc-btn{width:32px;min-width:32px;height:32px}
+  .tb-user{top:6px;right:6px;width:32px;height:32px}
+  .tb-user .avatar{width:28px;height:28px;font-size:10px}
+  .sc-panel,.sc-backdrop{top:89px!important}
+}
+
 @media print {
   .activity-bar,.topbar,.sidebar,.sidebar-overlay,.status-bar { display:none !important }
   .portal { display:block !important }

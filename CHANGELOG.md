@@ -4,6 +4,14 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.10.2 ? 2026-06-22 ? Codex mobile topbar responsiveness
+
+**Codex:** Fixed the mobile topbar squish by adding a final authoritative responsive layout for phone widths. The header now wraps into a stable two-row mobile layout: brand/menu/user on the first row, then inventory status, month/year selectors, period status, and Source Control controls on a dedicated controls row. The user chip becomes an avatar button, controls get fixed touch-friendly heights, and the Source Control drawer/backdrop start below the taller mobile header.
+
+**Verification:** `npx tsc --noEmit`, `npm run build`, and `npm run lint -- --quiet` passed for the frontend. I reached the local Vite app in the in-app browser at mobile viewport, but a signed-in visual pass was limited because the provided production password was rejected and the browser sandbox blocked local storage seeding through a `javascript:` URL. No production data was changed.
+
+**Push:** pending - not yet pushed
+
 ## v4.10.1 ? 2026-06-22 ? Codex health status schema fix
 
 **Codex:** First automation health check caught `/health/ready` returning 503 because the new status checker used generic `id` columns against tables that use real schema keys. Fixed the public health layer to count `app_settings.setting_key` and `staging_entries.entry_id`, and replaced the broken GitHub queue not-null filter with a safe queue sample.
