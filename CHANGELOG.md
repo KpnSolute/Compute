@@ -12,7 +12,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** Confirmed `claude.exe` resolves from `C:\Users\ogdev\.local\bin\claude.exe`, Claude Code version `2.1.183` is installed, the new skill validates with `quick_validate.py`, and a no-tools Opus smoke test returned `OPUS_REVIEW_READY`.
 
-**Push:** pending - not yet pushed
+**Push:** Codex -> 97fe371 - 2026-06-22
 
 ## v4.10.7 ? 2026-06-22 ? Codex production push verification
 
