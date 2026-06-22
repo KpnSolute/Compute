@@ -4,6 +4,14 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.10.1 ? 2026-06-22 ? Codex health status schema fix
+
+**Codex:** First automation health check caught `/health/ready` returning 503 because the new status checker used generic `id` columns against tables that use real schema keys. Fixed the public health layer to count `app_settings.setting_key` and `staging_entries.entry_id`, and replaced the broken GitHub queue not-null filter with a safe queue sample.
+
+**Verification:** Live production endpoints deployed at `8ea7ab1`; `/health` and `/health/live` returned 200, `/status` rendered HTML, and `/api/system/status` exposed the false outage details. `ruff format` and `ruff check` passed for the patched health route. Local route smoke with dummy env confirmed `/health/live`, `/api/system/info`, and `/status` response shapes.
+
+**Push:** pending ? not yet pushed
+
 ## v4.10.0 ? 2026-06-21 ? Codex public API status and health layer
 
 **Codex:** Added an external-safe production status layer for uptime pingers and operators. New public endpoints: `/health/live` for fast liveness checks, `/health/ready` for dependency readiness, `/api/system/status` for detailed service JSON, `/api/system/info` for sanitized build/config info, and `/status` for an uptime-style HTML status page. The API root `/` now renders the same status page, while the legacy `/health` JSON remains available.

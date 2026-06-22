@@ -47,16 +47,16 @@ def _count(
         return None, str(exc)[:180]
 
 
-def _not_null_count(table: str, column_name: str) -> tuple[int | None, str | None]:
+def _failed_sync_count() -> tuple[int | None, str | None]:
     try:
         res = (
-            supabase_service.table(table)
-            .select("id", count="exact")
-            .not_(column_name, "is", "null")
-            .limit(1)
+            supabase_service.table("github_sync_queue")
+            .select("id,last_error")
+            .limit(100)
             .execute()
         )
-        return int(res.count or 0), None
+        rows = res.data or []
+        return sum(1 for row in rows if row.get("last_error")), None
     except Exception as exc:
         return None, str(exc)[:180]
 
@@ -84,7 +84,7 @@ def collect_system_status() -> dict:
     )
 
     started = time.monotonic()
-    settings_count, settings_error = _count("app_settings")
+    settings_count, settings_error = _count("app_settings", "setting_key")
     checks.append(
         _component(
             "Supabase Database",
@@ -167,7 +167,9 @@ def collect_system_status() -> dict:
         )
 
     started = time.monotonic()
-    staging_count, staging_error = _count("staging_entries", status="pending")
+    staging_count, staging_error = _count(
+        "staging_entries", "entry_id", status="pending"
+    )
     pr_count, pr_error = _count("pull_requests", status="open")
     source_error = staging_error or pr_error
     checks.append(
@@ -186,7 +188,7 @@ def collect_system_status() -> dict:
 
     started = time.monotonic()
     pending_sync, pending_error = _count("github_sync_queue", synced_at=None)
-    failed_sync, failed_error = _not_null_count("github_sync_queue", "last_error")
+    failed_sync, failed_error = _failed_sync_count()
     sync_error = pending_error or failed_error
     checks.append(
         _component(
