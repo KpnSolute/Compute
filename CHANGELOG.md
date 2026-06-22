@@ -12,7 +12,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** `npx tsc --noEmit`, `npm run build`, and `npm run lint -- --quiet` passed for the frontend. A direct Node smoke test passed for plain text, `sku:`, exact `$price`, and price comparison query matching.
 
-**Push:** pending - not yet pushed
+**Push:** Codex -> f9a6da2 - 2026-06-22
 
 ## v4.10.2 ? 2026-06-22 ? Codex mobile topbar responsiveness
 
