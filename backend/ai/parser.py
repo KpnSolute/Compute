@@ -58,7 +58,28 @@ def _inventory_category(label: Any) -> str | None:
         "supplies": "Disposables",
         "supply": "Disposables",
     }
-    return category_map.get(norm)
+    exact = category_map.get(norm)
+    if exact:
+        return exact
+    # Substring fallback for compound labels like "Produce & Fresh" or
+    # "Protein & Meat" (normalize → "producefresh" / "proteinmeat") that don't
+    # match an exact key. Order matters — most specific first.
+    for token, canonical in (
+        ("frozen", "Frozen Food"),
+        ("produce", "Produce"),
+        ("protein", "Meats"),
+        ("meat", "Meats"),
+        ("dairy", "Dairy"),
+        ("cereal", "Cereal"),
+        ("beverage", "Beverages"),
+        ("snack", "Snacks"),
+        ("drygood", "Dry Goods"),
+        ("disposable", "Disposables"),
+        ("suppl", "Disposables"),
+    ):
+        if token in norm:
+            return canonical
+    return None
 
 
 def _inventory_sku(value: Any) -> str:
@@ -157,7 +178,11 @@ def _parse_mjcc_monthly_inventory(content: bytes) -> list[dict[str, Any]]:
                 continue
             onhand_val = _num(cells[onhand_col]) if onhand_col < len(cells) else None
             price_val = _num(cells[price_col]) if price_col < len(cells) else None
-            sku_val = _inventory_sku(cells[sku_col]) if sku_col is not None and sku_col < len(cells) else ""
+            sku_val = (
+                _inventory_sku(cells[sku_col])
+                if sku_col is not None and sku_col < len(cells)
+                else ""
+            )
             if onhand_val is None and price_val is None and not sku_val:
                 continue
 
@@ -187,6 +212,131 @@ def _parse_mjcc_monthly_inventory(content: bytes) -> list[dict[str, Any]]:
     return parsed
 
 
+_FLAT_INV_HEADER_ALIASES: dict[str, str] = {
+    # category
+    "category": "category",
+    "cat": "category",
+    # sku
+    "sku": "sku",
+    "originalsku": "sku",
+    "invoicesku": "sku",
+    "itemcode": "sku",
+    "code": "sku",
+    # description
+    "description": "desc",
+    "itemdescription": "desc",
+    "invoicedescription": "desc",
+    "item": "desc",
+    # on-hand — prefer the ENDING balance, never the starting balance
+    "endingoh": "onHand",
+    "endingonhand": "onHand",
+    "currentoh": "onHand",
+    "onhand": "onHand",
+    "qtyonhand": "onHand",
+    "provisionalendingoh": "onHand",
+    # price
+    "unitprice": "price",
+    "latestunitcost": "price",
+    "latestunitcost$": "price",
+    "unitcost": "price",
+    "price": "price",
+}
+
+
+def _norm_header(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(value or "").strip().lower())
+
+
+def _parse_mjcc_flat_inventory(content: bytes) -> list[dict[str, Any]]:
+    """Parse a flat columnar MJCC inventory workbook (e.g. "* Full Inventory" /
+    "* Fact checked" exports).
+
+    Unlike the weekly grid (_parse_mjcc_monthly_inventory), these sheets carry a
+    title banner in the top rows, then a single header row such as:
+
+        Category | SKU | Description | Start OH | Total Rcvd | Total Pulled |
+        Ending OH | Unit Price | Ending Value
+
+    We locate that header row by scanning the first rows of each sheet for one
+    that contains a description column plus a sku or category column, map columns
+    by name, and emit one row per item.  Only the FIRST sheet with a usable
+    header is consumed so multi-tab audit workbooks don't double-count.
+
+    The monthly Total Rcvd / Total Pulled aggregates are intentionally NOT mapped
+    into weekly columns — there is no honest week attribution for a monthly total,
+    and dispatch_inventory_save preserves existing weekly data when those keys are
+    omitted.  Ending OH -> on_hand and Unit Price -> unit_price is the clean import.
+    """
+    try:
+        import openpyxl
+    except ImportError:
+        return []
+
+    wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    for ws in wb.worksheets:
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            continue
+
+        header_idx: int | None = None
+        col_map: dict[int, str] = {}
+        # Scan the first 15 rows for a recognizable header.
+        for r_idx, row in enumerate(rows[:15]):
+            mapping: dict[int, str] = {}
+            for c_idx, cell in enumerate(row):
+                canonical = _FLAT_INV_HEADER_ALIASES.get(_norm_header(cell))
+                if canonical and c_idx not in mapping:
+                    mapping[c_idx] = canonical
+            fields = set(mapping.values())
+            if "desc" in fields and ("sku" in fields or "category" in fields):
+                header_idx = r_idx
+                col_map = mapping
+                break
+
+        if header_idx is None:
+            continue
+
+        parsed: list[dict[str, Any]] = []
+        for row in rows[header_idx + 1 :]:
+            if all(v is None for v in row):
+                continue
+            rec: dict[str, Any] = {}
+            for c_idx, canonical in col_map.items():
+                if c_idx < len(row):
+                    rec[canonical] = row[c_idx]
+
+            desc = str(rec.get("desc") or "").strip()
+            cat_raw = str(rec.get("category") or "").strip()
+            # Skip total / summary / repeated-header rows.
+            if not desc or "total" in desc.lower() or desc.lower() == "description":
+                continue
+            if "total" in cat_raw.lower():
+                continue
+
+            sku = _inventory_sku(rec.get("sku"))
+            category = _inventory_category(cat_raw) or cat_raw or "Dry Goods"
+            onhand = _num(rec.get("onHand"))
+            price = _num(rec.get("price"))
+            if not sku and onhand is None and price is None:
+                continue
+
+            parsed.append(
+                {
+                    "sku": sku,
+                    "desc": desc,
+                    "category": category,
+                    "onHand": onhand if onhand is not None else 0,
+                    "price": price,
+                    "unit": "each",
+                    "__sheet": ws.title,
+                }
+            )
+
+        if parsed:
+            return parsed  # first usable sheet wins — avoid double-counting tabs
+    return []
+
+
 def parse_csv(content: bytes) -> list[dict[str, Any]]:
     text = content.decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(text))
@@ -203,6 +353,14 @@ def parse_excel(content: bytes) -> list[dict[str, Any]]:
     monthly_inventory = _parse_mjcc_monthly_inventory(content)
     if monthly_inventory:
         return monthly_inventory
+
+    # Flat columnar exports ("Full Inventory" / "Fact checked") carry a title
+    # banner above a Category|SKU|Description|...|Ending OH|Unit Price header.
+    # Detect and map these deterministically before falling back to pandas
+    # (which would read the banner row as headers) or AI (which times out).
+    flat_inventory = _parse_mjcc_flat_inventory(content)
+    if flat_inventory:
+        return flat_inventory
 
     try:
         import pandas as pd
