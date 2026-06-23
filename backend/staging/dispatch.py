@@ -658,6 +658,43 @@ REGISTRY = {
 }
 
 
+def validate_payload(operation: str, full_payload: dict) -> str | None:
+    """Pure validation (NO writes) used by the commit path for atomicity.
+
+    A commit replays many entries, and each dispatcher writes to the DB as it
+    goes. If entry #50 fails validation, entries #1–49 have already been written
+    — leaving orphaned partial data even though the commit "aborted". Running
+    this for EVERY entry before ANY write makes the commit genuinely atomic:
+    a single bad row rejects the whole batch with nothing written.
+
+    Returns an error string if the payload would fail, else None.
+    """
+    try:
+        if operation == "inventory_save":
+            _validate_inventory_item_numbers(
+                full_payload.get("items", []),
+                (
+                    "onHand",
+                    "price",
+                    "w1r",
+                    "w2r",
+                    "w3r",
+                    "w4r",
+                    "w1i",
+                    "w2i",
+                    "w3i",
+                    "w4i",
+                ),
+            )
+        elif operation == "inventory_week_update":
+            _validate_inventory_item_numbers(
+                full_payload.get("items", []), ("qty", "onHand", "price")
+            )
+    except ValueError as exc:
+        return str(exc)
+    return None
+
+
 def replay(operation: str, full_payload: dict) -> dict:
     handler = REGISTRY.get(operation)
     if not handler:

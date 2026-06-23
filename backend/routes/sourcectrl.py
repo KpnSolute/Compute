@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from supabase import create_client
 from dotenv import load_dotenv
 from typing import Optional
-from backend.staging.dispatch import replay
+from backend.staging.dispatch import replay, validate_payload
 from backend.routes._deps import (
     _get_auth_user,
     _require_admin_or_manager,
@@ -208,6 +208,40 @@ def _apply_entries(
     Returns {**commit_row, change_count, replayed, applied, failed:[]}.
     """
     now = datetime.now(timezone.utc).isoformat()
+
+    # 0 — PRE-FLIGHT VALIDATION. Validate every entry BEFORE writing any. The
+    #     replay loop below writes to the DB per-entry, so without this a failure
+    #     midway (e.g. a negative quantity) would leave the earlier entries
+    #     written as orphaned partial data even though the commit "aborts". This
+    #     pass guarantees the commit is genuinely atomic: one bad row rejects the
+    #     whole batch with nothing written.
+    preflight_errors = []
+    for entry in entries:
+        op = entry.get("operation")
+        fp = entry.get("full_payload")
+        if op and fp:
+            err = validate_payload(op, fp)
+            if err:
+                preflight_errors.append((entry["entry_id"], op, err))
+    if preflight_errors:
+        for entry_id, op, err in preflight_errors:
+            _client().table("staging_entries").update(
+                {"review_note": f"Validation failed (pre-commit) — {op}: {err}"}
+            ).eq("entry_id", entry_id).execute()
+        detail = "; ".join(f"{op}: {err}" for _, op, err in preflight_errors)
+        log.warning(
+            "[COMMIT] pre-flight validation failed — nothing written | %d/%d bad | %s",
+            len(preflight_errors),
+            len(entries),
+            detail,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Commit rejected — {len(preflight_errors)} of {len(entries)} "
+                f"change(s) failed validation; nothing was written. Fix and retry: {detail}"
+            ),
+        )
 
     # 1 — replay all operations. Published periods are read-only (enforced by the
     #     DB guard and the dispatch published-check); there is no override — to edit
