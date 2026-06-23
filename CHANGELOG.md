@@ -87,6 +87,25 @@ This is a flat columnar table — NOT the weekly issued/received grid the parser
 **Build:** `ruff check` + `ruff format` clean.
 **Push:** 32a12be — 2026-06-22
 
+**PRODUCTION CONFIRMATION (live tail, 01:14:38Z):** Re-upload of "May Fact checked.xlsx" (month=5) on the new deploy: `Parse complete | ops=192 | elapsed=3.12s`, `Job complete | staged=192 | ops={'inventory_save': 192} | elapsed=4.56s`, `POST /api/data-entry/upload → 201 Created`. No `[AI] request start`, no `GEMINI`, no `Deterministic column mapping failed` — fully deterministic, 4.56s vs the prior 107s timeout. 192 entries staged for Source Control review.
+
+---
+
+## v4.10.17 — 2026-06-23 — Repair banner-as-header sheets for the AI fallback
+
+**Claude (Senior Dev Manager):** Hardens the AI inventory-extraction path itself, not just the deterministic bypass added in v4.10.16. Even with the flat parser, a future workbook variant could slip past deterministic mapping and fall to AI — and the AI was receiving garbage.
+
+**Root cause of the AI timeouts:** when a sheet has a title banner above the real header, pandas keys every row off the banner (`MIAMI JOB CORPS CENTER`, `Unnamed: 1`…) and buries the true column names in the first data row. `rows_to_text()` keys the AI prompt off those junk names, so the model was handed `Unnamed: N` columns with the real header sitting as a stray data line — the exact 712-row input that made Gemini choke and time out at 60–101s before returning 422.
+
+**Fix:**
+- `parser.py` — `_reheader_rows()` detects banner/placeholder headers (`_looks_like_banner_headers`), scans the first 15 rows for the genuine header (a row whose *values* are recognized column tokens), and re-keys every row beneath it. Applied per-sheet in `parse_excel`'s pandas path, so the rows handed onward — to BOTH `map_rows_to_inventory` and, if still unmatched, the AI via `rows_to_text` — carry real column names. The AI now receives `Category/SKU/Description/Ending OH/Unit Price` instead of `Unnamed: N`: faster, cheaper, more accurate.
+- `mapper.py` — `_INV_ALIASES` learns `Ending OH / Ending On Hand / Current OH / Provisional Ending OH → onHand` (prefer the ending balance, never the starting balance), so re-headered MJCC exports map `on_hand` deterministically.
+
+**Verification:** real `May Fact checked.xlsx` still parses to 192 items via the flat parser (unchanged); simulated banner-header pandas output is repaired to real headers, then `map_rows_to_inventory` maps it (`onHand=3, price=45.32`) and `rows_to_text` emits clean column names for the AI.
+
+**Build:** `ruff check` + `ruff format` clean.
+**Push:** d782b1f — 2026-06-23
+
 ---
 
 ## v4.10.13 — 2026-06-22 — Live log tail portal
