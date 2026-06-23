@@ -182,6 +182,21 @@ Both loggers are children of root (which `api_logs.InMemoryLogHandler` is attach
 
 ---
 
+## v4.10.22 — 2026-06-23 — Provider fallback + Start-OH fix + May data correction
+
+**Claude (Senior Dev Manager):** Two issues from the operator's week-1 receivables attempt.
+
+**1) Week-1 upload failed with Google 503.** The vendor-invoice PDF went to Gemini, which returned `503 Service Unavailable` 3× → 422. `engine.complete()` used a single provider with no fallback.
+- **Fix (`engine.py`):** `complete()` now builds an attempt chain — configured provider first, then each fallback provider that has a key (anthropic → groq → openai → mistral). On a transient failure it logs and retries the same request on the next provider. New `_get_any_key()` (finds keys regardless of `is_active`, since fallbacks aren't the active primary) and `_dispatch_text()` (single-provider runner). Local providers excluded. Opt-out via `cfg.enable_fallback=False`. With Google active + Anthropic/Groq keyed, a Gemini 503 now transparently completes on Anthropic. Push: 6496e18.
+
+**2) Logical error — Ending OH imported as opening on_hand (no received/issued showed).** The flat parser mapped `Ending OH → on_hand`, but `on_hand` is the OPENING balance and ending is computed (opening + received − issued). Importing the closing figure fed the month's ending back in as its opening, double-stating stock and hiding all flow activity — the dashboard showed 0 received / 0 issued for May. (The alias comment literally read "prefer the ENDING balance" — that was the bug.)
+- **Fix (`parser.py` + `mapper.py`):** map `Start OH / Starting OH / Opening OH → on_hand`; `Ending OH` / `Ending Value` are never mapped (ending is derived). Reverted the `endingoh→onHand` alias mistakenly added in v4.10.18. `Total Rcvd / Total Pulled` stay unmapped — per the operator's decision, weekly received/issued is owned by the per-week invoice/pull-sheet uploads, so a monthly summary can't double-count weekly data. Verified: on_hand now sums to 132 (Start OH) with zero weekly flows. Push: 2a4cf24.
+- **Data correction (Supabase MCP):** rewrote the 192 live May rows — `on_hand = Start OH` (sum 132), all weekly received/issued = 0 — so the period opens correctly and the weekly uploads fill the flows. Verified: 192 rows, sum_on_hand=132, sum_received=0, sum_issued=0.
+
+**Model decision (operator):** "Weekly uploads own it" — the monthly spreadsheet only seeds opening balances; weekly receivables/pull-sheet uploads drive received/issued. No double-counting.
+
+---
+
 ## v4.10.21 — 2026-06-23 — Contextual rollover banner
 
 **Claude (Senior Dev Manager):** The "You're viewing May 2026, but it's now June 2026 — roll over…" banner rendered globally at the top of `<main>` on **every** tab (Dashboard, HACCP, DailyOps, …), claiming "You're viewing May" even when the user was on a different page or viewing a different month. It keyed only off `needs_rollover` (real month > latest DB period) and ignored what was actually on screen.
