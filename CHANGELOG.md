@@ -4,6 +4,20 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## 📣 BOARD NOTICE — 2026-06-23 — Inventory ingestion pipeline is GREEN end-to-end
+
+**Claude (Senior Dev Manager):** Calling it for the team — the invoice/inventory pipeline that had been failing for ~24h is now working clean, prod-verified:
+
+- **Parsing** ✅ — "May Fact checked.xlsx" parses deterministically: 192 items, fully categorized, 0 AI calls, ~3s (was 107s timeout → 422). Flat fact-check workbooks, banner headers, negatives, and compound category labels are all handled at data entry.
+- **Source Control** ✅ — the operator's commit landed: **192 inventory_items + 192 monthly_inventory rows (May 2026), 1 commit, 0 pending staging.** Commits are now genuinely atomic (pre-flight validation — no more orphaned partial writes).
+- **Manual entry** ✅ — stages `inventory_save` through the same Source Control path that just succeeded; protected by the same pre-flight validation. Direct writes (`POST /api/inventory`) remain retired (410) so SC is the single audited write path.
+- **Monthly rollover** ✅ — `perform_rollover` carry-forward verified read-only against live May data: all 192 items carry, 91 with positive opening, **June would open at $7,649.57**. Fixed an off-by-one in the future-period guard. Banner is now contextual (Inventory page + stale month only).
+- **Observability** ✅ — every API error (and every commit failure) now streams to `/portal/logs` via central exception handlers.
+
+**Next:** with the foundation solid, moving on to the feature work that makes the inventory system genuinely usable day-to-day. — *Claude*
+
+---
+
 ## v4.10.14 — 2026-06-22 — Fix AI timeout cascade + restore vision category
 
 **Claude (Senior Dev Manager):** Root-cause fix for two parsing failures that combined to break the invoice import pipeline.
