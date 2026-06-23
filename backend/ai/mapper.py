@@ -249,23 +249,27 @@ def map_rows_to_inventory(
         )
         desc = str(mapped.get("desc") or sku).strip()
 
+        # Dispatch rejects negative quantities/prices outright (which would abort
+        # the whole commit). Inventory counts and prices can't be physically
+        # negative, so floor them to 0 here at data entry — an audit artifact in
+        # one row must not block importing the rest.
         items.append(
             {
                 "sku": sku,
                 "desc": desc,
                 "category": category,
-                "price": _safe_float(mapped.get("price")),
-                "par": _safe_int(mapped.get("par")),
-                "onHand": _safe_int(mapped.get("onHand")),
+                "price": max(0.0, _safe_float(mapped.get("price"))),
+                "par": max(0, _safe_int(mapped.get("par"))),
+                "onHand": max(0, _safe_int(mapped.get("onHand"))),
                 "unit": str(mapped.get("unit") or "each").strip(),
-                "w1r": _safe_int(mapped.get("w1r")),
-                "w2r": _safe_int(mapped.get("w2r")),
-                "w3r": _safe_int(mapped.get("w3r")),
-                "w4r": _safe_int(mapped.get("w4r")),
-                "w1i": _safe_int(mapped.get("w1i")),
-                "w2i": _safe_int(mapped.get("w2i")),
-                "w3i": _safe_int(mapped.get("w3i")),
-                "w4i": _safe_int(mapped.get("w4i")),
+                "w1r": max(0, _safe_int(mapped.get("w1r"))),
+                "w2r": max(0, _safe_int(mapped.get("w2r"))),
+                "w3r": max(0, _safe_int(mapped.get("w3r"))),
+                "w4r": max(0, _safe_int(mapped.get("w4r"))),
+                "w1i": max(0, _safe_int(mapped.get("w1i"))),
+                "w2i": max(0, _safe_int(mapped.get("w2i"))),
+                "w3i": max(0, _safe_int(mapped.get("w3i"))),
+                "w4i": max(0, _safe_int(mapped.get("w4i"))),
             }
         )
 

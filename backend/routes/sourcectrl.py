@@ -1,3 +1,4 @@
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +15,8 @@ from backend.routes._deps import (
 )
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
+log = logging.getLogger("mjcc.sourcectrl")
 
 router = APIRouter(prefix="/api")
 
@@ -243,6 +246,14 @@ def _apply_entries(
             ).execute()
         detail = "; ".join(
             f"{r['operation']}: {r['result']['error']}" for r in failed_results
+        )
+        # Surface the same error the UI sees into the live tail / Render logs so
+        # commit failures are observable without reproducing them in the browser.
+        log.warning(
+            "[COMMIT] aborted — %d of %d change(s) failed; nothing committed | %s",
+            len(failed_results),
+            len(replay_results),
+            detail,
         )
         raise HTTPException(
             status_code=409,
@@ -659,6 +670,7 @@ async def approve_commit(
     except HTTPException:
         raise
     except Exception as e:
+        log.exception("[COMMIT] unexpected failure on POST /commits: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 

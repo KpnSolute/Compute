@@ -23,6 +23,23 @@ def _num(value: Any) -> float | int | None:
     return int(number) if number.is_integer() else number
 
 
+def _clamp_nonneg(value: Any) -> float | int | None:
+    """Clamp a numeric value to >= 0, preserving None.
+
+    Physical stock and weekly receive/issue counts can never be negative, but
+    MJCC fact-check workbooks legitimately carry negative *ending* balances as an
+    audit signal (more pulled than received+starting). The dispatch layer rejects
+    negatives outright, which aborts the whole commit. We resolve this at data
+    entry — the value is floored to 0 here so a single audit artifact can't block
+    importing the other 191 items. The original figure remains visible in the
+    source workbook's audit tabs.
+    """
+    n = _num(value)
+    if n is None:
+        return None
+    return n if n >= 0 else 0
+
+
 def _inventory_category(label: Any) -> str | None:
     text = str(label or "").strip()
     if not text:
@@ -176,8 +193,12 @@ def _parse_mjcc_monthly_inventory(content: bytes) -> list[dict[str, Any]]:
                 or "total" in desc.lower()
             ):
                 continue
-            onhand_val = _num(cells[onhand_col]) if onhand_col < len(cells) else None
-            price_val = _num(cells[price_col]) if price_col < len(cells) else None
+            onhand_val = (
+                _clamp_nonneg(cells[onhand_col]) if onhand_col < len(cells) else None
+            )
+            price_val = (
+                _clamp_nonneg(cells[price_col]) if price_col < len(cells) else None
+            )
             sku_val = (
                 _inventory_sku(cells[sku_col])
                 if sku_col is not None and sku_col < len(cells)
@@ -188,7 +209,7 @@ def _parse_mjcc_monthly_inventory(content: bytes) -> list[dict[str, Any]]:
 
             def _wcol(offset: int) -> float | int | None:
                 idx = w_start + offset
-                return _num(cells[idx]) if idx < len(cells) else None
+                return _clamp_nonneg(cells[idx]) if idx < len(cells) else None
 
             parsed.append(
                 {
@@ -315,8 +336,8 @@ def _parse_mjcc_flat_inventory(content: bytes) -> list[dict[str, Any]]:
 
             sku = _inventory_sku(rec.get("sku"))
             category = _inventory_category(cat_raw) or cat_raw or "Dry Goods"
-            onhand = _num(rec.get("onHand"))
-            price = _num(rec.get("price"))
+            onhand = _clamp_nonneg(rec.get("onHand"))
+            price = _clamp_nonneg(rec.get("price"))
             if not sku and onhand is None and price is None:
                 continue
 
