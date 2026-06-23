@@ -30,7 +30,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verify:** ruff + format clean, module imports. Proved structurally against the live source: `max(index of every rejection gate) < min(index of every DB-write call)` → **True**; duplicate-invoice check sits between the invoice upsert and staging. So a blocked upload writes nothing to `invoices`, `sku_review_queue`, or `staging_entries`. (AI-call telemetry in `ai_usage_logs` still records that a parse was attempted — that's observability, not data, and is intentionally kept.)
 
-**Push:** pending — see below.
+**Push:** Claude → b75f226 — 2026-06-23 (pushed to main; Render auto-deploy triggered).
 
 ---
 
