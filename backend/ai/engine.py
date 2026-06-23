@@ -45,7 +45,12 @@ def _groq_complete(messages: list[dict], model: str, api_key: str) -> tuple[str,
             "model": model,
             "messages": messages,
             "temperature": 0.1,
-            "max_tokens": 8192,
+            # Groq's free tier rejects requests whose max_tokens exceeds its
+            # per-request budget with an instant 413 (Payload Too Large), even on
+            # a tiny prompt. 8192 reliably tripped that ceiling and made groq a
+            # dead fallback; 4096 stays under it while still covering invoice
+            # extraction. See CHANGELOG v4.10.23.
+            "max_tokens": 4096,
         },
         timeout=60,
     )
@@ -85,7 +90,11 @@ def _anthropic_complete(
                 "https://api.anthropic.com/v1/messages",
                 headers=headers,
                 json=body,
-                timeout=60,
+                # 60s was too aggressive for Claude extraction calls (max_tokens
+                # up to 16384) and surfaced as spurious "read operation timed out"
+                # failures on a healthy primary. 90s gives slow-but-valid calls
+                # room while staying under the platform request ceiling.
+                timeout=90,
             )
             resp.raise_for_status()
             data = resp.json()
@@ -438,7 +447,11 @@ def _log_usage(
 # through a single-vendor outage instead of failing the whole upload.
 _FALLBACK_ORDER = ["anthropic", "groq", "openai", "mistral", "google"]
 _FALLBACK_MODELS = {
-    "anthropic": "claude-sonnet-4-20250514",
+    # claude-haiku-4-5 is current, fast, and vision-capable — the right profile
+    # for a fallback. The old "claude-sonnet-4-20250514" 404'd on every call
+    # (model does not exist), making anthropic a dead fallback. See CHANGELOG
+    # v4.10.23.
+    "anthropic": "claude-haiku-4-5-20251001",
     "groq": "llama-3.3-70b-versatile",
     "openai": "gpt-4o-mini",
     "mistral": "mistral-small-latest",
@@ -497,7 +510,7 @@ def _dispatch_text(
         key, _ = _resolve_key("anthropic", cfg)
         if not key:
             raise RuntimeError("No API key configured for anthropic")
-        return _anthropic_complete(messages, model or "claude-sonnet-4-20250514", key)
+        return _anthropic_complete(messages, model or "claude-sonnet-4-6", key)
     elif provider == "openai":
         key, url = _resolve_key("openai", cfg)
         if not key:

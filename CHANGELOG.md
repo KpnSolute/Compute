@@ -18,6 +18,24 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.10.23 — 2026-06-23 — Data-entry outage: both AI fallbacks were dead
+
+**Claude (Senior Dev Manager):** Jeremiah reported AI data entry "worked this morning, now it's not." Root-caused from `ai_usage_logs` (prod) — not a file/payload issue (successful calls are 758–5,515 tokens). The primary (Google Gemini free tier) degraded — 503/429 and 60–131s timeouts since Jun 22 — and the fallback chain that's supposed to cover a single-vendor outage was **silently broken on every provider**:
+
+- **Anthropic fallback — 404 on every call.** `_FALLBACK_MODELS["anthropic"]` (and the `_dispatch_text` default) hardcoded `claude-sonnet-4-20250514`, which doesn't exist on the API → instant 404. The anthropic fallback could never succeed. Fixed → `claude-haiku-4-5-20251001` (current, fast, vision-capable) for the fallback; `_dispatch_text` default → `claude-sonnet-4-6`.
+- **Groq fallback — 413 on every call.** `max_tokens=8192` exceeds Groq's free-tier per-request budget → deterministic `413 Payload Too Large` in ~0.2–0.3s, 0 tokens, regardless of file size. Lowered to 4096 → stays under the ceiling while still covering invoice extraction.
+- **Anthropic primary — spurious 60s timeouts.** Sonnet extraction (max_tokens up to 16384) occasionally needs >60s; raised the read timeout to 90s (stays under Render's ~120s request ceiling per v4.10.14).
+
+Net: when Google has a bad morning, Groq/Anthropic now actually catch the request instead of all three failing into a 422. Files in `backend/ai/engine.py` only. (`backend/ai/**` is normally Gemini's lane — executed directly here as a live-outage hotfix at the operator's request.)
+
+**Note for operators:** Google `gemini-2.5-flash` free tier has been unreliable for days. Keeping the primary stack on Anthropic (already switched in `ai_stack_config`) is the more stable choice until the Google quota/availability recovers.
+
+**Verify:** local ruff/deps not installed in this shell; engine.py parses clean (AST OK). Real verification = prod after deploy: re-upload "May2026W1 - Weekly Invoice.pdf" and confirm a fallback serves it if the primary is slow.
+
+**Push:** pending — not yet pushed (awaiting operator go-ahead to deploy to main).
+
+---
+
 ## v4.10.14 — 2026-06-22 — Fix AI timeout cascade + restore vision category
 
 **Claude (Senior Dev Manager):** Root-cause fix for two parsing failures that combined to break the invoice import pipeline.
