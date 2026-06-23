@@ -68,6 +68,27 @@ When `map_rows_to_inventory` returned None and the system fell back to AI, the l
 
 ---
 
+## v4.10.16 — 2026-06-22 — Deterministic parse of flat "Fact checked" workbooks
+
+**Claude (Senior Dev Manager):** Root-caused the "May Fact checked.xlsx" 422/timeout by actually opening the file (it was in `~/Downloads`) instead of guessing at its shape. The v4.10.15 column-header WARNING paid off immediately — the live tail showed `headers=['MIAMI JOB CORPS CENTER — CAFETERIA', 'Unnamed: 1' ... 'Unnamed: 8']`, proving pandas was reading the title banner as headers.
+
+**What the file actually is:** a 6-sheet fact-check workbook. The authoritative sheet "May 2026 Full Inventory" has a 3-row title banner, then a flat header:
+`Category | SKU | Description | Start OH | Total Rcvd | Total Pulled | Ending OH | Unit Price | Ending Value`
+
+This is a flat columnar table — NOT the weekly issued/received grid the parser was built for. So `_parse_mjcc_monthly_inventory` returned empty (category here is a per-row column, not a banner label), pandas then read the banner row as headers → garbage column names → `map_rows_to_inventory` returned None → AI fallback → Gemini 503-then-timeout at ~101s → 422.
+
+**Fix (`backend/ai/parser.py`):**
+- New `_parse_mjcc_flat_inventory()`: scans the first 15 rows of each sheet for a real header (description + sku/category), maps columns by name via `_FLAT_INV_HEADER_ALIASES`, emits one item per row. Consumes only the FIRST usable sheet so multi-tab audit workbooks don't double-count. `Ending OH → on_hand`, `Unit Price → unit_price`; monthly Total Rcvd/Pulled are intentionally NOT forced into weekly buckets (no honest week attribution; `dispatch_inventory_save` preserves existing weekly data when those keys are omitted).
+- Wired into `parse_excel` between the weekly-grid parser and the pandas fallback → resolves with **zero AI calls**.
+- `_inventory_category` gained a substring fallback so compound labels ("Produce & Fresh", "Protein & Meat") map to Produce / Meats.
+
+**Verification (real file, not aspirational):** `parse_excel` returns **192 items** — exactly matching the workbook's own Category Summary tab (Frozen 66, Dry Goods 52, Beverages 14, Dairy 14, Meats 14, Produce 11, Disposables 10, Snacks 6, Cereal 5). Every item categorized into the MJCC taxonomy, zero missing SKUs, instant, no timeout.
+
+**Build:** `ruff check` + `ruff format` clean.
+**Push:** 32a12be — 2026-06-22
+
+---
+
 ## v4.10.13 — 2026-06-22 — Live log tail portal
 
 **Claude:** Added full live log tail accessible from within the Portal sidebar.
