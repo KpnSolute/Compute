@@ -476,14 +476,24 @@ def _extract_ops(
                 )
                 vendors = ctx.get_vendors()
                 result = mapper.ai_extract_inventory(
-                    rows, categories, vendors, month, year, ai_config,
+                    rows,
+                    categories,
+                    vendors,
+                    month,
+                    year,
+                    ai_config,
                     called_by=called_by,
                 )
         else:
             categories = ctx.get_categories()
             vendors = ctx.get_vendors()
             result = mapper.ai_extract_inventory(
-                text, categories, vendors, month, year, ai_config,
+                text,
+                categories,
+                vendors,
+                month,
+                year,
+                ai_config,
                 called_by=called_by,
             )
 
@@ -611,22 +621,26 @@ async def _get_auth_user(authorization: str = Header("")) -> dict:
 # ── SKU resolution pass (before staging) ─────────────────────────────────────
 
 
-def _resolve_and_queue_items(
+def _resolve_items(
     ops: list[dict],
     source_ref: str,
     vendor_id: str | None = None,
     allow_new_items: bool = False,
-) -> tuple[list[dict], int]:
-    """Resolve all parsed SKUs in two bulk DB reads then in-memory matching.
+) -> tuple[list[dict], list[dict]]:
+    """Resolve all parsed SKUs in two bulk DB READS then in-memory matching.
+
+    This function performs NO writes. It returns (resolved_ops, queue_rows),
+    where queue_rows are the unknown-SKU review rows that WOULD be queued. The
+    caller inserts them via _insert_sku_queue only after the upload clears every
+    rejection gate — so a blocked/failed upload never pollutes sku_review_queue.
 
     Old approach made 1 RPC call per item (N×100ms for a 127-item invoice = 12+ sec).
-    New approach: 2 bulk queries → in-memory dict lookup → 1 batch insert for unknowns.
-    Typical time drops from 12-15s to <0.5s.
+    New approach: 2 bulk queries → in-memory dict lookup. Typical time <0.5s.
 
     - direct match (inventory_items.sku)  → keep in op
     - alias match  (item_barcodes.barcode) → keep in op
     - no match + allow_new_items           → keep in op; dispatch creates reviewed item
-    - no match otherwise                   → sku_review_queue, drop from op
+    - no match otherwise                   → queue_rows (caller decides), drop from op
     """
     svc = _client()
 
@@ -643,7 +657,7 @@ def _resolve_and_queue_items(
                 all_skus.append(sku)
 
     if not all_skus:
-        return ops, 0
+        return ops, []
 
     unique_skus = list(set(all_skus))
 
@@ -715,24 +729,68 @@ def _resolve_and_queue_items(
                 {**op, "payload": {**op["payload"], "items": items_kept}}
             )
 
-    # ── Batch insert all unknowns in one shot ─────────────────────────────────
-    queued_count = 0
-    if queue_rows:
-        try:
-            svc.table("sku_review_queue").insert(queue_rows).execute()
-            queued_count = len(queue_rows)
-        except Exception as e:
-            log.warning("[RESOLVE] sku_review_queue batch insert failed: %s", e)
-
+    # NO writes here — unknowns are returned for the caller to queue only after
+    # the upload has cleared every gate (see _insert_sku_queue).
     log.info(
-        "[RESOLVE] %d unique SKUs → %d direct %d alias %d queued allow_new=%s",
+        "[RESOLVE] %d unique SKUs → %d direct %d alias %d to-queue allow_new=%s",
         len(unique_skus),
         len(direct_set),
         len(alias_set),
-        queued_count,
+        len(queue_rows),
         allow_new_items,
     )
-    return resolved_ops, queued_count
+    return resolved_ops, queue_rows
+
+
+def _insert_sku_queue(queue_rows: list[dict]) -> int:
+    """Insert unknown-SKU review rows. Called ONLY after the upload commits to
+    staging, so a rejected/aborted upload never leaves rows in sku_review_queue.
+    """
+    if not queue_rows:
+        return 0
+    try:
+        _client().table("sku_review_queue").insert(queue_rows).execute()
+        return len(queue_rows)
+    except Exception as e:
+        log.warning("[RESOLVE] sku_review_queue batch insert failed: %s", e)
+        return 0
+
+
+def _supersede_stale_pending(fname: str, user_id: str) -> None:
+    """Mark this user's prior PENDING staging rows for the same file as rejected.
+
+    Runs only after the new upload has cleared every gate and is about to stage,
+    so a re-upload that fails earlier leaves the existing pending batch intact
+    (failed parsing must not touch the DB).
+    """
+    try:
+        svc = _client()
+        stale = (
+            svc.table("staging_entries")
+            .select("entry_id, batch_id")
+            .eq("file_ref", fname)
+            .eq("submitted_by", user_id)
+            .eq("status", "pending")
+            .execute()
+        )
+        if not stale.data:
+            return
+        stale_ids = [r["entry_id"] for r in stale.data]
+        stale_batches = list({r["batch_id"] for r in stale.data if r.get("batch_id")})
+        for chunk in _chunks(stale_ids):
+            svc.table("staging_entries").update(
+                {"status": "rejected", "review_note": "superseded by re-upload"}
+            ).in_("entry_id", chunk).execute()
+        log.info(
+            "[DATA-ENTRY] Superseded %d stale pending entries | file=%s old_batches=%s",
+            len(stale_ids),
+            fname,
+            stale_batches,
+        )
+    except Exception as exc:
+        log.warning(
+            "[DATA-ENTRY] Stale pending cleanup failed | file=%s err=%s", fname, exc
+        )
 
 
 # ── invoice record helpers ────────────────────────────────────────────────────
@@ -932,37 +990,10 @@ async def upload_file(
         log.warning("[DATA-ENTRY] Client disconnected before parse | file=%s", fname)
         raise HTTPException(status_code=499, detail="Client disconnected")
 
-    # Expire stale pending batches for this file BEFORE parsing — ensures a
-    # re-upload always starts from a clean staging slate even if parsing fails.
-    try:
-        svc_pre = _client()
-        stale_pre = (
-            svc_pre.table("staging_entries")
-            .select("entry_id, batch_id")
-            .eq("file_ref", fname)
-            .eq("submitted_by", auth_user["id"])
-            .eq("status", "pending")
-            .execute()
-        )
-        if stale_pre.data:
-            stale_pre_ids = [r["entry_id"] for r in stale_pre.data]
-            stale_pre_batches = list(
-                {r["batch_id"] for r in stale_pre.data if r.get("batch_id")}
-            )
-            for stale_chunk in _chunks(stale_pre_ids):
-                svc_pre.table("staging_entries").update(
-                    {"status": "rejected", "review_note": "superseded by re-upload"}
-                ).in_("entry_id", stale_chunk).execute()
-            log.info(
-                "[DATA-ENTRY] Pre-parse: superseded %d stale pending entries | file=%s old_batches=%s",
-                len(stale_pre_ids),
-                fname,
-                stale_pre_batches,
-            )
-    except Exception as _pre_e:
-        log.warning(
-            "[DATA-ENTRY] Pre-parse stale cleanup failed | file=%s err=%s", fname, _pre_e
-        )
+    # NOTE: superseding this user's prior pending batch for the same file is
+    # deferred to the write phase (_supersede_stale_pending, just before staging)
+    # so a re-upload that fails to parse leaves the existing pending batch — and
+    # the rest of the DB — untouched.
 
     try:
         parse_start = time.monotonic()
@@ -1002,9 +1033,6 @@ async def upload_file(
     # reconcile_and_adjust() already ran inside parse_invoice_bytes_pdf.
     parsed_meta: dict = invoice_meta
     reconciliation: dict = parsed_meta.get("reconciliation", {})
-    invoice_id: Optional[str] = None
-    invoice_is_pending_dup = False
-    invoice_found_existing = False
     if any(
         op.get("operation") in ("inventory_save", "inventory_week_update") for op in ops
     ):
@@ -1046,27 +1074,6 @@ async def upload_file(
                     },
                 )
 
-        invoice_id, invoice_is_pending_dup, invoice_found_existing = (
-            _upsert_invoice_record(parsed_meta, month, year, week, auth_user["id"])
-        )
-        if invoice_is_pending_dup and invoice_id:
-            log.warning(
-                "[DATA-ENTRY] BLOCKED duplicate_invoice | file=%s invoice=%s",
-                fname,
-                parsed_meta.get("invoice_number"),
-            )
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "error": "duplicate_invoice",
-                    "message": (
-                        f"Invoice {parsed_meta.get('invoice_number')} is already staged "
-                        "and pending review. Merge or reject that batch before re-importing."
-                    ),
-                    "invoice_id": invoice_id,
-                },
-            )
-
     # Resolve SKUs. During a clean rebuild (empty catalog) or a full-month
     # inventory baseline, unknown SKUs are allowed through Source Control as new
     # reviewed items. Weekly invoice imports after the catalog exists still route
@@ -1085,27 +1092,26 @@ async def upload_file(
     allow_new_items = catalog_empty or week == 0
     if week > 0 and period_settings.get("allow_new_items_on_weekly") is True:
         allow_new_items = True
-    ops, sku_queued = _resolve_and_queue_items(
+    ops, sku_queue_rows = _resolve_items(
         ops,
         fname,
         allow_new_items=allow_new_items,
     )
-    if sku_queued:
-        log.warning(
-            "[DATA-ENTRY] SKUs queued for review | file=%s queued=%d", fname, sku_queued
-        )
 
     if not ops:
+        # Every parsed item is an unknown SKU → failed import. Nothing is written:
+        # the review rows are NOT inserted here (deferred to the write phase), so
+        # a fully-unresolved upload leaves the DB untouched.
         log.error(
-            "[DATA-ENTRY] BLOCKED all-unknown-skus | file=%s queued=%d",
+            "[DATA-ENTRY] BLOCKED all-unknown-skus (nothing written) | file=%s would_queue=%d",
             fname,
-            sku_queued,
+            len(sku_queue_rows),
         )
         raise HTTPException(
             status_code=422,
             detail=(
-                f"All {sku_queued} parsed item(s) have unknown SKUs and were queued for "
-                "manager review (GET /api/sku-review)."
+                f"All {len(sku_queue_rows)} parsed item(s) have unknown SKUs. Nothing was "
+                "imported — add them to the catalog or map them in SKU Review, then re-upload."
             ),
         )
 
@@ -1150,6 +1156,42 @@ async def upload_file(
             op["payload"]["overwrite"] = bool(overwrite)
             op["payload"]["overwrite_scope"] = overwrite_scope
 
+    # ── WRITE PHASE ───────────────────────────────────────────────────────────
+    # Everything above is read-only. Any rejection above (reconciliation,
+    # all-unknown, overwrite_required) returned having written NOTHING. From here
+    # on we commit to the DB, ordered so the only remaining expected abort
+    # (duplicate invoice) also writes nothing.
+    invoice_id: Optional[str] = None
+    invoice_is_pending_dup = False
+    invoice_found_existing = False
+    if inventory_ops:
+        invoice_id, invoice_is_pending_dup, invoice_found_existing = (
+            _upsert_invoice_record(parsed_meta, month, year, week, auth_user["id"])
+        )
+        if invoice_is_pending_dup and invoice_id:
+            # _upsert_invoice_record returns the existing row WITHOUT inserting on
+            # a pending duplicate, so this abort leaves the DB untouched.
+            log.warning(
+                "[DATA-ENTRY] BLOCKED duplicate_invoice (nothing written) | file=%s invoice=%s",
+                fname,
+                parsed_meta.get("invoice_number"),
+            )
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "duplicate_invoice",
+                    "message": (
+                        f"Invoice {parsed_meta.get('invoice_number')} is already staged "
+                        "and pending review. Merge or reject that batch before re-importing."
+                    ),
+                    "invoice_id": invoice_id,
+                },
+            )
+
+    # Supersede this user's prior pending batch for the same file — only now that
+    # the upload has cleared every gate and is committing to staging.
+    _supersede_stale_pending(fname, auth_user["id"])
+
     batch_id = str(uuid.uuid4())
     submitter = auth_user["id"]
 
@@ -1165,6 +1207,14 @@ async def upload_file(
             e,
         )
         raise HTTPException(status_code=500, detail=f"Staging failed: {e}")
+
+    # Queue unknown SKUs ONLY after staging succeeded — a blocked/failed upload
+    # never reaches here, so sku_review_queue is never polluted by a failed parse.
+    sku_queued = _insert_sku_queue(sku_queue_rows)
+    if sku_queued:
+        log.warning(
+            "[DATA-ENTRY] SKUs queued for review | file=%s queued=%d", fname, sku_queued
+        )
 
     # Auto-wrap the new staging rows in a PR (attaches to the user's existing
     # open PR if they have one from an earlier upload this session, else opens

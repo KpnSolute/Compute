@@ -18,6 +18,22 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.10.25 — 2026-06-23 — Failed/blocked uploads no longer touch the DB
+
+**Claude (Senior Dev Manager):** Follow-up to v4.10.24. The upload pipeline was writing to the DB *before* its rejection gates — so an upload that ultimately 4xx'd still left rows behind. This is what let the bad weekly attempts pump 370 garbage rows into `sku_review_queue`: `_resolve_and_queue_items` inserted unknown SKUs, and `_upsert_invoice_record` inserted an `invoices` row, both *before* the `all-unknown` (422) and `overwrite_required` (409) gates that aborted the request. The pre-parse stale-pending cleanup also rejected the user's prior batch even when the new parse then failed.
+
+**Fix (`backend/routes/data_entry.py`) — split read from write:**
+- `_resolve_and_queue_items` → **`_resolve_items`** (read-only): returns `(resolved_ops, queue_rows)`, inserts nothing. New **`_insert_sku_queue`** does the insert, called only after staging succeeds.
+- Moved `_upsert_invoice_record` and the stale-pending supersede (`_supersede_stale_pending`) out of the pre-parse/early path into a clearly delimited **WRITE PHASE** that runs only after every gate passes.
+- Reordered so all rejection gates (reconciliation 422, all-unknown 422, overwrite_required 409) are read-only; the one write-phase abort (duplicate_invoice 409) returns the existing row without inserting.
+- `all-unknown` no longer queues the items at all — a fully-unresolved upload is a failure and leaves the queue clean.
+
+**Verify:** ruff + format clean, module imports. Proved structurally against the live source: `max(index of every rejection gate) < min(index of every DB-write call)` → **True**; duplicate-invoice check sits between the invoice upsert and staging. So a blocked upload writes nothing to `invoices`, `sku_review_queue`, or `staging_entries`. (AI-call telemetry in `ai_usage_logs` still records that a parse was attempted — that's observability, not data, and is intentionally kept.)
+
+**Push:** pending — see below.
+
+---
+
 ## v4.10.24 — 2026-06-23 — Weekly invoice parsing: US Foods price regex was dropping every line
 
 **Claude (Senior Dev Manager):** Jeremiah's full-month rewrite ("May Fact checked.xlsx") committed clean (192 items, overwrite=both, prod-verified), but **weekly invoice uploads were 422-blocked** — `[RESOLVE] 74 unique SKUs → 0 direct 0 alias 74 queued` → `BLOCKED all-unknown-skus`. Root-caused end-to-end:
