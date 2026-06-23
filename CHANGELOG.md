@@ -30,7 +30,41 @@ A timeout on a vision call means the request itself is too heavy for that path, 
 
 **Verification:** `ruff check` and `ruff format --check` passed on both files.
 
-**Push:** pending
+**Push:** 7b1bb2a — 2026-06-22
+
+---
+
+## v4.10.15 — 2026-06-22 — Flexible xlsx grid detection + staging hygiene
+
+**Claude (Senior Dev Manager):** Four targeted fixes to the data-entry pipeline.
+
+**Bug 3 — "May Fact checked.xlsx" falling through to AI (and timing out)**
+
+`_parse_mjcc_monthly_inventory` required "item description" at exactly column B (index 1) AND issued/received headers at hardcoded column offsets 5-8 / 9-12. Any workbook with a slightly shifted layout (different SKU column width, no issued/received columns, fact-checked format) failed the grid-detection test and fell through to pandas. Pandas reads the title row as column headers (`"MIAMI JOB CORPS CAFETERIA INVENTORY - MAY 2026"`, `"Unnamed: 1"`, etc.), so `map_rows_to_inventory` couldn't match any column in `_INV_ALIASES` → returned None → AI fallback. Gemini got a 503 (retried fine), then timed out at 101.6 seconds on attempt 2 → 422.
+
+**Fix (parser.py):** New `_find_mjcc_grid_header()` scans every row in the worksheet looking for "item description" or "description" in any of the first 5 columns. Column offsets for SKU, onHand, price, and weekly w1i-w4r are derived dynamically relative to the found description column. Both the MJCC standard layout (desc at col 1) and variant layouts (desc at col 0, 2, 3…) are now handled deterministically, without AI.
+
+**Staging hygiene — stale entries persist across failed uploads**
+
+The stale-entry cleanup (reject old pending rows for the same file so re-uploads don't accumulate) ran AFTER the parse step. If parsing failed (422), the cleanup was never reached. Stale `staging_entries` with `status=pending` from a previous successful upload of the same file would survive and show up in Source Control review alongside newer data.
+
+**Fix (data_entry.py):** Moved the pre-staging stale-entry cleanup to BEFORE `_extract_ops`. A re-upload now always clears old pending rows for that filename first — regardless of whether the new parse succeeds or fails. Duplicate post-parse cleanup block removed.
+
+**Logging — AI fallback path invisible in live tail**
+
+When `map_rows_to_inventory` returned None and the system fell back to AI, the live tail showed `operation=?` / `called_by=?` (because `ai_extract_inventory` wasn't forwarding those fields to `engine.complete`). There was also no log explaining WHY the deterministic path was skipped.
+
+**Fix (data_entry.py + mapper.py):**
+- Added `WARNING` log in `_extract_ops` when `map_rows_to_inventory` returns None: shows the actual column headers (up to 20) so the live tail tells us exactly which names to add to `_INV_ALIASES`.
+- `ai_extract_inventory` now accepts `called_by` kwarg and passes both `operation="inventory_save"` and `called_by` to `engine.complete`.
+
+**Files changed:**
+- `backend/ai/parser.py` — `_find_mjcc_grid_header()` helper + rewired `_parse_mjcc_monthly_inventory` to use dynamic column offsets
+- `backend/ai/mapper.py` — `ai_extract_inventory` signature: added `called_by` param; passes `operation`+`called_by` to `engine.complete`
+- `backend/routes/data_entry.py` — stale cleanup moved pre-parse; AI-fallback warning log with column headers; `called_by` forwarded into `ai_extract_inventory`
+
+**Build:** `ruff check` passed on all three files.
+**Push:** 70255f8 — 2026-06-22
 
 ---
 
