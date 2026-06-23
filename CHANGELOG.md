@@ -108,6 +108,26 @@ This is a flat columnar table — NOT the weekly issued/received grid the parser
 
 ---
 
+## v4.10.18 — 2026-06-23 — Clamp negative inventory at data entry + log commit failures
+
+**Claude (Senior Dev Manager):** Committing the 192-item May import failed — `POST /api/commits` → **409 after 46s**, with nothing in the live tail explaining why. Two distinct problems.
+
+**1) Negative quantities aborted the entire commit.** The "Fact checked" workbook legitimately carries a negative *ending* on-hand for 22 SKUs (an audit signal — more pulled than received+starting; the workbook's own Audit Summary flags "Negative ending: 22"). `dispatch._non_negative` rejects any negative value outright, and `_apply_entries` is all-or-nothing, so a single audit artifact blocked importing the other 191 items. Physical stock and weekly receive/issue counts can't be negative, so per the directive these are now floored to 0 **at data entry**:
+- `parser.py` — new `_clamp_nonneg()` applied to onHand/price in the flat parser and onHand/price/weekly cells in the weekly-grid parser.
+- `mapper.py` — `map_rows_to_inventory` floors onHand/par/price/w1–w4 r&i to 0.
+- Original figures remain visible in the workbook's own audit tabs.
+
+**2) Commit errors were invisible in the live tail.** `sourcectrl.py` had no logger at all, so the 409 the UI shows (`onHand cannot be negative for SKU ...`) never reached the logs. Added `mjcc.sourcectrl` logger; `_apply_entries` now logs the full failure detail before raising 409, and `approve_commit` logs unexpected 500s. **Errors seen in the UI are now also seen in the logs.**
+
+**Verification:** real `May Fact checked.xlsx` → all 22 negative-ending items clamp to 0; **0 of 192** items would fail dispatch validation (was the cause of the 409).
+
+**IMPORTANT operational note:** the 192 entries staged at 01:14 (batch `c06b84d2`) were parsed by the pre-clamp code and still contain negatives. A **re-upload** is required after this deploy — the v4.10.15 pre-parse cleanup auto-supersedes the stale batch with clamped entries, after which the commit succeeds.
+
+**Build:** `ruff check` + `ruff format` clean.
+**Push:** d0c3e81 — 2026-06-23
+
+---
+
 ## v4.10.13 — 2026-06-22 — Live log tail portal
 
 **Claude:** Added full live log tail accessible from within the Portal sidebar.
