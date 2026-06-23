@@ -168,6 +168,21 @@ Both loggers are children of root (which `api_logs.InMemoryLogHandler` is attach
 
 ---
 
+## v4.10.21 — 2026-06-23 — Contextual rollover banner
+
+**Claude (Senior Dev Manager):** The "You're viewing May 2026, but it's now June 2026 — roll over…" banner rendered globally at the top of `<main>` on **every** tab (Dashboard, HACCP, DailyOps, …), claiming "You're viewing May" even when the user was on a different page or viewing a different month. It keyed only off `needs_rollover` (real month > latest DB period) and ignored what was actually on screen.
+
+**Fix (`frontend/src/components/Portal.tsx`):** `RolloverBanner` now receives `active` + `period` and renders only when both hold:
+- `active === "inventory"` (the Inventory page), and
+- the viewed period IS the stale latest period (`period == latest_month/year`).
+
+So the message is literally true — it shows when you're on Inventory looking at the stale month — and stops nagging from unrelated views or other months. The rollover action is unchanged: `performRollover` → `perform_rollover` RPC, which **does** carry each item's ending on_hand (opening + receipts − issues, incl. week 5) forward into the next month's opening balance and publishes the old month. (So the carry-forward logic is real, not decorative; it had simply never been run because the banner UX was firing in the wrong contexts.)
+
+**Build:** `tsc --noEmit` clean, `npm run build` passes.
+**Push:** e4543a7 — 2026-06-23
+
+---
+
 ## v4.10.13 — 2026-06-22 — Live log tail portal
 
 **Claude:** Added full live log tail accessible from within the Portal sidebar.
