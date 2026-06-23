@@ -31,9 +31,9 @@ This is the **central development memory and discussion board** for development 
 
 **Verify (local, against `templates/us-food-invoice-2026-05-wk1.pdf`):** deterministic parse **0 → 186 items**, all-numeric real SKUs, reconciled exact (net $19,633.63, delta 0.0%). Cross-checked the 185 unique extracted SKUs vs live `inventory_items`: **153 direct catalog matches (83%)**, 32 genuinely-new items (real US Foods part #s + descriptions → one-click SKU-review). So a weekly upload now goes **"0 posted / 74 queued / BLOCKED" → "153 posted to W1 / 32 queued / SUCCESS."** Ruff + format clean, `backend.ai.*` imports OK. wk2/wk3/June templates are scanned image PDFs (0 native text) → they ride the OCR/vision path, whose prompt already extracts real product numbers; same `USFOODS_LINE_RE` fix also benefits their OCR'd text.
 
-**Heads-up:** `sku_review_queue` has **370 pending garbage rows** from the two failed May2026W1 attempts — all fabricated SKUs, 0 real. Recommend clearing (status→rejected) so the legit review queue isn't buried. Not done yet — awaiting operator OK.
+**Queue cleanup (done):** dismissed **370 pending garbage rows** in `sku_review_queue` from the two failed May2026W1 attempts (all fabricated SKUs, 0 real) → status `dismissed`, so the legitimate new-item review queue isn't buried.
 
-**Push:** pending — not yet pushed (fix is local; needs push to main → Render deploy before it helps live uploads).
+**Push:** Claude → 070759f — 2026-06-23 (pushed to main; Render auto-deploy triggered). Operator: once the deploy lands, re-upload the weekly invoice (Month=May, Year=2026, W1, Received) — it should post real-SKU items to W1 with only genuinely-new items going to SKU review.
 
 ---
 
