@@ -997,7 +997,12 @@ async def rollover_period(
         )
 
     now = datetime.now(timezone.utc)
-    if (next_year, next_month) > (now.year, now.month):
+    # next_month is 0-indexed (Jan=0); datetime.month is 1-indexed (Jan=1).
+    # Compare in the same 0-indexed space so we block rolling INTO a month that
+    # hasn't started yet (e.g. rolling May->June while it is still May), while
+    # allowing the roll once the real-world clock has reached the next month.
+    current_month_0 = now.month - 1
+    if (next_year, next_month) > (now.year, current_month_0):
         raise HTTPException(
             status_code=409,
             detail=f"Cannot roll into future period {_label(next_month, next_year)} yet.",
