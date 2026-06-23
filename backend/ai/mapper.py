@@ -58,12 +58,16 @@ _INV_ALIASES: dict[str, str] = {
     "minimum": "par",
     "minqty": "par",
     "reorderpoint": "par",
-    # on hand — prefer the ending/current balance; never the starting balance
+    # on hand = the OPENING balance. on_hand is the opening figure; ending is
+    # computed (opening + received - issued). Map the STARTING balance; NEVER map
+    # "Ending OH" — importing the closing figure as the opening double-states
+    # stock and hides weekly activity.
+    "startoh": "onHand",
+    "startingoh": "onHand",
+    "startonhand": "onHand",
+    "startingbalance": "onHand",
+    "openingoh": "onHand",
     "onhand": "onHand",
-    "endingoh": "onHand",
-    "endingonhand": "onHand",
-    "currentoh": "onHand",
-    "provisionalendingoh": "onHand",
     "qty": "onHand",
     "quantity": "onHand",
     "stock": "onHand",

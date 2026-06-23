@@ -248,13 +248,24 @@ _FLAT_INV_HEADER_ALIASES: dict[str, str] = {
     "itemdescription": "desc",
     "invoicedescription": "desc",
     "item": "desc",
-    # on-hand — prefer the ENDING balance, never the starting balance
-    "endingoh": "onHand",
-    "endingonhand": "onHand",
-    "currentoh": "onHand",
+    # on-hand = the OPENING balance for the period. In this system on_hand is the
+    # opening figure and ENDING is computed (opening + received - issued). So map
+    # the STARTING balance here. Mapping "Ending OH" was a bug: it fed the closing
+    # stock back in as the opening, which hid all received/issued activity and
+    # double-stated the balance. "Ending OH" / "Ending Value" are deliberately
+    # NOT mapped — ending is derived, never imported as on_hand.
+    "startoh": "onHand",
+    "startingoh": "onHand",
+    "startonhand": "onHand",
+    "startingonhand": "onHand",
+    "startingbalance": "onHand",
+    "beginningoh": "onHand",
+    "openingoh": "onHand",
+    "openingbalance": "onHand",
+    # Plain single-column snapshots (no separate start/ending) — treat the lone
+    # on-hand column as the opening for entry.
     "onhand": "onHand",
     "qtyonhand": "onHand",
-    "provisionalendingoh": "onHand",
     # price
     "unitprice": "price",
     "latestunitcost": "price",
@@ -283,10 +294,16 @@ def _parse_mjcc_flat_inventory(content: bytes) -> list[dict[str, Any]]:
     by name, and emit one row per item.  Only the FIRST sheet with a usable
     header is consumed so multi-tab audit workbooks don't double-count.
 
-    The monthly Total Rcvd / Total Pulled aggregates are intentionally NOT mapped
-    into weekly columns — there is no honest week attribution for a monthly total,
-    and dispatch_inventory_save preserves existing weekly data when those keys are
-    omitted.  Ending OH -> on_hand and Unit Price -> unit_price is the clean import.
+    Mapping rules (see _FLAT_INV_HEADER_ALIASES):
+    - Start OH  -> on_hand   (the OPENING balance; ending is computed downstream)
+    - Unit Price -> unit_price
+    - Ending OH / Ending Value are NOT imported — ending = opening + received -
+      issued, so importing the closing figure as on_hand would double-state stock
+      and hide all weekly activity.
+    - Total Rcvd / Total Pulled are NOT forced into weekly columns — a monthly
+      total has no honest week attribution, and the weekly received/issued data
+      is owned by the per-week invoice/pull-sheet uploads. dispatch_inventory_save
+      preserves existing weekly columns when those keys are omitted.
     """
     try:
         import openpyxl
