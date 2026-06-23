@@ -4199,8 +4199,23 @@ export interface PortalProps {
  * Live-date guard: when the real-world month is newer than the latest inventory
  * period in the DB, prompt a manager to roll over so the team stops working in
  * the stale month. Managers get an actionable button; others get a passive note.
+ *
+ * Contextual: the banner only appears on the Inventory page while the period
+ * being viewed IS the stale latest period — so "You're viewing May" is literally
+ * true. It does not nag on the Dashboard, other modules, or while viewing a
+ * different month.
  */
-function RolloverBanner({ user, onDone }: { user: User; onDone: () => void }) {
+function RolloverBanner({
+    user,
+    active,
+    period,
+    onDone,
+}: {
+    user: User;
+    active: string;
+    period: [number, number];
+    onDone: () => void;
+}) {
     const [status, setStatus] = useState<any>(null);
     const [busy, setBusy] = useState(false);
     const [dismissed, setDismissed] = useState(false);
@@ -4218,6 +4233,12 @@ function RolloverBanner({ user, onDone }: { user: User; onDone: () => void }) {
     }, []);
 
     if (!status || !status.needs_rollover || dismissed) return null;
+    // Only on the Inventory page…
+    if (active !== "inventory") return null;
+    // …and only while actually viewing the stale latest period (e.g. May), so the
+    // message matches what's on screen instead of nagging from every other view.
+    if (period[0] !== status.latest_month || period[1] !== status.latest_year)
+        return null;
 
     const canRoll = ROLE_LEVEL[user.role] >= 30; // manager+
     const doRollover = async () => {
@@ -4457,7 +4478,12 @@ export function Portal({
                 />
             )}
             <main className="main">
-                <RolloverBanner user={user} onDone={doSync} />
+                <RolloverBanner
+                    user={user}
+                    active={active}
+                    period={period}
+                    onDone={doSync}
+                />
                 {[
                     "haccp",
                     "dailyops",
