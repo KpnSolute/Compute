@@ -32,7 +32,7 @@ Net: when Google has a bad morning, Groq/Anthropic now actually catch the reques
 
 **Verify:** local ruff/deps not installed in this shell; engine.py parses clean (AST OK). Real verification = prod after deploy: re-upload "May2026W1 - Weekly Invoice.pdf" and confirm a fallback serves it if the primary is slow.
 
-**Push:** pending — not yet pushed (awaiting operator go-ahead to deploy to main).
+**Push:** Claude → cc48ff7 — 2026-06-23 (pushed to main; Render auto-deploy triggered).
 
 ---
 
