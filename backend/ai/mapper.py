@@ -58,8 +58,12 @@ _INV_ALIASES: dict[str, str] = {
     "minimum": "par",
     "minqty": "par",
     "reorderpoint": "par",
-    # on hand
+    # on hand — prefer the ending/current balance; never the starting balance
     "onhand": "onHand",
+    "endingoh": "onHand",
+    "endingonhand": "onHand",
+    "currentoh": "onHand",
+    "provisionalendingoh": "onHand",
     "qty": "onHand",
     "quantity": "onHand",
     "stock": "onHand",
@@ -337,7 +341,9 @@ def ai_extract_inventory(
         },
     ]
 
-    raw = engine.complete(messages, ai_config, operation="inventory_save", called_by=called_by)
+    raw = engine.complete(
+        messages, ai_config, operation="inventory_save", called_by=called_by
+    )
     result = engine.extract_json(raw)
     if isinstance(result, list):
         result = {

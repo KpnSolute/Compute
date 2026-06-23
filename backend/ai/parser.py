@@ -337,6 +337,87 @@ def _parse_mjcc_flat_inventory(content: bytes) -> list[dict[str, Any]]:
     return []
 
 
+_HEADER_ROW_TOKENS = set(_FLAT_INV_HEADER_ALIASES) | {
+    "itemdescription",
+    "qty",
+    "quantity",
+    "onhand",
+    "par",
+    "unit",
+    "received",
+    "issued",
+    "pulled",
+    "total",
+}
+
+
+def _looks_like_banner_headers(keys: list[Any]) -> bool:
+    """True when a sheet's column keys are a title banner / placeholders rather
+    than real headers (e.g. pandas read 'MIAMI JOB CORPS CENTER' + 'Unnamed: 1'
+    ... because the real header sits a few rows down)."""
+    real = [k for k in keys if k != "__sheet"]
+    if not real:
+        return False
+    junk = 0
+    recognized = 0
+    for k in real:
+        norm = _norm_header(k)
+        low = str(k).strip().lower()
+        if low.startswith(("unnamed", "col_")) or not norm:
+            junk += 1
+        if norm in _HEADER_ROW_TOKENS:
+            recognized += 1
+    # Banner if almost nothing is a recognized column AND placeholders dominate.
+    return recognized < 2 and junk >= max(1, len(real) // 2)
+
+
+def _reheader_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Repair rows whose header is actually a title banner.
+
+    When a workbook carries a banner above the real header, pandas keys every
+    row by that banner ('Unnamed: 1'...), burying the true column names in the
+    first data row. This scans the first rows for the genuine header (a row whose
+    *values* contain recognized column tokens) and re-keys every row beneath it.
+
+    This is what lets the AI fallback succeed: rows_to_text() keys its output off
+    the first row, so without this the model receives 'Unnamed: 1' columns with
+    the real header as a stray data line — the exact input that was timing out.
+    Re-keying also gives map_rows_to_inventory a second, deterministic chance.
+    """
+    if not rows or not _looks_like_banner_headers(list(rows[0].keys())):
+        return rows
+
+    header_idx: int | None = None
+    for i, row in enumerate(rows[:15]):
+        vals = [v for k, v in row.items() if k != "__sheet"]
+        score = sum(1 for v in vals if _norm_header(v) in _HEADER_ROW_TOKENS)
+        if score >= 2:
+            header_idx = i
+            break
+    if header_idx is None:
+        return rows
+
+    header_row = rows[header_idx]
+    data_keys = [k for k in header_row if k != "__sheet"]
+    new_keys = [
+        str(header_row[k]).strip() if header_row[k] not in (None, "") else f"col_{j}"
+        for j, k in enumerate(data_keys)
+    ]
+    sheet = rows[0].get("__sheet")
+
+    out: list[dict[str, Any]] = []
+    for row in rows[header_idx + 1 :]:
+        vals = [row[k] for k in row if k != "__sheet"]
+        if all(v is None for v in vals):
+            continue
+        rec: dict[str, Any] = {
+            new_keys[j]: vals[j] for j in range(min(len(new_keys), len(vals)))
+        }
+        rec["__sheet"] = sheet
+        out.append(rec)
+    return out or rows
+
+
 def parse_csv(content: bytes) -> list[dict[str, Any]]:
     text = content.decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(text))
@@ -375,9 +456,15 @@ def parse_excel(content: bytes) -> list[dict[str, Any]]:
                 str(col).strip() if col is not None else f"col_{i}"
                 for i, col in enumerate(frame.columns)
             ]
-            for row in frame.where(pd.notnull(frame), None).to_dict(orient="records"):
-                row["__sheet"] = sheet_name
-                result.append(row)
+            sheet_rows = [
+                {**row, "__sheet": sheet_name}
+                for row in frame.where(pd.notnull(frame), None).to_dict(
+                    orient="records"
+                )
+            ]
+            # Repair banner-as-header sheets so both the deterministic mapper and
+            # the AI fallback receive real column names instead of 'Unnamed: N'.
+            result.extend(_reheader_rows(sheet_rows))
         if result:
             return result
     except ImportError:
