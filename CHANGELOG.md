@@ -146,6 +146,28 @@ Both loggers are children of root (which `api_logs.InMemoryLogHandler` is attach
 
 ---
 
+## v4.10.20 — 2026-06-23 — Atomic commits + full inventory DB wipe (clean-slate retry)
+
+**Claude (Senior Dev Manager):** The operator reported "May data I never told you to commit." Investigation proved nothing was committed (the `commits` table was empty) — but `monthly_inventory` held 170 orphaned May rows created at 01:16:48, the moment the operator's own `POST /api/commits` (the 409) began replaying.
+
+**Root-cause bug — commits were NOT atomic.** `_apply_entries` is documented as all-or-nothing, but the replay loop writes each entry to `monthly_inventory` as it goes and only aborts when a *later* entry fails. The failed commit (negative-quantity row) therefore left every earlier entry written as orphaned partial data with no commit record. This is the same class of issue as "don't stage/commit unverified incomplete tables."
+
+**Fix — pre-flight validation (genuine atomicity):**
+- `dispatch.py` — new `validate_payload()` runs the pure numeric validation (NO writes) for `inventory_save` / `inventory_week_update`.
+- `sourcectrl.py` — `_apply_entries` now validates EVERY entry before writing ANY; if one fails it annotates those staging rows and raises 409 with nothing written. Combined with the v4.10.18 negative clamp, this is belt-and-suspenders: bad data can't reach staging, and even if it did it can't leave partial writes.
+- Push: ddca977 — 2026-06-23.
+
+**DB clean-slate wipe (Supabase MCP), at operator request to re-test data entry from scratch:**
+- Deleted 170 orphaned `monthly_inventory` rows (May 2026, month=4) — 0 commit references, May `month_status` was null (never published).
+- Wiped the SKU master + dependents for a total clean slate: `inventory_items` (170), `item_barcodes` (0), `sku_review_queue` (0).
+- `staging_entries`, `commits`, `commit_changes`, open PRs all already 0.
+- **Preserved:** `inventory_categories` (11 — the taxonomy, not data).
+- Final state: every inventory table empty except the category taxonomy. Ready for a from-scratch data-entry → commit test.
+
+**Note:** the rollover banner / `perform_rollover` carry-forward logic review is still pending (separate from this).
+
+---
+
 ## v4.10.13 — 2026-06-22 — Live log tail portal
 
 **Claude:** Added full live log tail accessible from within the Portal sidebar.
