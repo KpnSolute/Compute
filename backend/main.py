@@ -30,6 +30,9 @@ for _noisy in (
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from dotenv import load_dotenv
 from backend.routes.auth import router as auth_router
 from backend.routes.users import router as users_router
@@ -112,6 +115,56 @@ async def api_request_logger(request: Request, call_next):
             client_ip=client_ip or (request.client.host if request.client else ""),
         )
     return response
+
+
+_error_log = logging.getLogger("mjcc.errors")
+
+# Quiet, expected client-side statuses we don't want flooding the live tail.
+_QUIET_STATUSES = {401, 403, 404}
+
+
+@app.exception_handler(StarletteHTTPException)
+async def logged_http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """Central error logging for EVERY HTTPException raised anywhere in the app.
+
+    Most routes do `except Exception as e: raise HTTPException(500, str(e))`, which
+    otherwise loses the detail before it reaches the live tail — the operator sees
+    the error in the UI but not in the logs. Logging here means every feature is
+    debuggable from /portal/logs without editing each route's try/except.
+    5xx -> ERROR (with detail); actionable 4xx (400/409/422/...) -> WARNING;
+    routine 401/403/404 are left to the request line only.
+    """
+    if exc.status_code >= 500:
+        _error_log.error(
+            "%s %s -> %d: %s",
+            request.method,
+            request.url.path,
+            exc.status_code,
+            exc.detail,
+        )
+    elif exc.status_code not in _QUIET_STATUSES:
+        _error_log.warning(
+            "%s %s -> %d: %s",
+            request.method,
+            request.url.path,
+            exc.status_code,
+            exc.detail,
+        )
+    return await http_exception_handler(request, exc)
+
+
+@app.exception_handler(Exception)
+async def logged_unhandled_exception_handler(request: Request, exc: Exception):
+    """Catch-all so truly unhandled errors are logged with a full traceback
+    instead of vanishing into a bare 500."""
+    _error_log.exception(
+        "Unhandled %s on %s %s: %s",
+        type(exc).__name__,
+        request.method,
+        request.url.path,
+        exc,
+    )
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 app.include_router(auth_router)
