@@ -339,7 +339,11 @@ def ai_extract_inventory(
                 f"Current date context: month={month}, year={year}.\n"
                 "Extract all inventory items from the file. "
                 "Return ONLY valid JSON — no explanation, no markdown, no extra text. "
-                "If a SKU is missing, generate one in format CATEGORY_PREFIX-NNN. "
+                "Use the vendor's product/item number (typically a 5-7 digit code, "
+                "e.g. a US Foods product number) as the SKU whenever one is present "
+                "on the row — NEVER invent a SKU for an item that already has a "
+                "product number, as that breaks matching against the existing catalog. "
+                "Only when no identifier exists at all, generate one as CATEGORY_PREFIX-NNN. "
                 "Map every category to the closest valid category name from the list."
             ),
         },

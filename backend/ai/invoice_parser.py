@@ -53,6 +53,11 @@ IMAGE_EXTENSIONS = frozenset(
 # US Foods columnar (real PDF column order):
 # ORD  SHP  ADJ  SALES_UNIT  PRODUCT_NUMBER  body  UNIT_PRICE  EXT_PRICE
 # Groups: G1=ord  G2=shp  G3=adj  G4=unit  G5=product#  G6=body  G7=unit_price  G8=ext_price
+#
+# Price columns on real US Foods PDFs carry a leading "$" and the UNIT price is
+# quoted to 4 decimal places (e.g. "$104.0400"), while EXTENDED is 2 ("$104.04").
+# The "$" and the optional 3rd/4th decimal sit OUTSIDE the capture groups so the
+# captured value is always a clean number float() can parse.
 USFOODS_LINE_RE = re.compile(
     r"^\s*(\d{1,4})"  # G1: qty ordered
     r"\s+(\d{1,4})"  # G2: qty shipped
@@ -60,8 +65,8 @@ USFOODS_LINE_RE = re.compile(
     r"\s+([A-Z]{2,4})"  # G4: sales unit (CS, LB, EA, etc.)
     r"\s+(\d{5,7})"  # G5: US Foods product number (item #)
     r"\s+(.+?)"  # G6: description body (brand + desc + pack)
-    r"\s+(\d{1,3}(?:,\d{3})*\.\d{2})"  # G7: unit price
-    r"\s+(\d{1,3}(?:,\d{3})*\.\d{2})"  # G8: extended price
+    r"\s+\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2,4})"  # G7: unit price ($ + 2-4 decimals)
+    r"\s+\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2,4})"  # G8: extended price ($ + 2-4 decimals)
     r"\s*$",
 )
 

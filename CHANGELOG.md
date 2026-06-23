@@ -18,6 +18,25 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.10.24 — 2026-06-23 — Weekly invoice parsing: US Foods price regex was dropping every line
+
+**Claude (Senior Dev Manager):** Jeremiah's full-month rewrite ("May Fact checked.xlsx") committed clean (192 items, overwrite=both, prod-verified), but **weekly invoice uploads were 422-blocked** — `[RESOLVE] 74 unique SKUs → 0 direct 0 alias 74 queued` → `BLOCKED all-unknown-skus`. Root-caused end-to-end:
+
+- **The deterministic US Foods invoice parser was extracting 0 line items.** `USFOODS_LINE_RE` in `backend/ai/invoice_parser.py` required price columns as `\d+\.\d{2}` — but real US Foods PDFs quote them with a leading `$` and a **4-decimal unit price** (`$104.0400 $104.04`). Every line failed the regex → `detect_and_parse` fell through to the plain-text AI path.
+- **The text-AI fallback then *fabricated* SKUs.** `ai_extract_inventory` (`backend/ai/mapper.py`) was prompted: *"If a SKU is missing, generate one in format CATEGORY_PREFIX-NNN."* It never read the US Foods product number off the invoice and invented `DRY-014`, `CER-012`, etc. Since identity is SKU-only (`inventory_identity.py`), those matched nothing → all queued → blocked. (Also explains the 120s timeouts: a 12-page invoice was being round-tripped through Gemini→Anthropic instead of parsed deterministically in ~1s.)
+
+**Fix (both in `backend/ai/`, normally Gemini's lane — executed on direct operator request):**
+1. `USFOODS_LINE_RE` price groups → `\s+\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2,4})` (optional `$`/whitespace kept OUTSIDE the capture so `float()` stays clean; 2–4 decimals).
+2. Hardened the `ai_extract_inventory` prompt to **use the vendor product number as the SKU and never invent one** when a product number is present — defense-in-depth against future format drift.
+
+**Verify (local, against `templates/us-food-invoice-2026-05-wk1.pdf`):** deterministic parse **0 → 186 items**, all-numeric real SKUs, reconciled exact (net $19,633.63, delta 0.0%). Cross-checked the 185 unique extracted SKUs vs live `inventory_items`: **153 direct catalog matches (83%)**, 32 genuinely-new items (real US Foods part #s + descriptions → one-click SKU-review). So a weekly upload now goes **"0 posted / 74 queued / BLOCKED" → "153 posted to W1 / 32 queued / SUCCESS."** Ruff + format clean, `backend.ai.*` imports OK. wk2/wk3/June templates are scanned image PDFs (0 native text) → they ride the OCR/vision path, whose prompt already extracts real product numbers; same `USFOODS_LINE_RE` fix also benefits their OCR'd text.
+
+**Heads-up:** `sku_review_queue` has **370 pending garbage rows** from the two failed May2026W1 attempts — all fabricated SKUs, 0 real. Recommend clearing (status→rejected) so the legit review queue isn't buried. Not done yet — awaiting operator OK.
+
+**Push:** pending — not yet pushed (fix is local; needs push to main → Render deploy before it helps live uploads).
+
+---
+
 ## v4.10.23 — 2026-06-23 — Data-entry outage: both AI fallbacks were dead
 
 **Claude (Senior Dev Manager):** Jeremiah reported AI data entry "worked this morning, now it's not." Root-caused from `ai_usage_logs` (prod) — not a file/payload issue (successful calls are 758–5,515 tokens). The primary (Google Gemini free tier) degraded — 503/429 and 60–131s timeouts since Jun 22 — and the fallback chain that's supposed to cover a single-vendor outage was **silently broken on every provider**:
