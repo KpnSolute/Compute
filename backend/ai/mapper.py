@@ -308,6 +308,7 @@ def ai_extract_inventory(
     month: int,
     year: int,
     ai_config: dict | None = None,
+    called_by: str | None = None,
 ) -> dict:
     """Use AI to extract inventory_save payload from ambiguous text/rows."""
     schema_ctx = context.build_inventory_context(categories, vendors)
@@ -336,7 +337,7 @@ def ai_extract_inventory(
         },
     ]
 
-    raw = engine.complete(messages, ai_config)
+    raw = engine.complete(messages, ai_config, operation="inventory_save", called_by=called_by)
     result = engine.extract_json(raw)
     if isinstance(result, list):
         result = {

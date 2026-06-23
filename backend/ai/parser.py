@@ -73,6 +73,27 @@ def _inventory_sku(value: Any) -> str:
     return text
 
 
+def _find_mjcc_grid_header(
+    rows: list[tuple],
+) -> tuple[int, int] | None:
+    """Locate the MJCC inventory header row and description column.
+
+    Scans every row looking for "item description" (case-insensitive) in any
+    of the first 5 columns.  Returns (row_index, desc_col_index) or None.
+
+    The original parser required "item description" at exactly column B (index 1)
+    with issued/received headers at fixed offsets.  That fails for workbooks where
+    the layout is shifted (column A used for SKU, item-description in column B is
+    fine, but some "fact-checked" variants put the description in column A or C).
+    """
+    for row_idx, row in enumerate(rows):
+        for col_idx in range(min(5, len(row))):
+            cell = str(row[col_idx] or "").strip().lower()
+            if cell == "item description" or cell == "description":
+                return row_idx, col_idx
+    return None
+
+
 def _parse_mjcc_monthly_inventory(content: bytes) -> list[dict[str, Any]]:
     try:
         import openpyxl
@@ -83,54 +104,82 @@ def _parse_mjcc_monthly_inventory(content: bytes) -> list[dict[str, Any]]:
     parsed: list[dict[str, Any]] = []
     for ws in wb.worksheets:
         rows = list(ws.iter_rows(values_only=True))
-        has_inventory_grid = any(
-            len(row) > 12
-            and str(row[1] or "").strip().lower() == "item description"
-            and "issued" in " ".join(str(v or "").lower() for v in row[5:9])
-            and "received" in " ".join(str(v or "").lower() for v in row[9:13])
-            for row in rows
-        )
-        if not has_inventory_grid:
+
+        header_info = _find_mjcc_grid_header(rows)
+        if not header_info:
+            continue
+        _, desc_col = header_info
+
+        # Derive column offsets relative to the description column.
+        # Standard MJCC layout (desc_col=1):
+        #   col 0 = SKU, col 1 = Item Description, col 2 = On Hand,
+        #   col 3 = Unit Price, col 4 = Unit (sometimes absent),
+        #   cols 5-8 = W1-W4 Issued, cols 9-12 = W1-W4 Received
+        # When desc_col differs, shift all offsets accordingly.
+        sku_col = desc_col - 1 if desc_col > 0 else None
+        onhand_col = desc_col + 1
+        price_col = desc_col + 2
+        # Issued / received: offset from desc_col.  In the standard layout
+        # there is one "gap" column (unit) at desc_col+3, then 4 issued columns,
+        # then 4 received columns.  Use a flexible scan: treat any column at
+        # desc_col+3 or later that is numeric as week data in order.
+        w_start = desc_col + 3  # first weekly column (W1 issued or W1 received)
+        cat_col = desc_col  # category labels appear in the same column as desc
+
+        # Need at least onhand column to bother parsing
+        min_cols_needed = price_col + 1
+        if not any(len(row) >= min_cols_needed for row in rows):
             continue
 
         category: str | None = None
         for row in rows:
-            cells = list(row) + [None] * max(0, 13 - len(row))
-            maybe_category = _inventory_category(cells[1])
+            cells = list(row) + [None] * max(0, w_start + 9 - len(row))
+            maybe_category = _inventory_category(cells[cat_col])
+            # Detect amount columns: onhand, price, and first four weekly cols
+            amount_indices = [onhand_col, price_col] + list(range(w_start, w_start + 4))
             row_has_item_amounts = any(
-                _num(cells[idx]) is not None for idx in (2, 3, 5, 6, 7, 8)
+                _num(cells[idx]) is not None
+                for idx in amount_indices
+                if idx < len(cells)
             )
-            if maybe_category and not cells[0] and not row_has_item_amounts:
+            if maybe_category and not row_has_item_amounts:
                 category = maybe_category
                 continue
             if category is None:
                 continue
 
-            desc = str(cells[1] or "").strip()
+            desc = str(cells[cat_col] or "").strip()
             if (
                 not desc
-                or desc.lower() == "item description"
+                or desc.lower() in ("item description", "description")
                 or "total" in desc.lower()
             ):
                 continue
-            if _num(cells[2]) is None and _num(cells[3]) is None and not cells[0]:
+            onhand_val = _num(cells[onhand_col]) if onhand_col < len(cells) else None
+            price_val = _num(cells[price_col]) if price_col < len(cells) else None
+            sku_val = _inventory_sku(cells[sku_col]) if sku_col is not None and sku_col < len(cells) else ""
+            if onhand_val is None and price_val is None and not sku_val:
                 continue
+
+            def _wcol(offset: int) -> float | int | None:
+                idx = w_start + offset
+                return _num(cells[idx]) if idx < len(cells) else None
 
             parsed.append(
                 {
-                    "sku": _inventory_sku(cells[0]),
+                    "sku": sku_val,
                     "desc": desc,
                     "category": category,
-                    "onHand": _num(cells[2]) or 0,
-                    "price": _num(cells[3]),
-                    "w1i": _num(cells[5]) or 0,
-                    "w2i": _num(cells[6]) or 0,
-                    "w3i": _num(cells[7]) or 0,
-                    "w4i": _num(cells[8]) or 0,
-                    "w1r": _num(cells[9]) or 0,
-                    "w2r": _num(cells[10]) or 0,
-                    "w3r": _num(cells[11]) or 0,
-                    "w4r": _num(cells[12]) or 0,
+                    "onHand": onhand_val or 0,
+                    "price": price_val,
+                    "w1i": _wcol(0) or 0,
+                    "w2i": _wcol(1) or 0,
+                    "w3i": _wcol(2) or 0,
+                    "w4i": _wcol(3) or 0,
+                    "w1r": _wcol(4) or 0,
+                    "w2r": _wcol(5) or 0,
+                    "w3r": _wcol(6) or 0,
+                    "w4r": _wcol(7) or 0,
                     "unit": "each",
                     "__sheet": ws.title,
                 }

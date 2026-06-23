@@ -464,16 +464,27 @@ def _extract_ops(
                 rows, categories, month, year, f"Imported from {filename}"
             )
             if result is None:
-                # deterministic failed — fall back to AI
+                # Deterministic mapping failed — log the column headers so we
+                # know exactly what to add to _INV_ALIASES next time.
+                seen_headers = list(rows[0].keys()) if rows else []
+                log.warning(
+                    "[DATA-ENTRY] Deterministic column mapping failed, falling back to AI "
+                    "| file=%s row_count=%d headers=%s",
+                    filename,
+                    len(rows),
+                    seen_headers[:20],
+                )
                 vendors = ctx.get_vendors()
                 result = mapper.ai_extract_inventory(
-                    rows, categories, vendors, month, year, ai_config
+                    rows, categories, vendors, month, year, ai_config,
+                    called_by=called_by,
                 )
         else:
             categories = ctx.get_categories()
             vendors = ctx.get_vendors()
             result = mapper.ai_extract_inventory(
-                text, categories, vendors, month, year, ai_config
+                text, categories, vendors, month, year, ai_config,
+                called_by=called_by,
             )
 
         # one staging entry per item for row-level diff granularity
@@ -921,6 +932,38 @@ async def upload_file(
         log.warning("[DATA-ENTRY] Client disconnected before parse | file=%s", fname)
         raise HTTPException(status_code=499, detail="Client disconnected")
 
+    # Expire stale pending batches for this file BEFORE parsing — ensures a
+    # re-upload always starts from a clean staging slate even if parsing fails.
+    try:
+        svc_pre = _client()
+        stale_pre = (
+            svc_pre.table("staging_entries")
+            .select("entry_id, batch_id")
+            .eq("file_ref", fname)
+            .eq("submitted_by", auth_user["id"])
+            .eq("status", "pending")
+            .execute()
+        )
+        if stale_pre.data:
+            stale_pre_ids = [r["entry_id"] for r in stale_pre.data]
+            stale_pre_batches = list(
+                {r["batch_id"] for r in stale_pre.data if r.get("batch_id")}
+            )
+            for stale_chunk in _chunks(stale_pre_ids):
+                svc_pre.table("staging_entries").update(
+                    {"status": "rejected", "review_note": "superseded by re-upload"}
+                ).in_("entry_id", stale_chunk).execute()
+            log.info(
+                "[DATA-ENTRY] Pre-parse: superseded %d stale pending entries | file=%s old_batches=%s",
+                len(stale_pre_ids),
+                fname,
+                stale_pre_batches,
+            )
+    except Exception as _pre_e:
+        log.warning(
+            "[DATA-ENTRY] Pre-parse stale cleanup failed | file=%s err=%s", fname, _pre_e
+        )
+
     try:
         parse_start = time.monotonic()
         ops, invoice_meta = _extract_ops(
@@ -1109,38 +1152,6 @@ async def upload_file(
 
     batch_id = str(uuid.uuid4())
     submitter = auth_user["id"]
-
-    # Expire any stale pending batches from the same source file so re-uploads
-    # replace rather than accumulate duplicate staging rows.
-    try:
-        svc = _client()
-        stale = (
-            svc.table("staging_entries")
-            .select("entry_id, batch_id")
-            .eq("file_ref", fname)
-            .eq("submitted_by", auth_user["id"])
-            .eq("status", "pending")
-            .execute()
-        )
-        if stale.data:
-            stale_ids = [r["entry_id"] for r in stale.data]
-            stale_batches = list(
-                {r["batch_id"] for r in stale.data if r.get("batch_id")}
-            )
-            for stale_chunk in _chunks(stale_ids):
-                svc.table("staging_entries").update(
-                    {"status": "rejected", "review_note": "superseded by re-upload"}
-                ).in_("entry_id", stale_chunk).execute()
-            log.info(
-                "[DATA-ENTRY] Superseded %d stale pending entries | file=%s old_batches=%s",
-                len(stale_ids),
-                fname,
-                stale_batches,
-            )
-    except Exception as _e:
-        log.warning(
-            "[DATA-ENTRY] Could not expire stale entries | file=%s err=%s", fname, _e
-        )
 
     try:
         staged = _stage_entries(
