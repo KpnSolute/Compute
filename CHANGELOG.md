@@ -128,6 +128,24 @@ This is a flat columnar table — NOT the weekly issued/received grid the parser
 
 ---
 
+## v4.10.19 — 2026-06-23 — Central exception logging + DB staging reset
+
+**Claude (Senior Dev Manager):** Site-wide observability + a clean slate for the May retry.
+
+**Central exception logging (`backend/main.py`).** Most routes wrap handlers in `except Exception as e: raise HTTPException(500, str(e))`, which loses the detail before it reaches the live tail — the operator sees the error in the UI but never in `/portal/logs`. Rather than editing 40+ try/except blocks across `data.py`, `logs.py`, `sourcectrl.py`, `users.py`, etc., two global handlers now cover everything:
+- `StarletteHTTPException` handler logs EVERY HTTPException raised anywhere — 5xx → ERROR with detail, actionable 4xx (400/409/422/…) → WARNING, routine 401/403/404 left to the existing request-line log to avoid noise.
+- `Exception` handler is a catch-all that logs unhandled errors with a full traceback instead of leaking a bare 500.
+Both loggers are children of root (which `api_logs.InMemoryLogHandler` is attached to), so all errors stream to the live tail. **Every feature of the site is now debuggable from the log portal without reproducing the issue in the browser.**
+
+**DB staging reset (Supabase MCP).** The 192 pre-clamp entries (batch `c06b84d2`, all from "May Fact checked.xlsx") were deleted from `staging_entries`, and the orphaned auto-PR `b226299e` ("Invoice import — May Fact checked.xlsx") was closed. `staging_entries` is now empty — a clean slate so the post-clamp re-upload commits without colliding with stale rows.
+
+**DB parsing issues — full verification against the real file:** 192 items, **0 duplicate canonical SKUs** (no `ON CONFLICT … cannot affect row a second time` upsert error), 0 blank descriptions, 0 None on-hand, 0 None prices, 0 negative values reaching dispatch, 0 categories outside the taxonomy. The parse → stage → dispatch → DB-write chain is clean end to end.
+
+**Build:** `ruff check` + `ruff format` clean; app builds, both handlers register.
+**Push:** ef81e1e — 2026-06-23
+
+---
+
 ## v4.10.13 — 2026-06-22 — Live log tail portal
 
 **Claude:** Added full live log tail accessible from within the Portal sidebar.
