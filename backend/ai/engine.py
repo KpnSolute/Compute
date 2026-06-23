@@ -432,6 +432,103 @@ def _log_usage(
 # ── public interface ──────────────────────────────────────────────────────────
 
 
+# Fallback chain — when the configured provider fails with a transient error
+# (e.g. Google 503 Service Unavailable, timeouts), automatically retry the same
+# request on the next provider that has a key. This keeps data entry working
+# through a single-vendor outage instead of failing the whole upload.
+_FALLBACK_ORDER = ["anthropic", "groq", "openai", "mistral", "google"]
+_FALLBACK_MODELS = {
+    "anthropic": "claude-sonnet-4-20250514",
+    "groq": "llama-3.3-70b-versatile",
+    "openai": "gpt-4o-mini",
+    "mistral": "mistral-small-latest",
+    "google": "gemini-2.0-flash",
+}
+
+
+def _get_any_key(provider: str) -> str | None:
+    """Return a usable api_key for `provider` regardless of is_active (prefers an
+    active row). The primary provider uses _get_db_row (is_active only); fallback
+    providers aren't marked active, so they need this looser lookup."""
+    try:
+        from supabase import create_client
+
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_SERVICE_KEY")
+        if not url or not key:
+            return None
+        svc = create_client(url, key)
+        r = (
+            svc.table("ai_provider_keys")
+            .select("api_key,is_active")
+            .eq("provider", provider)
+            .order("is_active", desc=True)
+            .limit(5)
+            .execute()
+        )
+        for row in r.data or []:
+            if row.get("api_key"):
+                return row["api_key"]
+    except Exception:
+        pass
+    return None
+
+
+def _resolve_key(provider: str, cfg: dict) -> tuple[str | None, str | None]:
+    """Resolve (api_key, base_url) for a provider: active DB key → any DB key →
+    config-supplied key."""
+    db_key, db_url = _get_db_row(provider)
+    if not db_key:
+        db_key = _get_any_key(provider)
+    return (db_key or cfg.get("api_key")), db_url
+
+
+def _dispatch_text(
+    provider: str, model: str | None, messages: list[dict], cfg: dict
+) -> tuple[str, dict]:
+    """Run ONE provider and return (text, usage). Raises on missing key or
+    provider error (so the caller can fall back to the next provider)."""
+    if provider == "groq":
+        key, _ = _resolve_key("groq", cfg)
+        if not key:
+            raise RuntimeError("No API key configured for groq")
+        return _groq_complete(messages, model or "llama-3.3-70b-versatile", key)
+    elif provider == "anthropic":
+        key, _ = _resolve_key("anthropic", cfg)
+        if not key:
+            raise RuntimeError("No API key configured for anthropic")
+        return _anthropic_complete(messages, model or "claude-sonnet-4-20250514", key)
+    elif provider == "openai":
+        key, url = _resolve_key("openai", cfg)
+        if not key:
+            raise RuntimeError("No API key configured for openai")
+        return _openai_complete(messages, model or "gpt-4o-mini", key, url)
+    elif provider == "mistral":
+        key, _ = _resolve_key("mistral", cfg)
+        if not key:
+            raise RuntimeError("No API key configured for mistral")
+        return _mistral_complete(messages, model or "mistral-small-latest", key)
+    elif provider == "google":
+        key, _ = _resolve_key("google", cfg)
+        if not key:
+            raise RuntimeError("No API key configured for Google Gemini")
+        return _gemini_complete(messages, model or "gemini-2.0-flash", key)
+    elif provider == "ollama":
+        _, url = _resolve_key("ollama", cfg)
+        base = url or cfg.get("ollama_url") or "http://localhost:11434"
+        return _ollama_complete(messages, model, base)
+    elif provider == "lm_studio":
+        key, url = _resolve_key("lm_studio", cfg)
+        base = url or cfg.get("lm_studio_url") or "http://localhost:1234"
+        return _openai_complete(
+            messages, model or "local-model", key or "lm-studio", base
+        )
+    else:
+        raise ValueError(
+            f"Unknown AI provider: {provider!r}. Must be one of {SUPPORTED_PROVIDERS}"
+        )
+
+
 def complete(
     messages: list[dict],
     config: dict | None = None,
@@ -462,126 +559,86 @@ def complete(
         len(messages),
     )
 
-    t0 = time.monotonic()
-    text: str = ""
-    usage: dict = {"tokens_in": 0, "tokens_out": 0}
-    success = True
-    error_msg: str | None = None
+    # Build the attempt chain: configured provider first, then each fallback
+    # provider that has a key. Local providers (ollama/lm_studio) are never used
+    # as auto-fallbacks since they depend on a reachable local URL.
+    attempts: list[tuple[str, str | None]] = [(provider, model)]
+    if cfg.get("enable_fallback", True):
+        for fb in _FALLBACK_ORDER:
+            if fb == provider or fb in ("ollama", "lm_studio"):
+                continue
+            if _get_any_key(fb):
+                attempts.append((fb, _FALLBACK_MODELS[fb]))
 
-    try:
-        if provider == "groq":
-            db_key, _ = _get_db_row("groq")
-            api_key = db_key or cfg.get("api_key")
-            if not api_key:
-                raise RuntimeError(
-                    "No API key configured for groq — add one in Settings → AI."
-                )
-            text, usage = _groq_complete(messages, model, api_key)
-
-        elif provider == "anthropic":
-            db_key, _ = _get_db_row("anthropic")
-            api_key = db_key or cfg.get("api_key")
-            if not api_key:
-                raise RuntimeError(
-                    "No API key configured for anthropic — add one in Settings → AI."
-                )
-            text, usage = _anthropic_complete(
-                messages, model or "claude-sonnet-4-20250514", api_key
+    last_exc: Exception | None = None
+    for idx, (prov, mdl) in enumerate(attempts):
+        t0 = time.monotonic()
+        try:
+            text, usage = _dispatch_text(prov, mdl, messages, cfg)
+        except Exception as exc:
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            _log_usage(
+                provider=prov,
+                model=mdl,
+                tokens_in=0,
+                tokens_out=0,
+                duration_ms=duration_ms,
+                operation=operation,
+                called_by=called_by,
+                success=False,
+                error_msg=str(exc)[:500],
             )
-
-        elif provider == "openai":
-            db_key, db_url = _get_db_row("openai")
-            api_key = db_key or cfg.get("api_key")
-            if not api_key:
-                raise RuntimeError(
-                    "No API key configured for openai — add one in Settings → AI."
-                )
-            text, usage = _openai_complete(
-                messages, model or "gpt-4o-mini", api_key, db_url
+            last_exc = exc
+            more = idx < len(attempts) - 1
+            log.warning(
+                "[AI] provider FAILED | provider=%s model=%s operation=%s elapsed_ms=%d error=%s%s",
+                prov,
+                mdl,
+                operation or "?",
+                duration_ms,
+                str(exc)[:300],
+                " — falling back to next provider" if more else " — no providers left",
             )
+            continue
 
-        elif provider == "mistral":
-            db_key, _ = _get_db_row("mistral")
-            api_key = db_key or cfg.get("api_key")
-            if not api_key:
-                raise RuntimeError(
-                    "No API key configured for mistral — add one in Settings → AI."
-                )
-            text, usage = _mistral_complete(
-                messages, model or "mistral-small-latest", api_key
-            )
-
-        elif provider == "google":
-            db_key, _ = _get_db_row("google")
-            api_key = db_key or cfg.get("api_key")
-            if not api_key:
-                raise RuntimeError(
-                    "No API key configured for Google Gemini — add one in Settings → AI."
-                )
-            text, usage = _gemini_complete(
-                messages, model or "gemini-2.0-flash", api_key
-            )
-
-        elif provider == "ollama":
-            _, db_url = _get_db_row("ollama")
-            base_url = db_url or cfg.get("ollama_url") or "http://localhost:11434"
-            text, usage = _ollama_complete(messages, model, base_url)
-
-        elif provider == "lm_studio":
-            _, db_url = _get_db_row("lm_studio")
-            base_url = db_url or cfg.get("lm_studio_url") or "http://localhost:1234"
-            db_key, _ = _get_db_row("lm_studio")
-            api_key = db_key or cfg.get("api_key") or "lm-studio"
-            text, usage = _openai_complete(
-                messages, model or "local-model", api_key, base_url
-            )
-
-        else:
-            raise ValueError(
-                f"Unknown AI provider: {provider!r}. Must be one of {SUPPORTED_PROVIDERS}"
-            )
-
-    except Exception as exc:
-        success = False
-        error_msg = str(exc)[:500]
-        raise
-
-    finally:
         duration_ms = int((time.monotonic() - t0) * 1000)
         _log_usage(
-            provider=provider,
-            model=model,
+            provider=prov,
+            model=mdl,
             tokens_in=usage.get("tokens_in", 0),
             tokens_out=usage.get("tokens_out", 0),
             duration_ms=duration_ms,
             operation=operation,
             called_by=called_by,
-            success=success,
-            error_msg=error_msg,
+            success=True,
+            error_msg=None,
         )
-        if success:
-            log.info(
-                "[AI] request done | provider=%s model=%s operation=%s elapsed_ms=%d "
-                "tokens_in=%d tokens_out=%d resp_chars=%d",
+        if idx > 0:
+            log.warning(
+                "[AI] primary provider '%s' failed — request served by fallback '%s'",
                 provider,
-                model,
-                operation or "?",
-                duration_ms,
-                usage.get("tokens_in", 0),
-                usage.get("tokens_out", 0),
-                len(text or ""),
+                prov,
             )
-        else:
-            log.error(
-                "[AI] request FAILED | provider=%s model=%s operation=%s elapsed_ms=%d error=%s",
-                provider,
-                model,
-                operation or "?",
-                duration_ms,
-                error_msg,
-            )
+        log.info(
+            "[AI] request done | provider=%s model=%s operation=%s elapsed_ms=%d "
+            "tokens_in=%d tokens_out=%d resp_chars=%d",
+            prov,
+            mdl,
+            operation or "?",
+            duration_ms,
+            usage.get("tokens_in", 0),
+            usage.get("tokens_out", 0),
+            len(text or ""),
+        )
+        return text
 
-    return text
+    log.error(
+        "[AI] request FAILED (all providers exhausted) | tried=%s operation=%s error=%s",
+        [a[0] for a in attempts],
+        operation or "?",
+        str(last_exc)[:300],
+    )
+    raise last_exc if last_exc else RuntimeError("AI completion failed: no providers")
 
 
 def complete_vision(
