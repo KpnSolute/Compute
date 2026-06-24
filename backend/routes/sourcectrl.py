@@ -350,6 +350,22 @@ def _apply_entries(
             },
         )
 
+    # 5b — flip weekly import_batches for this commit's staging batches to merged.
+    #      The active-dedup unique index now enforces one-merged-per-scope; the
+    #      ledger rows were written idempotently by dispatch_inventory_week.
+    staging_batch_ids = list(
+        {e.get("batch_id") for e in applied_entries if e.get("batch_id")}
+    )
+    if staging_batch_ids:
+        try:
+            _client().table("import_batches").update(
+                {"status": "merged", "merged_at": now}
+            ).in_("staging_batch_id", staging_batch_ids).eq(
+                "status", "staged"
+            ).execute()
+        except Exception as exc:
+            log.warning("[COMMIT] import_batches merge flip failed: %s", exc)
+
     # 6 — enqueue github sync
     # NOTE: github_sync_queue_operation_check permits push_archive_snapshot, not push_snapshot.
     _client().table("github_sync_queue").insert(

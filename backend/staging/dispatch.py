@@ -294,13 +294,18 @@ def dispatch_item_delete(payload: dict) -> dict:
 
 
 def dispatch_inventory_week(payload: dict) -> dict:
-    """Weekly invoice posting: write a parsed quantity into ONE target column —
-    `w{week}_{received|issued}` — for the given month, WITHOUT touching on_hand or
-    the other weeks. Used by the Data Entry weekly-invoice upload (admin picks
-    Month / Week / Imports(received)|Exports(issued)).
+    """Weekly invoice/pull posting — LEDGER MODEL (Phase 1).
 
-    The partial upsert on (item_id,month,year) updates only the provided column on
-    conflict, so opening balance and other weeks are preserved. Unrecognized SKUs
+    Each parsed quantity is appended to `inventory_transactions` as one movement
+    (txn_type received|issued), then the derived `w{week}_{direction}` column on
+    monthly_inventory is RECOMPUTED from the ledger via recompute_week_totals().
+    Consequences vs the old direct-write:
+      - A SECOND invoice/pull in the same week ACCUMULATES (the column = SUM of
+        ledger rows) instead of overwriting the first.
+      - The ledger is the source of truth; the column is a derived cache.
+      - Replay is idempotent: prior ledger rows from the same staging entry are
+        deleted before re-insert, so a retried commit never double-counts.
+    on_hand (opening) and the other weeks are never touched. Unrecognized SKUs
     resolve into "New Items" for manager review (force_review).
     """
     month = payload.get("month") or datetime.now().month  # 1-indexed
@@ -320,13 +325,23 @@ def dispatch_inventory_week(payload: dict) -> dict:
         return {"applied": 0, "error": str(exc)}
 
     db_month = max(0, month - 1)
-    col = f"w{week}_{direction}"
+    txn_type = direction  # 'received' | 'issued'
     sup = _client()
     if _is_month_published(sup, db_month, year):
         return {
             "applied": 0,
             "error": f"Period {month}/{year} is published and cannot be modified",
         }
+
+    # Audit metadata threaded from the upload (data_entry) so every ledger row is
+    # traceable back to its source file / batch.
+    staging_entry_id = payload.get("_staging_entry_id")
+    source_file = payload.get("source_file")
+    source_hash = payload.get("source_hash")
+    invoice_number = payload.get("invoice_number")
+    batch_id = payload.get("import_batch_id")
+    created_by = payload.get("_author_id") or payload.get("created_by")
+    txn_date = payload.get("txn_date") or datetime.now(timezone.utc).date().isoformat()
 
     cat_r = sup.table("inventory_categories").select("id,name").execute()
     cat_map = {r["name"]: r["id"] for r in (cat_r.data or [])}
@@ -335,7 +350,8 @@ def dispatch_inventory_week(payload: dict) -> dict:
 
     count = 0
     dropped = 0
-    rows: list[dict] = []
+    txn_rows: list[dict] = []
+    affected_items: set[str] = set()
     for item in items:
         cat_id = cat_map.get(item.get("category", ""))
         item_id, _sku, _created = resolve_and_write_item(
@@ -366,29 +382,44 @@ def dispatch_inventory_week(payload: dict) -> dict:
         if qty is None:
             qty = item.get("onHand", 0)
         qty = _non_negative(qty, "qty", item.get("sku"))
-        monthly_fields = {
-            "item_id": item_id,
-            "month": db_month,
-            "year": year,
-            col: qty,
-        }
-        if item.get("price") is not None:
-            monthly_fields["unit_price"] = item.get("price")
-        rows.append(monthly_fields)
+        price = _non_negative(item.get("price"), "price", item.get("sku")) or 0
+        txn_rows.append(
+            {
+                "item_id": item_id,
+                "sku": _sku,
+                "month": db_month,
+                "year": year,
+                "week_number": week,
+                "txn_type": txn_type,
+                "quantity": qty,
+                "unit_price": price,
+                "source_file": source_file,
+                "source_hash": source_hash,
+                "invoice_number": invoice_number,
+                "batch_id": batch_id,
+                "staging_entry_id": staging_entry_id,
+                "txn_date": txn_date,
+                "created_by": created_by,
+            }
+        )
+        affected_items.add(item_id)
         count += 1
 
-    # Batched, atomic write. Grouped by column signature so the partial upsert
-    # never NULLs a column a row omitted; only `col` (+ unit_price) is written on
-    # conflict, so on_hand and the other weekly columns are preserved. One
-    # statement per group -> one snapshot refresh per period.
-    if rows:
-        groups: dict[tuple, list[dict]] = {}
-        for r in rows:
-            groups.setdefault(tuple(sorted(r.keys())), []).append(r)
-        for batch in groups.values():
-            sup.table("monthly_inventory").upsert(
-                batch, on_conflict="item_id,month,year"
-            ).execute()
+    # Idempotent append: clear any prior ledger rows from this exact staging entry
+    # (a retried commit), then insert. The unique index on staging_entry_id is the
+    # backstop. Then recompute the derived weekly columns from the full ledger so
+    # repeat invoices in the same week ACCUMULATE.
+    if staging_entry_id:
+        sup.table("inventory_transactions").delete().eq(
+            "staging_entry_id", staging_entry_id
+        ).execute()
+    if txn_rows:
+        sup.table("inventory_transactions").insert(txn_rows).execute()
+    for iid in affected_items:
+        sup.rpc(
+            "recompute_week_totals",
+            {"p_item_id": iid, "p_month": db_month, "p_year": year},
+        ).execute()
 
     result = {
         "applied": count,
@@ -397,6 +428,7 @@ def dispatch_inventory_week(payload: dict) -> dict:
         "year": year,
         "week": week,
         "direction": direction,
+        "ledger": True,
     }
     if dropped:
         result["error"] = (

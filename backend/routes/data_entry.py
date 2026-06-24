@@ -10,6 +10,7 @@ import logging
 import time
 import uuid
 import os
+import hashlib
 import calendar
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -799,6 +800,126 @@ def _supersede_stale_pending(fname: str, user_id: str) -> None:
         )
 
 
+def _assert_not_duplicate_weekly(
+    source_hash: str, db_month: int, year: int, week: int, direction: str
+) -> None:
+    """Reject a weekly upload whose file CONTENT was already MERGED for this scope.
+
+    Read-only gate (runs before any write). A staged-but-uncommitted batch does
+    NOT block here — it is superseded at staging time so a pending upload can be
+    redone. Re-importing a merged file would double-count the ledger.
+    """
+    try:
+        dup = (
+            _client()
+            .table("import_batches")
+            .select("batch_id, source_file")
+            .eq("source_hash", source_hash)
+            .eq("month", db_month)
+            .eq("year", year)
+            .eq("week_number", week)
+            .eq("direction", direction)
+            .eq("status", "merged")
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        return
+    if dup.data:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "duplicate_upload",
+                "message": (
+                    f"This exact file was already imported for "
+                    f"{calendar.month_name[db_month + 1]} {year} W{week} {direction}. "
+                    "Re-uploading would double-count, so nothing was changed."
+                ),
+                "existing_batch": dup.data[0]["batch_id"],
+            },
+        )
+
+
+def _open_weekly_import_batch(
+    inventory_ops: list[dict],
+    *,
+    week: int,
+    direction: str,
+    month: int,
+    year: int,
+    fname: str,
+    source_hash: str,
+    invoice_number: Optional[str],
+    staging_batch_id: str,
+    submitter: str,
+) -> Optional[str]:
+    """Create the dedup/audit import_batches row for a weekly upload and thread its
+    id + source metadata into each weekly op payload so dispatch writes traceable
+    ledger rows. Returns the import batch_id, or None for non-weekly uploads.
+    """
+    if week not in (1, 2, 3, 4) or not inventory_ops:
+        return None
+    svc = _client()
+    db_month = max(0, month - 1)
+
+    # Free any prior STAGED batch for this exact scope (a superseded re-upload) so
+    # the active-dedup unique index does not block re-staging.
+    try:
+        svc.table("import_batches").update({"status": "rejected"}).eq(
+            "source_hash", source_hash
+        ).eq("month", db_month).eq("year", year).eq("week_number", week).eq(
+            "direction", direction
+        ).eq("status", "staged").execute()
+    except Exception as exc:
+        log.warning("[DATA-ENTRY] could not reject prior staged batch: %s", exc)
+
+    item_count = sum(len(op["payload"].get("items", [])) for op in inventory_ops)
+    try:
+        ins = (
+            svc.table("import_batches")
+            .insert(
+                {
+                    "source_file": fname,
+                    "source_hash": source_hash,
+                    "source_type": "invoice" if direction == "received" else "pull",
+                    "direction": direction,
+                    "month": db_month,
+                    "year": year,
+                    "week_number": week,
+                    "invoice_number": invoice_number,
+                    "item_count": item_count,
+                    "status": "staged",
+                    "staging_batch_id": staging_batch_id,
+                    "created_by": submitter,
+                }
+            )
+            .execute()
+        )
+        import_batch_id = ins.data[0]["batch_id"] if ins.data else None
+    except Exception as exc:
+        if (
+            "uq_import_batches_active_dedup" in str(exc)
+            or "duplicate key" in str(exc).lower()
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "duplicate_upload",
+                    "message": "This file is already being imported for this period/week.",
+                },
+            )
+        raise
+
+    for op in inventory_ops:
+        op["payload"]["source_file"] = fname
+        op["payload"]["source_hash"] = source_hash
+        op["payload"]["import_batch_id"] = import_batch_id
+        op["payload"]["created_by"] = submitter
+        if invoice_number:
+            op["payload"]["invoice_number"] = invoice_number
+    return import_batch_id
+
+
 # ── invoice record helpers ────────────────────────────────────────────────────
 
 
@@ -960,6 +1081,8 @@ async def upload_file(
     content = await file.read()
     fname = file.filename or "upload"
     fsize_kb = round(len(content) / 1024, 1)
+    # Content hash (rename-proof) for weekly duplicate protection.
+    source_hash = hashlib.sha256(content).hexdigest() if content else ""
 
     log.info(
         "[DATA-ENTRY] Job started | file=%s size=%sKB month=%s year=%s week=%s dir=%s overwrite=%s user=%s",
@@ -1127,7 +1250,10 @@ async def upload_file(
         if op.get("operation") in ("inventory_save", "inventory_week_update")
     ]
     overwrite_scope = _overwrite_scope(month, year, week, direction)
-    if inventory_ops:
+    # Weekly uploads (W1-W4) ACCUMULATE through the ledger, so they never require
+    # an overwrite confirmation. Only a whole-month baseline (week 0) replacing an
+    # existing month needs explicit overwrite.
+    if inventory_ops and week == 0:
         existing_count = _existing_inventory_scope_count(month, year, week, direction)
         if existing_count > 0 and not overwrite:
             log.warning(
@@ -1161,6 +1287,13 @@ async def upload_file(
         for op in inventory_ops:
             op["payload"]["overwrite"] = bool(overwrite)
             op["payload"]["overwrite_scope"] = overwrite_scope
+
+    # Weekly duplicate protection (read-only gate): a file already MERGED for this
+    # exact period/week/direction cannot be re-imported (would double-count).
+    if inventory_ops and week in (1, 2, 3, 4) and source_hash:
+        _assert_not_duplicate_weekly(
+            source_hash, max(0, month - 1), year, week, direction
+        )
 
     # ── WRITE PHASE ───────────────────────────────────────────────────────────
     # Everything above is read-only. Any rejection above (reconciliation,
@@ -1200,6 +1333,22 @@ async def upload_file(
 
     batch_id = str(uuid.uuid4())
     submitter = auth_user["id"]
+
+    # Weekly ledger import: open the dedup/audit batch and thread its id + source
+    # metadata into the weekly op payloads so dispatch appends traceable ledger
+    # rows (received/issued) that ACCUMULATE within a week.
+    _open_weekly_import_batch(
+        inventory_ops,
+        week=week,
+        direction=direction,
+        month=month,
+        year=year,
+        fname=fname,
+        source_hash=source_hash,
+        invoice_number=parsed_meta.get("invoice_number"),
+        staging_batch_id=batch_id,
+        submitter=submitter,
+    )
 
     try:
         staged = _stage_entries(
