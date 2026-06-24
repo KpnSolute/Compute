@@ -26,6 +26,25 @@ def _num(v) -> float:
         return 0.0
 
 
+def _summary_commit_changes(commit_id: str, applied_entries: list[dict]) -> list[dict]:
+    """Legacy fallback: one summary commit_changes row per staging entry. Used only
+    when the granular per-item diff is unavailable, so the tree is never empty."""
+    return [
+        {
+            "commit_id": commit_id,
+            "entity_type": entry.get("entity_type", "inventory"),
+            "entity_id": entry.get("entity_id", ""),
+            "field_name": entry.get("field_name", ""),
+            "old_value_text": entry.get("old_value_text"),
+            "new_value_text": entry.get("new_value_text"),
+            "change_type": entry.get("change_type", "update"),
+            "action": "enter",
+            "metadata": entry.get("metadata", {}),
+        }
+        for entry in applied_entries
+    ]
+
+
 def _granular_commit_changes(
     commit_id: str, precomputed_diffs: list[dict] | None
 ) -> list[dict]:
@@ -85,7 +104,12 @@ def _granular_commit_changes(
                         "old_value_text": None if ov is None else str(ov),
                         "new_value_text": None if nv is None else str(nv),
                         "change_type": r.get("status") or "update",
-                        "action": r.get("status") or "update",
+                        # action column CHECK allows only 'pull' | 'enter' | 'revert'.
+                        # Issued/pull movements -> 'pull'; everything else (received,
+                        # opening, field edits) -> 'enter'.
+                        "action": "pull"
+                        if (field or "").endswith("_issued")
+                        else "enter",
                         "month": db_month,
                         "year": year,
                         "week_number": int(wk_m.group(1)) if wk_m else None,
@@ -421,23 +445,23 @@ def _apply_entries(
     #     changed field, with old -> new) built from the pre-replay diff, so the
     #     Source Control tree shows what actually changed. Fall back to one summary
     #     row per entry only if the diff was unavailable (tree is never empty).
-    changes = _granular_commit_changes(commit_id, precomputed_diffs)
-    if not changes:
-        for entry in applied_entries:
-            changes.append(
-                {
-                    "commit_id": commit_id,
-                    "entity_type": entry.get("entity_type", "inventory"),
-                    "entity_id": entry.get("entity_id", ""),
-                    "field_name": entry.get("field_name", ""),
-                    "old_value_text": entry.get("old_value_text"),
-                    "new_value_text": entry.get("new_value_text"),
-                    "change_type": entry.get("change_type", "update"),
-                    "metadata": entry.get("metadata", {}),
-                }
-            )
-    if changes:
-        _insert_commit_changes(changes)
+    # Tree rows are for DISPLAY — the data is already applied + committed above, so
+    # a commit_changes failure must NEVER abort the commit. Best-effort with a
+    # summary-row fallback if the granular insert fails.
+    try:
+        changes = _granular_commit_changes(commit_id, precomputed_diffs)
+        if not changes:
+            changes = _summary_commit_changes(commit_id, applied_entries)
+        if changes:
+            _insert_commit_changes(changes)
+    except Exception as exc:
+        log.warning(
+            "[COMMIT] granular commit_changes failed, retrying summary rows: %s", exc
+        )
+        try:
+            _insert_commit_changes(_summary_commit_changes(commit_id, applied_entries))
+        except Exception as exc2:
+            log.warning("[COMMIT] summary commit_changes also failed: %s", exc2)
 
     # 5 — mark the whole set merged
     if applied_entry_ids:
