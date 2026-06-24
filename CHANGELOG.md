@@ -38,9 +38,33 @@ This is the **central development memory and discussion board** for development 
 - `monthly_snapshots.starting_total` (opening $) is **never populated** — the fn's INSERT column list omits it → any report reading it gets 0. FIX: compute `starting_total = Σ on_hand×price` and add to the upsert.
 - Snapshot stores received week-$ (`wk1..wk5_total`) but **no issued $ totals** → "Total issued" can't be sourced from the snapshot (the UI computes it live from raw rows; history/reports can't). FIX: add `issued_total` (or `wk{1..5}_issued_total`) to `monthly_snapshots` + populate in the fn.
 
-**P1 — "Whole-month combo" depends on file format (Goal 2). [parser.py / docs — Gemini]**
-A whole-month upload carries received+issued **only** when the file is the GRID monthly workbook (`_parse_mjcc_monthly_inventory` maps w1i–w4i / w1r–w4r). The FLAT "Fact checked" export (`_parse_mjcc_flat_inventory`) carries **opening on_hand only** — weekly received/issued come from the separate weekly uploads, by design.
-→ ACTION: confirm which file the operator means by "combo." If the fact-check xlsx must carry weekly received/issued, extend the flat parser to map "Total Rcvd / Total Pulled" into chosen week columns; else document that weekly data = weekly uploads. No code change if the weekly-upload model is accepted.
+### ✅ DESIGN CONFIRMED (operator spec, 2026-06-23): ROLLING MONTHLY INVENTORY MODEL
+
+Verified against the operator's real `May Fact checked.xlsx` (sheet "May 2026 Full Inventory": `Category|SKU|Description|Start OH|Total Rcvd|Total Pulled|Ending OH|Unit Price|Ending Value`, 192 items). Computed: opening **$6,526.68**, received $23,196.12, pulled $23,921.68, ending **$5,801.12**. The import reproduced **opening exactly** — calc engine is faithful; the "$7,4xx" banner is a stray label.
+
+**The model (authoritative):**
+- **Baseline upload = OPENING ONLY.** A first-month/baseline sheet establishes per SKU: SKU, Description, Category, **Opening On Hand**, Unit Price. The file's Total Rcvd / Total Pulled / Ending OH are **intentionally NOT imported** when weekly uploads will supply them. ⇒ `_parse_mjcc_flat_inventory` current behavior (Start OH → on_hand only) is **CORRECT — no change**. The earlier "import the month's received/pulled" idea is REJECTED (would double-count).
+- **`Ending On Hand = Opening + Received − Pulled`**, per SKU, recomputed after every weekly upload. Opening = previous month's ending (rollover). Received = weekly invoices. Pulled = weekly pull sheets. (Snapshot fn already computes this sum.)
+
+**Required changes to realize the model:**
+
+**R1 — Weekly uploads must ACCUMULATE, not REPLACE (Goal: "parse correctly by week"). [dispatch.py]**
+`dispatch_inventory_week` currently upserts `w{week}_{direction} = qty` — a SECOND invoice/pull for the same week OVERWRITES the first. Spec: "add the shipped quantity to the received total." FIX: accumulate (sum into the week column, ideally derived from the R2 ledger so re-runs stay idempotent).
+
+**R2 — Transaction audit ledger. [schema: inventory_transactions (empty table exists) — mjcc-data]**
+Spec: preserve week number, upload date, source file, transaction qty. One ledger row per item per weekly upload (item_id, month, year, week, direction, qty, unit_price, source_file, batch_id, uploaded_by, created_at). The `w{week}_*` columns become the SUM of ledger rows. This is what makes accumulate (R1), dedup (R3), and corrections (R5) correct and auditable — and it feeds the Source Control tree (P0).
+
+**R3 — Duplicate protection / idempotent re-upload. [data_entry.py]**
+Spec: re-uploading the same file must not double-count. Invoices already have `invoice_number` idempotency; pull sheets + generic files need a content-hash (or (source_file, item, week, direction) uniqueness) check before writing ledger rows.
+
+**R4 — Month-end rollover by SKU. [perform_rollover — verify/fix]**
+Spec: Ending On Hand → next month's Opening, per SKU INCLUDING zero-activity items; new SKUs open at 0 unless a manual opening is given; carry **only** on-hand + unit price (NOT received/pulled). Audit `perform_rollover` against this.
+
+**R5 — Corrections as adjustment transactions. [new op + UI]**
+Spec: corrections are adjustment ledger rows (original txn + adjustment qty + reason + date + user), never silent edits of historical weekly data.
+
+**R6 — Negative ending allowed but flagged. [refresh_monthly_snapshot + UI]**
+Spec: allow negative ending for audit, flag for review. The snapshot's `GREATEST(0,…)` floors negatives in valuation (hides over-issues); `over_issued_count` only counts them. Decide: surface true (possibly negative) ending + a review flag, keeping a separate floored valuation if needed.
 
 **P2 — Vestigial / cosmetic.**
 - `monthly_inventory.w5_received/w5_issued` + `snapshot.wk5_total` exist, but Data Entry caps weeks at 4 and `GET /inventory` selects only w1–w4. Decide: support 5-week months or drop w5.
