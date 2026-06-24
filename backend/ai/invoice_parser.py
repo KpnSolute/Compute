@@ -70,18 +70,29 @@ USFOODS_LINE_RE = re.compile(
     r"\s*$",
 )
 
-# Lines that look like column headers or page noise — skip before regex matching
+# Lines that look like column headers, fee/summary lines, or recap rows — skip
+# before regex matching.  Fee and summary patterns use ".*" to consume the
+# full line (including any amounts after the keyword) so they are not
+# accidentally captured by GENERIC_LINE_RE.
 USFOODS_SKIP_RE = re.compile(
     r"^\s*(?:"
-    r"ORD\s+SHP\s+ADJ|"  # column header row (ordered/shipped/adj)
-    r"UNIT\s+PRICE\s+EXT|"  # "UNIT  PRICE  EXT" header variant
-    r"UNIT[\s\t]+PRICE|"  # "UNIT\tPRICE" or "UNIT PRICE" alone
-    r"ITEM\s*(?:#|NO|NUMBER)|"  # item header
-    r"PRODUCT\s*(?:#|NO|NUMBER)|"  # product number header
-    r"DESCRIPTION\s+BRAND|"  # description/brand header
-    r"PAGE\s+\d+\s+OF\s+\d+|"  # page numbers
-    r"INVOICE\s+SUMMARY|"  # INVOICE SUMMARY section header
-    r"(?:SUBTOTAL|NET\s+TOTAL|FUEL\s+SURCHARGE|VIZIENT|MEMBER\s+DISCOUNT)\s*[:\$]"
+    r"ORD\s+SHP\s+ADJ|"                        # column header row
+    r"UNIT\s+PRICE\s+EXT|"                     # "UNIT  PRICE  EXT" header
+    r"UNIT[\s\t]+PRICE|"                        # "UNIT PRICE" alone
+    r"ITEM\s*(?:#|NO|NUMBER)|"                  # item # header
+    r"PRODUCT\s*(?:#|NO|NUMBER)|"               # product # header
+    r"DESCRIPTION\s+BRAND|"                     # description/brand header
+    r"PAGE\s+\d+\s+OF\s+\d+|"                  # page numbers
+    r"INVOICE\s+(?:SUMMARY|LINE\s+DETAILS)|"   # section headers
+    r"STORAGE\s+LOCATION.*|"                   # storage location recap row/header
+    r"DELIVERY\s+SUMMARY.*|"                   # delivery summary totals row
+    r"TOTAL\s+(?:PIECES|ITEMS|WEIGHT|EXTENDED).*|"  # recap column headers
+    r"BILL\s+TO|SHIP\s+TO|REMIT\s+TO|"        # address block labels
+    r"SHIPPED\s+FROM|SHIPPED\s+DATE|"          # shipping info labels
+    r"DRIVER\s+(?:NAME|ID)|ROUTE\s+NUMBER|STOP\s+NUMBER|"  # route/driver labels
+    r"(?:SUBTOTAL|NET\s+TOTAL|FUEL\s+SURCHARGE|VIZIENT|MEMBER\s+DISCOUNT|"
+    r"DELIVERED\s+AMOUNT|DELIVERY\s+AMOUNT|AMOUNT\s+DUE|"
+    r"PRICING\s+UNIT|SALES\s+REP|PURCHASE\s+ORDER).*"  # fee/financial lines (whole line)
     r")\s*$",
     re.IGNORECASE,
 )
@@ -113,6 +124,17 @@ GENERIC_LINE_RE = re.compile(
     r"\s+(\d{1,3}(?:,\d{3})*\.\d{2})"  # unit price
     r"\s+(\d{1,3}(?:,\d{3})*\.\d{2})"  # ext price
     r"\s*$",
+)
+
+# Descriptions that are fee/summary rows, not product items. Applied as a
+# post-match guard on GENERIC_LINE_RE (which has no SKU to distinguish them).
+_FEE_DESC_RE = re.compile(
+    r"(?:FUEL\s+SURCHARGE|FUEL\s+CHARGE|VIZIENT|MEMBER\s+DISCOUNT|GPO\s+DISCOUNT|"
+    r"SUBTOTAL|NET\s+TOTAL|AMOUNT\s+DUE|DELIVERED\s+AMOUNT|DELIVERY\s+AMOUNT|"
+    r"STORAGE\s+LOCATION|DELIVERY\s+SUMMARY|TOTAL\s+EXTENDED|TOTAL\s+PIECES|"
+    r"TOTAL\s+ITEMS|TOTAL\s+WEIGHT|INVOICE\s+SUMMARY|FREIGHT|HANDLING|"
+    r"MISCELLANEOUS\s+CHARGE|SERVICE\s+CHARGE|ADMINISTRATIVE)",
+    re.IGNORECASE,
 )
 
 # US Foods inline category/section header
@@ -179,12 +201,16 @@ META_PATTERNS: list[tuple[str, re.Pattern]] = [
     ),
     ("route", re.compile(r"ROUTE\s*[:\s]\s*(\w+)", re.IGNORECASE)),
     (
-        # US Foods "Product Total $X" — the authoritative GOODS subtotal that
-        # inventory is valued at (before Vizient/fuel/tax). Requires the $ right
-        # after the label so it never matches "Product Total Adjustments $0.00".
+        # Authoritative GOODS subtotal — inventory is valued at this number
+        # (before Vizient/fuel/tax).  Matches the US Foods "Product Total $X"
+        # label AND the per-invoice "DELIVERY SUMMARY TOTALS … $X.XX" row
+        # where the last dollar amount is the Total Extended Price.
         "product_total",
         re.compile(
-            r"PRODUCT\s+TOTAL\s*:?\s*\$\s*(\d{1,3}(?:,\d{3})*\.\d{2})", re.IGNORECASE
+            r"(?:PRODUCT\s+TOTAL\s*:?\s*\$\s*"
+            r"|DELIVERY\s+SUMMARY\s+TOTALS[\s\d.]*\$?\s*)"
+            r"(\d{1,3}(?:,\d{3})*\.\d{2})",
+            re.IGNORECASE,
         ),
     ),
     (
@@ -830,6 +856,9 @@ def _parse_page_lines(text: str, current_cat: str) -> tuple[list[dict], str]:
             # skip noise lines: equal tiny values are usually page numbers
             if unit_p == ext_p and unit_p < 1.0:
                 continue
+            # skip fee/charge/summary lines that slipped past USFOODS_SKIP_RE
+            if _FEE_DESC_RE.search(m.group(1)):
+                continue
             items.append(
                 {
                     "category": current_cat,
@@ -1131,6 +1160,11 @@ def invoice_items_to_ops(
         # fall back to qty_ordered, which would record goods that never arrived.
         qty = _int(item.get("qty_shipped"))
         if qty <= 0:
+            skipped += 1
+            continue
+
+        # drop fee/surcharge/summary rows that leaked through the parser
+        if desc and _FEE_DESC_RE.search(desc):
             skipped += 1
             continue
 
