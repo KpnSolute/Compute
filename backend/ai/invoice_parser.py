@@ -179,9 +179,19 @@ META_PATTERNS: list[tuple[str, re.Pattern]] = [
     ),
     ("route", re.compile(r"ROUTE\s*[:\s]\s*(\w+)", re.IGNORECASE)),
     (
+        # US Foods "Product Total $X" — the authoritative GOODS subtotal that
+        # inventory is valued at (before Vizient/fuel/tax). Requires the $ right
+        # after the label so it never matches "Product Total Adjustments $0.00".
+        "product_total",
+        re.compile(
+            r"PRODUCT\s+TOTAL\s*:?\s*\$\s*(\d{1,3}(?:,\d{3})*\.\d{2})", re.IGNORECASE
+        ),
+    ),
+    (
         "subtotal",
         re.compile(
-            r"SUBTOTAL\s*[:\s]\s*\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2})", re.IGNORECASE
+            r"(?:MERCHANDISE\s+)?SUBTOTAL\s*[:\s]\s*\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2})",
+            re.IGNORECASE,
         ),
     ),
     (
@@ -219,7 +229,7 @@ META_PATTERNS: list[tuple[str, re.Pattern]] = [
     (
         "net_total",
         re.compile(
-            r"(?:INVOICE\s+NET|NET\s+TOTAL|NET\s+AMOUNT|AMOUNT\s+DUE)\s*[:\s]\s*\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2})",
+            r"(?:INVOICE\s+NET|NET\s+TOTAL|NET\s+AMOUNT|AMOUNT\s+DUE|DELIVERED\s+AMOUNT|DELIVERY\s+AMOUNT)\s*[:\s]\s*\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2})",
             re.IGNORECASE,
         ),
     ),
@@ -691,6 +701,16 @@ def _extract_meta(pages: list[str]) -> dict[str, str]:
             meta[key] = _clean(m.group(1))
     if meta.get("po_number", "").upper() == "ITEM":
         meta.pop("po_number", None)
+    # US Foods lists each GPO incentive on its own line (e.g. "VIZIENT-.50% ...
+    # -$98.17 CR" and "VIZIENT-.60% ... -$117.80 CR"). Sum ALL of them for the true
+    # member discount instead of capturing only the first.
+    viz = re.findall(
+        r"(?:VIZIENT|MEMBER\s+DISCOUNT|GPO)[^\n]*?-\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2})\s*CR?",
+        combined,
+        re.IGNORECASE,
+    )
+    if viz:
+        meta["vizient_discount"] = f"{sum(float(v.replace(',', '')) for v in viz):.2f}"
     return meta
 
 
@@ -849,13 +869,14 @@ def _parse_text_pages(pages: list[str]) -> tuple[list[dict], dict]:
 
 
 def reconcile_and_adjust(items: list[dict], meta: dict) -> tuple[list[dict], dict]:
-    """Distribute the invoice-level discount across line items so that
-    SUM(qty × adjusted_unit_price) == invoices.net_total exactly.
+    """Value inventory at the invoice's PRODUCT (goods) total — never the net.
 
-    The Vizient GPO discount on US Foods invoices is a lump-sum reduction —
-    line items carry the pre-discount price.  This function applies a
-    proportional discount_factor so every item's stored price reflects what
-    the cafeteria actually paid.
+    Each item's cost = its printed line total; the parsed line items are normalized
+    only to the stated Product Total / merchandise Subtotal to absorb small parse
+    noise. Vizient/GPO discount, fuel surcharge and tax are extracted and recorded
+    SEPARATELY for the invoice financial record — they are NOT folded into per-item
+    inventory cost. So week receivable = sum of item product costs; month = sum of
+    weeks. The reconciliation stats are a parse-quality check, not a price adjuster.
 
     Returns (adjusted_items, reconciliation_stats).
     reconciliation_stats keys:
@@ -879,59 +900,82 @@ def reconcile_and_adjust(items: list[dict], meta: dict) -> tuple[list[dict], dic
             return 0.0
 
     computed_subtotal = round(sum(_f(i.get("ext_price", 0)) for i in items), 2)
+    product_total = _f(meta.get("product_total"))
     stated_subtotal = _f(meta.get("subtotal"))
     vizient = _f(meta.get("vizient_discount"))
     fuel = _f(meta.get("fuel_surcharge"))
+    tax = _f(meta.get("tax"))
     net_total = _f(meta.get("net_total") or meta.get("total_amount"))
 
-    # Derive net_total from components when the header omits it
-    if net_total <= 0 and stated_subtotal > 0:
-        net_total = round(stated_subtotal - vizient + fuel, 2)
-    if net_total <= 0 and computed_subtotal > 0 and vizient > 0:
-        net_total = round(computed_subtotal - vizient + fuel, 2)
+    # INVENTORY is valued at the PRODUCT/goods cost — NEVER the net (which folds in
+    # GPO/Vizient discounts, fuel surcharge, and tax). Normalize the parsed line
+    # items to the invoice's stated Product Total (or merchandise Subtotal) only to
+    # absorb small line-parse noise; vizient/fuel/tax stay SEPARATE for the invoice
+    # financial record and are not applied to item prices.
+    valuation_target = product_total or stated_subtotal or 0.0
+    valuation_factor = 1.0
+    if valuation_target > 0 and computed_subtotal > 0:
+        candidate = valuation_target / computed_subtotal
+        # Trust normalization only when it is a small correction; a wildly different
+        # "total" is a mis-parse → keep the raw line-item cost.
+        if 0.9 <= candidate <= 1.1:
+            valuation_factor = candidate
 
-    # Discount factor: scale all prices so they sum to net_total
-    discount_factor = 1.0
-    if net_total > 0 and computed_subtotal > 0:
-        discount_factor = net_total / computed_subtotal
-    has_multiflow = any(
-        str(item.get("label", "")).lower() == "multi-flow" for item in items
-    )
-    raw_delta = round(abs(computed_subtotal - net_total), 2) if net_total > 0 else 0.0
-    raw_delta_pct = round(raw_delta / net_total * 100, 3) if net_total > 0 else 0.0
-    if has_multiflow and raw_delta_pct > 5.0:
-        discount_factor = 1.0
-        net_total = 0.0
+    # Multi-Flow thermal receipts have unreliable printed totals — never scale them.
+    if any(str(i.get("label", "")).lower() == "multi-flow" for i in items):
+        valuation_factor = 1.0
 
     adjusted: list[dict] = []
     for item in items:
         raw_unit = _f(item.get("unit_price", 0))
         raw_ext = _f(item.get("ext_price", 0))
-        adj_unit = round(raw_unit * discount_factor, 4)
-        adj_ext = round(raw_ext * discount_factor, 2)
-        adjusted.append({**item, "unit_price": adj_unit, "ext_price": adj_ext})
+        adjusted.append(
+            {
+                **item,
+                "unit_price": round(raw_unit * valuation_factor, 4),
+                "ext_price": round(raw_ext * valuation_factor, 2),
+            }
+        )
 
-    adjusted_total = round(sum(_f(i["ext_price"]) for i in adjusted), 2)
-    delta = round(abs(adjusted_total - net_total), 2) if net_total > 0 else 0.0
-    delta_pct = round(delta / net_total * 100, 3) if net_total > 0 else 0.0
+    # Inventory received value = sum of the product-cost line items.
+    product_cost = round(sum(_f(i["ext_price"]) for i in adjusted), 2)
+
+    # Net amount due — financial record ONLY. Prefer the stated net; else derive it
+    # from product cost minus the GPO discount plus fuel + tax.
+    if net_total <= 0:
+        net_total = round(product_cost - vizient + fuel + tax, 2)
+
+    # Reconciliation CHECK (flags a bad parse; does NOT drive valuation): how close
+    # the raw parsed line items are to the stated product total.
+    ref = valuation_target or computed_subtotal
+    delta = round(abs(computed_subtotal - ref), 2)
+    delta_pct = round(delta / ref * 100, 3) if ref > 0 else 0.0
+
+    # Finalize the invoice financial fields for the invoices record.
+    meta["product_total"] = f"{(valuation_target or computed_subtotal):.2f}"
+    meta.setdefault("subtotal", meta["product_total"])
+    meta["net_total"] = f"{net_total:.2f}"
+    if vizient:
+        meta["vizient_discount"] = f"{vizient:.2f}"
+    if fuel:
+        meta["fuel_surcharge"] = f"{fuel:.2f}"
 
     stats: dict = {
         "computed_subtotal": computed_subtotal,
         "stated_subtotal": stated_subtotal,
+        "product_total": valuation_target or computed_subtotal,
+        "product_cost": product_cost,
         "vizient_discount": vizient,
         "fuel_surcharge": fuel,
+        "tax": tax,
         "net_total": net_total,
-        "discount_factor": round(discount_factor, 6),
-        "adjusted_total": adjusted_total,
+        "discount_factor": round(valuation_factor, 6),
+        "adjusted_total": product_cost,
         "delta": delta,
         "delta_pct": delta_pct,
         "reconciled": delta_pct < 1.0,
         "item_count": len(adjusted),
     }
-    if has_multiflow and raw_delta_pct > 5.0:
-        stats["total_untrusted"] = True
-        stats["raw_net_total"] = _f(meta.get("net_total") or meta.get("total_amount"))
-        stats["raw_delta_pct"] = raw_delta_pct
     return adjusted, stats
 
 
