@@ -138,7 +138,13 @@ def _data_entry_period_settings() -> dict:
         "max_month": min(now.month, 11),  # 0-indexed current month + one
         "operational_week_count": 4,
         "calendar_rollover_rule": "days_after_28_to_next_month_w1",
-        "allow_new_items_on_weekly": False,
+        # Weekly invoices legitimately carry items not yet in the catalog (e.g.
+        # a Multi-Flow beverage invoice vs a US-Foods-derived catalog). Allow them
+        # through as NEW items so the upload isn't hard-blocked — they stage into a
+        # PR in the "New Items" review category and only land on commit, so this is
+        # safe (staging != applying). The live app_settings.data_entry value still
+        # overrides this default.
+        "allow_new_items_on_weekly": True,
         "max_file_size_mb": 10,
         "reconcile_max_delta_pct": 5.0,
     }

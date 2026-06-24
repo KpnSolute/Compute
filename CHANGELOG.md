@@ -18,6 +18,24 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.10.26 — 2026-06-23 — Weekly invoices can bring in new items (Multi-Flow beverage case)
+
+**Claude (Senior Dev Manager):** Jeremiah uploaded `May2026W1 - Beverage Invoice.webp` (May 2026, W1, received) → `422 All 2 parsed item(s) have unknown SKUs`. Diagnosed from prod logs (`render logs` on `srv-d8afnemgvqtc73cr64l0`): parse itself was **fine** — `ops=2, elapsed=1.49s, provider=google` (fast Google Cloud Vision OCR path, no timeout) → `[RESOLVE] 2 unique SKUs → 0 direct 0 alias 2 to-queue allow_new=False` → blocked. The v4.10.25 invariant held: 0 staging / 0 queue / 0 invoice rows written.
+
+**Root cause (a policy gap, not a parser bug):** the catalog is built from US Foods (192 items: 66 Frozen, 52 Dry, 14 Beverages…); a **Multi-Flow beverage** invoice carries items that simply aren't in it. Weekly uploads ran with `allow_new_items_on_weekly=false`, so brand-new items were hard-blocked instead of being importable. A multi-vendor cafeteria had **no path** to bring a new item in via a weekly invoice.
+
+**Fix:** enabled new-item intake on weekly uploads.
+- Live `app_settings.data_entry.allow_new_items_on_weekly` → **true** (read per-request, no deploy needed).
+- Code default in `_data_entry_period_settings` also flipped **false → true** so the behavior survives a settings reset; the DB value still overrides.
+
+This is safe because **staging ≠ applying**: unknown weekly items are now KEPT, staged into a PR in the "New Items" review category (`review_new=True`), and only created on commit — the operator still reviews every new item in Source Control before it lands. Verified May 2026 W1 received is empty (0 rows) so the beverage re-upload won't hit the overwrite gate. Swept the other `staging_entries`/`sku_review_queue` inserts (inventory.py, sku_review.py, sourcectrl.py) — all are deliberate Source-Control write actions, not auto-parse paths, so no other failed-parse-writes-DB leak exists. Ruff/format/import clean.
+
+**Operator note:** beverage `.webp` rode the OCR path and pulled 2 items. If that invoice actually had more than 2 lines, share the file (drop in `templates/`) and I'll harden the Multi-Flow/image parser. To revert to strict mode (weekly = update-existing-only): set `allow_new_items_on_weekly` back to false.
+
+**Push:** pending — see below.
+
+---
+
 ## v4.10.25 — 2026-06-23 — Failed/blocked uploads no longer touch the DB
 
 **Claude (Senior Dev Manager):** Follow-up to v4.10.24. The upload pipeline was writing to the DB *before* its rejection gates — so an upload that ultimately 4xx'd still left rows behind. This is what let the bad weekly attempts pump 370 garbage rows into `sku_review_queue`: `_resolve_and_queue_items` inserted unknown SKUs, and `_upsert_invoice_record` inserted an `invoices` row, both *before* the `all-unknown` (422) and `overwrite_required` (409) gates that aborted the request. The pre-parse stale-pending cleanup also rejected the user's prior batch even when the new parse then failed.
