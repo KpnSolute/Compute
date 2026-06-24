@@ -18,6 +18,46 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## ✅ v4.17.0 — 2026-06-24 — Inventory valued at PRODUCT total; fees kept separate
+
+**Claude (Senior Dev Manager):** Operator flagged that the invoice net total bakes in taxes/fees, so per-item inventory cost must come from the goods total, checked item-by-item / category / week. Confirmed against their `May2026_Weekly_Invoices.xlsx` (Product Total column separate from Vizient/Fuel) and the W1 invoice summary block: `Product Total $19,633.63`, two Vizient incentives (−$98.17, −$117.80), `DELIVERED AMOUNT $19,417.66` (net).
+
+**Decision (operator):** value items at **product/list price**; **Vizient + fuel + tax → invoice record only**, never in item cost.
+
+**Change (`invoice_parser.py`):**
+- New `product_total` META regex (US Foods "Product Total $X"); Vizient now **summed across all incentive lines**; net regex also matches "DELIVERED/DELIVERY AMOUNT".
+- `reconcile_and_adjust` rewritten: normalize line items to the **Product Total** (clamped to a small correction; raw line items if no stated total) — **never the net**. Vizient/fuel/tax recorded separately. Reconcile is now a parse-quality check, not a price adjuster. Week receivable = Σ item product cost; month = Σ weeks.
+
+**Verified W1:** product_total $19,633.63, vizient $215.97, net $19,417.66, received value **$19,633.63** (= operator's Product Total). ruff/imports clean.
+
+**Note:** W2 PDF is a scanned image (0 native text) → rides the OCR/vision path in prod. Follows the catch-weight + par fixes (v4.15.0); May data was wiped clean for a fresh re-upload with all of them.
+
+**Push:** Claude → 0afea13 — 2026-06-24.
+
+---
+
+## ✅ v4.16.0 — 2026-06-24 — Full-site UI audit (live walkthrough) + dead-button fixes
+
+**Claude (Senior Dev Manager):** Drove the **live production site** (kpncompute.onrender.com, logged in as jeremiah/Sudo) through **every view** via Chrome DevTools — screenshotting each as the user sees it, checking console + every `/api/*` response. `tsc --noEmit` clean, `vite build` OK, eslint 0 errors. **Note:** the live site runs the *deployed* build (v4.14.0), so the v4.15.0 Item Inspector could not be live-tested here — it's build-verified only and will be exercisable once pushed.
+
+**Overall health: strong.** 86 / 88 API calls returned 200. Every audited view renders and is wired to the API: Login, Dashboard, Inventory (Grouped), Monthly Inventory, Meal Log, Food Request, Data Entry (+ audit panel), HACCP & Logs, Daily Operations, Inspection Sheet, Events (calendar), 28-Day Menu, Source Control (Changes + History/Commit Log), Reports (catalogue + live preview), Archives, AI Studio (Usage/Tools/Automation), Users & Access (auth model correct: Password vs 4-digit PIN), Settings.
+
+**Defects found & FIXED:**
+- **Dead "Scan" button** (Inventory toolbar, `Portal.tsx`) — had no `onClick`. Wired → opens the Barcodes & Scan view.
+- **Dead "Print" button** (Monthly Inventory, `Operations.tsx`) — no handler. Wired → `window.print()`.
+- **Dead "Add item" button** (Monthly Inventory, `Operations.tsx`) — no handler. Threaded a `go` prop and wired → navigates to the Inventory editor (the canonical add-item flow), instead of doing nothing.
+- **Source Control empty state** (the screen the operator circled as "I don't want to see stuff like that") — was a small top-aligned label in a large black void. Polished `.sc-empty` (CSS-only): circular accent icon badge, centered with `min-height`, stronger typography. Now reads as intentional, not broken. Affects both the side panel and full page.
+- **Login cold-start UX** (`Login.tsx`) — Render free-tier cold start makes the backend take ~30–60s, during which the button just said "Verifying…" forever (I hit a 2-min hang on first load). Added a `slow` state: after 4s it shows "Waking the server…" + a reassurance note.
+
+**Known items NOT changed (logged, need a decision):**
+- **Barcodes & Scan is a non-functional "Module preview"** — placeholder card with static feature bullets. The nav exposes it and the Inventory Scan button now routes to it, but the module itself isn't built. Recommend: build it or mark it clearly "Coming soon." Awaiting direction.
+- **`GET /api/inventory?month=6&year=2026` → 404** for the current (empty) period. The UI handles it gracefully (empty-state card), but the browser logs a console 404. Cleaner would be a 200 + empty payload (backend / Gemini's lane).
+- **Per-view month independence** — HACCP, Events, Daily Ops, and Data Entry keep their own month state separate from the global period selector. Appears intentional (calendar/current-month based); flagging for confirmation.
+
+**Push:** pending — not yet pushed (awaiting operator; KpnCompute auto-deploys from `main`).
+
+---
+
 ## ✅ v4.15.0 — 2026-06-24 — Inventory: roster-style floating Item Inspector
 
 **Claude (Senior Dev Manager):** Manual-editing UX upgrade on the Inventory view. Click any item row (in **all three** modes — Regular / Grouped / Compact) and a floating slide-over drawer opens with that item's tools in one place — the "click the object → toolbar appears" roster feel the operator asked for. `tsc --noEmit` clean, `vite build` OK, eslint 0 errors (only the baseline `any` warnings).
