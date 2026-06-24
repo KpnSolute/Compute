@@ -18,6 +18,30 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## ✅ v4.13.0 — 2026-06-24 — PHASE 2b: post-session inventory auditor (built + verified)
+
+**Claude (Senior Dev Manager):** The backend AI/logic auditor is live. After every data-entry commit it re-checks the affected period for logical issues and writes findings to an in-app table for Data Entry. Verified end-to-end on prod; all test data removed (clean slate: 0 rows, 11 categories kept).
+
+**Migration 018:** `inventory_audit_log` (month, year, check_type, severity error|warning|info, item_id, sku, message, details jsonb, resolved) + `audit_inventory_period(month, year)` — a deterministic, idempotent audit (clears the period's prior unresolved findings, then re-inserts). Checks:
+- `negative_ending` (error) — ending = opening + received − issued < 0 (over-pulled)
+- `reconciliation_drift` (error) — cached `w{n}` columns ≠ ledger SUM (integrity)
+- `missing_price` (warning) — active item with $0 price
+- `orphan_item` (warning) — item with activity but no category
+- `suspicious_qty` (info) — a single movement > 500
+- `duplicate_week` (warning) — same item received 3+ times in one week
+
+**API (`inventory.py`):** `GET /api/inventory/audit?month&year` (read findings + severity counts, any auth) and `POST /api/inventory/audit` (run, manager+). **`_apply_entries` auto-runs the audit** for each affected inventory period after a successful commit — best-effort, never blocks a commit.
+
+**Verified:** seeded item → function flagged suspicious_qty (600), duplicate_week (3×), missing_price. Live API: upload no-price item → commit → auto-audit ran → `GET /audit` returned the missing_price finding (200, counts {error:0,warning:1,info:0}). ruff/imports clean.
+
+**Design notes:** checks are deterministic SQL (reliable + real-time) rather than LLM-judged, so findings are exact and reproducible; an optional AI natural-language session summary can layer on top later (the `agent.py` framework is available). "Sync changelog with DB" is realized as the in-app `inventory_audit_log` (per operator choice), not the repo CHANGELOG.
+
+**Remaining (frontend only — Claude's lane):** render the audit-findings panel + a commit-tree detail view in Data Entry. All data + APIs exist (`GET /api/inventory/audit`, `GET /api/commits`, commit_changes via PR detail). This is the last piece to "complete the data entry aspect."
+
+**Push:** Claude → ad5465f — 2026-06-24.
+
+---
+
 ## ✅ v4.12.0 — 2026-06-24 — PHASE 2a: granular whole-site commit tree (built + verified)
 
 **Claude (Senior Dev Manager):** Source Control now records what each commit ACTUALLY changed, site-wide — not just data entry. Verified end-to-end on prod, all test data removed (clean slate: 0 rows everywhere, 11 categories kept).
