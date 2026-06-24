@@ -38,6 +38,7 @@ _INV_ALIASES: dict[str, str] = {
     "productname": "desc",
     "product": "desc",
     "itemdescription": "desc",
+    "productdescription": "desc",
     # category
     "category": "category",
     "cat": "category",
@@ -70,6 +71,10 @@ _INV_ALIASES: dict[str, str] = {
     "onhand": "onHand",
     "qty": "onHand",
     "quantity": "onHand",
+    # invoice/receipt spreadsheets: the RECEIVED quantity is "Shipped Qty" (NOT
+    # "Ordered Qty" — ordered-but-not-shipped goods never arrived).
+    "shippedqty": "onHand",
+    "qtyshipped": "onHand",
     "stock": "onHand",
     "currentstock": "onHand",
     "available": "onHand",
