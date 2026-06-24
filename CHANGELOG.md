@@ -32,7 +32,7 @@ This is safe because **staging ≠ applying**: unknown weekly items are now KEPT
 
 **Operator note:** beverage `.webp` rode the OCR path and pulled 2 items. If that invoice actually had more than 2 lines, share the file (drop in `templates/`) and I'll harden the Multi-Flow/image parser. To revert to strict mode (weekly = update-existing-only): set `allow_new_items_on_weekly` back to false.
 
-**Push:** pending — see below.
+**Push:** Claude → 456cf7e — 2026-06-23 (pushed to main; Render auto-deploy triggered). Live DB setting already applied (no deploy needed for that half).
 
 ---
 
