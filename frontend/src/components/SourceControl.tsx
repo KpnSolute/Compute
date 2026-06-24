@@ -162,7 +162,7 @@ function useSCData(isOpen: boolean) {
         };
     }, [loadData]);
     useEffect(() => {
-        const id = setInterval(loadData, 30000);
+        const id = setInterval(loadData, 15000);
         return () => clearInterval(id);
     }, [loadData]);
     useEffect(() => {

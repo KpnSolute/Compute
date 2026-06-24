@@ -53,6 +53,7 @@ import { CycleMenu } from "./CycleMenu";
 import { SnackBar, MonthlyInventory } from "./Operations";
 import { SourceControlPanel, SourceControlPage } from "./SourceControl";
 import { SaveBar } from "./ui/ActionBars";
+import { ItemInspector } from "./ui/ItemInspector";
 import { Reports } from "./Reports";
 import { Settings } from "./Settings";
 import { AgentBubble } from "./AgentBubble";
@@ -81,7 +82,7 @@ const initials = (u: User) =>
     ((u.display_name?.[0] || "") + (u.last_name?.[0] || "")).toUpperCase() ||
     (u.username || "?").slice(0, 2).toUpperCase();
 
-const AUTO_REFRESH_MS = 90_000; // re-fetch from DB every 90 s
+const AUTO_REFRESH_MS = 60_000; // re-fetch from DB every 60 s
 
 function useInventory(period: [number, number]): [any, () => Promise<void>] {
     const [state, setState] = useState({
@@ -115,11 +116,16 @@ function useInventory(period: [number, number]): [any, () => Promise<void>] {
                 error: (res as any).error ?? 'Load failed',
             });
     }, [m, y]);
-    // Load on mount/period change + auto-refresh every 90 s
+    // Load on mount/period change + auto-refresh + reload on tab-focus
     useEffect(() => {
         load();
         const timer = setInterval(load, AUTO_REFRESH_MS);
-        return () => clearInterval(timer);
+        const onVisible = () => { if (document.visibilityState === 'visible') load(); };
+        document.addEventListener('visibilitychange', onVisible);
+        return () => {
+            clearInterval(timer);
+            document.removeEventListener('visibilitychange', onVisible);
+        };
     }, [load]);
     return [state, load];
 }
@@ -1125,6 +1131,11 @@ function InventoryView({
     const [mergeBusy, setMergeBusy] = useState(false);
     useEscapeClose(!!mergeDialog, () => setMergeDialog(null), mergeBusy);
 
+    // Roster-style floating inspector: click any item row to open a per-item
+    // toolbar (receive ↑ / pull ↓ by week, on-hand / par / price). Staging
+    // routes through the same Source Control ops the inline editors use.
+    const [inspectTarget, setInspectTarget] = useState<any | null>(null);
+
     // Week lock status: keyed by week number (1-4), value = 'open'|'locked'|'published'
     const [weekLockStatus, setWeekLockStatus] = useState<Record<number, string>>({});
     const [weekLockBusy, setWeekLockBusy] = useState(false);
@@ -1679,6 +1690,15 @@ function InventoryView({
             (!triageFilter || r.needs_attention === true),
     );
 
+    // Click a row body (but not its inline inputs/buttons) to open the
+    // roster-style floating inspector for that item.
+    const rowClick = (r: any) => (e: React.MouseEvent) => {
+        if (!canStage) return;
+        const t = e.target as HTMLElement;
+        if (t.closest("input, button, select, a, label, textarea")) return;
+        setInspectTarget(r);
+    };
+
     return (
         <div className="fade-in">
             <div className="page-head">
@@ -1719,7 +1739,7 @@ function InventoryView({
                     <button className="btn no-print" onClick={handlePrint}>
                         {I.printer({})} Print
                     </button>
-                    <button className="btn no-print">{I.scan()} Scan</button>
+                    <button className="btn no-print" onClick={() => go?.("barcodes")}>{I.scan()} Scan</button>
                     <button className="btn no-print" onClick={onSync}>
                         {I.refresh()} Refresh
                     </button>
@@ -1986,7 +2006,7 @@ function InventoryView({
                                     const isLow = onHand < par && par > 0;
                                     const rowValue = onHand * (r.price || 0);
                                     return (
-                                        <tr key={(r.sku || "") + i}>
+                                        <tr key={(r.sku || "") + i} className="inv-row" onClick={rowClick(r)}>
                                             <td
                                                 className="num"
                                                 style={{
@@ -2261,6 +2281,8 @@ function InventoryView({
                                                                                     "") +
                                                                                 i
                                                                             }
+                                                                            className="inv-row"
+                                                                            onClick={rowClick(r)}
                                                                         >
                                                                             <td
                                                                                 className="num"
@@ -2634,10 +2656,12 @@ function InventoryView({
                                                                                 i
                                                                             }
                                                                             className={
-                                                                                rcv
-                                                                                    ? "rcvd"
-                                                                                    : ""
+                                                                                "inv-row" +
+                                                                                (rcv
+                                                                                    ? " rcvd"
+                                                                                    : "")
                                                                             }
+                                                                            onClick={rowClick(r)}
                                                                         >
                                                                             <td
                                                                                 style={{
@@ -3279,6 +3303,22 @@ function InventoryView({
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* Roster-style item inspector — floating per-item toolbar */}
+            {canStage && inspectTarget && (
+                <ItemInspector
+                    row={inspectTarget}
+                    period={period}
+                    lvl={lvl}
+                    maxWeeks={maxWeeks}
+                    weekLockStatus={weekLockStatus}
+                    initialWeek={compactWeek || 1}
+                    onClose={() => setInspectTarget(null)}
+                    onStaged={() => { openSC?.(); }}
+                    onSync={onSync}
+                    onEditDetails={(r) => openEdit(r)}
+                />
             )}
 
             {/* Category management — manager+ only */}
@@ -4338,11 +4378,14 @@ export function Portal({
         return () => { alive = false; };
     }, [period[0], period[1]]);
 
-    // Reload inventory automatically when a commit is applied
+    // Reload inventory after a commit — 500 ms delay lets the backend finish
+    // surfacing the write before we re-fetch, avoiding a race where the reload
+    // returns the pre-commit state.
     useEffect(() => {
-        const handler = () => reloadInv();
+        let t: ReturnType<typeof setTimeout>;
+        const handler = () => { t = setTimeout(reloadInv, 500); };
         window.addEventListener('mjcc:committed', handler);
-        return () => window.removeEventListener('mjcc:committed', handler);
+        return () => { window.removeEventListener('mjcc:committed', handler); clearTimeout(t); };
     }, [reloadInv]);
 
     // Apply saved theme on mount and react to OS preference changes (auto mode)
@@ -4412,7 +4455,7 @@ export function Portal({
         if (active === "foodreq") return <FoodRequest user={user} />;
         if (active === "snackbar") return <SnackBar user={user} />;
         if (active === "moninv")
-            return <MonthlyInventory user={user} period={period} openSC={() => setScPanelOpen(true)} />;
+            return <MonthlyInventory user={user} period={period} openSC={() => setScPanelOpen(true)} go={goTo} />;
         if (active === "reports")
             return <Reports user={user} period={period} />;
         if (active === "dataentry") return <DataEntry user={user} onNavigate={goTo} />;
