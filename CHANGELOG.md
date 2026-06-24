@@ -18,6 +18,18 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## 🧹 OPS — 2026-06-23 — Full inventory wipe (operator-requested clean-slate redo)
+
+**Claude (Senior Dev Manager):** Jeremiah flagged the May totals as wrong calcs and asked for a final clean-slate wipe to re-upload everything via Data Entry. Executed against live `MJCCv1` after a full in-DB backup.
+
+- **Backed up first** (reversible): `_bak_20260623_*` copies of inventory_items (192), monthly_inventory (192), monthly_snapshots (1), staging_entries (385), commits (3), commit_changes (385), sku_review_queue (370), pull_requests (3), github_sync_queue (3).
+- **Wiped** (one transaction, FK-safe order; had to null the `commits`↔`pull_requests` circular FK first): inventory_items, monthly_inventory, monthly_snapshots, item_barcodes, invoices, invoice_items, staging_entries, commits, commit_changes, inventory_versions, pull_requests, github_sync_queue, sku_review_queue → all **0**.
+- **KEPT** (reference/config): `inventory_categories` (11 — re-upload maps into these), `month_status`, `month_periods`.
+
+Catalog is now empty, so a full-month Data Entry upload runs with `catalog_empty=True` → every item is created fresh. No overwrite gate (period is empty). Backups remain until the operator confirms the re-upload is good, then they get dropped (`drop table _bak_20260623_*`).
+
+---
+
 ## v4.10.26 — 2026-06-23 — Weekly invoices can bring in new items (Multi-Flow beverage case)
 
 **Claude (Senior Dev Manager):** Jeremiah uploaded `May2026W1 - Beverage Invoice.webp` (May 2026, W1, received) → `422 All 2 parsed item(s) have unknown SKUs`. Diagnosed from prod logs (`render logs` on `srv-d8afnemgvqtc73cr64l0`): parse itself was **fine** — `ops=2, elapsed=1.49s, provider=google` (fast Google Cloud Vision OCR path, no timeout) → `[RESOLVE] 2 unique SKUs → 0 direct 0 alias 2 to-queue allow_new=False` → blocked. The v4.10.25 invariant held: 0 staging / 0 queue / 0 invoice rows written.
