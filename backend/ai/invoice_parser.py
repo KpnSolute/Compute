@@ -206,14 +206,16 @@ META_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("route", re.compile(r"ROUTE\s*[:\s]\s*(\w+)", re.IGNORECASE)),
     (
         # Authoritative GOODS subtotal — inventory is valued at this number
-        # (before Vizient/fuel/tax).  Matches the US Foods "Product Total $X"
-        # label AND the per-invoice "DELIVERY SUMMARY TOTALS … $X.XX" row
-        # where the last dollar amount is the Total Extended Price.
+        # (before Vizient/fuel/tax).  Only matches the explicit "Product Total $X"
+        # label from the invoice summary section.  Do NOT match per-page
+        # "DELIVERY SUMMARY TOTALS" rows — those are section subtotals that
+        # appear once per page on multi-page invoices and will corrupt the
+        # product_total if matched early (e.g. page-1 total << full invoice total).
+        # When no "PRODUCT TOTAL" label is found, product_total stays 0 and
+        # reconcile_and_adjust falls back to the computed line-item sum (delta=0).
         "product_total",
         re.compile(
-            r"(?:PRODUCT\s+TOTAL\s*:?\s*\$\s*"
-            r"|DELIVERY\s+SUMMARY\s+TOTALS[\s\d.]*\$?\s*)"
-            r"(\d{1,3}(?:,\d{3})*\.\d{2})",
+            r"PRODUCT\s+TOTAL\s*:?\s*\$\s*(\d{1,3}(?:,\d{3})*\.\d{2})",
             re.IGNORECASE,
         ),
     ),
