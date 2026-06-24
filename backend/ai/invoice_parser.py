@@ -90,8 +90,11 @@ USFOODS_SKIP_RE = re.compile(
     r"BILL\s+TO|SHIP\s+TO|REMIT\s+TO|"        # address block labels
     r"SHIPPED\s+FROM|SHIPPED\s+DATE|"          # shipping info labels
     r"DRIVER\s+(?:NAME|ID)|ROUTE\s+NUMBER|STOP\s+NUMBER|"  # route/driver labels
-    r"(?:SUBTOTAL|NET\s+TOTAL|FUEL\s+SURCHARGE|VIZIENT|MEMBER\s+DISCOUNT|"
+    r"(?:SUBTOTAL|NET\s+TOTAL|FUEL\s+SURCHARGE|FUEL\s+CHARGE|"
+    r"VIZIENT|MEMBER\s+DISCOUNT|GPO\s+DISCOUNT|"
     r"DELIVERED\s+AMOUNT|DELIVERY\s+AMOUNT|AMOUNT\s+DUE|"
+    r"TAX|SALES\s+TAX|EXCISE\s+TAX|LEVY|ASSESSMENT|"
+    r"FREIGHT|HANDLING|SERVICE\s+CHARGE|MISCELLANEOUS|"
     r"PRICING\s+UNIT|SALES\s+REP|PURCHASE\s+ORDER).*"  # fee/financial lines (whole line)
     r")\s*$",
     re.IGNORECASE,
@@ -133,7 +136,8 @@ _FEE_DESC_RE = re.compile(
     r"SUBTOTAL|NET\s+TOTAL|AMOUNT\s+DUE|DELIVERED\s+AMOUNT|DELIVERY\s+AMOUNT|"
     r"STORAGE\s+LOCATION|DELIVERY\s+SUMMARY|TOTAL\s+EXTENDED|TOTAL\s+PIECES|"
     r"TOTAL\s+ITEMS|TOTAL\s+WEIGHT|INVOICE\s+SUMMARY|FREIGHT|HANDLING|"
-    r"MISCELLANEOUS\s+CHARGE|SERVICE\s+CHARGE|ADMINISTRATIVE)",
+    r"MISCELLANEOUS\s+CHARGE|SERVICE\s+CHARGE|ADMINISTRATIVE|"
+    r"\bTAX\b|SALES\s+TAX|EXCISE\s+TAX|LEVY|ASSESSMENT)",
     re.IGNORECASE,
 )
 
@@ -221,15 +225,21 @@ META_PATTERNS: list[tuple[str, re.Pattern]] = [
         ),
     ),
     (
+        # Narrow: requires "INVOICE TOTAL" explicitly — avoids matching "PRODUCT TOTAL"
+        # via re.search, which would corrupt the financial net-total record.
         "total_amount",
         re.compile(
-            r"(?:INVOICE\s+)?TOTAL\s*[:\s]\s*\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2})",
+            r"INVOICE\s+TOTAL\s*[:\s]\s*\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2})",
             re.IGNORECASE,
         ),
     ),
     (
+        # Tax captured for financial record only — NEVER used in item valuation.
         "tax",
-        re.compile(r"TAX\s*[:\s]\s*\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2})", re.IGNORECASE),
+        re.compile(
+            r"(?:SALES\s+)?TAX\s*[:\s]\s*\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2})",
+            re.IGNORECASE,
+        ),
     ),
     (
         "discount",
@@ -929,18 +939,19 @@ def reconcile_and_adjust(items: list[dict], meta: dict) -> tuple[list[dict], dic
             return 0.0
 
     computed_subtotal = round(sum(_f(i.get("ext_price", 0)) for i in items), 2)
-    product_total = _f(meta.get("product_total"))
-    stated_subtotal = _f(meta.get("subtotal"))
-    vizient = _f(meta.get("vizient_discount"))
-    fuel = _f(meta.get("fuel_surcharge"))
-    tax = _f(meta.get("tax"))
-    net_total = _f(meta.get("net_total") or meta.get("total_amount"))
 
-    # INVENTORY is valued at the PRODUCT/goods cost — NEVER the net (which folds in
-    # GPO/Vizient discounts, fuel surcharge, and tax). Normalize the parsed line
-    # items to the invoice's stated Product Total (or merchandise Subtotal) only to
-    # absorb small line-parse noise; vizient/fuel/tax stay SEPARATE for the invoice
-    # financial record and are not applied to item prices.
+    # ── goods-cost fields (the ONLY inputs that drive item valuation) ──────────
+    product_total = _f(meta.get("product_total"))   # "Product Total $X" — preferred
+    stated_subtotal = _f(meta.get("subtotal"))       # merchandise subtotal — fallback
+
+    # ── financial-record-only fields (NEVER touch item prices) ────────────────
+    vizient = _f(meta.get("vizient_discount"))   # GPO/member discount
+    fuel = _f(meta.get("fuel_surcharge"))         # fuel surcharge
+    tax = _f(meta.get("tax"))                     # sales/excise tax
+    net_total = _f(meta.get("net_total") or meta.get("total_amount"))  # amount due
+
+    # Valuation target = goods cost ONLY.  Tax, fuel, Vizient, and net_total
+    # are NEVER used here — they go to the invoice financial record only.
     valuation_target = product_total or stated_subtotal or 0.0
     valuation_factor = 1.0
     if valuation_target > 0 and computed_subtotal > 0:
