@@ -18,6 +18,30 @@ from backend.routes._deps import (
 
 _WEEK_FIELD_RE = _re.compile(r"^w(\d)_")
 
+# item_update diffs key `after` by payload name but `before` by DB column name;
+# map so the tree shows the real old value (incl. renames/re-SKUs via new_sku->sku).
+_BEFORE_ALIAS = {
+    "desc": "description",
+    "price": "unit_price",
+    "par": "par_level",
+    "category": "category_id",
+    "new_sku": "sku",
+}
+# operation -> entity_type for the tree (the whole site, not just data entry).
+_OP_ENTITY = {
+    "inventory_save": "inventory",
+    "inventory_week_update": "inventory",
+    "item_update": "inventory",
+    "item_delete": "inventory",
+    "item_create": "inventory",
+    "event_create": "event",
+    "menu_save": "menu",
+    "haccp_save": "compliance",
+    "daily_log_save": "ops",
+    "user_create": "user",
+    "user_update": "user",
+}
+
 
 def _num(v) -> float:
     try:
@@ -80,36 +104,43 @@ def _granular_commit_changes(
         month = d.get("month")
         db_month = (month - 1) if isinstance(month, int) else None
         year = d.get("year")
-        op = d.get("operation")
+        op = d.get("operation") or ""
+        entity_type = _OP_ENTITY.get(op, "inventory")
         for r in d.get("rows", []):
-            if r.get("status") == "unchanged":
+            status = r.get("status") or "update"
+            if status in ("unchanged", "missing"):
                 continue
-            sku = r.get("sku") or ""
+            # Entity label for the tree: SKU (inventory/item ops), else title/day.
+            entity = r.get("sku") or r.get("title") or r.get("day") or ""
             before = r.get("before") if isinstance(r.get("before"), dict) else {}
             after = r.get("after") if isinstance(r.get("after"), dict) else {}
-            for field in r.get("changes", []):
-                ov = (before or {}).get(field)
-                nv = (after or {}).get(field)
+            for field in r.get("changes") or []:
+                ov = before.get(field)
+                if ov is None and field in _BEFORE_ALIAS:
+                    ov = before.get(_BEFORE_ALIAS[field])
+                nv = after.get(field)
                 wk_m = _WEEK_FIELD_RE.match(field or "")
+                # action CHECK allows only 'pull' | 'enter' | 'revert'.
+                if status == "delete":
+                    action = "revert"
+                elif (field or "").endswith("_issued"):
+                    action = "pull"
+                else:
+                    action = "enter"
                 rows.append(
                     {
                         "commit_id": commit_id,
-                        "item_id": id_map.get(sku),
-                        "entity_type": "inventory",
-                        "entity_id": sku,
+                        "item_id": id_map.get(r.get("sku") or ""),
+                        "entity_type": entity_type,
+                        "entity_id": entity,
                         "field": field,
                         "field_name": field,
                         "old_value": _num(ov),
                         "new_value": _num(nv),
                         "old_value_text": None if ov is None else str(ov),
                         "new_value_text": None if nv is None else str(nv),
-                        "change_type": r.get("status") or "update",
-                        # action column CHECK allows only 'pull' | 'enter' | 'revert'.
-                        # Issued/pull movements -> 'pull'; everything else (received,
-                        # opening, field edits) -> 'enter'.
-                        "action": "pull"
-                        if (field or "").endswith("_issued")
-                        else "enter",
+                        "change_type": status,
+                        "action": action,
                         "month": db_month,
                         "year": year,
                         "week_number": int(wk_m.group(1)) if wk_m else None,
