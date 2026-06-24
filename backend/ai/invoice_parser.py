@@ -1125,7 +1125,14 @@ def invoice_items_to_ops(
         sku = _clean(item.get("sku", ""))
         desc = _clean(item.get("description", ""))
         unit_price = item.get("unit_price") or 0.0
-        qty = _int(item.get("qty_shipped") or item.get("qty_ordered") or 0)
+        # Received quantity = qty SHIPPED (what actually arrived). An item ordered
+        # but NOT shipped (SHP=0, $0.00 line — out of stock) was not received, so
+        # skip it; otherwise it creates a phantom receipt with no price. We do NOT
+        # fall back to qty_ordered, which would record goods that never arrived.
+        qty = _int(item.get("qty_shipped"))
+        if qty <= 0:
+            skipped += 1
+            continue
 
         # skip items with no identity signal
         if not sku and not desc:
