@@ -7,12 +7,96 @@ from pydantic import BaseModel
 from supabase import create_client
 from dotenv import load_dotenv
 from typing import Optional
+import re as _re
 from backend.staging.dispatch import replay, validate_payload
+from backend.ai import diff as diff_engine
 from backend.routes._deps import (
     _get_auth_user,
     _require_admin_or_manager,
     ensure_pr_for_entries,
 )
+
+_WEEK_FIELD_RE = _re.compile(r"^w(\d)_")
+
+
+def _num(v) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _granular_commit_changes(
+    commit_id: str, precomputed_diffs: list[dict] | None
+) -> list[dict]:
+    """Flatten per-item before/after diffs into granular commit_changes rows so the
+    Source Control tree shows exactly what each commit changed, per SKU and field
+    (e.g. "SKU 43992 — w1_received 0 -> 1"). Returns [] when no diffs are available
+    so the caller can fall back to one summary row per entry.
+    """
+    if not precomputed_diffs:
+        return []
+    skus = {
+        r.get("sku")
+        for d in precomputed_diffs
+        for r in d.get("rows", [])
+        if r.get("sku")
+    }
+    id_map: dict[str, str] = {}
+    if skus:
+        try:
+            rr = (
+                _client()
+                .table("inventory_items")
+                .select("id,sku")
+                .in_("sku", list(skus))
+                .execute()
+            )
+            id_map = {x["sku"]: x["id"] for x in (rr.data or [])}
+        except Exception:
+            pass
+
+    rows: list[dict] = []
+    for d in precomputed_diffs:
+        month = d.get("month")
+        db_month = (month - 1) if isinstance(month, int) else None
+        year = d.get("year")
+        op = d.get("operation")
+        for r in d.get("rows", []):
+            if r.get("status") == "unchanged":
+                continue
+            sku = r.get("sku") or ""
+            before = r.get("before") if isinstance(r.get("before"), dict) else {}
+            after = r.get("after") if isinstance(r.get("after"), dict) else {}
+            for field in r.get("changes", []):
+                ov = (before or {}).get(field)
+                nv = (after or {}).get(field)
+                wk_m = _WEEK_FIELD_RE.match(field or "")
+                rows.append(
+                    {
+                        "commit_id": commit_id,
+                        "item_id": id_map.get(sku),
+                        "entity_type": "inventory",
+                        "entity_id": sku,
+                        "field": field,
+                        "field_name": field,
+                        "old_value": _num(ov),
+                        "new_value": _num(nv),
+                        "old_value_text": None if ov is None else str(ov),
+                        "new_value_text": None if nv is None else str(nv),
+                        "change_type": r.get("status") or "update",
+                        "action": r.get("status") or "update",
+                        "month": db_month,
+                        "year": year,
+                        "week_number": int(wk_m.group(1)) if wk_m else None,
+                        "metadata": {
+                            "operation": op,
+                            "description": r.get("description"),
+                        },
+                    }
+                )
+    return rows
+
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
@@ -243,6 +327,18 @@ def _apply_entries(
             ),
         )
 
+    # 0b — capture the per-item before/after diff NOW, before any state changes,
+    #      so the commit tree can record exactly what changed (old -> new) per SKU.
+    #      Best-effort: a diff failure must never block the commit.
+    try:
+        precomputed_diffs = diff_engine.diff_batch(entries)
+    except Exception as exc:
+        log.warning(
+            "[COMMIT] diff precompute failed — tree falls back to summary rows: %s",
+            exc,
+        )
+        precomputed_diffs = None
+
     # 1 — replay all operations. Published periods are read-only (enforced by the
     #     DB guard and the dispatch published-check); there is no override — to edit
     #     a closed period an admin reopens it (month_status.status='open') first.
@@ -321,21 +417,25 @@ def _apply_entries(
     commit = commit_r.data[0]
     commit_id = commit["commit_id"]
 
-    # 4 — commit_changes for the applied set
-    changes = []
-    for entry in applied_entries:
-        changes.append(
-            {
-                "commit_id": commit_id,
-                "entity_type": entry.get("entity_type", "inventory"),
-                "entity_id": entry.get("entity_id", ""),
-                "field_name": entry.get("field_name", ""),
-                "old_value_text": entry.get("old_value_text"),
-                "new_value_text": entry.get("new_value_text"),
-                "change_type": entry.get("change_type", "update"),
-                "metadata": entry.get("metadata", {}),
-            }
-        )
+    # 4 — commit_changes for the applied set. Prefer GRANULAR rows (one per SKU per
+    #     changed field, with old -> new) built from the pre-replay diff, so the
+    #     Source Control tree shows what actually changed. Fall back to one summary
+    #     row per entry only if the diff was unavailable (tree is never empty).
+    changes = _granular_commit_changes(commit_id, precomputed_diffs)
+    if not changes:
+        for entry in applied_entries:
+            changes.append(
+                {
+                    "commit_id": commit_id,
+                    "entity_type": entry.get("entity_type", "inventory"),
+                    "entity_id": entry.get("entity_id", ""),
+                    "field_name": entry.get("field_name", ""),
+                    "old_value_text": entry.get("old_value_text"),
+                    "new_value_text": entry.get("new_value_text"),
+                    "change_type": entry.get("change_type", "update"),
+                    "metadata": entry.get("metadata", {}),
+                }
+            )
     if changes:
         _insert_commit_changes(changes)
 
