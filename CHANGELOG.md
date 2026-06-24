@@ -18,6 +18,21 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## ✅ v4.14.0 — 2026-06-24 — UI ↔ new API: audit panel + ledger-aware Data Entry
+
+**Claude (Senior Dev Manager):** Frontend finishing touches linking the UI to the Phase 1/2 APIs. `tsc --noEmit` clean, `vite build` OK, 0 new lint errors (508 pre-existing `any` warnings are the project baseline).
+
+- **`frontend/src/lib/api.ts`** — `AuditFinding` / `AuditReport` types + `getInventoryAudit(month,year)` and `runInventoryAudit(...)` clients for `GET`/`POST /api/inventory/audit`.
+- **`DataEntry.tsx` — "Inventory Audit" panel** for the selected period: severity-coloured findings (error red / warning amber / info blue) with counts, or a green "No logical issues found." It auto-loads on period change and on `mjcc:committed` (the backend auto-runs the audit after every commit), with a manager-only **Re-check** button (`POST`). Folded into one `[month,year]` effect + a plain handler so the React Compiler is happy.
+- **`DataEntry.tsx` — duplicate upload** now shows a clean "Already imported — no changes made" message for the new `409 duplicate_upload` (content-hash dedup) instead of treating it as a parse failure / opening the AI helper.
+- The **granular commit tree** needs no new UI — it already renders through the existing PR-detail panel (which reads `commit_changes` by commit_id), now with per-SKU/field old→new detail.
+
+**Remaining (optional polish):** a dedicated commit-history detail view (vs. via PR detail); an AI natural-language session summary on top of the deterministic audit. Neither blocks the workflow.
+
+**Push:** Claude → 23cd52d — 2026-06-24 (backend + KpnCompute frontend auto-deploy from main).
+
+---
+
 ## ✅ v4.13.0 — 2026-06-24 — PHASE 2b: post-session inventory auditor (built + verified)
 
 **Claude (Senior Dev Manager):** The backend AI/logic auditor is live. After every data-entry commit it re-checks the affected period for logical issues and writes findings to an in-app table for Data Entry. Verified end-to-end on prod; all test data removed (clean slate: 0 rows, 11 categories kept).
