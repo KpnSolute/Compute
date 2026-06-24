@@ -536,6 +536,27 @@ def _apply_entries(
         }
     ).execute()
 
+    # 7 — post-session inventory audit: re-check each affected period for logical
+    #     issues (negative endings, ledger drift, missing prices, duplicates) and
+    #     write findings to inventory_audit_log for Data Entry. Best-effort — must
+    #     never block a commit that already applied.
+    try:
+        periods = {
+            (max(0, int(fp["month"]) - 1), int(fp["year"]))
+            for e in applied_entries
+            if e.get("operation") in ("inventory_save", "inventory_week_update")
+            for fp in [e.get("full_payload") or {}]
+            if isinstance(fp.get("month"), int) and isinstance(fp.get("year"), int)
+        }
+        for db_m, yr in periods:
+            _client().rpc(
+                "audit_inventory_period", {"p_month": db_m, "p_year": yr}
+            ).execute()
+    except Exception as exc:
+        log.warning(
+            "[COMMIT] post-commit inventory audit failed (non-blocking): %s", exc
+        )
+
     return {
         **commit,
         "change_count": len(changes),

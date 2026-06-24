@@ -19,7 +19,11 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 from backend.routes import supabase_service
-from backend.routes._deps import _get_auth_user, ensure_pr_for_entries
+from backend.routes._deps import (
+    _get_auth_user,
+    _require_admin_or_manager,
+    ensure_pr_for_entries,
+)
 from backend.inventory_identity import (
     get_new_items_category_id,
     resolve_and_write_item,
@@ -1067,6 +1071,68 @@ async def get_week_status(
         return result
     except Exception as e:
         logger.exception("Error in get_week_status")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/audit")
+async def get_audit_findings(
+    month: int = Query(...),
+    year: int = Query(...),
+    auth_user: dict = Depends(_get_auth_user),
+):
+    """Read the post-session inventory audit findings for a period (in-app log).
+
+    Findings are written by audit_inventory_period (run after each data-entry
+    session / commit). month is 1-indexed (API), stored 0-indexed (DB).
+    """
+    db_month = month - 1
+    try:
+        r = (
+            supabase_service.table("inventory_audit_log")
+            .select("id,check_type,severity,sku,message,details,resolved,created_at")
+            .eq("month", db_month)
+            .eq("year", year)
+            .eq("resolved", False)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        rows = r.data or []
+        counts = {"error": 0, "warning": 0, "info": 0}
+        for x in rows:
+            sev = x.get("severity", "info")
+            counts[sev] = counts.get(sev, 0) + 1
+        return {
+            "month": month,
+            "year": year,
+            "total": len(rows),
+            "counts": counts,
+            "findings": rows,
+        }
+    except Exception as e:
+        logger.exception("Error in get_audit_findings")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/audit")
+async def run_audit(
+    month: int = Query(...),
+    year: int = Query(...),
+    auth_user: dict = Depends(_require_admin_or_manager),
+):
+    """Run the deterministic post-session inventory audit for a period (manager+).
+
+    Re-checks negative/over-pulled endings, ledger reconciliation drift, missing
+    prices, orphan items, suspicious quantities, and duplicate weekly entries.
+    Idempotent — clears the period's prior unresolved findings first.
+    """
+    db_month = month - 1
+    try:
+        r = supabase_service.rpc(
+            "audit_inventory_period", {"p_month": db_month, "p_year": year}
+        ).execute()
+        return {"month": month, "year": year, "findings": r.data}
+    except Exception as e:
+        logger.exception("Error in run_audit")
         raise HTTPException(status_code=500, detail=str(e))
 
 
