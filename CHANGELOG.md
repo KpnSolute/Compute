@@ -18,6 +18,39 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## ✅ v4.11.0 — 2026-06-24 — PHASE 1 COMPLETE: inventory transaction ledger (built + verified)
+
+**Claude (Senior Dev Manager):** Rolling monthly inventory model is live. Weekly invoices/pulls now ACCUMULATE through an append-only ledger; baseline stays opening-only. Built, migrated, deployed (`56fec84`), and verified end-to-end against the live DB + the real website API tonight.
+
+**Files changed**
+- `backend/staging/dispatch.py` — `dispatch_inventory_week` rewritten: append `inventory_transactions` rows (idempotent: delete-by-staging-entry then insert) + `recompute_week_totals` RPC. Repeat same-week invoices SUM instead of overwrite.
+- `backend/routes/data_entry.py` — sha256 content hash; read-only duplicate gate (`_assert_not_duplicate_weekly`); `_open_weekly_import_batch` creates the dedup batch + threads source/batch metadata into weekly op payloads; weekly uploads exempt from the overwrite gate (they accumulate).
+- `backend/routes/sourcectrl.py` — `_apply_entries` flips `import_batches` staged→merged on successful commit.
+- Migrations `015` (ledger + import_batches + recompute/reconcile fns + negative-preserve snapshot + starting_total), `016` (broaden dedup unique to staged+merged), `017` (recompute unit_price backfill). Applied to remote history + committed to repo.
+
+**Final schema (live, verified)**
+- `inventory_transactions` (ledger, NUMERIC qty/price, FK→inventory_items, audit cols, unique on `staging_entry_id`).
+- `import_batches` (dedup; partial unique `(source_hash,month,year,week,direction) WHERE status IN (staged,merged)`).
+- `recompute_week_totals(item,month,year)`, `reconcile_period_from_ledger(month,year)`; `refresh_monthly_snapshot` no longer floors negatives and now populates `starting_total`.
+
+**Tests performed + results**
+- DB-level (June test period, cleaned): accumulate `w2_received 1+3=4` ✓; ending `2+4-0=6` ✓; **negative ending `-3` preserved (not floored)** ✓; snapshot `starting_total=20`, `grand_total=45` ✓; `reconcile_period_from_ledger` idempotent ✓; dedup unique blocks a renamed-but-identical file ✓.
+- Live website API (auth→upload→commit, June, cleaned): two W1 invoices (qty 5 then 3) → ledger has 2 rows, **`w1_received=8` (accumulated, not overwritten)** ✓; re-upload of identical content (renamed) → **409 duplicate_upload** ✓; both import batches merged ✓.
+- ruff clean; `backend.main` imports; prod logs show **no Phase-1 errors** (only the expected dedup 409 WARNING). DB returned to clean slate (items/monthly/ledger/batches/commits/staging/snapshots = 0; 11 categories kept).
+
+**Known limitations / deferred (NOT blockers for tomorrow's upload)**
+- Source Control **tree granularity is Phase 2** — commits still write one generic `commit_changes` row per entry; the ledger now makes the per-item detail available to persist next.
+- Re-uploading a whole-month baseline (overwrite) after weekly uploads clears the *derived* weekly columns but not the ledger; run `reconcile_period_from_ledger` to rebuild. (Tonight's flow is baseline-first, so N/A.)
+- A new item first seen on a weekly invoice that carries **no price** values at $0 (real US Foods invoices carry prices → fine; recompute backfills from the catalog when a price exists).
+- Corrections-as-adjustments (R5) and an HTTP reconcile endpoint are deferred; the reconcile SQL function exists and is callable.
+- `pytest` not installed locally; the two repo tests are unrelated to the ledger — verification was the integration tests above.
+
+**Unresolved blockers:** none. Tomorrow's workflow is ready: baseline xlsx → weekly invoices (received) → weekly pulls (issued); repeat-week uploads accumulate; duplicate files are rejected.
+
+**Push:** Claude → 56fec84 (code) — 2026-06-24. Migrations 015/016/017 applied to `MJCCv1` remote history.
+
+---
+
 ## 🔍 SYSTEM AUDIT — 2026-06-23 — End-to-end data flow: invoice → SKU → inventory → Source Control
 
 **Claude (Senior Dev Manager):** Operator-requested full system check ahead of the clean re-upload. Goals: (1) upload invoices, parse, assign each item a SKU from the uploaded inventory; (2) uploads ADD (invoices → received), SUBTRACT (pull sheets → issued), or BOTH (whole-month combo); (3) Source Control tree tracks EVERY change; (4) the math/logic is correct. Method: live schema — columns, constraints, triggers, function bodies, views — via Supabase MCP, cross-read against `backend/routes/{inventory,sourcectrl,data_entry}.py`, `backend/staging/dispatch.py`, `backend/ai/{parser,mapper,invoice_parser,diff}.py`.
