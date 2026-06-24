@@ -18,6 +18,41 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## 🔍 SYSTEM AUDIT — 2026-06-23 — End-to-end data flow: invoice → SKU → inventory → Source Control
+
+**Claude (Senior Dev Manager):** Operator-requested full system check ahead of the clean re-upload. Goals: (1) upload invoices, parse, assign each item a SKU from the uploaded inventory; (2) uploads ADD (invoices → received), SUBTRACT (pull sheets → issued), or BOTH (whole-month combo); (3) Source Control tree tracks EVERY change; (4) the math/logic is correct. Method: live schema — columns, constraints, triggers, function bodies, views — via Supabase MCP, cross-read against `backend/routes/{inventory,sourcectrl,data_entry}.py`, `backend/staging/dispatch.py`, `backend/ai/{parser,mapper,invoice_parser,diff}.py`.
+
+### ✅ Verified correct
+- **Calc engine.** DB fn `refresh_monthly_snapshot` (statement-triggered on every monthly_inventory ins/upd/del) computes **closing = GREATEST(0, on_hand + Σ wN_received − Σ wN_issued) × unit_price**. The May cards (opening $6,526.68 / received $0 / issued $0 / closing $6,526.68) were **correct given the data** — received/issued were 0 only because no invoice/pull data had parsed (the v4.10.24 bug). The math is sound; the symptom was missing data.
+- **Direction routing.** `dispatch_inventory_week` writes qty → `w{week}_received` (invoices, ADD) or `w{week}_issued` (pull sheets, SUBTRACT). Whole-month `dispatch_inventory_save` writes opening `on_hand` (+ weekly cols when present).
+- **SKU assignment.** US Foods product# now parsed as the SKU (v4.10.24) and resolved against `inventory_items.sku`; new items stage for review (v4.10.26). Post-wipe, the first full-month upload seeds the catalog SKUs; later invoices match them.
+- **Atomic commits.** `_apply_entries` does pre-flight validation + all-or-nothing replay (no partial commits). DB guards `guard_closed_month_writes` / `guard_locked_week_writes` enforce period locks.
+
+### 🔧 Required changes (prioritized)
+
+**P0 — Source Control tree shows nothing meaningful (Goal 3). [sourcectrl.py — Claude/Gemini]**
+`_apply_entries` (`sourcectrl.py` ~324-340) writes **one `commit_changes` row per staging entry** using only generic text: `entity_id=batch_id`, `field_name="weekly_invoice"`, `new_value_text="W1 received"`. The granular columns that already exist on `commit_changes` — `item_id, month, year, week_number, field, old_value, new_value` (numeric), `action` — are left **NULL/0**. Meanwhile `ai/diff.py` (`_diff_inventory_save`, `_diff_inventory_week`) already computes the exact per-item **before→after** for the preview, then it's **discarded at commit**.
+→ FIX: at commit, run that same diff per applied entry and persist **one `commit_changes` row per item per changed field** — populate `item_id` (resolve by SKU), `week_number`, `field` (e.g. `w1_received`), `old_value→new_value`, `entity_id=SKU`, `new_value_text` = human summary, `action`=new/update. Then update `GET /commits/{id}` changes payload + the frontend tree to render granular rows ("SKU 43992 DRESSING RANCH — w1_received 0→1"). This is the single biggest gap to "every change shows in the tree."
+
+**P1 — Snapshot omissions (Goal 2/4 reporting). [refresh_monthly_snapshot migration — mjcc-data]**
+- `monthly_snapshots.starting_total` (opening $) is **never populated** — the fn's INSERT column list omits it → any report reading it gets 0. FIX: compute `starting_total = Σ on_hand×price` and add to the upsert.
+- Snapshot stores received week-$ (`wk1..wk5_total`) but **no issued $ totals** → "Total issued" can't be sourced from the snapshot (the UI computes it live from raw rows; history/reports can't). FIX: add `issued_total` (or `wk{1..5}_issued_total`) to `monthly_snapshots` + populate in the fn.
+
+**P1 — "Whole-month combo" depends on file format (Goal 2). [parser.py / docs — Gemini]**
+A whole-month upload carries received+issued **only** when the file is the GRID monthly workbook (`_parse_mjcc_monthly_inventory` maps w1i–w4i / w1r–w4r). The FLAT "Fact checked" export (`_parse_mjcc_flat_inventory`) carries **opening on_hand only** — weekly received/issued come from the separate weekly uploads, by design.
+→ ACTION: confirm which file the operator means by "combo." If the fact-check xlsx must carry weekly received/issued, extend the flat parser to map "Total Rcvd / Total Pulled" into chosen week columns; else document that weekly data = weekly uploads. No code change if the weekly-upload model is accepted.
+
+**P2 — Vestigial / cosmetic.**
+- `monthly_inventory.w5_received/w5_issued` + `snapshot.wk5_total` exist, but Data Entry caps weeks at 4 and `GET /inventory` selects only w1–w4. Decide: support 5-week months or drop w5.
+- `GREATEST(0,…)` floors negative ending at 0 for valuation; a genuine over-issue reads closing=0 (flagged separately by `over_issued_count`). Acceptable — document.
+
+### Re-upload readiness
+Clean slate confirmed (categories kept; `allow_new_items_on_weekly=true`; parser fixes deployed). Order: full-month fact-check xlsx (seeds catalog + opening) → weekly US Foods invoices (received) → weekly pull sheets (issued) → review each PR → commit. **Recommend landing the P0 tree fix before relying on Source Control to audit these commits.**
+
+**Push:** audit only — no code changed this pass. P0/P1 fixes to follow on approval.
+
+---
+
 ## 🧹 OPS — 2026-06-23 — Full inventory wipe (operator-requested clean-slate redo)
 
 **Claude (Senior Dev Manager):** Jeremiah flagged the May totals as wrong calcs and asked for a final clean-slate wipe to re-upload everything via Data Entry. Executed against live `MJCCv1` after a full in-DB backup.
