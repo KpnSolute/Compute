@@ -18,6 +18,40 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## ✅ v4.15.0 — 2026-06-24 — Inventory: roster-style floating Item Inspector
+
+**Claude (Senior Dev Manager):** Manual-editing UX upgrade on the Inventory view. Click any item row (in **all three** modes — Regular / Grouped / Compact) and a floating slide-over drawer opens with that item's tools in one place — the "click the object → toolbar appears" roster feel the operator asked for. `tsc --noEmit` clean, `vite build` OK, eslint 0 errors (only the baseline `any` warnings).
+
+- **New component `frontend/src/components/ui/ItemInspector.tsx`** — a right-anchored drawer (category-tinted header, On hand / Projected close / Value / Status stat tiles):
+  - **Week selector** (W1–W4) honoring `week-status` locks (locked weeks render read-only with a banner).
+  - **Receive ↑** and **Pull ↓** steppers (−/＋ + numeric, live delta chip) for the selected week.
+  - **Levels grid** — On hand / Par / Unit price, gated by role (par/price/issued are manager-only, `lvl≥30`).
+  - **Footer toolbar** — *Stage changes* (primary), *Details* (opens the existing full edit/rename/re-SKU/delete modal), *Reset*.
+  - Projected closing balance recomputes live from the week overrides.
+- **Staging routes through the SAME Source Control ops the inline editors use** — `inventory_week_update` (received/issued, per week) + `inventory_save` (on-hand/par/price). Nothing bypasses the audited write path; after staging it opens Source Control + reloads live inventory.
+- **`Portal.tsx` (`InventoryView`)** — added `inspectTarget` state, a guarded `rowClick` (ignores clicks on inline inputs/buttons/selects so in-place editing still works), `.inv-row` hover affordance, and renders `<ItemInspector>`. Inline table editing is untouched — the inspector is an additive second path.
+- **`index.css`** — `.ins-*` slide-over design system + `.inv-row` hover, all on existing tokens; `insSlide` keyframe; responsive collapse < 560px.
+
+**Scope note:** wired on the canonical **Inventory** view. The separate **Monthly Inventory** master editor (`Operations.tsx`) still uses its own inline sheet — folding the inspector in there is an easy fast-follow (different row shape + auto-commit path).
+
+**Push:** pending — not yet pushed (awaiting operator; KpnCompute frontend auto-deploys from `main`).
+
+---
+
+## ✅ v4.15.0 — 2026-06-24 — Catch-weight pricing fix + par-level import
+
+**Claude (Senior Dev Manager):** Two fixes from auditing Jeremiah's first real May uploads (`/JobCorp` source files), deployed `0c9ec69`.
+
+- **Catch-weight bug (invoice_parser).** Items sold by the CASE but PRICED per pound stored the per-lb unit price against a case qty → `qty*unit_price` grossly understated the line (flank steak: 2 CS booked at **$19.44** vs real **$1,517.36**; ~$3,300 lost on May W1). Fix: derive the per-sales-unit cost from the authoritative `ext_price` (`ext/qty`) for every line, so `qty*unit_price` always reconciles. Verified May W1 ledger value **$16,328.91 → $19,633.63** (= invoice net). No-op for normal CS/EA lines.
+- **Par levels (parser/mapper/dispatch).** Diagnosed "what happened to par levels": they were never in any source file (baseline + invoices have no Par column) and the pre-wipe backup was also all-0 — so par was never populated, leaving reorder detection inert. Now the flat baseline parser recognizes a Par/Reorder/Min column and `dispatch_inventory_save` writes `par_level`; `map_rows_to_inventory` carries par only when the column exists (else None → preserve, never zero). Verified with/without a Par column.
+- **Data correction:** cleared the understated US Foods May-W1 import (ledger batch `d5dd16a0` + its dedup record) and recomputed; baseline + beverage-W1 left intact. Operator re-uploads `May2026W1 - Weekly Invoice.pdf` to restore W1 at correct prices.
+
+**Still open (operator's call):** received VALUE basis — the ledger now stores invoice price (what you paid), but the snapshot still values received stock at the catalog/baseline price. Decide which the "received value" should reflect.
+
+**Push:** Claude → 0c9ec69 — 2026-06-24.
+
+---
+
 ## ✅ v4.14.0 — 2026-06-24 — UI ↔ new API: audit panel + ledger-aware Data Entry
 
 **Claude (Senior Dev Manager):** Frontend finishing touches linking the UI to the Phase 1/2 APIs. `tsc --noEmit` clean, `vite build` OK, 0 new lint errors (508 pre-existing `any` warnings are the project baseline).
