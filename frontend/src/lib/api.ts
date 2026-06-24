@@ -99,6 +99,25 @@ export interface StagingEntry {
   pull_request_id?: string | null;
 }
 
+export interface AuditFinding {
+  id: string;
+  check_type: string;
+  severity: 'error' | 'warning' | 'info';
+  sku?: string | null;
+  message: string;
+  details?: Record<string, unknown>;
+  resolved: boolean;
+  created_at: string;
+}
+
+export interface AuditReport {
+  month: number;
+  year: number;
+  total: number;
+  counts: { error: number; warning: number; info: number };
+  findings: AuditFinding[];
+}
+
 export type EntityType = 'inventory' | 'menu' | 'user' | 'compliance' | 'event' | 'ops';
 
 export interface SubmitStagingBody {
@@ -179,6 +198,15 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(body),
     });
+  },
+
+  // Post-session inventory auditor (logical-issue findings written after each commit)
+  async getInventoryAudit(month: number, year: number): Promise<AuditReport> {
+    return req(`/api/inventory/audit?month=${month}&year=${year}`);
+  },
+
+  async runInventoryAudit(month: number, year: number): Promise<{ month: number; year: number; findings: number }> {
+    return req(`/api/inventory/audit?month=${month}&year=${year}`, { method: 'POST' });
   },
 
   async getInventoryHistory(limit?: number): Promise<any[]> {

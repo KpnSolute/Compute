@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { I } from '../lib/icons';
 import { ROLE_LEVEL, MONTHS, loadAIPrefs } from '../lib/constants';
-import { api } from '../lib/api';
+import { api, type AuditReport } from '../lib/api';
 
 type Hint = '' | 'inventory' | 'events' | 'haccp' | 'menu' | 'log';
 type Direction = 'received' | 'issued' | 'both';
@@ -391,6 +391,8 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
     const [aiStage, setAiStage]         = useState(0);
     const [uploadErr, setUploadErr]     = useState<string | null>(null);
     const [result, setResult]           = useState<UploadResult | null>(null);
+    const [audit, setAudit]             = useState<AuditReport | null>(null);
+    const [auditBusy, setAuditBusy]     = useState(false);
 
     const [preview, setPreview]           = useState<DiffTable[] | null>(null);
     const [stagingIds, setStagingIds]     = useState<string[]>([]);
@@ -578,6 +580,34 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         }
     }, [setPreview, setPreviewErr, setPreviewLoading, setStagingIds]);
 
+    // Post-session inventory audit for the selected period. Loads on period change
+    // and whenever a commit lands (the backend auto-runs the audit after a commit).
+    // No useCallback — the React Compiler memoizes; manual memo here can't be preserved.
+    const canRunAudit = ((ROLE_LEVEL as Record<string, number>)[user?.role] || 0) >= 30;
+
+    useEffect(() => {
+        let cancelled = false;
+        const fetchAudit = () => {
+            api.getInventoryAudit(month + 1, year)
+                .then(r => { if (!cancelled) setAudit(r); })
+                .catch(() => { if (!cancelled) setAudit(null); });
+        };
+        fetchAudit();
+        window.addEventListener('mjcc:committed', fetchAudit);
+        return () => { cancelled = true; window.removeEventListener('mjcc:committed', fetchAudit); };
+    }, [month, year]);
+
+    // Manager+ can re-run the audit on demand (staff can read, not run).
+    const recheckAudit = async () => {
+        if (!canRunAudit) return;
+        setAuditBusy(true);
+        try {
+            await api.runInventoryAudit(month + 1, year);
+            setAudit(await api.getInventoryAudit(month + 1, year));
+        } catch { /* best effort */ }
+        finally { setAuditBusy(false); }
+    };
+
     const cancelUpload = useCallback(() => {
         cancelledRef.current = true;
         abortRef.current?.abort();
@@ -614,6 +644,13 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                 setOverwritePrompt(detail as OverwritePrompt);
                 setUploadErr(null);
                 (window as any).toast?.('Overwrite confirmation required');
+                return;
+            }
+            if (!userCancelled && e?.status === 409 && detail?.error === 'duplicate_upload') {
+                // Same file content already imported for this period/week — the ledger
+                // would double-count, so nothing was changed. Not a parse failure.
+                setUploadErr(detail.message || 'This file was already imported for this period/week — no changes made.');
+                (window as any).toast?.('Already imported — no changes made');
                 return;
             }
             setUploadErr(msg);
@@ -1181,6 +1218,53 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                             </div>
                         </div>
                     ))}
+                </WinCard>
+            )}
+
+            {audit && (
+                <WinCard
+                    title={`Inventory Audit — ${MONTHS[month]} ${year}`}
+                    style={{ marginTop: 14 }}
+                    link={canRunAudit ? (auditBusy ? 'Checking…' : 'Re-check') : undefined}
+                    onLink={canRunAudit && !auditBusy ? recheckAudit : undefined}
+                >
+                    {audit.total === 0 ? (
+                        <div className="ph-sub" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ color: '#10b981' }}>✓</span>
+                            No logical issues found for this period.
+                        </div>
+                    ) : (
+                        <>
+                            <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                                {audit.counts.error > 0 && (
+                                    <span className="pill" style={{ background: '#7f1d1d', color: '#fecaca' }}>
+                                        {audit.counts.error} error{audit.counts.error > 1 ? 's' : ''}
+                                    </span>
+                                )}
+                                {audit.counts.warning > 0 && (
+                                    <span className="pill" style={{ background: '#78350f', color: '#fde68a' }}>
+                                        {audit.counts.warning} warning{audit.counts.warning > 1 ? 's' : ''}
+                                    </span>
+                                )}
+                                {audit.counts.info > 0 && (
+                                    <span className="pill" style={{ background: '#1e3a5f', color: '#bfdbfe' }}>
+                                        {audit.counts.info} info
+                                    </span>
+                                )}
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                                {audit.findings.map(f => (
+                                    <div key={f.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5 }}>
+                                        <span style={{
+                                            color: f.severity === 'error' ? '#f87171' : f.severity === 'warning' ? '#fbbf24' : '#60a5fa',
+                                            marginTop: 1, lineHeight: 1.2,
+                                        }}>●</span>
+                                        <span>{f.message}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </>
+                    )}
                 </WinCard>
             )}
 
