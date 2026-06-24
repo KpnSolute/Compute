@@ -263,7 +263,13 @@ def map_rows_to_inventory(
                 "desc": desc,
                 "category": category,
                 "price": max(0.0, _safe_float(mapped.get("price"))),
-                "par": max(0, _safe_int(mapped.get("par"))),
+                # Only carry par when the sheet actually has a par column; else
+                # None so dispatch preserves any existing par (never zeroes it).
+                "par": (
+                    max(0, _safe_int(mapped.get("par")))
+                    if "par" in canonical_values
+                    else None
+                ),
                 "onHand": max(0, _safe_int(mapped.get("onHand"))),
                 "unit": str(mapped.get("unit") or "each").strip(),
                 "w1r": max(0, _safe_int(mapped.get("w1r"))),

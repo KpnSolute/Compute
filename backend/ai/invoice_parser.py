@@ -725,8 +725,14 @@ def _parse_page_lines(text: str, current_cat: str) -> tuple[list[dict], str]:
             unit = _clean(m.group(4))
             unit_price = _money(m.group(7))
             ext_price = _money(m.group(8))
-            # Weight-priced items (PRICING_UNIT=LB): per-case cost = ext_price / qty_shipped
-            if unit == "LB" and qty_shipped > 0:
+            # EXT_PRICE is the authoritative line total. Store the effective cost
+            # per SALES unit = ext / qty so qty * unit_price always reconciles to
+            # ext. This fixes catch-weight items (sold by the case but PRICED per
+            # pound — the printed unit-price column is per-lb while qty is in cases,
+            # e.g. flank steak: 2 CS @ $9.72/lb, ext $1,517.36, true case cost
+            # $758.68). For normal CS/EA lines ext/qty already equals the printed
+            # unit price, so this is a no-op there.
+            if qty_shipped > 0 and ext_price > 0:
                 unit_price = round(ext_price / qty_shipped, 4)
             items.append(
                 {

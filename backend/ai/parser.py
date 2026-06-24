@@ -272,6 +272,17 @@ _FLAT_INV_HEADER_ALIASES: dict[str, str] = {
     "latestunitcost$": "price",
     "unitcost": "price",
     "price": "price",
+    # par / reorder threshold (header normalized: non-alphanumerics stripped)
+    "par": "par",
+    "parlevel": "par",
+    "parstock": "par",
+    "reorder": "par",
+    "reorderpoint": "par",
+    "reorderlevel": "par",
+    "minstock": "par",
+    "minimum": "par",
+    "minqty": "par",
+    "threshold": "par",
 }
 
 
@@ -355,20 +366,26 @@ def _parse_mjcc_flat_inventory(content: bytes) -> list[dict[str, Any]]:
             category = _inventory_category(cat_raw) or cat_raw or "Dry Goods"
             onhand = _clamp_nonneg(rec.get("onHand"))
             price = _clamp_nonneg(rec.get("price"))
+            par = _clamp_nonneg(
+                rec.get("par")
+            )  # par/reorder level when the sheet has it
             if not sku and onhand is None and price is None:
                 continue
 
-            parsed.append(
-                {
-                    "sku": sku,
-                    "desc": desc,
-                    "category": category,
-                    "onHand": onhand if onhand is not None else 0,
-                    "price": price,
-                    "unit": "each",
-                    "__sheet": ws.title,
-                }
-            )
+            row_out: dict[str, Any] = {
+                "sku": sku,
+                "desc": desc,
+                "category": category,
+                "onHand": onhand if onhand is not None else 0,
+                "price": price,
+                "unit": "each",
+                "__sheet": ws.title,
+            }
+            # Emit par for every row when the sheet HAS a par column (0 for blanks),
+            # so map_rows_to_inventory sees the column even if the first row is blank.
+            if "par" in col_map.values():
+                row_out["par"] = par if par is not None else 0
+            parsed.append(row_out)
 
         if parsed:
             return parsed  # first usable sheet wins — avoid double-counting tabs

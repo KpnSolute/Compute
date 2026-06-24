@@ -121,7 +121,10 @@ def dispatch_inventory_save(payload: dict) -> dict:
             category_id=cat_id,
             fallback_category_id=new_items_cat_id,
             price=item.get("price"),
-            par=None,  # par is item-level; use dispatch_item_update for par changes
+            # Whole-month baseline carries par/reorder levels when the sheet has a
+            # Par column. None when absent → resolve_and_write_item preserves the
+            # item's existing par (never zeroes it).
+            par=item.get("par"),
             unit=item.get("unit") or None,
             force_review_category=review_new,
         )
