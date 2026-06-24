@@ -4,6 +4,37 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## ✅ v4.18.0 — 2026-06-24 — Parser anatomy fix + commit history delay fix + May wipe
+
+**Claude (Senior Dev Manager):** Operator identified three issues after inspecting a US Foods invoice image: (1) fee lines (fuel surcharge, Vizient, delivery summary recap rows) were being parsed as phantom inventory items, (2) the $525.42 DELIVERY SUMMARY TOTAL wasn't landing in `product_total`, (3) commits appeared with a delay in Source Control history.
+
+**Root causes:**
+- `USFOODS_SKIP_RE` only skipped fee-keyword lines that ended immediately after the colon/dollar — `FUEL SURCHARGE $25.00` had more text after the `$` so it failed the `\s*$` anchor and fell through to `GENERIC_LINE_RE` → phantom item.
+- `DELIVERY SUMMARY TOTALS 14 14 0 14 6 80.80 $525.42` similarly fell through to `GENERIC_LINE_RE`, capturing description="DRY 14 14 0 14 6" and ext_price=$525.42 → phantom item.
+- `product_total` regex only matched "PRODUCT TOTAL $X" label, not the DELIVERY SUMMARY row total.
+- `doCommit` fired `mjcc:committed` which immediately triggered `loadData`, but the DB hadn't surfaced the new commit row yet (race condition).
+
+**Fixes (`backend/ai/invoice_parser.py`):**
+- `USFOODS_SKIP_RE` — fee/summary patterns now use `.*` to consume the full line (including amounts). Added: `STORAGE LOCATION`, `DELIVERY SUMMARY`, `TOTAL PIECES/ITEMS/WEIGHT/EXTENDED`, `BILL/SHIP/REMIT TO`, `DRIVER`, `ROUTE NUMBER`, `STOP NUMBER`, `PRICING UNIT`.
+- `product_total` META regex — now also matches `DELIVERY SUMMARY TOTALS … $X.XX` so the per-invoice total lands in `meta.product_total`.
+- Added `_FEE_DESC_RE` — a belt-and-suspenders post-match guard on `GENERIC_LINE_RE` output AND in `invoice_items_to_ops` to explicitly drop rows whose description matches known fee/surcharge/summary keywords. Guards OCR/vision paths too.
+
+**US Foods invoice anatomy (for reference):**
+- Columns extracted per line: `qty_ordered (ORD)`, `qty_shipped (SHP)`, `sales_unit`, `product_number (SKU)`, description body (label + pack_size extracted from body), `unit_price`, `ext_price`.
+- What we DO NOT capture as items: FUEL SURCHARGE, VIZIENT discount, NET TOTAL, DELIVERY SUMMARY TOTALS, STORAGE LOCATION RECAP rows.
+- `$525.42` = TOTAL EXTENDED PRICE from DELIVERY SUMMARY row → lands in `meta.product_total`.
+
+**Fix (`frontend/src/components/SourceControl.tsx`):**
+- `doCommit` now calls `setTimeout(() => loadData(), 1000)` after firing the event so the commit appears in History within 1 s of committing without a manual refresh.
+
+**May 2026 data wiped (Supabase MCP):**
+- Cleared: `monthly_inventory` (was 240 rows), `inventory_items` (240), `commits` (7), `commit_changes` (1400), `staging_entries` (488), `github_sync_queue` (7), `pull_requests` (1), `import_batches` (9), `inventory_transactions` (244), `inventory_audit_log` (1). All zero — clean slate for re-upload.
+- Backup tables from 0624 session remain untouched as safety net.
+
+**Push:** Claude → f551502 — 2026-06-24.
+
+---
+
 ## 📣 BOARD NOTICE — 2026-06-23 — Inventory ingestion pipeline is GREEN end-to-end
 
 **Claude (Senior Dev Manager):** Calling it for the team — the invoice/inventory pipeline that had been failing for ~24h is now working clean, prod-verified:
