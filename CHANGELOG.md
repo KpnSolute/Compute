@@ -18,6 +18,32 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## ✅ v4.12.0 — 2026-06-24 — PHASE 2a: granular whole-site commit tree (built + verified)
+
+**Claude (Senior Dev Manager):** Source Control now records what each commit ACTUALLY changed, site-wide — not just data entry. Verified end-to-end on prod, all test data removed (clean slate: 0 rows everywhere, 11 categories kept).
+
+**What already existed (confirmed, no change needed):** staff can stage but NOT commit (`POST /api/commits` → `_require_admin_or_manager`); managers/admins see every staff's pending staging via `GET /api/staging` (staff see only their own), tagged with `submitter_name`/`submitter_role`; `SourceControl.tsx` renders staging/commits/PRs/history with role gating. So the "staff stage → manager pushes → everyone sees the tree" governance was already in place.
+
+**What was broken → fixed (`backend/routes/sourcectrl.py`):** `_apply_entries` wrote ONE generic `commit_changes` row per staging entry (`entity_id=batch`, `"weekly_invoice: W1 received"`). Now it captures the per-item before/after diff BEFORE replay (`diff_engine.diff_batch`) and persists one granular row per entity per changed field: `entity_id` (SKU / event title / menu day), `field`, `old_value→new_value`, `change_type`, `action`, `item_id`, `week/month/year`. Covers the WHOLE site: inventory received/issued, item **edits, renames, re-SKUs** (`item_update` new_sku→sku via before-key alias), **deletions** (`item_delete` → action `revert`), plus events/menu/compliance.
+- Bug caught + fixed mid-build: first attempt set `action='new'`, but `commit_changes_action_check` only allows `pull|enter|revert` → commits 500'd and left a partial commit. Mapped issued→`pull`, delete→`revert`, else→`enter`; and made the whole `commit_changes` write **best-effort** (summary-row fallback) so a tree-display write can never abort a commit whose data already applied. Orphan partial-commit cleaned.
+
+**Verified on prod (live API auth→stage/upload→commit, then DB-inspected, then removed):**
+- weekly invoice → `TREE-TEST-1 w3_received 0→7`, `TREE-TEST-2 0→2` (action `enter`, item_id set) ✓
+- rename+reprice → `new_sku EDIT-TEST-1→EDIT-TEST-RENAMED`, `price 0→99` (change_type `update`) ✓
+- delete → `active →False` (change_type `delete`, action `revert`) ✓
+
+Surfaces in the existing PR-detail view (reads `commit_changes` by commit_id) and the commit change-count. ruff/imports clean; prod logs clean.
+
+**Deploys:** 16d0bbe (granular) → 2c2dabe (action-constraint fix) → 88ed0c5 (whole-site coverage), live.
+
+**Remaining for "data entry aspect complete":**
+- **Frontend tree view** — a dedicated commit-history detail panel rendering the granular rows (currently visible via PR detail). My lane; fast follow.
+- **Backend AI auditor (R-D)** — post-session inventory logic check + CHANGELOG/DB sync. NOT started — needs scope: which logical issues to flag and what "sync changelog with db" means. There's an `agent.py` framework to build on.
+
+**Push:** Claude → 88ed0c5 — 2026-06-24.
+
+---
+
 ## ✅ v4.11.0 — 2026-06-24 — PHASE 1 COMPLETE: inventory transaction ledger (built + verified)
 
 **Claude (Senior Dev Manager):** Rolling monthly inventory model is live. Weekly invoices/pulls now ACCUMULATE through an append-only ledger; baseline stays opening-only. Built, migrated, deployed (`56fec84`), and verified end-to-end against the live DB + the real website API tonight.
