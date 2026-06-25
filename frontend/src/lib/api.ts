@@ -488,6 +488,45 @@ export const api = {
       catch { body = await res.text().catch(() => res.statusText); }
       throw new ApiError(res.status, body);
     }
+    // Backend streams SSE to keep the connection alive during long AI parse jobs.
+    // Consume the stream, ignoring heartbeat comments, resolving on the data event.
+    const ct = res.headers.get('content-type') || '';
+    if (ct.includes('text/event-stream')) {
+      return new Promise((resolve, reject) => {
+        const reader = res.body!.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        const pump = async () => {
+          try {
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) { reject(new ApiError(503, 'Stream ended before result was received')); return; }
+              buf += decoder.decode(value, { stream: true });
+              const events = buf.split('\n\n');
+              buf = events.pop()!;
+              for (const evt of events) {
+                const dataLine = evt.split('\n').find(l => l.startsWith('data: '));
+                if (!dataLine) continue; // SSE comment / heartbeat
+                const data = JSON.parse(dataLine.slice(6));
+                if (!data.__ok) {
+                  reader.cancel().catch(() => {});
+                  // Preserve status + detail so DataEntry's error-type switches work
+                  const err = new ApiError(data.status ?? 422, data.detail ?? 'Upload failed');
+                  reject(err);
+                  return;
+                }
+                reader.cancel().catch(() => {});
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                const { __ok, ...result } = data;
+                resolve(result as any);
+                return;
+              }
+            }
+          } catch (e) { reject(e); }
+        };
+        pump();
+      });
+    }
     return res.json();
   },
 

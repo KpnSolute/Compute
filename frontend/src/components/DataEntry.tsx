@@ -288,6 +288,8 @@ function weeksInMonth(monthIndex: number, year: number) {
     return new Date(year, monthIndex + 1, 0).getDate() > 28 ? 5 : 4;
 }
 
+const IMAGE_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp', 'image/tiff']);
+
 function FileZone({
     file, uploading, onFile, onClear,
 }: {
@@ -295,6 +297,14 @@ function FileZone({
     onFile: (f: File) => void; onClear: () => void;
 }) {
     const [drag, setDrag] = useState(false);
+    const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!file || !IMAGE_MIME.has(file.type)) { setThumbUrl(null); return; }
+        const url = URL.createObjectURL(file);
+        setThumbUrl(url);
+        return () => URL.revokeObjectURL(url);
+    }, [file]);
 
     const handleDrop = useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -302,6 +312,9 @@ function FileZone({
         const f = e.dataTransfer.files[0];
         if (f) onFile(f);
     }, [onFile]);
+
+    const sizeMB = file ? file.size / 1024 / 1024 : 0;
+    const isLarge = sizeMB > 0.5;
 
     return (
         <label
@@ -335,18 +348,25 @@ function FileZone({
                     }} />
                 </div>
             )}
-            {I.fileText({ style: { width: 22, height: 22, flexShrink: 0, color: file ? 'var(--navy)' : 'var(--muted)' } })}
+            {/* Thumbnail for image files; generic icon otherwise */}
+            {thumbUrl && !uploading ? (
+                <img src={thumbUrl} alt="" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 7, flexShrink: 0, border: '1px solid var(--line)' }} />
+            ) : (
+                I.fileText({ style: { width: 22, height: 22, flexShrink: 0, color: file ? 'var(--navy)' : 'var(--muted)' } })
+            )}
             <div style={{ flex: 1, minWidth: 0 }}>
                 {uploading ? (
                     <>
                         <div style={{ fontWeight: 700, fontSize: 13, color: '#1e3a8a' }}>✦ MJCC AI is parsing...</div>
                         <div style={{ fontSize: 11, color: '#3b82f6', marginTop: 2 }}>{file?.name}</div>
+                        {isLarge && <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 3 }}>Large file — may take a few minutes</div>}
                     </>
                 ) : file ? (
                     <>
                         <div style={{ fontWeight: 700, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                            {file.size < 1024 ? `${file.size} B` : `${(file.size / 1024).toFixed(0)} KB`}
+                        <div style={{ fontSize: 11, color: isLarge ? 'var(--amber)' : 'var(--muted)', marginTop: 2 }}>
+                            {sizeMB >= 1 ? `${sizeMB.toFixed(1)} MB` : `${(file.size / 1024).toFixed(0)} KB`}
+                            {isLarge && ' · Large file — parsing may take a few minutes'}
                         </div>
                     </>
                 ) : (
@@ -623,7 +643,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         setOverwritePrompt(null);
         setResult(null);
         setPreview(null);
-        const timeoutId = setTimeout(() => abortRef.current?.abort(), 120_000);
+        const timeoutId = setTimeout(() => abortRef.current?.abort(), 300_000);
         try {
             const res = await api.uploadDataEntry(file, hint, month + 1, year, week, direction, description, abortRef.current?.signal, confirmedOverwrite);
             clearTimeout(timeoutId);
@@ -637,7 +657,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
             clearTimeout(timeoutId);
             const userCancelled = cancelledRef.current;
             const msg = e?.name === 'AbortError'
-                ? (userCancelled ? 'Cancelled by user' : 'Request timed out — AI provider did not respond within 120s')
+                ? (userCancelled ? 'Cancelled by user' : 'Request timed out — AI provider did not respond within 5 minutes')
                 : safeUploadMessage(e);
             const detail = e?.detail;
             if (!userCancelled && e?.status === 409 && detail?.error === 'overwrite_required') {

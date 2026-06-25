@@ -6,6 +6,9 @@ GET  /api/data-entry/settings — current AI stack config
 PUT  /api/data-entry/settings — update AI stack config
 """
 
+import asyncio
+import concurrent.futures
+import json
 import logging
 import time
 import uuid
@@ -24,7 +27,14 @@ from fastapi import (
     Depends,
     Request,
 )
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+# Thread pool dedicated to blocking parse work so FastAPI's event loop stays free
+# during multi-minute AI/OCR jobs on large PDFs.
+_parse_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=4, thread_name_prefix='de-parse'
+)
 from backend.routes import jwt_validator
 from backend.routes._deps import ensure_pr_for_entries
 from supabase import create_client
@@ -1044,11 +1054,9 @@ async def upload_file(
 ):
     """
     Upload a file for AI extraction and staging.
-    - hint: optional operation type hint (inventory / events / haccp / menu / log)
-    - month/year: target period for inventory imports (defaults to current month/year)
-    - week: 1-4 to post a weekly invoice into that week's column (0 = whole-month save)
-    - direction: 'received' (Imports), 'issued' (Exports), or 'both' for whole-month imports
-    - overwrite: confirmed replacement; clears the target inventory scope on merge before applying parsed rows
+    Returns a text/event-stream SSE response so large PDFs (1-5 min) don't hit
+    Render's 100-second idle-connection timeout.  Heartbeat comments (': heartbeat')
+    keep the TCP connection alive during parsing; the final 'data:' line is JSON.
     """
     job_start = time.monotonic()
     now = datetime.now(timezone.utc)
@@ -1081,7 +1089,6 @@ async def upload_file(
     content = await file.read()
     fname = file.filename or "upload"
     fsize_kb = round(len(content) / 1024, 1)
-    # Content hash (rename-proof) for weekly duplicate protection.
     source_hash = hashlib.sha256(content).hexdigest() if content else ""
 
     log.info(
@@ -1119,316 +1126,239 @@ async def upload_file(
         log.warning("[DATA-ENTRY] Client disconnected before parse | file=%s", fname)
         raise HTTPException(status_code=499, detail="Client disconnected")
 
-    # NOTE: superseding this user's prior pending batch for the same file is
-    # deferred to the write phase (_supersede_stale_pending, just before staging)
-    # so a re-upload that fails to parse leaves the existing pending batch — and
-    # the rest of the DB — untouched.
+    # ── SSE stream ────────────────────────────────────────────────────────────
+    # _extract_ops can block for 1-5 minutes on large scanned PDFs.  Running it
+    # in a thread executor keeps the event loop free so uvicorn can flush the
+    # heartbeat comments below — preventing Render's 100-second idle-connection
+    # timeout from silently killing the request mid-parse.
+    async def _sse():
+        def _err(status: int, detail: Any) -> bytes:
+            return b'data: ' + json.dumps({'__ok': False, 'status': status, 'detail': detail}).encode() + b'\n\n'
 
-    try:
+        loop = asyncio.get_event_loop()
         parse_start = time.monotonic()
-        ops, invoice_meta = _extract_ops(
-            fname,
-            content,
-            hint,
-            month,
-            year,
-            ai_config,
-            week=week,
-            direction=direction,
-            tools_cfg=tools_cfg,
-            called_by=auth_user["id"],
-        )
-        parse_elapsed = round(time.monotonic() - parse_start, 2)
-        log.info(
-            "[DATA-ENTRY] Parse complete | file=%s ops=%d elapsed=%.2fs provider=%s",
-            fname,
-            len(ops),
-            parse_elapsed,
-            ai_config.get("provider", "?"),
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        log.error("[DATA-ENTRY] Parse failed | file=%s error=%s", fname, e)
-        raise HTTPException(status_code=422, detail=_safe_parse_error(e))
-
-    if not ops:
-        log.warning("[DATA-ENTRY] No data extracted | file=%s", fname)
-        raise HTTPException(
-            status_code=422, detail="No data could be extracted from this file."
-        )
-
-    # invoice_meta comes directly from _extract_ops (no second parse needed).
-    # reconcile_and_adjust() already ran inside parse_invoice_bytes_pdf.
-    parsed_meta: dict = invoice_meta
-    reconciliation: dict = parsed_meta.get("reconciliation", {})
-    if any(
-        op.get("operation") in ("inventory_save", "inventory_week_update") for op in ops
-    ):
-        # Gate: refuse to stage when totals are off by more than 5%
-        if reconciliation and reconciliation.get("net_total", 0) > 0:
-            recon = reconciliation
-            log.info(
-                "[DATA-ENTRY] Reconcile | file=%s subtotal=%.2f net_total=%.2f "
-                "vizient=%.2f factor=%.4f delta_pct=%.2f%% ok=%s",
-                fname,
-                recon.get("computed_subtotal", 0),
-                recon.get("net_total", 0),
-                recon.get("vizient_discount", 0),
-                recon.get("discount_factor", 1),
-                recon.get("delta_pct", 0),
-                recon.get("reconciled", False),
-            )
-            delta_pct = recon.get("delta_pct", 0)
-            max_delta_pct = float(
-                period_settings.get("reconcile_max_delta_pct", 5.0) or 5.0
-            )
-            if delta_pct > max_delta_pct:
-                log.error(
-                    "[DATA-ENTRY] BLOCKED reconciliation_failed | file=%s delta_pct=%.2f%%",
-                    fname,
-                    delta_pct,
-                )
-                raise HTTPException(
-                    status_code=422,
-                    detail={
-                        "error": "reconciliation_failed",
-                        "message": (
-                            f"Invoice line items sum to ${recon['computed_subtotal']:,.2f} "
-                            f"but the invoice total is ${recon['net_total']:,.2f} "
-                            f"(delta {delta_pct:.1f}%). "
-                            "Fix the parse or re-upload a corrected file."
-                        ),
-                        "reconciliation": recon,
-                    },
-                )
-
-    # Resolve SKUs. During a clean rebuild (empty catalog) or a full-month
-    # inventory baseline, unknown SKUs are allowed through Source Control as new
-    # reviewed items. Weekly invoice imports after the catalog exists still route
-    # unknown vendor SKUs to SKU Review to avoid accidental item forks.
-    try:
-        item_count_r = (
-            _client()
-            .table("inventory_items")
-            .select("id", count="exact")
-            .limit(1)
-            .execute()
-        )
-        catalog_empty = (item_count_r.count or 0) == 0
-    except Exception:
-        catalog_empty = False
-    allow_new_items = catalog_empty or week == 0
-    if week > 0 and period_settings.get("allow_new_items_on_weekly") is True:
-        allow_new_items = True
-    ops, sku_queue_rows = _resolve_items(
-        ops,
-        fname,
-        allow_new_items=allow_new_items,
-    )
-
-    if not ops:
-        # Every parsed item is an unknown SKU → failed import. Nothing is written:
-        # the review rows are NOT inserted here (deferred to the write phase), so
-        # a fully-unresolved upload leaves the DB untouched.
-        log.error(
-            "[DATA-ENTRY] BLOCKED all-unknown-skus (nothing written) | file=%s would_queue=%d",
-            fname,
-            len(sku_queue_rows),
-        )
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"All {len(sku_queue_rows)} parsed item(s) have unknown SKUs. Nothing was "
-                "imported — add them to the catalog or map them in SKU Review, then re-upload."
+        parse_task = loop.run_in_executor(
+            _parse_executor,
+            lambda: _extract_ops(
+                fname, content, hint, month, year, ai_config,
+                week=week, direction=direction, tools_cfg=tools_cfg,
+                called_by=auth_user['id'],
             ),
         )
 
-    inventory_ops = [
-        op
-        for op in ops
-        if op.get("operation") in ("inventory_save", "inventory_week_update")
-    ]
-    overwrite_scope = _overwrite_scope(month, year, week, direction)
-    # Weekly uploads (W1-W4) ACCUMULATE through the ledger, so they never require
-    # an overwrite confirmation. Only a whole-month baseline (week 0) replacing an
-    # existing month needs explicit overwrite.
-    if inventory_ops and week == 0:
-        existing_count = _existing_inventory_scope_count(month, year, week, direction)
-        if existing_count > 0 and not overwrite:
-            log.warning(
-                "[DATA-ENTRY] BLOCKED overwrite_required | file=%s scope=%s month=%s year=%s week=%s dir=%s existing=%d",
-                fname,
-                overwrite_scope["kind"],
-                month,
-                year,
-                week,
-                direction,
-                existing_count,
+        # Yield SSE heartbeat comments while parse is running.
+        while True:
+            done, _ = await asyncio.wait({parse_task}, timeout=15)
+            if done:
+                break
+            yield b': heartbeat\n\n'
+
+        parse_elapsed = round(time.monotonic() - parse_start, 2)
+        try:
+            ops, invoice_meta = parse_task.result()
+        except HTTPException as exc:
+            yield _err(exc.status_code, exc.detail)
+            return
+        except Exception as exc:
+            log.error('[DATA-ENTRY] Parse failed | file=%s error=%s', fname, exc)
+            yield _err(422, _safe_parse_error(exc))
+            return
+
+        log.info(
+            '[DATA-ENTRY] Parse complete | file=%s ops=%d elapsed=%.2fs provider=%s',
+            fname, len(ops), parse_elapsed, ai_config.get('provider', '?'),
+        )
+
+        if not ops:
+            log.warning('[DATA-ENTRY] No data extracted | file=%s', fname)
+            yield _err(422, 'No data could be extracted from this file.')
+            return
+
+        parsed_meta: dict = invoice_meta
+        reconciliation: dict = parsed_meta.get('reconciliation', {})
+        if any(op.get('operation') in ('inventory_save', 'inventory_week_update') for op in ops):
+            if reconciliation and reconciliation.get('net_total', 0) > 0:
+                recon = reconciliation
+                log.info(
+                    '[DATA-ENTRY] Reconcile | file=%s subtotal=%.2f net_total=%.2f '
+                    'vizient=%.2f factor=%.4f delta_pct=%.2f%% ok=%s',
+                    fname,
+                    recon.get('computed_subtotal', 0),
+                    recon.get('net_total', 0),
+                    recon.get('vizient_discount', 0),
+                    recon.get('discount_factor', 1),
+                    recon.get('delta_pct', 0),
+                    recon.get('reconciled', False),
+                )
+                delta_pct = recon.get('delta_pct', 0)
+                max_delta_pct = float(period_settings.get('reconcile_max_delta_pct', 5.0) or 5.0)
+                if delta_pct > max_delta_pct:
+                    log.error(
+                        '[DATA-ENTRY] BLOCKED reconciliation_failed | file=%s delta_pct=%.2f%%',
+                        fname, delta_pct,
+                    )
+                    yield _err(422, {
+                        'error': 'reconciliation_failed',
+                        'message': (
+                            f"Invoice line items sum to ${recon['computed_subtotal']:,.2f} "
+                            f"but the invoice total is ${recon['net_total']:,.2f} "
+                            f"(delta {delta_pct:.1f}%). "
+                            'Fix the parse or re-upload a corrected file.'
+                        ),
+                        'reconciliation': recon,
+                    })
+                    return
+
+        try:
+            item_count_r = (
+                _client()
+                .table('inventory_items')
+                .select('id', count='exact')
+                .limit(1)
+                .execute()
             )
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "error": "overwrite_required",
-                    "message": (
+            catalog_empty = (item_count_r.count or 0) == 0
+        except Exception:
+            catalog_empty = False
+        allow_new_items = catalog_empty or week == 0
+        if week > 0 and period_settings.get('allow_new_items_on_weekly') is True:
+            allow_new_items = True
+        ops, sku_queue_rows = _resolve_items(ops, fname, allow_new_items=allow_new_items)
+
+        if not ops:
+            log.error(
+                '[DATA-ENTRY] BLOCKED all-unknown-skus (nothing written) | file=%s would_queue=%d',
+                fname, len(sku_queue_rows),
+            )
+            yield _err(422, (
+                f'All {len(sku_queue_rows)} parsed item(s) have unknown SKUs. Nothing was '
+                'imported — add them to the catalog or map them in SKU Review, then re-upload.'
+            ))
+            return
+
+        inventory_ops = [op for op in ops if op.get('operation') in ('inventory_save', 'inventory_week_update')]
+        overwrite_scope = _overwrite_scope(month, year, week, direction)
+        if inventory_ops and week == 0:
+            existing_count = _existing_inventory_scope_count(month, year, week, direction)
+            if existing_count > 0 and not overwrite:
+                log.warning(
+                    '[DATA-ENTRY] BLOCKED overwrite_required | file=%s scope=%s month=%s year=%s week=%s dir=%s existing=%d',
+                    fname, overwrite_scope['kind'], month, year, week, direction, existing_count,
+                )
+                yield _err(409, {
+                    'error': 'overwrite_required',
+                    'message': (
                         f"{calendar.month_name[month]} {year} already has "
                         f"{overwrite_scope['label']} inventory data. Confirm overwrite to "
-                        "replace that scope with this parsed upload."
+                        'replace that scope with this parsed upload.'
                     ),
-                    "month": month,
-                    "year": year,
-                    "week": week,
-                    "direction": direction,
-                    "scope": overwrite_scope["kind"],
-                    "scope_label": overwrite_scope["label"],
-                    "existing_rows": existing_count,
-                },
-            )
-        for op in inventory_ops:
-            op["payload"]["overwrite"] = bool(overwrite)
-            op["payload"]["overwrite_scope"] = overwrite_scope
+                    'month': month, 'year': year, 'week': week, 'direction': direction,
+                    'scope': overwrite_scope['kind'], 'scope_label': overwrite_scope['label'],
+                    'existing_rows': existing_count,
+                })
+                return
+            for op in inventory_ops:
+                op['payload']['overwrite'] = bool(overwrite)
+                op['payload']['overwrite_scope'] = overwrite_scope
 
-    # Weekly duplicate protection (read-only gate): a file already MERGED for this
-    # exact period/week/direction cannot be re-imported (would double-count).
-    if inventory_ops and week in (1, 2, 3, 4) and source_hash:
-        _assert_not_duplicate_weekly(
-            source_hash, max(0, month - 1), year, week, direction
-        )
+        if inventory_ops and week in (1, 2, 3, 4) and source_hash:
+            try:
+                _assert_not_duplicate_weekly(source_hash, max(0, month - 1), year, week, direction)
+            except HTTPException as exc:
+                yield _err(exc.status_code, exc.detail)
+                return
 
-    # ── WRITE PHASE ───────────────────────────────────────────────────────────
-    # Everything above is read-only. Any rejection above (reconciliation,
-    # all-unknown, overwrite_required) returned having written NOTHING. From here
-    # on we commit to the DB, ordered so the only remaining expected abort
-    # (duplicate invoice) also writes nothing.
-    invoice_id: Optional[str] = None
-    invoice_is_pending_dup = False
-    invoice_found_existing = False
-    if inventory_ops:
-        invoice_id, invoice_is_pending_dup, invoice_found_existing = (
-            _upsert_invoice_record(parsed_meta, month, year, week, auth_user["id"])
-        )
-        if invoice_is_pending_dup and invoice_id:
-            # _upsert_invoice_record returns the existing row WITHOUT inserting on
-            # a pending duplicate, so this abort leaves the DB untouched.
-            log.warning(
-                "[DATA-ENTRY] BLOCKED duplicate_invoice (nothing written) | file=%s invoice=%s",
-                fname,
-                parsed_meta.get("invoice_number"),
+        # ── WRITE PHASE ───────────────────────────────────────────────────────
+        invoice_id: Optional[str] = None
+        invoice_is_pending_dup = False
+        invoice_found_existing = False
+        if inventory_ops:
+            invoice_id, invoice_is_pending_dup, invoice_found_existing = (
+                _upsert_invoice_record(parsed_meta, month, year, week, auth_user['id'])
             )
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "error": "duplicate_invoice",
-                    "message": (
+            if invoice_is_pending_dup and invoice_id:
+                log.warning(
+                    '[DATA-ENTRY] BLOCKED duplicate_invoice (nothing written) | file=%s invoice=%s',
+                    fname, parsed_meta.get('invoice_number'),
+                )
+                yield _err(409, {
+                    'error': 'duplicate_invoice',
+                    'message': (
                         f"Invoice {parsed_meta.get('invoice_number')} is already staged "
-                        "and pending review. Merge or reject that batch before re-importing."
+                        'and pending review. Merge or reject that batch before re-importing.'
                     ),
-                    "invoice_id": invoice_id,
-                },
-            )
+                    'invoice_id': invoice_id,
+                })
+                return
 
-    # Supersede this user's prior pending batch for the same file — only now that
-    # the upload has cleared every gate and is committing to staging.
-    _supersede_stale_pending(fname, auth_user["id"])
+        _supersede_stale_pending(fname, auth_user['id'])
+        batch_id = str(uuid.uuid4())
+        submitter = auth_user['id']
 
-    batch_id = str(uuid.uuid4())
-    submitter = auth_user["id"]
+        _open_weekly_import_batch(
+            inventory_ops, week=week, direction=direction, month=month, year=year,
+            fname=fname, source_hash=source_hash,
+            invoice_number=parsed_meta.get('invoice_number'),
+            staging_batch_id=batch_id, submitter=submitter,
+        )
 
-    # Weekly ledger import: open the dedup/audit batch and thread its id + source
-    # metadata into the weekly op payloads so dispatch appends traceable ledger
-    # rows (received/issued) that ACCUMULATE within a week.
-    _open_weekly_import_batch(
-        inventory_ops,
-        week=week,
-        direction=direction,
-        month=month,
-        year=year,
-        fname=fname,
-        source_hash=source_hash,
-        invoice_number=parsed_meta.get("invoice_number"),
-        staging_batch_id=batch_id,
-        submitter=submitter,
+        try:
+            staged = _stage_entries(ops, batch_id, fname, submitter, (description or '').strip())
+        except Exception as exc:
+            log.error('[DATA-ENTRY] Staging failed | file=%s batch=%s error=%s', fname, batch_id, exc)
+            yield _err(500, f'Staging failed: {exc}')
+            return
+
+        sku_queued = _insert_sku_queue(sku_queue_rows)
+        if sku_queued:
+            log.warning('[DATA-ENTRY] SKUs queued for review | file=%s queued=%d', fname, sku_queued)
+
+        pr = ensure_pr_for_entries(
+            [s['entry_id'] for s in staged], submitter, title=f'Invoice import — {fname}'
+        )
+
+        op_counts: dict[str, int] = {}
+        for op in ops:
+            op_counts[op['operation']] = op_counts.get(op['operation'], 0) + 1
+
+        total_elapsed = round(time.monotonic() - job_start, 2)
+        log.info(
+            '[DATA-ENTRY] Job complete | file=%s batch=%s staged=%d sku_queued=%d '
+            'ops=%s elapsed=%.2fs reimport=%s',
+            fname, batch_id, len(staged), sku_queued, dict(op_counts), total_elapsed,
+            invoice_found_existing and not invoice_is_pending_dup,
+        )
+
+        resp: dict = {
+            '__ok': True,
+            'batch_id': batch_id,
+            'staged_count': len(staged),
+            'sku_queued': sku_queued,
+            'is_reimport': invoice_found_existing and not invoice_is_pending_dup,
+            'operations': op_counts,
+            'file': fname,
+            'month': month,
+            'year': year,
+            'ai_provider': ai_config.get('provider', 'groq'),
+            'ai_model': ai_config.get('model', ''),
+            'staging_ids': [s['entry_id'] for s in staged],
+            'pr_id': pr.get('pr_id') if pr else None,
+            'pr_number': pr.get('pr_number') if pr else None,
+        }
+        if invoice_id:
+            resp['invoice_id'] = invoice_id
+        if reconciliation:
+            resp['reconciliation'] = reconciliation
+        if description:
+            resp['description'] = description[:500]
+
+        yield b'data: ' + json.dumps(resp).encode() + b'\n\n'
+
+    return StreamingResponse(
+        _sse(),
+        media_type='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
     )
-
-    try:
-        staged = _stage_entries(
-            ops, batch_id, fname, submitter, (description or "").strip()
-        )
-    except Exception as e:
-        log.error(
-            "[DATA-ENTRY] Staging failed | file=%s batch=%s error=%s",
-            fname,
-            batch_id,
-            e,
-        )
-        raise HTTPException(status_code=500, detail=f"Staging failed: {e}")
-
-    # Queue unknown SKUs ONLY after staging succeeded — a blocked/failed upload
-    # never reaches here, so sku_review_queue is never polluted by a failed parse.
-    sku_queued = _insert_sku_queue(sku_queue_rows)
-    if sku_queued:
-        log.warning(
-            "[DATA-ENTRY] SKUs queued for review | file=%s queued=%d", fname, sku_queued
-        )
-
-    # Auto-wrap the new staging rows in a PR (attaches to the user's existing
-    # open PR if they have one from an earlier upload this session, else opens
-    # a new one) -- this is what makes them show up in Source Control's Pull
-    # Requests tab as a reviewable unit instead of loose pending rows.
-    pr = ensure_pr_for_entries(
-        [s["entry_id"] for s in staged], submitter, title=f"Invoice import — {fname}"
-    )
-
-    # lightweight summary — full diff available via /preview/{batch_id}
-    op_counts: dict[str, int] = {}
-    for op in ops:
-        op_counts[op["operation"]] = op_counts.get(op["operation"], 0) + 1
-
-    resp: dict = {
-        "batch_id": batch_id,
-        "staged_count": len(staged),
-        "sku_queued": sku_queued,
-        "is_reimport": invoice_found_existing and not invoice_is_pending_dup,
-        "operations": op_counts,
-        "file": file.filename,
-        "month": month,
-        "year": year,
-        "ai_provider": ai_config.get("provider", "groq"),
-        "ai_model": ai_config.get("model", ""),
-        "staging_ids": [s["entry_id"] for s in staged],
-        "pr_id": pr.get("pr_id") if pr else None,
-        "pr_number": pr.get("pr_number") if pr else None,
-    }
-    if invoice_id:
-        resp["invoice_id"] = invoice_id
-    if reconciliation:
-        resp["reconciliation"] = reconciliation
-    if description:
-        resp["description"] = description[:500]
-
-    if await request.is_disconnected():
-        log.warning(
-            "[DATA-ENTRY] Client disconnected after parse (staging already written) | "
-            "file=%s batch=%s staged=%d",
-            fname,
-            batch_id,
-            len(staged),
-        )
-        raise HTTPException(status_code=499, detail="Client disconnected")
-
-    total_elapsed = round(time.monotonic() - job_start, 2)
-    log.info(
-        "[DATA-ENTRY] Job complete | file=%s batch=%s staged=%d sku_queued=%d "
-        "ops=%s elapsed=%.2fs reimport=%s",
-        fname,
-        batch_id,
-        len(staged),
-        sku_queued,
-        dict(op_counts),
-        total_elapsed,
-        resp.get("is_reimport", False),
-    )
-    return resp
 
 
 @router.get("/preview/{batch_id}")
