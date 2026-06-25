@@ -131,6 +131,55 @@ function useInventory(period: [number, number]): [any, () => Promise<void>] {
     return [state, load];
 }
 
+function DropSelect({ value, onChange, options, label }: {
+    value: number;
+    onChange: (v: number) => void;
+    options: { value: number; label: string }[];
+    label?: string;
+}) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!open) return;
+        const h = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+        document.addEventListener('mousedown', h);
+        return () => document.removeEventListener('mousedown', h);
+    }, [open]);
+
+    useEffect(() => {
+        if (!open) return;
+        const h = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+        window.addEventListener('keydown', h);
+        return () => window.removeEventListener('keydown', h);
+    }, [open]);
+
+    const selected = options.find(o => o.value === value);
+    return (
+        <div className="tb-drop" ref={ref}>
+            <button className="tb-drop-btn" onClick={() => setOpen(v => !v)} aria-label={label} aria-expanded={open} aria-haspopup="listbox">
+                {selected?.label}
+                {I.down({ style: { width: 11, height: 11, marginLeft: 2, opacity: 0.7 } })}
+            </button>
+            {open && (
+                <div className="tb-drop-list" role="listbox" aria-label={label}>
+                    {options.map(o => (
+                        <button
+                            key={o.value}
+                            role="option"
+                            aria-selected={o.value === value}
+                            className={"tb-drop-opt" + (o.value === value ? " active" : "")}
+                            onClick={() => { onChange(o.value); setOpen(false); }}
+                        >
+                            {o.label}
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 function Topbar({
     user,
     period,
@@ -208,30 +257,18 @@ function Topbar({
                     <span className="rt"></span>
                     {apiStatus === 'error' ? 'API Error' : apiStatus === 'syncing' ? 'Syncing…' : 'LIVE'}
                 </span>
-                <select
-                    className="tb-select"
-                    aria-label="Period month"
+                <DropSelect
+                    label="Period month"
                     value={m}
-                    onChange={(e) => setPeriod([+e.target.value, y])}
-                >
-                    {MONTHS.map((nm, i) => (
-                        <option key={i} value={i}>
-                            {nm}
-                        </option>
-                    ))}
-                </select>
-                <select
-                    className="tb-select"
-                    aria-label="Period year"
+                    onChange={(v) => setPeriod([v, y])}
+                    options={MONTHS.map((nm, i) => ({ value: i, label: nm }))}
+                />
+                <DropSelect
+                    label="Period year"
                     value={y}
-                    onChange={(e) => setPeriod([m, +e.target.value])}
-                >
-                    {[2024, 2025, 2026].map((yr) => (
-                        <option key={yr} value={yr}>
-                            {yr}
-                        </option>
-                    ))}
-                </select>
+                    onChange={(v) => setPeriod([m, v])}
+                    options={[2024, 2025, 2026].map(yr => ({ value: yr, label: String(yr) }))}
+                />
                 {periodPublished !== null && periodPublished !== undefined && (
                     <span className={`period-status-pill${periodPublished ? ' published' : ' open'}`}>
                         <span className="psp-dot" />
