@@ -3,7 +3,7 @@ import { I } from "../lib/icons";
 import { type User, ROLE_LEVEL, ROLE_LABEL } from "../lib/constants";
 import { api, type Commit, type StagingEntry } from "../lib/api";
 import { useEscapeClose } from "../lib/useEscapeClose";
-import { SaveBar, PageToolbar } from "./ui/ActionBars";
+import { PageToolbar } from "./ui/ActionBars";
 import { matchesInventoryQuery, parseInventoryQuery } from "../lib/inventorySearch";
 
 const t = (msg: string) => (window as any).toast?.(msg);
