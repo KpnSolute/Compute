@@ -11,6 +11,7 @@ Supported providers:
 Usage is logged to ai_usage_logs after every call (best-effort, never raises).
 """
 
+import base64
 import json
 import logging
 import os
@@ -459,6 +460,97 @@ _FALLBACK_MODELS = {
     "google": "gemini-2.0-flash",
 }
 
+# ponytail: vision fallbacks use vision-capable model IDs; groq/mistral need
+# different models than their text fallbacks (llama-3.3 and mistral-small
+# are text-only; llama-4-maverick and pixtral are the vision variants).
+_VISION_FALLBACK_MODELS = {
+    "anthropic": "claude-haiku-4-5-20251001",
+    "groq": "meta-llama/llama-4-maverick-17b-128e-instruct",
+    "openai": "gpt-4o-mini",
+    "mistral": "pixtral-12b-2409",
+    "google": "gemini-2.0-flash",
+}
+
+
+def _media_type(b: bytes) -> str:
+    if b[:4] == b"\x89PNG":
+        return "image/png"
+    if b[:4] == b"GIF8":
+        return "image/gif"
+    return "image/jpeg"
+
+
+def _call_vision_provider(
+    provider: str, model: str, prompt: str, images: list[bytes], cfg: dict
+) -> tuple[str, dict]:
+    """Build provider-specific vision payload and dispatch. Returns (text, usage)."""
+    if provider == "anthropic":
+        blocks: list[dict] = [
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": _media_type(img),
+                    "data": base64.b64encode(img).decode(),
+                },
+            }
+            for img in images
+        ]
+        blocks.append({"type": "text", "text": prompt})
+        key, _ = _resolve_key("anthropic", cfg)
+        if not key:
+            raise RuntimeError("No API key configured for anthropic")
+        return _anthropic_complete([{"role": "user", "content": blocks}], model, key)
+
+    elif provider == "ollama":
+        b64_imgs = [base64.b64encode(img).decode() for img in images]
+        _, url = _resolve_key("ollama", cfg)
+        base_url = url or cfg.get("ollama_url") or "http://localhost:11434"
+        return _ollama_complete(
+            [{"role": "user", "content": prompt, "images": b64_imgs}], model, base_url
+        )
+
+    elif provider == "google":
+        parts: list[dict] = [
+            {"inline_data": {"mime_type": _media_type(img), "data": base64.b64encode(img).decode()}}
+            for img in images
+        ]
+        parts.append({"text": prompt})
+        key, _ = _resolve_key("google", cfg)
+        if not key:
+            raise RuntimeError("No API key configured for Google Gemini")
+        return _gemini_complete([{"role": "user", "content": parts}], model, key)
+
+    else:
+        # OpenAI-compatible: groq, openai, mistral, lm_studio
+        content_parts: list[dict] = [
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{_media_type(img)};base64,{base64.b64encode(img).decode()}"},
+            }
+            for img in images
+        ]
+        content_parts.append({"type": "text", "text": prompt})
+        messages = [{"role": "user", "content": content_parts}]
+        key, url = _resolve_key(provider, cfg)
+        if provider == "groq":
+            if not key:
+                raise RuntimeError("No API key configured for groq")
+            return _groq_complete(messages, model, key)
+        elif provider == "openai":
+            if not key:
+                raise RuntimeError("No API key configured for openai")
+            return _openai_complete(messages, model, key, url)
+        elif provider == "mistral":
+            if not key:
+                raise RuntimeError("No API key configured for mistral")
+            return _mistral_complete(messages, model, key)
+        elif provider == "lm_studio":
+            base_url = url or cfg.get("lm_studio_url") or "http://localhost:1234"
+            return _openai_complete(messages, model or "local-model", key or "lm-studio", base_url)
+        else:
+            raise ValueError(f"Vision dispatch not implemented for provider: {provider!r}")
+
 
 def _get_any_key(provider: str) -> str | None:
     """Return a usable api_key for `provider` regardless of is_active (prefers an
@@ -665,16 +757,10 @@ def complete_vision(
 ) -> str:
     """Send a prompt + images to the configured provider and return the response text.
 
+    Falls back through available vision-capable providers exactly like complete().
     images — list of raw image bytes (JPEG or PNG recommended).
-    Raises RuntimeError if the configured model does not support vision.
-
-    Provider image formats:
-      anthropic   — base64 source blocks in content list
-      ollama      — images list in message object
-      everything else (groq, openai, mistral, lm_studio) — OpenAI image_url content parts
+    Raises RuntimeError if no provider with vision support and a key is available.
     """
-    import base64
-
     cfg = config or {}
     provider = cfg.get("provider") or "groq"
     model = cfg.get("model") or "llama-3.3-70b-versatile"
@@ -694,163 +780,87 @@ def complete_vision(
         len(images),
     )
 
-    t0 = time.monotonic()
-    text: str = ""
-    usage: dict = {"tokens_in": 0, "tokens_out": 0}
-    success = True
-    error_msg: str | None = None
+    # Build attempt chain: primary first, then fallback providers that are
+    # vision-capable and have a key. Local providers skip auto-fallback.
+    attempts: list[tuple[str, str]] = [(provider, model)]
+    if cfg.get("enable_fallback", True):
+        for fb, fb_model in _VISION_FALLBACK_MODELS.items():
+            if fb == provider or fb in ("ollama", "lm_studio"):
+                continue
+            if is_vision_capable(fb, fb_model) and _get_any_key(fb):
+                attempts.append((fb, fb_model))
 
-    def _media_type(b: bytes) -> str:
-        if b[:4] == b"\x89PNG":
-            return "image/png"
-        if b[:4] == b"GIF8":
-            return "image/gif"
-        return "image/jpeg"
+    last_exc: Exception | None = None
+    for idx, (prov, mdl) in enumerate(attempts):
+        t0 = time.monotonic()
+        usage: dict = {"tokens_in": 0, "tokens_out": 0}
+        try:
+            text, usage = _call_vision_provider(prov, mdl, prompt, images, cfg)
+        except Exception as exc:
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            _log_usage(
+                provider=prov,
+                model=mdl,
+                tokens_in=0,
+                tokens_out=0,
+                duration_ms=duration_ms,
+                operation=operation,
+                called_by=called_by,
+                success=False,
+                error_msg=str(exc)[:500],
+            )
+            last_exc = exc
+            more = idx < len(attempts) - 1
+            log.warning(
+                "[AI] vision provider FAILED | provider=%s model=%s operation=%s elapsed_ms=%d error=%s%s",
+                prov,
+                mdl,
+                operation or "?",
+                duration_ms,
+                str(exc)[:300],
+                " — falling back to next provider" if more else " — no providers left",
+            )
+            continue
 
-    try:
-        if provider == "anthropic":
-            blocks: list[dict] = []
-            for img in images:
-                b64 = base64.b64encode(img).decode()
-                blocks.append(
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": _media_type(img),
-                            "data": b64,
-                        },
-                    }
-                )
-            blocks.append({"type": "text", "text": prompt})
-            messages = [{"role": "user", "content": blocks}]
-            db_key, _ = _get_db_row("anthropic")
-            api_key = db_key or cfg.get("api_key")
-            if not api_key:
-                raise RuntimeError(
-                    "No API key configured for anthropic — add one in Settings → AI."
-                )
-            text, usage = _anthropic_complete(messages, model, api_key)
-
-        elif provider == "ollama":
-            b64_imgs = [base64.b64encode(img).decode() for img in images]
-            messages = [{"role": "user", "content": prompt, "images": b64_imgs}]
-            _, db_url = _get_db_row("ollama")
-            base_url = db_url or cfg.get("ollama_url") or "http://localhost:11434"
-            text, usage = _ollama_complete(messages, model, base_url)
-
-        elif provider == "google":
-            parts: list[dict] = []
-            for img in images:
-                parts.append(
-                    {
-                        "inline_data": {
-                            "mime_type": _media_type(img),
-                            "data": base64.b64encode(img).decode(),
-                        },
-                    }
-                )
-            parts.append({"text": prompt})
-            messages = [{"role": "user", "content": parts}]
-            db_key, _ = _get_db_row("google")
-            api_key = db_key or cfg.get("api_key")
-            if not api_key:
-                raise RuntimeError(
-                    "No API key configured for Google Gemini — add one in Settings → AI."
-                )
-            text, usage = _gemini_complete(messages, model, api_key)
-
-        else:
-            # OpenAI-compatible: groq, openai, mistral, lm_studio
-            content_parts: list[dict] = []
-            for img in images:
-                b64 = base64.b64encode(img).decode()
-                content_parts.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{_media_type(img)};base64,{b64}"},
-                    }
-                )
-            content_parts.append({"type": "text", "text": prompt})
-            messages = [{"role": "user", "content": content_parts}]
-
-            if provider == "groq":
-                db_key, _ = _get_db_row("groq")
-                api_key = db_key or cfg.get("api_key")
-                if not api_key:
-                    raise RuntimeError(
-                        "No API key configured for groq — add one in Settings → AI."
-                    )
-                text, usage = _groq_complete(messages, model, api_key)
-            elif provider == "openai":
-                db_key, db_url = _get_db_row("openai")
-                api_key = db_key or cfg.get("api_key")
-                if not api_key:
-                    raise RuntimeError(
-                        "No API key configured for openai — add one in Settings → AI."
-                    )
-                text, usage = _openai_complete(messages, model, api_key, db_url)
-            elif provider == "mistral":
-                db_key, _ = _get_db_row("mistral")
-                api_key = db_key or cfg.get("api_key")
-                if not api_key:
-                    raise RuntimeError(
-                        "No API key configured for mistral — add one in Settings → AI."
-                    )
-                text, usage = _mistral_complete(messages, model, api_key)
-            elif provider == "lm_studio":
-                db_key2, db_url = _resolve_key("lm_studio", cfg)
-                base_url = db_url or cfg.get("lm_studio_url") or "http://localhost:1234"
-                api_key = db_key2 or cfg.get("api_key") or "lm-studio"
-                text, usage = _openai_complete(messages, model, api_key, base_url)
-            else:
-                raise ValueError(
-                    f"Vision dispatch not implemented for provider: {provider!r}"
-                )
-
-    except Exception as exc:
-        success = False
-        error_msg = str(exc)[:500]
-        raise
-
-    finally:
         duration_ms = int((time.monotonic() - t0) * 1000)
         _log_usage(
-            provider=provider,
-            model=model,
+            provider=prov,
+            model=mdl,
             tokens_in=usage.get("tokens_in", 0),
             tokens_out=usage.get("tokens_out", 0),
             duration_ms=duration_ms,
             operation=operation,
             called_by=called_by,
-            success=success,
-            error_msg=error_msg,
+            success=True,
+            error_msg=None,
         )
-        if success:
-            log.info(
-                "[AI] vision request done | provider=%s model=%s operation=%s elapsed_ms=%d "
-                "tokens_in=%d tokens_out=%d resp_chars=%d images=%d",
+        if idx > 0:
+            log.warning(
+                "[AI] vision primary '%s' failed — served by fallback '%s'",
                 provider,
-                model,
-                operation or "?",
-                duration_ms,
-                usage.get("tokens_in", 0),
-                usage.get("tokens_out", 0),
-                len(text or ""),
-                len(images),
+                prov,
             )
-        else:
-            log.error(
-                "[AI] vision request FAILED | provider=%s model=%s operation=%s elapsed_ms=%d images=%d error=%s",
-                provider,
-                model,
-                operation or "?",
-                duration_ms,
-                len(images),
-                error_msg,
-            )
+        log.info(
+            "[AI] vision request done | provider=%s model=%s operation=%s elapsed_ms=%d "
+            "tokens_in=%d tokens_out=%d resp_chars=%d images=%d",
+            prov,
+            mdl,
+            operation or "?",
+            duration_ms,
+            usage.get("tokens_in", 0),
+            usage.get("tokens_out", 0),
+            len(text or ""),
+            len(images),
+        )
+        return text
 
-    return text
+    log.error(
+        "[AI] vision FAILED (all providers exhausted) | tried=%s operation=%s error=%s",
+        [a[0] for a in attempts],
+        operation or "?",
+        str(last_exc)[:300],
+    )
+    raise last_exc if last_exc else RuntimeError("Vision AI failed: no providers available")
 
 
 def extract_json(text: str) -> dict | list:
