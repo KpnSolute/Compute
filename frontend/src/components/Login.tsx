@@ -18,11 +18,21 @@ export function Login({ onLogin, layout = 'split' }: LoginProps) {
   const [err, setErr] = useState('');
   const [pinErr, setPinErr] = useState(false);
   const [busy, setBusy] = useState(false);
+  // The API runs on Render's free tier and can cold-start (~30-60s). After a few
+  // seconds of waiting, tell the user the server is waking up instead of leaving
+  // "Verifying…" hanging with no explanation.
+  const [slow, setSlow] = useState(false);
 
   useEffect(() => {
     setErr('');
     setPinErr(false);
   }, [mode]);
+
+  useEffect(() => {
+    if (!busy) { setSlow(false); return; }
+    const t = setTimeout(() => setSlow(true), 4000);
+    return () => clearTimeout(t);
+  }, [busy]);
 
   async function doLogin(type: 'admin' | 'staff', pinVal?: string) {
     setBusy(true);
@@ -190,13 +200,18 @@ export function Login({ onLogin, layout = 'split' }: LoginProps) {
               </div>
               <button className="btn-auth" type="submit" disabled={busy}>
                 {busy ? (
-                  'Verifying…'
+                  slow ? 'Waking the server…' : 'Verifying…'
                 ) : (
                   <>
                     Sign in {I.logout({ style: { width: 16, height: 16 } })}
                   </>
                 )}
               </button>
+              {slow && (
+                <div className="auth-note" style={{ marginTop: 12, paddingTop: 0, borderTop: 'none' }}>
+                  The server may be waking from sleep — first sign-in can take up to a minute. Hang tight.
+                </div>
+              )}
             </form>
           ) : (
             <div>

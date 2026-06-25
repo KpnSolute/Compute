@@ -241,10 +241,12 @@ export function MonthlyInventory({
   user,
   period,
   openSC,
+  go,
 }: {
   user: User;
   period: [number, number];
   openSC?: () => void;
+  go?: (key: string) => void;
 }) {
   const lvl = ROLE_LEVEL[user.role] || 0;
   const canEdit = lvl >= 20;
@@ -502,8 +504,12 @@ export function MonthlyInventory({
           </div>
         </div>
         <div className="ph-actions">
-          <button className="btn">{I.printer()} Print</button>
-          {canEdit && <button className="btn primary">{I.plus()} Add item</button>}
+          <button className="btn" onClick={() => window.print()}>{I.printer()} Print</button>
+          {canEdit && (
+            <button className="btn primary" onClick={() => go?.('inventory')} title="Add a new item in the Inventory editor">
+              {I.plus()} Add item
+            </button>
+          )}
         </div>
       </div>
 
