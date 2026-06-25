@@ -4,6 +4,27 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.18.7 — 2026-06-25 — UI bug fixes + May 2026 commit
+
+**[mjcc-ui]** Four UI bugs fixed and deployed:
+- `Inventory empty state`: hardcoded "May 2026" → dynamic `{MONTHS[period[0]]} {period[1]}`.
+- `Inventory table`: "SourceCtrl" column header → "Edit" (both flat and grouped views).
+- `Archives page`: "Export all" button disabled when no archives exist; tooltip explains why.
+- `User menu`: "My profile" was a dead button in Topbar + ActivityBar — now navigates to Settings. Added `onNav` prop to Topbar; ActivityBar uses existing `goTo`.
+
+**[data — May 2026]** All invoices committed to `monthly_inventory` (month=4, year=2026):
+- W1: 185 items (merged from prior session, batch `53636e24`).
+- W2: 64 items from CSV (PDF rejected — full SKU overlap).
+- W3: 28 items from CSV (Pt.1 PDF rejected — all 22 PDF SKUs contained in CSV).
+- W3 Pt.2: 2 garbage items rejected (Gemini read header text as line items).
+- DB verified: W1=184, W2=64, W3=28 rows in `monthly_inventory`. ✓
+
+**Note on month indexing**: `monthly_inventory` uses 0-indexed months (May = 4). The dispatch correctly applies `db_month = month - 1`. Querying with `WHERE month = 5` will find nothing for May — use `month = 4`.
+
+**Push:** `e1b5047` — 2026-06-25
+
+---
+
 ## v4.18.6 — 2026-06-25 — Vision provider fallback chain + May 2026 upload run
 
 **[mjcc-api]** `complete_vision()` had no fallback chain — one Gemini timeout = upload failure with no retry. `complete()` already had this. Now both do.
