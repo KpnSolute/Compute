@@ -4,6 +4,32 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.19.0 — 2026-06-25 — Envo: floating selection bar (inventory + source control)
+
+**[mjcc-ui]** Introduced the **envo** UI pattern across Inventory and Source Control.
+
+**Inventory (regular + grouped views):**
+- Removed the "Edit" column button from both table views — less clutter, cleaner rows.
+- Row click now **toggles selection** (was: open ItemInspector). Inputs/buttons inside rows still work normally.
+- Selected rows get an accent highlight + left border (`envo-selected`).
+- A **floating pill bar** (`envo-bar`) appears fixed at bottom-center of the viewport when 1+ rows are selected:
+  - **Edit** — opens ItemInspector for the first selected item (full pulls/par/price editor)
+  - **Duplicate** — stages a copy of the selected item with an auto-generated SKU (single-select only)
+  - **Delete** — stages `item_delete` for each selected item, routes through Source Control
+  - **Stage** — stages current draft edits for selected items (only enabled when those rows have unsaved draft changes)
+  - **×** — clears selection
+- Compact view retains inline inputs unchanged (those are the pulls/weekly workflow).
+
+**Source Control:**
+- `save-bar` replaced with `sc-envo-bar` — sticky at the bottom of the SC panel body with a cleaner layout and an upward shadow. Same Commit/Unstage actions, same selected-count logic.
+
+**CSS added:** `.envo-bar`, `.sc-envo-bar`, `.inv-row.envo-selected`, `@keyframes envo-in`.
+
+**Build:** tsc clean, vite build passing.
+**Push:** `f6ad8c2` — 2026-06-25
+
+---
+
 ## v4.18.7 — 2026-06-25 — UI bug fixes + May 2026 commit
 
 **[mjcc-ui]** Four UI bugs fixed and deployed:
