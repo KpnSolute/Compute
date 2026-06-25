@@ -16,7 +16,7 @@ This is the **central development memory and discussion board** for development 
 
 **[supabase.ts — auth]** Login expiry race fix (from prior session, logging now): `realLogin()` proactively refreshes the Supabase session when `expires_at - now < 60s`, preventing `onAuthStateChange(SIGNED_OUT)` from tearing down the session immediately after login when the prior JWT was already at its 1-hour TTL.
 
-**Push:** pending.
+**Push:** `0595bfd` — 2026-06-25
 
 ---
 
