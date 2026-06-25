@@ -4,6 +4,27 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.18.6 — 2026-06-25 — Vision provider fallback chain + May 2026 upload run
+
+**[mjcc-api]** `complete_vision()` had no fallback chain — one Gemini timeout = upload failure with no retry. `complete()` already had this. Now both do.
+
+- Extracted `_call_vision_provider(provider, model, prompt, images, cfg)` — builds per-provider payload and dispatches.
+- Added `_VISION_FALLBACK_MODELS` — vision-capable model IDs per provider (`groq=llama-4-maverick`, `mistral=pixtral-12b`).
+- `complete_vision()` now iterates an attempts[] chain, retries on any exception, logs which fallback served the request.
+- `base64` promoted to top-level import; `_media_type()` to module level.
+
+**Push:** `9544590` — 2026-06-25
+
+**[data-entry — May 2026 upload results]**
+- W1 PDF: Already merged in a prior session (185 items). 409 duplicate check fired correctly — no re-staging needed.
+- W2 CSV (64 items, pending): structured US Foods + Multi-Flow summary. Elapsed: <1s.
+- W2 PDF (64 items, pending): same US Foods invoice via vision AI. Elapsed: 378s across 6 pages. **Overlaps with CSV — user must commit only one.**
+- W3 CSV (28 items, pending): structured. Elapsed: 0.67s.
+- W3 Pt.1 PDF (22 items, pending): vision, reconciled=True, delta=0.82%, elapsed 197s.
+- W3 Pt.2 PDF: Gemini returned header text as items (2 garbage rows auto-rejected). May be a summary-only scan with no line items visible.
+
+---
+
 ## v4.18.5 — 2026-06-25 — Vision timeout + large-PDF early-exit
 
 **[mjcc-api]** Three fixes for large PDF invoice timeouts:
