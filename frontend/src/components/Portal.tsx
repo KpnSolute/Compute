@@ -144,6 +144,7 @@ function Topbar({
     apiStatus = 'live',
     lastFetch,
     onRefresh,
+    onNav,
 }: {
     user: User;
     period: [number, number];
@@ -158,6 +159,7 @@ function Topbar({
     apiStatus?: 'live' | 'syncing' | 'error';
     lastFetch?: string | null;
     onRefresh?: () => void;
+    onNav?: (k: string) => void;
 }) {
     const [menu, setMenu] = useState(false);
     useEffect(() => {
@@ -275,7 +277,7 @@ function Topbar({
                                     {user.username}@mjc-cafeteria.com
                                 </div>
                             </div>
-                            <button className="um-item">
+                            <button className="um-item" onClick={() => { onNav?.('settings'); setMenu(false); }}>
                                 {I.user()} My profile
                             </button>
                             <button
@@ -482,7 +484,7 @@ function ActivityBar({
                                 <div className="nm">{user.display_name} {user.last_name}</div>
                                 <div className="em">{user.username}@mjc-cafeteria.com</div>
                             </div>
-                            <button className="um-item">
+                            <button className="um-item" onClick={() => { goTo('settings'); setUserMenu(false); }}>
                                 {I.user()} My profile
                             </button>
                             <button
@@ -1784,7 +1786,7 @@ function InventoryView({
                     </div>
                     <div className="card-body">
                         <p style={{ margin: '0 0 12px', color: 'var(--muted)', lineHeight: 1.5 }}>
-                            The live inventory is clean. Start by importing your May 2026 baseline or approved
+                            The live inventory is clean. Start by importing your {MONTHS[period[0]]} {period[1]} baseline or approved
                             full-month spreadsheet through Data Entry. The upload will stage changes in Source Control
                             for review before anything becomes inventory history.
                         </p>
@@ -1995,7 +1997,7 @@ function InventoryView({
                                     <th>Status</th>
                                     <th className="r">Value</th>
                                     {canStage && (
-                                        <th className="r">SourceCtrl</th>
+                                        <th className="r">Edit</th>
                                     )}
                                 </tr>
                             </thead>
@@ -2240,7 +2242,7 @@ function InventoryView({
                                                                 </th>
                                                                 {canStage && (
                                                                     <th className="r no-print">
-                                                                        SourceCtrl
+                                                                        Edit
                                                                     </th>
                                                                 )}
                                                             </tr>
@@ -4113,7 +4115,7 @@ function ArchivesView(_props: { period: [number, number] }) {
                     </div>
                 </div>
                 <div className="ph-actions">
-                    <button className="btn">{I.download()} Export all</button>
+                    <button className="btn" disabled={archives.length === 0} title={archives.length === 0 ? 'No archives to export yet' : 'Export all archive snapshots'}>{I.download()} Export all</button>
                 </div>
             </div>
             {archives.length === 0 ? (
@@ -4494,6 +4496,7 @@ export function Portal({
                 apiStatus={apiStatus}
                 lastFetch={lastFetch}
                 onRefresh={reloadInv}
+                onNav={goTo}
             />
             <ActivityBar
                 user={user}
