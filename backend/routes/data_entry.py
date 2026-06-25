@@ -330,7 +330,10 @@ def _extract_ops(
         )
         return ops, meta
 
-    # Image bundles (ZIP-of-images, single images that OCR couldn't parse) — try vision, then OCR
+    # Image bundles (ZIP-of-images, single images) — Vision AI primary, OCR fallback.
+    # Vision (Gemini/GPT-4o/etc.) understands layout and context directly from pixels,
+    # which is critical for photos of thermal receipts, rotated/overlapping documents,
+    # or any image where Cloud Vision OCR returns fewer items than are visible.
     if kind == "invoice_images":
         img_data = data  # {'images': [bytes, ...], 'meta': {...}}
         images = img_data.get("images", [])
@@ -338,124 +341,99 @@ def _extract_ops(
         provider = ai_config.get("provider", "")
         model = ai_config.get("model", "")
 
-        # Picture-reading path: Google Cloud Vision OCR turns scans/images into
-        # text first. The text then flows through the deterministic invoice parser
-        # and normal Source Control staging. Gemini remains the structured fallback
-        # for pages OCR cannot parse into line items.
+        def _ops_from_parsed(parsed: dict, src_meta: dict) -> tuple[list[dict], dict] | None:
+            if not parsed.get("items"):
+                return None
+            merged_meta = {**src_meta, **parsed.get("meta", {})}
+            cats = ctx.get_categories()
+            ops = invoice_parser.invoice_items_to_ops(
+                parsed["items"], merged_meta, month, year, week, direction, cats
+            )
+            return ops, merged_meta
+
+        # ── PRIMARY: Gemini / Vision-capable model ────────────────────────────
+        # Always attempt Vision AI first when a vision-capable model is configured.
+        # OCR frequently under-counts items on photos (especially thermal receipts or
+        # images with multiple overlapping documents) because it reads raw text and
+        # misses layout context. Vision AI reads the image directly and handles
+        # multi-invoice photos, rotated text, and partial occlusion correctly.
+        if ai_engine.is_vision_capable(provider, model, ai_config):
+            try:
+                parsed = invoice_parser.extract_invoice_vision(
+                    images, img_meta, ai_config, called_by=called_by
+                )
+                result = _ops_from_parsed(parsed, img_meta)
+                if result:
+                    if parsed.get("pages_failed"):
+                        log.warning(
+                            "[DATA-ENTRY] Vision partial — %d/%d page(s) failed, "
+                            "proceeding with %d item(s)",
+                            parsed["pages_failed"],
+                            parsed.get("pages_total", len(images)),
+                            len(parsed["items"]),
+                        )
+                    log.info(
+                        "[DATA-ENTRY] Vision AI extracted %d item(s) | provider=%s model=%s",
+                        len(parsed["items"]), provider, model,
+                    )
+                    return result
+                log.warning(
+                    "[DATA-ENTRY] Vision returned no items, falling back to OCR | "
+                    "provider=%s model=%s pages=%d pages_failed=%d",
+                    provider, model, len(images), parsed.get("pages_failed", 0),
+                )
+            except Exception as e:
+                log.error(
+                    "[DATA-ENTRY] Vision extraction failed, falling back to OCR | "
+                    "provider=%s model=%s pages=%d error=%s",
+                    provider, model, len(images), e,
+                )
+
+        # ── FALLBACK 1: Google Cloud Vision OCR → deterministic parser ────────
+        # Only reached when Vision AI is not configured or returned nothing.
         try:
             ocr_pages = invoice_parser._google_cloud_vision_images(images)
             if any((page or "").strip() for page in ocr_pages):
                 parsed = invoice_parser.parse_invoice_text_pages(
                     ocr_pages, img_meta.get("filename", filename)
                 )
-                if parsed.get("items"):
-                    meta = {**img_meta, **parsed.get("meta", {})}
-                    categories = ctx.get_categories()
-                    ops = invoice_parser.invoice_items_to_ops(
-                        parsed["items"],
-                        meta,
-                        month,
-                        year,
-                        week,
-                        direction,
-                        categories,
-                    )
+                result = _ops_from_parsed(parsed, img_meta)
+                if result:
                     log.info(
-                        "[DATA-ENTRY] Google Cloud Vision OCR parsed %d item(s) from %d page/image(s)",
-                        len(parsed["items"]),
-                        len(images),
+                        "[DATA-ENTRY] Google Cloud Vision OCR parsed %d item(s) from %d image(s)",
+                        len(parsed["items"]), len(images),
                     )
-                    return ops, meta
+                    return result
                 log.warning(
-                    "[DATA-ENTRY] Google Cloud Vision OCR returned text but no invoice items | pages=%d",
+                    "[DATA-ENTRY] Cloud Vision OCR returned text but no parseable items | pages=%d",
                     len(images),
                 )
         except Exception as e:
             log.warning("[DATA-ENTRY] Google Cloud Vision OCR failed: %s", e)
 
-        if ai_engine.is_vision_capable(provider, model, ai_config):
-            try:
-                parsed = invoice_parser.extract_invoice_vision(
-                    images, img_meta, ai_config, called_by=called_by
-                )
-                if parsed.get("items"):
-                    if parsed.get("pages_failed"):
-                        log.warning(
-                            "[DATA-ENTRY] Vision extraction partial — %d/%d page(s) "
-                            "failed, proceeding with %d item(s) from remaining pages",
-                            parsed["pages_failed"],
-                            parsed.get("pages_total", len(images)),
-                            len(parsed["items"]),
-                        )
-                    meta = parsed.get("meta", {})
-                    categories = ctx.get_categories()
-                    ops = invoice_parser.invoice_items_to_ops(
-                        parsed["items"],
-                        meta,
-                        month,
-                        year,
-                        week,
-                        direction,
-                        categories,
-                    )
-                    return ops, meta
-                log.warning(
-                    "[DATA-ENTRY] Vision returned no items, falling back to OCR | "
-                    "provider=%s model=%s pages=%d pages_failed=%d",
-                    provider,
-                    model,
-                    len(images),
-                    parsed.get("pages_failed", 0),
-                )
-            except Exception as e:
-                # Vision call failed (timeout, bad response, provider error, etc).
-                # Log it loudly -- silently swallowing this is why "did AI even
-                # run?" was unanswerable from ai_usage_logs after a failed call.
-                log.error(
-                    "[DATA-ENTRY] Vision extraction failed, falling back to OCR | "
-                    "provider=%s model=%s pages=%d error=%s",
-                    provider,
-                    model,
-                    len(images),
-                    e,
-                )
-                # fall through to OCR degradation
-
-        # OCR degradation: run each image through the OCR cascade
+        # ── FALLBACK 2: per-image OCR cascade (OCR.space / pytesseract) ───────
         for img_bytes in images[:10]:
             try:
-                ocr_parsed = invoice_parser.parse_invoice_bytes_image(
-                    img_bytes, "image.jpg"
-                )
-                if ocr_parsed.get("items"):
-                    meta = ocr_parsed.get("meta", {})
-                    categories = ctx.get_categories()
-                    ops = invoice_parser.invoice_items_to_ops(
-                        ocr_parsed["items"],
-                        meta,
-                        month,
-                        year,
-                        week,
-                        direction,
-                        categories,
-                    )
-                    return ops, meta
+                ocr_parsed = invoice_parser.parse_invoice_bytes_image(img_bytes, "image.jpg")
+                result = _ops_from_parsed(ocr_parsed, ocr_parsed.get("meta", {}))
+                if result:
+                    return result
             except Exception:
                 pass
 
-        # Both paths failed — raise a helpful, actionable message
+        # All paths failed — raise an actionable message
         if not ai_engine.is_vision_capable(provider, model, ai_config):
             raise HTTPException(
                 status_code=422,
                 detail=(
                     f"This file contains images but the configured model '{model}' does not support vision. "
-                    "Select a vision-capable model (e.g. Llama 4, Claude, GPT-4o, Pixtral) "
+                    "Select a vision-capable model (e.g. Gemini 2.5 Flash, GPT-4o, Claude) "
                     "in Data Entry → AI stack settings."
                 ),
             )
         raise HTTPException(
             status_code=422,
-            detail="Could not extract data from this image file — vision extraction and OCR both failed.",
+            detail="Could not extract data from this image — Vision AI and OCR both returned no items.",
         )
 
     rows = data if kind == "rows" else None
