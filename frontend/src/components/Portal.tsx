@@ -1,4 +1,5 @@
 ﻿import { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { I, KpnMark } from "../lib/icons";
 import {
     type User,
@@ -3316,13 +3317,13 @@ function InventoryView({
                 </div>
             )}
 
-            {/* Envo floating selection bar */}
-            {canStage && selectedSkus.size > 0 && (() => {
+            {/* Envo floating selection bar — portalled to body to escape stacking contexts */}
+            {canStage && selectedSkus.size > 0 && createPortal((() => {
                 const selRows = rows.filter((r: any) => selectedSkus.has(String(r.sku || "")));
                 const first = selRows[0];
                 const hasDraft = selRows.some((r: any) => !!draft[String(r.sku)]);
                 return (
-                    <div className="envo-bar no-print">
+                    <div className="envo-bar">
                         <span className="envo-bar-count">{selectedSkus.size} item{selectedSkus.size !== 1 ? "s" : ""}</span>
                         {first && (
                             <button className="btn" style={{ borderRadius: 100 }} onClick={() => { setInspectTarget(first); setSelectedSkus(new Set()); }}>
@@ -3345,7 +3346,7 @@ function InventoryView({
                         </button>
                     </div>
                 );
-            })()}
+            })(), document.body)}
 
             {/* Roster-style item inspector — floating per-item toolbar */}
             {canStage && inspectTarget && (
