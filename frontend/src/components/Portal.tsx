@@ -1139,6 +1139,7 @@ function InventoryView({
     // toolbar (receive ↑ / pull ↓ by week, on-hand / par / price). Staging
     // routes through the same Source Control ops the inline editors use.
     const [inspectTarget, setInspectTarget] = useState<any | null>(null);
+    const [selectedSkus, setSelectedSkus] = useState<Set<string>>(new Set());
 
     // Week lock status: keyed by week number (1-4), value = 'open'|'locked'|'published'
     const [weekLockStatus, setWeekLockStatus] = useState<Record<number, string>>({});
@@ -1700,7 +1701,48 @@ function InventoryView({
         if (!canStage) return;
         const t = e.target as HTMLElement;
         if (t.closest("input, button, select, a, label, textarea")) return;
-        setInspectTarget(r);
+        const sku = String(r.sku || "");
+        setSelectedSkus((prev) => {
+            const next = new Set(prev);
+            if (next.has(sku)) next.delete(sku); else next.add(sku);
+            return next;
+        });
+    };
+
+    const stageDeleteSelected = async () => {
+        const toDelete = rows.filter((r: any) => selectedSkus.has(String(r.sku)));
+        await Promise.all(toDelete.map(async (row: any) => {
+            const sku = String(row.sku);
+            try {
+                await api.stageChange("item_delete", "inventory", sku, { sku }, `Delete item · ${row.desc}`);
+            } catch { /* silent per-item; toast at end */ }
+        }));
+        toast(`Staged delete for ${toDelete.length} item${toDelete.length !== 1 ? "s" : ""}`);
+        setSelectedSkus(new Set());
+        openSC?.();
+    };
+
+    const duplicateItem = async (row: any) => {
+        const sku = `MJC-${Date.now().toString(36).toUpperCase()}`;
+        const payload = {
+            month: period[0] + 1, year: period[1],
+            notes: `Duplicate · ${row.desc}`,
+            items: [{ sku, desc: `${row.desc} (copy)`, category: row.cat, onHand: row.onHand, par: row.par, price: row.price }],
+        };
+        try {
+            await api.stageChange("inventory_save", "inventory", sku, payload, `Duplicate · ${row.desc}`);
+            toast(`Staged duplicate of ${row.desc}`);
+            openSC?.();
+        } catch (e: any) {
+            toast(`Failed: ${e?.message || "Unknown error"}`);
+        }
+        setSelectedSkus(new Set());
+    };
+
+    const stageSelectedItems = async () => {
+        const dirty = rows.filter((r: any) => draft[String(r.sku)] && selectedSkus.has(String(r.sku)));
+        await Promise.all(dirty.map((r: any) => stageInventoryRow(r)));
+        setSelectedSkus(new Set());
     };
 
     return (
@@ -1996,9 +2038,6 @@ function InventoryView({
                                     <th className="r">Par</th>
                                     <th>Status</th>
                                     <th className="r">Value</th>
-                                    {canStage && (
-                                        <th className="r">Edit</th>
-                                    )}
                                 </tr>
                             </thead>
                             <tbody>
@@ -2010,7 +2049,7 @@ function InventoryView({
                                     const isLow = onHand < par && par > 0;
                                     const rowValue = onHand * (r.price || 0);
                                     return (
-                                        <tr key={(r.sku || "") + i} className="inv-row" onClick={rowClick(r)}>
+                                        <tr key={(r.sku || "") + i} className={"inv-row" + (selectedSkus.has(sku) ? " envo-selected" : "")} onClick={rowClick(r)}>
                                             <td
                                                 className="num"
                                                 style={{
@@ -2121,26 +2160,13 @@ function InventoryView({
                                             <td className="r num">
                                                 {fmtMoneyFull(rowValue)}
                                             </td>
-                                            {canStage && (
-                                                <td className="r">
-                                                    <button
-                                                        className="btn"
-                                                        disabled={!sku}
-                                                        style={{ padding: "5px 10px" }}
-                                                        onClick={() => openEdit(r)}
-                                                        title="Edit / reassign / delete this item"
-                                                    >
-                                                        Edit
-                                                    </button>
-                                                </td>
-                                            )}
                                         </tr>
                                     );
                                 })}
                                 {!filtered.length && (
                                     <tr>
                                         <td
-                                            colSpan={8}
+                                            colSpan={7}
                                             style={{
                                                 textAlign: "center",
                                                 padding: 30,
@@ -2240,11 +2266,6 @@ function InventoryView({
                                                                 <th className="r">
                                                                     Value
                                                                 </th>
-                                                                {canStage && (
-                                                                    <th className="r no-print">
-                                                                        Edit
-                                                                    </th>
-                                                                )}
                                                             </tr>
                                                         </thead>
                                                         <tbody>
@@ -2285,7 +2306,7 @@ function InventoryView({
                                                                                     "") +
                                                                                 i
                                                                             }
-                                                                            className="inv-row"
+                                                                            className={"inv-row" + (selectedSkus.has(sku) ? " envo-selected" : "")}
                                                                             onClick={rowClick(r)}
                                                                         >
                                                                             <td
@@ -2412,19 +2433,6 @@ function InventoryView({
                                                                                     rowValue,
                                                                                 )}
                                                                             </td>
-                                                                            {canStage && (
-                                                                                <td className="r no-print">
-                                                                                    <button
-                                                                                        className="btn"
-                                                                                        disabled={!sku}
-                                                                                        style={{ padding: "5px 10px" }}
-                                                                                        onClick={() => openEdit(r)}
-                                                                                        title="Edit / reassign / delete this item"
-                                                                                    >
-                                                                                        Edit
-                                                                                    </button>
-                                                                                </td>
-                                                                            )}
                                                                         </tr>
                                                                     );
                                                                 },
@@ -2440,7 +2448,6 @@ function InventoryView({
                                                                 <td className="r num" style={{ fontWeight: 700 }}>
                                                                     {fmtMoneyFull(catVal)}
                                                                 </td>
-                                                                {canStage && <td className="no-print" />}
                                                             </tr>
                                                         </tfoot>
                                                     </table>
@@ -3308,6 +3315,37 @@ function InventoryView({
                     </div>
                 </div>
             )}
+
+            {/* Envo floating selection bar */}
+            {canStage && selectedSkus.size > 0 && (() => {
+                const selRows = rows.filter((r: any) => selectedSkus.has(String(r.sku || "")));
+                const first = selRows[0];
+                const hasDraft = selRows.some((r: any) => !!draft[String(r.sku)]);
+                return (
+                    <div className="envo-bar no-print">
+                        <span className="envo-bar-count">{selectedSkus.size} item{selectedSkus.size !== 1 ? "s" : ""}</span>
+                        {first && (
+                            <button className="btn" style={{ borderRadius: 100 }} onClick={() => { setInspectTarget(first); setSelectedSkus(new Set()); }}>
+                                {I.edit({ style: { width: 13, height: 13 } })} Edit
+                            </button>
+                        )}
+                        {selRows.length === 1 && first && (
+                            <button className="btn" style={{ borderRadius: 100 }} onClick={() => duplicateItem(first)}>
+                                {I.plus({ style: { width: 13, height: 13 } })} Duplicate
+                            </button>
+                        )}
+                        <button className="btn" style={{ borderRadius: 100, color: "var(--red, #dc2626)" }} onClick={stageDeleteSelected}>
+                            {I.del({ style: { width: 13, height: 13 } })} Delete
+                        </button>
+                        <button className="btn primary" style={{ borderRadius: 100 }} onClick={stageSelectedItems} disabled={!hasDraft}>
+                            {I.branch({ style: { width: 13, height: 13 } })} Stage
+                        </button>
+                        <button className="sc-icon-btn" onClick={() => setSelectedSkus(new Set())} title="Clear selection" style={{ marginLeft: 2 }}>
+                            {I.x({ style: { width: 12, height: 12 } })}
+                        </button>
+                    </div>
+                );
+            })()}
 
             {/* Roster-style item inspector — floating per-item toolbar */}
             {canStage && inspectTarget && (

@@ -990,14 +990,12 @@ function SCChangesView({
                 </div>
             )}
             {canCommit && visibleStaged.length > 0 && (
-                <div className="save-bar">
-                    <div className="save-bar-l">
-                        <span className="dirty-chip">
-                            {I.alert({ style: { width: 12, height: 12 } })}
-                            {selectedIds.size > 0 ? `${selectedIds.size} selected` : `${visibleStaged.length} unsaved`}
-                        </span>
-                    </div>
-                    <div className="save-bar-actions">
+                <div className="sc-envo-bar">
+                    <span className="dirty-chip">
+                        {I.alert({ style: { width: 12, height: 12 } })}
+                        {selectedIds.size > 0 ? `${selectedIds.size} selected` : `${visibleStaged.length} staged`}
+                    </span>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         <button className="btn" disabled={busy || toAct.length === 0} onClick={() => doUnstage(toAct)}>
                             Unstage{toAct.length > 0 && toAct.length < visibleStaged.length ? ` (${toAct.length})` : toAct.length > 0 ? ` (${toAct.length})` : ""}
                         </button>
