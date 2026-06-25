@@ -391,6 +391,24 @@ export function MonthlyInventory({
   const rcvColLabel = week === 0 ? 'Rcvd (total)' : `W${week} Received`;
   const issColLabel = week === 0 ? 'Issued (total)' : `W${week} Issued`;
 
+  // Per-week received dollar totals (qty × price) — used for the week tile strip.
+  const weekTotals = useMemo(() =>
+    Array.from({ length: maxWeeks }, (_, i) => i + 1).map((wk) => ({
+      wk,
+      total: rows.reduce((s, r) => s + (r[`w${wk}r`] || 0) * r.price, 0),
+    })).filter((wt) => wt.total > 0),
+  [rows, maxWeeks]);
+
+  const nextWeek = weekTotals.length < maxWeeks ? weekTotals.length + 1 : null;
+
+  function handleAddWeek(wk: number) {
+    // Fire prefill event so DataEntry picks up month/year/week on mount.
+    window.dispatchEvent(new CustomEvent('mjcc:dataentry-prefill', {
+      detail: { week: wk, month: m, year: y, direction: 'received' },
+    }));
+    go?.('dataentry');
+  }
+
   async function handleSave() {
     setSaving(true);
     try {
@@ -528,6 +546,26 @@ export function MonthlyInventory({
               </div>
             ))}
           </div>
+
+          {/* ── Week receipt tile strip ── */}
+          {(weekTotals.length > 0 || nextWeek) && (
+            <div className="wk-tile-row">
+              {weekTotals.map((wt) => (
+                <button key={wt.wk} className="wk-tile wk-tile--recorded" onClick={() => setWeek(wt.wk)}>
+                  <span className="wkt-label">Week {wt.wk}</span>
+                  <span className="wkt-val">{fmtMoney(wt.total)}</span>
+                  <span className="wkt-sub">received · tap to filter</span>
+                </button>
+              ))}
+              {nextWeek && (
+                <button className="wk-tile wk-tile--add" onClick={() => handleAddWeek(nextWeek)}>
+                  <span className="wkt-plus">+</span>
+                  <span className="wkt-label">Week {nextWeek}</span>
+                  <span className="wkt-sub">record invoice</span>
+                </button>
+              )}
+            </div>
+          )}
 
           <div className="card" style={{ marginBottom: 16 }}>
             {/* ── Controls row ── */}

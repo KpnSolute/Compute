@@ -455,6 +455,19 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         return months.length ? months : [Math.max(0, Math.min(11, start))];
     }, [periodSettings.floor_month, periodSettings.floor_year, periodSettings.max_month, periodSettings.max_year, year]);
 
+    // Pre-fill from MonthlyInventory "+" tile navigation.
+    useEffect(() => {
+        const h = (e: Event) => {
+            const { week: wk, month: mo, year: yr, direction: dir } = (e as CustomEvent).detail || {};
+            if (typeof mo === 'number') setMonth(mo);
+            if (typeof yr === 'number') setYear(yr);
+            if (typeof wk === 'number') setWeek(wk);
+            if (dir) setDirection(dir as 'received' | 'issued' | 'both');
+        };
+        window.addEventListener('mjcc:dataentry-prefill', h);
+        return () => window.removeEventListener('mjcc:dataentry-prefill', h);
+    }, []);
+
     useEffect(() => {
         if (week > weekCount) setWeek(0);
     }, [week, weekCount]);
