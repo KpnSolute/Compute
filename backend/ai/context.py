@@ -1,7 +1,21 @@
 """Schema context builder — pulls live lookup data for AI prompts."""
 
 import os
+import time
 from supabase import create_client
+
+_cache: dict[str, tuple[float, dict]] = {}
+_CACHE_TTL = 60.0
+
+
+def _cached(key: str, fetch):
+    now = time.monotonic()
+    if key in _cache and now - _cache[key][0] < _CACHE_TTL:
+        return _cache[key][1]
+    data = fetch()
+    _cache[key] = (now, data)
+    return data
+
 
 _svc = None
 
@@ -19,14 +33,29 @@ def _client():
 
 def get_categories() -> dict[str, int]:
     """Returns {name: id} for all inventory_categories."""
-    r = _client().table("inventory_categories").select("id,name").execute()
-    return {row["name"]: row["id"] for row in (r.data or [])}
+    return _cached(
+        "categories",
+        lambda: {
+            row["name"]: row["id"]
+            for row in (
+                _client().table("inventory_categories").select("id,name").execute().data
+                or []
+            )
+        },
+    )
 
 
 def get_vendors() -> dict[str, int]:
     """Returns {name: id} for all vendors."""
-    r = _client().table("vendors").select("id,name").execute()
-    return {row["name"]: row["id"] for row in (r.data or [])}
+    return _cached(
+        "vendors",
+        lambda: {
+            row["name"]: row["id"]
+            for row in (
+                _client().table("vendors").select("id,name").execute().data or []
+            )
+        },
+    )
 
 
 def get_ai_config() -> dict:
@@ -87,9 +116,6 @@ DEFAULT_TOOLS: dict[str, bool] = {
     "menu": True,
     "haccp": True,
     "daily_ops": True,
-    "source_ctrl": False,  # future capability
-    "reports": False,  # future capability
-    "suggestions": False,  # future capability
 }
 
 # Map operation strings → tool key

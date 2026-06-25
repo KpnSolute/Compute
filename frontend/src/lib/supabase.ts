@@ -116,7 +116,16 @@ export async function realLogin({
       return { ok: false, error: 'Staff accounts must use the Staff login.' };
     }
 
-    return { ok: true, user: { ..._publicUser(profile), access_token: authData.session.access_token } };
+    // Guard: Supabase can return an already-expired access_token when the prior
+    // session hits its 1-hour TTL during the same browser session. If so, the
+    // onAuthStateChange SIGNED_OUT event fires immediately after login and tears
+    // down the session before the caller stores it. Refresh proactively.
+    let accessToken = authData.session.access_token;
+    if ((authData.session.expires_at ?? 0) - Date.now() / 1000 < 60) {
+      const { data: refreshed } = await db.auth.refreshSession();
+      if (refreshed?.session?.access_token) accessToken = refreshed.session.access_token;
+    }
+    return { ok: true, user: { ..._publicUser(profile), access_token: accessToken } };
   } catch (e) {
     return { ok: false, error: 'Incorrect password. Please try again.' };
   }

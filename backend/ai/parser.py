@@ -718,7 +718,7 @@ def detect_and_parse(
         # memory is bounded by ONE page image at a time, not all pages at once.
         # We still cap total pages to guard against pathological uploads.
         _PDF_RENDER_DPI = 150
-        _PDF_PAGE_CAP = 16
+        _PDF_PAGE_CAP = 10  # ponytail: US Foods invoices ≤ 8 pages; 10 is safe ceiling
         try:
             import fitz
 
@@ -775,15 +775,11 @@ def detect_and_parse(
             pass
         return "text", ""
 
-    # Single images: OCR path first, vision path as fallback signal
+    # Single images: always route to vision AI (Gemini/GPT-4o/etc.) as primary.
+    # Pre-running OCR here and short-circuiting on partial results caused Gemini
+    # to be skipped for multi-invoice photos and thermal receipts where OCR only
+    # captured some items. The OCR→regex cascade is the fallback inside _extract_ops.
     if is_image:
-        try:
-            parsed = invoice_parser.parse_invoice_bytes_image(content, filename)
-            if parsed.get("items"):
-                return "invoice_items", parsed
-        except Exception:
-            pass
-        # Return as invoice_images so caller can route to vision AI
         try:
             content = invoice_parser._normalize_image_for_ocr(content)
         except Exception:

@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Thread pool dedicated to blocking parse work so FastAPI's event loop stays free
 # during multi-minute AI/OCR jobs on large PDFs.
 _parse_executor = concurrent.futures.ThreadPoolExecutor(
-    max_workers=4, thread_name_prefix='de-parse'
+    max_workers=4, thread_name_prefix="de-parse"
 )
 from backend.routes import jwt_validator
 from backend.routes._deps import ensure_pr_for_entries
@@ -45,13 +45,6 @@ from backend.ai import mapper, context as ctx, diff as diff_engine
 from backend.inventory_identity import canonical_sku
 
 log = logging.getLogger("mjcc.data_entry")
-BULK_CHUNK_SIZE = 100
-
-
-def _chunks(values: list, size: int = BULK_CHUNK_SIZE):
-    for idx in range(0, len(values), size):
-        yield values[idx : idx + size]
-
 
 router = APIRouter(prefix="/api/data-entry")
 
@@ -91,13 +84,6 @@ def _expires() -> str:
     from datetime import timedelta
 
     return (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
-
-
-def _weeks_in_month(month: int, year: int) -> int:
-    """MJCC operational inventory periods use four weekly buckets per month."""
-    if month < 1 or month > 12:
-        return 0
-    return 4
 
 
 def _overwrite_scope(month: int, year: int, week: int, direction: str) -> dict:
@@ -341,7 +327,9 @@ def _extract_ops(
         provider = ai_config.get("provider", "")
         model = ai_config.get("model", "")
 
-        def _ops_from_parsed(parsed: dict, src_meta: dict) -> tuple[list[dict], dict] | None:
+        def _ops_from_parsed(
+            parsed: dict, src_meta: dict
+        ) -> tuple[list[dict], dict] | None:
             if not parsed.get("items"):
                 return None
             merged_meta = {**src_meta, **parsed.get("meta", {})}
@@ -374,19 +362,27 @@ def _extract_ops(
                         )
                     log.info(
                         "[DATA-ENTRY] Vision AI extracted %d item(s) | provider=%s model=%s",
-                        len(parsed["items"]), provider, model,
+                        len(parsed["items"]),
+                        provider,
+                        model,
                     )
                     return result
                 log.warning(
                     "[DATA-ENTRY] Vision returned no items, falling back to OCR | "
                     "provider=%s model=%s pages=%d pages_failed=%d",
-                    provider, model, len(images), parsed.get("pages_failed", 0),
+                    provider,
+                    model,
+                    len(images),
+                    parsed.get("pages_failed", 0),
                 )
             except Exception as e:
                 log.error(
                     "[DATA-ENTRY] Vision extraction failed, falling back to OCR | "
                     "provider=%s model=%s pages=%d error=%s",
-                    provider, model, len(images), e,
+                    provider,
+                    model,
+                    len(images),
+                    e,
                 )
 
         # ── FALLBACK 1: Google Cloud Vision OCR → deterministic parser ────────
@@ -401,7 +397,8 @@ def _extract_ops(
                 if result:
                     log.info(
                         "[DATA-ENTRY] Google Cloud Vision OCR parsed %d item(s) from %d image(s)",
-                        len(parsed["items"]), len(images),
+                        len(parsed["items"]),
+                        len(images),
                     )
                     return result
                 log.warning(
@@ -414,7 +411,9 @@ def _extract_ops(
         # ── FALLBACK 2: per-image OCR cascade (OCR.space / pytesseract) ───────
         for img_bytes in images[:10]:
             try:
-                ocr_parsed = invoice_parser.parse_invoice_bytes_image(img_bytes, "image.jpg")
+                ocr_parsed = invoice_parser.parse_invoice_bytes_image(
+                    img_bytes, img_meta.get("filename", filename)
+                )
                 result = _ops_from_parsed(ocr_parsed, ocr_parsed.get("meta", {}))
                 if result:
                     return result
@@ -493,7 +492,7 @@ def _extract_ops(
             )
 
         # one staging entry per item for row-level diff granularity
-        weekly = week in (1, 2, 3, 4, 5)
+        weekly = week in (1, 2, 3, 4)
         ops = []
         for item in result.get("items", []):
             if weekly:
@@ -772,7 +771,7 @@ def _supersede_stale_pending(fname: str, user_id: str) -> None:
             return
         stale_ids = [r["entry_id"] for r in stale.data]
         stale_batches = list({r["batch_id"] for r in stale.data if r.get("batch_id")})
-        for chunk in _chunks(stale_ids):
+        for chunk in [stale_ids[i : i + 100] for i in range(0, len(stale_ids), 100)]:
             svc.table("staging_entries").update(
                 {"status": "rejected", "review_note": "superseded by re-upload"}
             ).in_("entry_id", chunk).execute()
@@ -1054,7 +1053,7 @@ async def upload_file(
             status_code=422,
             detail="Direction 'both' is only available for full-month uploads. Choose Received or Pulled / Issued for weekly uploads.",
         )
-    valid_weeks = _weeks_in_month(month, year)
+    valid_weeks = 4
     if week and (week < 1 or week > valid_weeks):
         raise HTTPException(
             status_code=422,
@@ -1111,16 +1110,29 @@ async def upload_file(
     # timeout from silently killing the request mid-parse.
     async def _sse():
         def _err(status: int, detail: Any) -> bytes:
-            return b'data: ' + json.dumps({'__ok': False, 'status': status, 'detail': detail}).encode() + b'\n\n'
+            return (
+                b"data: "
+                + json.dumps(
+                    {"__ok": False, "status": status, "detail": detail}
+                ).encode()
+                + b"\n\n"
+            )
 
         loop = asyncio.get_event_loop()
         parse_start = time.monotonic()
         parse_task = loop.run_in_executor(
             _parse_executor,
             lambda: _extract_ops(
-                fname, content, hint, month, year, ai_config,
-                week=week, direction=direction, tools_cfg=tools_cfg,
-                called_by=auth_user['id'],
+                fname,
+                content,
+                hint,
+                month,
+                year,
+                ai_config,
+                week=week,
+                direction=direction,
+                tools_cfg=tools_cfg,
+                called_by=auth_user["id"],
             ),
         )
 
@@ -1129,7 +1141,7 @@ async def upload_file(
             done, _ = await asyncio.wait({parse_task}, timeout=15)
             if done:
                 break
-            yield b': heartbeat\n\n'
+            yield b": heartbeat\n\n"
 
         parse_elapsed = round(time.monotonic() - parse_start, 2)
         try:
@@ -1138,13 +1150,16 @@ async def upload_file(
             yield _err(exc.status_code, exc.detail)
             return
         except Exception as exc:
-            log.error('[DATA-ENTRY] Parse failed | file=%s error=%s', fname, exc)
+            log.error("[DATA-ENTRY] Parse failed | file=%s error=%s", fname, exc)
             yield _err(422, _safe_parse_error(exc))
             return
 
         log.info(
-            '[DATA-ENTRY] Parse complete | file=%s ops=%d elapsed=%.2fs provider=%s',
-            fname, len(ops), parse_elapsed, ai_config.get('provider', '?'),
+            "[DATA-ENTRY] Parse complete | file=%s ops=%d elapsed=%.2fs provider=%s",
+            fname,
+            len(ops),
+            parse_elapsed,
+            ai_config.get("provider", "?"),
         )
 
         # Guard: if the client aborted/cancelled while the parse was running,
@@ -1152,57 +1167,67 @@ async def upload_file(
         try:
             if await request.is_disconnected():
                 log.warning(
-                    '[DATA-ENTRY] Client cancelled during parse — nothing staged | file=%s', fname
+                    "[DATA-ENTRY] Client cancelled during parse — nothing staged | file=%s",
+                    fname,
                 )
                 return
         except Exception:
             pass  # don't let a disconnect-check failure block a valid upload
 
         if not ops:
-            log.warning('[DATA-ENTRY] No data extracted | file=%s', fname)
-            yield _err(422, 'No data could be extracted from this file.')
+            log.warning("[DATA-ENTRY] No data extracted | file=%s", fname)
+            yield _err(422, "No data could be extracted from this file.")
             return
 
         parsed_meta: dict = invoice_meta
-        reconciliation: dict = parsed_meta.get('reconciliation', {})
-        if any(op.get('operation') in ('inventory_save', 'inventory_week_update') for op in ops):
-            if reconciliation and reconciliation.get('net_total', 0) > 0:
+        reconciliation: dict = parsed_meta.get("reconciliation", {})
+        if any(
+            op.get("operation") in ("inventory_save", "inventory_week_update")
+            for op in ops
+        ):
+            if reconciliation and reconciliation.get("net_total", 0) > 0:
                 recon = reconciliation
                 log.info(
-                    '[DATA-ENTRY] Reconcile | file=%s subtotal=%.2f net_total=%.2f '
-                    'vizient=%.2f factor=%.4f delta_pct=%.2f%% ok=%s',
+                    "[DATA-ENTRY] Reconcile | file=%s subtotal=%.2f net_total=%.2f "
+                    "vizient=%.2f factor=%.4f delta_pct=%.2f%% ok=%s",
                     fname,
-                    recon.get('computed_subtotal', 0),
-                    recon.get('net_total', 0),
-                    recon.get('vizient_discount', 0),
-                    recon.get('discount_factor', 1),
-                    recon.get('delta_pct', 0),
-                    recon.get('reconciled', False),
+                    recon.get("computed_subtotal", 0),
+                    recon.get("net_total", 0),
+                    recon.get("vizient_discount", 0),
+                    recon.get("discount_factor", 1),
+                    recon.get("delta_pct", 0),
+                    recon.get("reconciled", False),
                 )
-                delta_pct = recon.get('delta_pct', 0)
-                max_delta_pct = float(period_settings.get('reconcile_max_delta_pct', 5.0) or 5.0)
+                delta_pct = recon.get("delta_pct", 0)
+                max_delta_pct = float(
+                    period_settings.get("reconcile_max_delta_pct", 5.0) or 5.0
+                )
                 if delta_pct > max_delta_pct:
                     log.error(
-                        '[DATA-ENTRY] BLOCKED reconciliation_failed | file=%s delta_pct=%.2f%%',
-                        fname, delta_pct,
+                        "[DATA-ENTRY] BLOCKED reconciliation_failed | file=%s delta_pct=%.2f%%",
+                        fname,
+                        delta_pct,
                     )
-                    yield _err(422, {
-                        'error': 'reconciliation_failed',
-                        'message': (
-                            f"Invoice line items sum to ${recon['computed_subtotal']:,.2f} "
-                            f"but the invoice total is ${recon['net_total']:,.2f} "
-                            f"(delta {delta_pct:.1f}%). "
-                            'Fix the parse or re-upload a corrected file.'
-                        ),
-                        'reconciliation': recon,
-                    })
+                    yield _err(
+                        422,
+                        {
+                            "error": "reconciliation_failed",
+                            "message": (
+                                f"Invoice line items sum to ${recon['computed_subtotal']:,.2f} "
+                                f"but the invoice total is ${recon['net_total']:,.2f} "
+                                f"(delta {delta_pct:.1f}%). "
+                                "Fix the parse or re-upload a corrected file."
+                            ),
+                            "reconciliation": recon,
+                        },
+                    )
                     return
 
         try:
             item_count_r = (
                 _client()
-                .table('inventory_items')
-                .select('id', count='exact')
+                .table("inventory_items")
+                .select("id", count="exact")
                 .limit(1)
                 .execute()
             )
@@ -1210,49 +1235,76 @@ async def upload_file(
         except Exception:
             catalog_empty = False
         allow_new_items = catalog_empty or week == 0
-        if week > 0 and period_settings.get('allow_new_items_on_weekly') is True:
+        if week > 0 and period_settings.get("allow_new_items_on_weekly") is True:
             allow_new_items = True
-        ops, sku_queue_rows = _resolve_items(ops, fname, allow_new_items=allow_new_items)
+        ops, sku_queue_rows = _resolve_items(
+            ops, fname, allow_new_items=allow_new_items
+        )
 
         if not ops:
             log.error(
-                '[DATA-ENTRY] BLOCKED all-unknown-skus (nothing written) | file=%s would_queue=%d',
-                fname, len(sku_queue_rows),
+                "[DATA-ENTRY] BLOCKED all-unknown-skus (nothing written) | file=%s would_queue=%d",
+                fname,
+                len(sku_queue_rows),
             )
-            yield _err(422, (
-                f'All {len(sku_queue_rows)} parsed item(s) have unknown SKUs. Nothing was '
-                'imported — add them to the catalog or map them in SKU Review, then re-upload.'
-            ))
+            yield _err(
+                422,
+                (
+                    f"All {len(sku_queue_rows)} parsed item(s) have unknown SKUs. Nothing was "
+                    "imported — add them to the catalog or map them in SKU Review, then re-upload."
+                ),
+            )
             return
 
-        inventory_ops = [op for op in ops if op.get('operation') in ('inventory_save', 'inventory_week_update')]
+        inventory_ops = [
+            op
+            for op in ops
+            if op.get("operation") in ("inventory_save", "inventory_week_update")
+        ]
         overwrite_scope = _overwrite_scope(month, year, week, direction)
         if inventory_ops and week == 0:
-            existing_count = _existing_inventory_scope_count(month, year, week, direction)
+            existing_count = _existing_inventory_scope_count(
+                month, year, week, direction
+            )
             if existing_count > 0 and not overwrite:
                 log.warning(
-                    '[DATA-ENTRY] BLOCKED overwrite_required | file=%s scope=%s month=%s year=%s week=%s dir=%s existing=%d',
-                    fname, overwrite_scope['kind'], month, year, week, direction, existing_count,
+                    "[DATA-ENTRY] BLOCKED overwrite_required | file=%s scope=%s month=%s year=%s week=%s dir=%s existing=%d",
+                    fname,
+                    overwrite_scope["kind"],
+                    month,
+                    year,
+                    week,
+                    direction,
+                    existing_count,
                 )
-                yield _err(409, {
-                    'error': 'overwrite_required',
-                    'message': (
-                        f"{calendar.month_name[month]} {year} already has "
-                        f"{overwrite_scope['label']} inventory data. Confirm overwrite to "
-                        'replace that scope with this parsed upload.'
-                    ),
-                    'month': month, 'year': year, 'week': week, 'direction': direction,
-                    'scope': overwrite_scope['kind'], 'scope_label': overwrite_scope['label'],
-                    'existing_rows': existing_count,
-                })
+                yield _err(
+                    409,
+                    {
+                        "error": "overwrite_required",
+                        "message": (
+                            f"{calendar.month_name[month]} {year} already has "
+                            f"{overwrite_scope['label']} inventory data. Confirm overwrite to "
+                            "replace that scope with this parsed upload."
+                        ),
+                        "month": month,
+                        "year": year,
+                        "week": week,
+                        "direction": direction,
+                        "scope": overwrite_scope["kind"],
+                        "scope_label": overwrite_scope["label"],
+                        "existing_rows": existing_count,
+                    },
+                )
                 return
             for op in inventory_ops:
-                op['payload']['overwrite'] = bool(overwrite)
-                op['payload']['overwrite_scope'] = overwrite_scope
+                op["payload"]["overwrite"] = bool(overwrite)
+                op["payload"]["overwrite_scope"] = overwrite_scope
 
         if inventory_ops and week in (1, 2, 3, 4) and source_hash:
             try:
-                _assert_not_duplicate_weekly(source_hash, max(0, month - 1), year, week, direction)
+                _assert_not_duplicate_weekly(
+                    source_hash, max(0, month - 1), year, week, direction
+                )
             except HTTPException as exc:
                 yield _err(exc.status_code, exc.detail)
                 return
@@ -1263,90 +1315,118 @@ async def upload_file(
         invoice_found_existing = False
         if inventory_ops:
             invoice_id, invoice_is_pending_dup, invoice_found_existing = (
-                _upsert_invoice_record(parsed_meta, month, year, week, auth_user['id'])
+                _upsert_invoice_record(parsed_meta, month, year, week, auth_user["id"])
             )
             if invoice_is_pending_dup and invoice_id:
                 log.warning(
-                    '[DATA-ENTRY] BLOCKED duplicate_invoice (nothing written) | file=%s invoice=%s',
-                    fname, parsed_meta.get('invoice_number'),
+                    "[DATA-ENTRY] BLOCKED duplicate_invoice (nothing written) | file=%s invoice=%s",
+                    fname,
+                    parsed_meta.get("invoice_number"),
                 )
-                yield _err(409, {
-                    'error': 'duplicate_invoice',
-                    'message': (
-                        f"Invoice {parsed_meta.get('invoice_number')} is already staged "
-                        'and pending review. Merge or reject that batch before re-importing.'
-                    ),
-                    'invoice_id': invoice_id,
-                })
+                yield _err(
+                    409,
+                    {
+                        "error": "duplicate_invoice",
+                        "message": (
+                            f"Invoice {parsed_meta.get('invoice_number')} is already staged "
+                            "and pending review. Merge or reject that batch before re-importing."
+                        ),
+                        "invoice_id": invoice_id,
+                    },
+                )
                 return
 
-        _supersede_stale_pending(fname, auth_user['id'])
+        _supersede_stale_pending(fname, auth_user["id"])
         batch_id = str(uuid.uuid4())
-        submitter = auth_user['id']
+        submitter = auth_user["id"]
 
         _open_weekly_import_batch(
-            inventory_ops, week=week, direction=direction, month=month, year=year,
-            fname=fname, source_hash=source_hash,
-            invoice_number=parsed_meta.get('invoice_number'),
-            staging_batch_id=batch_id, submitter=submitter,
+            inventory_ops,
+            week=week,
+            direction=direction,
+            month=month,
+            year=year,
+            fname=fname,
+            source_hash=source_hash,
+            invoice_number=parsed_meta.get("invoice_number"),
+            staging_batch_id=batch_id,
+            submitter=submitter,
         )
 
         try:
-            staged = _stage_entries(ops, batch_id, fname, submitter, (description or '').strip())
+            staged = _stage_entries(
+                ops, batch_id, fname, submitter, (description or "").strip()
+            )
         except Exception as exc:
-            log.error('[DATA-ENTRY] Staging failed | file=%s batch=%s error=%s', fname, batch_id, exc)
-            yield _err(500, f'Staging failed: {exc}')
+            log.error(
+                "[DATA-ENTRY] Staging failed | file=%s batch=%s error=%s",
+                fname,
+                batch_id,
+                exc,
+            )
+            yield _err(500, f"Staging failed: {exc}")
             return
 
         sku_queued = _insert_sku_queue(sku_queue_rows)
         if sku_queued:
-            log.warning('[DATA-ENTRY] SKUs queued for review | file=%s queued=%d', fname, sku_queued)
+            log.warning(
+                "[DATA-ENTRY] SKUs queued for review | file=%s queued=%d",
+                fname,
+                sku_queued,
+            )
 
         pr = ensure_pr_for_entries(
-            [s['entry_id'] for s in staged], submitter, title=f'Invoice import — {fname}'
+            [s["entry_id"] for s in staged],
+            submitter,
+            title=f"Invoice import — {fname}",
         )
 
         op_counts: dict[str, int] = {}
         for op in ops:
-            op_counts[op['operation']] = op_counts.get(op['operation'], 0) + 1
+            op_counts[op["operation"]] = op_counts.get(op["operation"], 0) + 1
 
         total_elapsed = round(time.monotonic() - job_start, 2)
         log.info(
-            '[DATA-ENTRY] Job complete | file=%s batch=%s staged=%d sku_queued=%d '
-            'ops=%s elapsed=%.2fs reimport=%s',
-            fname, batch_id, len(staged), sku_queued, dict(op_counts), total_elapsed,
+            "[DATA-ENTRY] Job complete | file=%s batch=%s staged=%d sku_queued=%d "
+            "ops=%s elapsed=%.2fs reimport=%s",
+            fname,
+            batch_id,
+            len(staged),
+            sku_queued,
+            dict(op_counts),
+            total_elapsed,
             invoice_found_existing and not invoice_is_pending_dup,
         )
 
         resp: dict = {
-            '__ok': True,
-            'batch_id': batch_id,
-            'staged_count': len(staged),
-            'sku_queued': sku_queued,
-            'is_reimport': invoice_found_existing and not invoice_is_pending_dup,
-            'operations': op_counts,
-            'file': fname,
-            'month': month,
-            'year': year,
-            'ai_provider': ai_config.get('provider', 'groq'),
-            'ai_model': ai_config.get('model', ''),
-            'staging_ids': [s['entry_id'] for s in staged],
-            'pr_id': pr.get('pr_id') if pr else None,
-            'pr_number': pr.get('pr_number') if pr else None,
+            "__ok": True,
+            "batch_id": batch_id,
+            "staged_count": len(staged),
+            "sku_queued": sku_queued,
+            "is_reimport": invoice_found_existing and not invoice_is_pending_dup,
+            "operations": op_counts,
+            "file": fname,
+            "month": month,
+            "year": year,
+            "ai_provider": ai_config.get("provider", "groq"),
+            "ai_model": ai_config.get("model", ""),
+            "staging_ids": [s["entry_id"] for s in staged],
+            "pr_id": pr.get("pr_id") if pr else None,
+            "pr_number": pr.get("pr_number") if pr else None,
         }
         if invoice_id:
-            resp['invoice_id'] = invoice_id
+            resp["invoice_id"] = invoice_id
         if reconciliation:
-            resp['reconciliation'] = reconciliation
+            resp["reconciliation"] = reconciliation
         if description:
-            resp['description'] = description[:500]
+            resp["description"] = description[:500]
 
-        yield b'data: ' + json.dumps(resp).encode() + b'\n\n'
+        yield b"data: " + json.dumps(resp).encode() + b"\n\n"
 
     return StreamingResponse(
         _sse(),
-        media_type='text/event-stream',
-        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
@@ -1515,11 +1595,16 @@ class AIStackBody(BaseModel):
     vision_capable: bool = False
 
 
+_ROLE_LEVELS = {"staff": 10, "assistant": 20, "manager": 30, "admin": 40, "sudo": 50}
+
+
 @router.put("/settings")
 async def update_settings(
     body: AISettingsBody, auth_user: dict = Depends(_get_auth_user)
 ):
     """Update AI stack — provider, model, optional Ollama URL."""
+    if _ROLE_LEVELS.get(auth_user.get("role", ""), 0) < 30:
+        raise HTTPException(status_code=403, detail="Manager or higher required")
     if body.provider not in ai_engine.SUPPORTED_PROVIDERS:
         raise HTTPException(
             status_code=422,
@@ -1533,9 +1618,6 @@ async def update_settings(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return {"ok": True, "config": config}
-
-
-_ROLE_LEVELS = {"staff": 10, "assistant": 20, "manager": 30, "admin": 40, "sudo": 50}
 
 
 @router.get("/models")

@@ -948,7 +948,9 @@ async def bulk_unstage(
     if not body.entry_ids:
         return {"rejected": 0}
     if len(body.entry_ids) > 500:
-        raise HTTPException(status_code=422, detail="Cannot unstage more than 500 entries at once.")
+        raise HTTPException(
+            status_code=422, detail="Cannot unstage more than 500 entries at once."
+        )
     now = datetime.now(timezone.utc).isoformat()
     rejected = 0
     try:

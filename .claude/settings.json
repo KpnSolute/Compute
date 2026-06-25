@@ -4,7 +4,8 @@
   "permissions": {
     "allow": [
       "Bash(curl -s https://kpncompute.onrender.com/*)",
-      "Bash(curl -s -o /dev/null -w *)"
+      "Bash(curl -s -o /dev/null -w *)",
+      "Bash(claude *)"
     ]
   }
 }

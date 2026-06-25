@@ -207,6 +207,7 @@ function Topbar({
                 </span>
                 <select
                     className="tb-select"
+                    aria-label="Period month"
                     value={m}
                     onChange={(e) => setPeriod([+e.target.value, y])}
                 >
@@ -218,6 +219,7 @@ function Topbar({
                 </select>
                 <select
                     className="tb-select"
+                    aria-label="Period year"
                     value={y}
                     onChange={(e) => setPeriod([m, +e.target.value])}
                 >

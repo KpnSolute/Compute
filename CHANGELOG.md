@@ -4,6 +4,82 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.18.5 — 2026-06-25 — Vision timeout + large-PDF early-exit
+
+**[mjcc-api]** Three fixes for large PDF invoice timeouts:
+
+- **FIX 1 — Gemini vision timeout:** `engine.py` `_gemini_complete` — raised multimodal `timeout_sec` from 120s to 300s. The 1.2 MB W2 Weekly Invoice PDF (scanned, vision path) was consistently hitting the 2-minute ceiling. 5 minutes gives Gemini room to render dense multi-page invoices.
+- **FIX 2 — Early exit on consecutive empty pages:** `invoice_parser.py` `extract_invoice_vision` — added `consecutive_empty` counter; breaks out of the page loop after 2 consecutive empty pages when items have already been found. US Foods invoices put all line items in pages 1–8, then summary/terms pages follow. Previously all pages were processed unconditionally, wasting 10–30s per trailing page.
+- **FIX 3 — PDF page cap:** `parser.py` `_PDF_PAGE_CAP` reduced 16 → 10. US Foods invoices never exceed 8 line-item pages; 10 is a safe ceiling with less wall-clock exposure than 16.
+
+**[db]** Cleared 116 `pending` staging_entries from `developer@mjc-cafeteria.com` (dev test session cleanup).
+
+**[supabase.ts — auth]** Login expiry race fix (from prior session, logging now): `realLogin()` proactively refreshes the Supabase session when `expires_at - now < 60s`, preventing `onAuthStateChange(SIGNED_OUT)` from tearing down the session immediately after login when the prior JWT was already at its 1-hour TTL.
+
+**Push:** pending.
+
+---
+
+## v4.18.4 — 2026-06-24 — Lighthouse a11y fixes (select-name + color-contrast)
+
+**[mjcc-ui]** Two WCAG failures surfaced by Lighthouse audit on kpncompute.onrender.com:
+
+- **FIX 1 — select-name:** Added `aria-label="Period month"` and `aria-label="Period year"` to the two `.tb-select` dropdowns in the topbar period picker (`Portal.tsx` lines ~209/220). No structural change.
+- **FIX 2 — color-contrast:** Changed `color:var(--faint)` (`#94A3B8` at 48% opacity equivalent) to `color:#94a3b8` (hardcoded, always full opacity) on `.explorer-title` and `.nav-group-lbl` in `index.css`. `--faint` on a dark sidebar background failed WCAG AA; `#94a3b8` on `#0f172a` clears 4.5:1.
+
+**Lint:** zero errors (pre-existing warnings only, none new). `tsc` and build not run per task scope.
+
+**Push:** pending.
+
+---
+
+## v4.18.3 — 2026-06-24
+**[mjcc-api]** Backend audit fixes:
+- CRITICAL fix: OCR fallback 2 now passes actual filename (not hardcoded `"image.jpg"`) to `parse_invoice_bytes_image` — restores audit trail integrity and dedup correctness for files routed through OCR.space/pytesseract fallback
+- `PUT /api/data-entry/settings`: added manager+ role gate (staff tokens can no longer reroute AI provider)
+- `engine.py`: `lm_studio` vision path consolidated from 2x `_get_db_row` to 1x `_resolve_key` call
+- `invoice_parser.py` + `data_entry.py`: `week in (1,2,3,4,5)` → `(1,2,3,4)` — week 5 is not in schema
+
+**Ruff:** 8 E402 pre-existing (confirmed identical to v4.18.2). No new violations. `ruff format` clean.
+
+**Push:** pending.
+
+---
+
+## ✅ v4.18.2 — 2026-06-24 — Backend dead-code removal + TTL caching for AI context lookups
+
+**mjcc-api:** Four targeted backend changes — no logic altered, only dead code removed and a 60-second TTL cache added.
+
+**Change 1 — `backend/ai/context.py`: TTL cache for `get_categories` / `get_vendors`**
+Added module-level `_cache: dict[str, tuple[float, dict]]`, `_CACHE_TTL = 60.0`, and `_cached(key, fetch)` helper. Both functions now return the cached dict when the entry is fresher than 60 s, and fetch from Supabase otherwise. Reduces DB round-trips on repeated AI extraction calls within a single upload job.
+
+**Change 2 — `backend/ai/context.py`: Remove dead `DEFAULT_TOOLS` entries**
+Deleted `"source_ctrl": False`, `"reports": False`, `"suggestions": False` from `DEFAULT_TOOLS`. Confirmed via grep that nothing in the codebase calls `tools_cfg.get("source_ctrl")` or similar. The `update_ai_tools` route already sanitizes keys against `DEFAULT_TOOLS`, so removing these three prevents them from appearing in DB-persisted config.
+
+**Change 3 — `backend/routes/data_entry.py`: Inline `_weeks_in_month`**
+`_weeks_in_month` always returned 4 for any valid month (returned 0 for invalid months, which was unreachable since `_validate_period` already rejects those). One call site: line 1057. Replaced with literal `4`. Function deleted.
+
+**Change 4 — `backend/routes/data_entry.py`: Inline `_chunks` / `BULK_CHUNK_SIZE`**
+`_chunks` and `BULK_CHUNK_SIZE = 100` were used in exactly one place in `_supersede_stale_pending`. `sourcectrl.py` and `_deps.py` have their own independent copies — not affected. Replaced the one call with `[stale_ids[i:i+100] for i in range(0, len(stale_ids), 100)]`. Constant and helper deleted.
+
+**Ruff:** `ruff format` reformatted 5 files (whitespace/style only). `ruff check` shows 8 E402 errors — confirmed pre-existing before these changes (git stash verified identical output on the original file). No new violations introduced.
+
+**Push:** pending.
+
+---
+
+## ✅ v4.18.1 — 2026-06-24 — Multi-Flow invoice: always route image files to Gemini vision
+
+**Claude (Senior Dev Manager):** Multi-Flow Industries thermal receipt photos were only partially parsed (2 items, $541.80) when the actual invoices totaled ~$2,213. Root cause: `detect_and_parse` in `backend/ai/parser.py` ran Google Cloud Vision OCR on single-image files first — if OCR got ANY items, it returned `invoice_items` and Gemini was never called. For a photo of 3 invoices side-by-side, OCR captured a few items from the simpler right-side receipts and short-circuited, losing the entire large invoice.
+
+**Fix (`backend/ai/parser.py`):** Removed the OCR pre-check for single image files. Images now always return `invoice_images`, which routes to Gemini vision as primary (with OCR→regex as fallback). The `invoice_images` path in `_extract_ops` already had the right priority order — just wasn't being reached.
+
+**Fix (`backend/ai/invoice_parser.py` `_VISION_PROMPT`):** Updated SKU rule to accept vendor item codes of any format (Multi-Flow codes like F00072501, not just US Foods 5-7 digit). Added explicit instruction to extract all items when multiple invoices appear in one photo.
+
+**Push:** Claude → pending.
+
+---
+
 ## ✅ v4.18.0 — 2026-06-24 — Parser anatomy fix + commit history delay fix + May wipe
 
 **Claude (Senior Dev Manager):** Operator identified three issues after inspecting a US Foods invoice image: (1) fee lines (fuel surcharge, Vizient, delivery summary recap rows) were being parsed as phantom inventory items, (2) the $525.42 DELIVERY SUMMARY TOTAL wasn't landing in `product_total`, (3) commits appeared with a delay in Source Control history.

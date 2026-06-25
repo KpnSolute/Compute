@@ -284,10 +284,17 @@ async def portal_logs_login(request: Request) -> JSONResponse:
 
 def _portal_html(auto_token: str = "") -> str:
     # auto_token: if provided (from ?token= param), JS skips the login form.
-    safe = auto_token.replace('"', "").replace("'", "").replace("<", "").replace(">", "").replace("\\", "")
+    safe = (
+        auto_token.replace('"', "")
+        .replace("'", "")
+        .replace("<", "")
+        .replace(">", "")
+        .replace("\\", "")
+    )
     auto_js = f'window._autoToken = "{safe}";' if safe else ""
     # Inline HTML keeps this usable directly from the API service with no frontend deploy coupling.
-    return """<!doctype html>
+    return (
+        """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -343,7 +350,9 @@ def _portal_html(auto_token: str = "") -> str:
   </section>
 </main>
 <script>
-""" + auto_js + """
+"""
+        + auto_js
+        + """
 let token='', user={}, source=null, events=[];
 const maxRows=500;
 function $(id){return document.getElementById(id)}
@@ -390,6 +399,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter' && $('login').style.d
 </script>
 </body>
 </html>"""
+    )
 
 
 @router.get("/portal/logs", response_class=HTMLResponse)

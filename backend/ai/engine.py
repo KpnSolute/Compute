@@ -210,7 +210,8 @@ def _gemini_complete(
     if system_parts:
         body["systemInstruction"] = {"parts": [{"text": "\n\n".join(system_parts)}]}
 
-    timeout_sec = 120 if any(isinstance(m.get("content"), list) for m in turns) else 60
+    # ponytail: 300s for multimodal (PDF/image pages can be large); 60s for text
+    timeout_sec = 300 if any(isinstance(m.get("content"), list) for m in turns) else 60
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
 
@@ -798,9 +799,8 @@ def complete_vision(
                     )
                 text, usage = _mistral_complete(messages, model, api_key)
             elif provider == "lm_studio":
-                _, db_url = _get_db_row("lm_studio")
+                db_key2, db_url = _resolve_key("lm_studio", cfg)
                 base_url = db_url or cfg.get("lm_studio_url") or "http://localhost:1234"
-                db_key2, _ = _get_db_row("lm_studio")
                 api_key = db_key2 or cfg.get("api_key") or "lm-studio"
                 text, usage = _openai_complete(messages, model, api_key, base_url)
             else:

@@ -76,19 +76,19 @@ USFOODS_LINE_RE = re.compile(
 # accidentally captured by GENERIC_LINE_RE.
 USFOODS_SKIP_RE = re.compile(
     r"^\s*(?:"
-    r"ORD\s+SHP\s+ADJ|"                        # column header row
-    r"UNIT\s+PRICE\s+EXT|"                     # "UNIT  PRICE  EXT" header
-    r"UNIT[\s\t]+PRICE|"                        # "UNIT PRICE" alone
-    r"ITEM\s*(?:#|NO|NUMBER)|"                  # item # header
-    r"PRODUCT\s*(?:#|NO|NUMBER)|"               # product # header
-    r"DESCRIPTION\s+BRAND|"                     # description/brand header
-    r"PAGE\s+\d+\s+OF\s+\d+|"                  # page numbers
-    r"INVOICE\s+(?:SUMMARY|LINE\s+DETAILS)|"   # section headers
-    r"STORAGE\s+LOCATION.*|"                   # storage location recap row/header
-    r"DELIVERY\s+SUMMARY.*|"                   # delivery summary totals row
+    r"ORD\s+SHP\s+ADJ|"  # column header row
+    r"UNIT\s+PRICE\s+EXT|"  # "UNIT  PRICE  EXT" header
+    r"UNIT[\s\t]+PRICE|"  # "UNIT PRICE" alone
+    r"ITEM\s*(?:#|NO|NUMBER)|"  # item # header
+    r"PRODUCT\s*(?:#|NO|NUMBER)|"  # product # header
+    r"DESCRIPTION\s+BRAND|"  # description/brand header
+    r"PAGE\s+\d+\s+OF\s+\d+|"  # page numbers
+    r"INVOICE\s+(?:SUMMARY|LINE\s+DETAILS)|"  # section headers
+    r"STORAGE\s+LOCATION.*|"  # storage location recap row/header
+    r"DELIVERY\s+SUMMARY.*|"  # delivery summary totals row
     r"TOTAL\s+(?:PIECES|ITEMS|WEIGHT|EXTENDED).*|"  # recap column headers
-    r"BILL\s+TO|SHIP\s+TO|REMIT\s+TO|"        # address block labels
-    r"SHIPPED\s+FROM|SHIPPED\s+DATE|"          # shipping info labels
+    r"BILL\s+TO|SHIP\s+TO|REMIT\s+TO|"  # address block labels
+    r"SHIPPED\s+FROM|SHIPPED\s+DATE|"  # shipping info labels
     r"DRIVER\s+(?:NAME|ID)|ROUTE\s+NUMBER|STOP\s+NUMBER|"  # route/driver labels
     r"(?:SUBTOTAL|NET\s+TOTAL|FUEL\s+SURCHARGE|FUEL\s+CHARGE|"
     r"VIZIENT|MEMBER\s+DISCOUNT|GPO\s+DISCOUNT|"
@@ -408,39 +408,13 @@ OCR_SPACE_URL = "https://api.ocr.space/parse/image"
 GOOGLE_CLOUD_VISION_URL = "https://vision.googleapis.com/v1/images:annotate"
 
 
-def _db_key(provider: str, label: str | None = None) -> str:
-    """Return an active provider key from Supabase.
-
-    Secrets stay in Supabase/env; callers only receive the raw key inside the backend.
-    """
-    try:
-        from supabase import create_client
-
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_SERVICE_KEY")
-        if not url or not key:
-            return ""
-        query = (
-            create_client(url, key)
-            .table("ai_provider_keys")
-            .select("api_key")
-            .eq("provider", provider)
-            .eq("is_active", True)
-        )
-        if label:
-            query = query.eq("label", label)
-        result = query.order("updated_at", desc=True).limit(1).execute()
-        if result.data:
-            return result.data[0].get("api_key") or ""
-    except Exception:
-        pass
-    return ""
-
-
 def get_google_cloud_vision_key() -> str:
     """Key dedicated to OCR/image reading, separate from the Gemini language key."""
+    from backend.ai import engine as _engine
+
+    key, _ = _engine._get_db_row("google_cloud_vision")
     return (
-        _db_key("google_cloud_vision", "MJCC Google Cloud Vision OCR")
+        key
         or os.getenv("GOOGLE_CLOUD_VISION_API_KEY", "")
         or os.getenv("GOOGLE_VISION_API_KEY", "")
     )
@@ -601,12 +575,31 @@ def _normalize_image_for_ocr(content: bytes, max_dim: int = 1800) -> bytes:
         return content
 
 
-def _ocr_space_image(
-    content: bytes, filename: str, api_key: str, debug: bool = False
+def _ocr_space(
+    content: bytes,
+    filename: str,
+    api_key: str,
+    *,
+    is_pdf: bool = False,
+    debug: bool = False,
 ) -> list[str]:
-    """Submit image bytes to OCR.space and return page text strings."""
-    ext = (os.path.splitext(filename)[1].lower() or ".jpg").lstrip(".")
-    mime = f"image/{ext}" if ext not in ("jpg",) else "image/jpeg"
+    """Submit bytes to OCR.space and return page text strings.
+
+    is_pdf=True  → sends as application/pdf with a fixed "invoice.pdf" filename.
+    is_pdf=False → derives mime from filename extension; defaults to image/jpeg.
+    """
+    if is_pdf:
+        file_tuple = ("invoice.pdf", content, "application/pdf")
+        extra_data: dict = {}
+        timeout = 120
+        label = "PDF"
+    else:
+        ext = (os.path.splitext(filename)[1].lower() or ".jpg").lstrip(".")
+        mime = "image/jpeg" if ext == "jpg" else f"image/{ext}"
+        file_tuple = (filename, content, mime)
+        extra_data = {"scale": "true"}
+        timeout = 60
+        label = "image"
     try:
         resp = httpx.post(
             OCR_SPACE_URL,
@@ -616,10 +609,10 @@ def _ocr_space_image(
                 "isOverlayRequired": "false",
                 "OCREngine": "2",
                 "isTable": "true",
-                "scale": "true",
+                **extra_data,
             },
-            files={"file": (filename, content, mime)},
-            timeout=60,
+            files={"file": file_tuple},
+            timeout=timeout,
         )
         resp.raise_for_status()
         result = resp.json()
@@ -629,34 +622,7 @@ def _ocr_space_image(
         return [p.get("ParsedText", "") for p in result.get("ParsedResults", [])]
     except Exception as exc:
         if debug:
-            print(f"[invoice_parser] OCR.space image error: {exc}")
-        return []
-
-
-def _ocr_space_pdf(content: bytes, api_key: str, debug: bool = False) -> list[str]:
-    """Submit PDF bytes to OCR.space (free tier: up to 3 pages)."""
-    try:
-        resp = httpx.post(
-            OCR_SPACE_URL,
-            data={
-                "apikey": api_key,
-                "language": "eng",
-                "isOverlayRequired": "false",
-                "OCREngine": "2",
-                "isTable": "true",
-            },
-            files={"file": ("invoice.pdf", content, "application/pdf")},
-            timeout=120,
-        )
-        resp.raise_for_status()
-        result = resp.json()
-        if result.get("IsErroredOnProcessing"):
-            errs = result.get("ErrorMessage", ["OCR.space error"])
-            raise RuntimeError(errs[0] if isinstance(errs, list) else errs)
-        return [p.get("ParsedText", "") for p in result.get("ParsedResults", [])]
-    except Exception as exc:
-        if debug:
-            print(f"[invoice_parser] OCR.space PDF error: {exc}")
+            print(f"[invoice_parser] OCR.space {label} error: {exc}")
         return []
 
 
@@ -943,13 +909,13 @@ def reconcile_and_adjust(items: list[dict], meta: dict) -> tuple[list[dict], dic
     computed_subtotal = round(sum(_f(i.get("ext_price", 0)) for i in items), 2)
 
     # ── goods-cost fields (the ONLY inputs that drive item valuation) ──────────
-    product_total = _f(meta.get("product_total"))   # "Product Total $X" — preferred
-    stated_subtotal = _f(meta.get("subtotal"))       # merchandise subtotal — fallback
+    product_total = _f(meta.get("product_total"))  # "Product Total $X" — preferred
+    stated_subtotal = _f(meta.get("subtotal"))  # merchandise subtotal — fallback
 
     # ── financial-record-only fields (NEVER touch item prices) ────────────────
-    vizient = _f(meta.get("vizient_discount"))   # GPO/member discount
-    fuel = _f(meta.get("fuel_surcharge"))         # fuel surcharge
-    tax = _f(meta.get("tax"))                     # sales/excise tax
+    vizient = _f(meta.get("vizient_discount"))  # GPO/member discount
+    fuel = _f(meta.get("fuel_surcharge"))  # fuel surcharge
+    tax = _f(meta.get("tax"))  # sales/excise tax
     net_total = _f(meta.get("net_total") or meta.get("total_amount"))  # amount due
 
     # Valuation target = goods cost ONLY.  Tax, fuel, Vizient, and net_total
@@ -1044,7 +1010,7 @@ def parse_invoice_bytes_pdf(
     if not any(p.strip() for p in pages):
         key = api_key or os.getenv("OCR_API_KEY", "")
         if key:
-            pages = _ocr_space_pdf(content, key, debug)
+            pages = _ocr_space(content, "invoice.pdf", key, is_pdf=True, debug=debug)
         if not any(p.strip() for p in pages):
             pages = _extract_text_local_ocr(content, debug)
 
@@ -1096,7 +1062,7 @@ def parse_invoice_bytes_image(
     if any(p.strip() for p in google_pages):
         pages = google_pages
     elif key:
-        pages = _ocr_space_image(ocr_content, filename, key, debug)
+        pages = _ocr_space(ocr_content, filename, key, debug=debug)
     if not any(p.strip() for p in pages):
         pages = _extract_image_local_ocr(content, debug)
 
@@ -1158,7 +1124,7 @@ def invoice_items_to_ops(
     review_new=True.
     """
     live_cats = list(live_categories.keys()) if live_categories else None
-    weekly = week in (1, 2, 3, 4, 5)
+    weekly = week in (1, 2, 3, 4)
     invoice_ref = meta.get("invoice_number", "")
     ops: list[dict] = []
     skipped = 0
@@ -1290,14 +1256,15 @@ If the model does not support tool calling, return ONLY valid JSON matching this
   ]
 }
 Rules:
-- sku: use the US Foods product number (5-7 digits) when visible; fall back to description slug
+- sku: use the vendor's item/product code exactly as printed (e.g. US Foods 5-7 digit code,
+  Multi-Flow codes like F00072501 or F00321005, or FE997); fall back to a slug from the description
+- If multiple separate invoices appear in this image, extract ALL line items from ALL of them
 - For LB-priced items: unit_price = ext_price / qty_shipped (per-case cost)
 - qty_shipped: numeric quantity delivered; use 1 if not shown
-- Include EVERY product line item on this page — skip subtotal/header/address lines
+- Include EVERY product line item visible — skip subtotal/header/address/fuel-surcharge lines
 - If this page has NO product line items (e.g. it's a cover/summary/blank page),
   return "items": []  — do not invent items.
-- Any field you cannot find on this page (vendor, invoice_number, totals, etc.):
-  use null / 0.0, do not guess.
+- Any field you cannot find (vendor, invoice_number, totals, etc.): use null / 0.0, do not guess.
 - category: classify each item into EXACTLY one of these valid MJCC categories:
   Dairy, Cereal, Beverages, Snacks, Meats, Frozen Food, Dry Goods, Produce, Disposables
   Examples: chicken breast → Meats, whole milk → Dairy, plastic gloves → Disposables,
@@ -1362,6 +1329,7 @@ def extract_invoice_vision(
     merged_meta: dict[str, Any] = {}
     items: list[dict] = []
     pages_failed = 0
+    consecutive_empty = 0
 
     for i, img in enumerate(images, start=1):
         try:
@@ -1374,10 +1342,16 @@ def extract_invoice_vision(
                 len(images),
                 e,
             )
+            consecutive_empty += 1
+            if consecutive_empty >= 2 and items:
+                break  # past the line-item section; remaining pages are summaries/terms
             continue
 
         if data is None:
             pages_failed += 1
+            consecutive_empty += 1
+            if consecutive_empty >= 2 and items:
+                break
             continue
 
         # First non-null value for each meta field wins (most invoices put
@@ -1403,6 +1377,11 @@ def extract_invoice_vision(
                 i,
                 len(images),
             )
+            consecutive_empty += 1
+            if consecutive_empty >= 2 and items:
+                break
+        else:
+            consecutive_empty = 0
         items.extend(page_items)
 
     if pages_failed and pages_failed == len(images):
