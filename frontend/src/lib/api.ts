@@ -443,11 +443,21 @@ export const api = {
   },
 
   async unstageMany(ids: string[], reviewNote?: string): Promise<{ rejected: number }> {
-    return req('/api/staging', {
+    // Use raw fetch — bypasses req()'s auto-logout-on-401 so a transient
+    // server error during deploy doesn't kill the user's session.
+    const token = getBackendToken();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(BASE + '/api/staging', {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ entry_ids: ids, review_note: reviewNote ?? 'Unstaged by user' }),
     });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new ApiError(res.status, body?.detail || `Unstage failed (${res.status})`);
+    }
+    return res.json();
   },
 
   // Pull Requests
