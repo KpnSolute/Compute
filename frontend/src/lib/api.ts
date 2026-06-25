@@ -442,6 +442,14 @@ export const api = {
     return req(`/api/staging/${id}${qs}`, { method: 'DELETE' });
   },
 
+  async unstageMany(ids: string[], reviewNote?: string): Promise<{ rejected: number }> {
+    return req('/api/staging', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entry_ids: ids, review_note: reviewNote ?? 'Unstaged by user' }),
+    });
+  },
+
   // Pull Requests
   async openPull(body: { title: string; description?: string; entry_ids?: string[] }): Promise<any> {
     return req('/api/pulls', { method: 'POST', body: JSON.stringify(body) });

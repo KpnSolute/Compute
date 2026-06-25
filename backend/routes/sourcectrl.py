@@ -934,6 +934,46 @@ async def reject_staging(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class BulkUnstageBody(BaseModel):
+    entry_ids: list[str]
+    review_note: Optional[str] = None
+
+
+@router.delete("/staging", status_code=200)
+async def bulk_unstage(
+    body: BulkUnstageBody,
+    auth_user: dict = Depends(_require_admin_or_manager),
+):
+    """Reject (unstage) multiple pending staging entries in one call."""
+    if not body.entry_ids:
+        return {"rejected": 0}
+    if len(body.entry_ids) > 500:
+        raise HTTPException(status_code=422, detail="Cannot unstage more than 500 entries at once.")
+    now = datetime.now(timezone.utc).isoformat()
+    rejected = 0
+    try:
+        for chunk in _chunks(body.entry_ids, 100):
+            r = (
+                _client()
+                .table("staging_entries")
+                .update(
+                    {
+                        "status": "rejected",
+                        "review_note": body.review_note or "Unstaged by user",
+                        "reviewed_by": auth_user["id"],
+                        "reviewed_at": now,
+                    }
+                )
+                .in_("entry_id", chunk)
+                .eq("status", "pending")
+                .execute()
+            )
+            rejected += len(r.data or [])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"rejected": rejected}
+
+
 # ── pull request routes ───────────────────────────────────────────────────────
 
 

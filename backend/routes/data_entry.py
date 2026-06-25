@@ -1169,6 +1169,17 @@ async def upload_file(
             fname, len(ops), parse_elapsed, ai_config.get('provider', '?'),
         )
 
+        # Guard: if the client aborted/cancelled while the parse was running,
+        # stop here — nothing must be written to the DB for a cancelled upload.
+        try:
+            if await request.is_disconnected():
+                log.warning(
+                    '[DATA-ENTRY] Client cancelled during parse — nothing staged | file=%s', fname
+                )
+                return
+        except Exception:
+            pass  # don't let a disconnect-check failure block a valid upload
+
         if not ops:
             log.warning('[DATA-ENTRY] No data extracted | file=%s', fname)
             yield _err(422, 'No data could be extracted from this file.')

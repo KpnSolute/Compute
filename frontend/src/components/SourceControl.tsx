@@ -208,6 +208,7 @@ function SCChangesView({
     const [busy, setBusy] = useState(false);
     const [confirm, setConfirm] = useState<StagingEntry[] | null>(null);
     useEscapeClose(!!confirm, () => setConfirm(null));
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     // Sub-view toggles (fixed: buttons now exist to open each one)
     const [showHistory, setShowHistory] = useState(false);
@@ -262,6 +263,19 @@ function SCChangesView({
     const visibleStaged = !canReview
         ? staged.filter((s) => s.submitted_by === user.id || s.submitter_name === user.display_name)
         : staged;
+
+    // Items targeted by the next Commit / Unstage action.
+    const toAct = selectedIds.size > 0
+        ? visibleStaged.filter((e) => selectedIds.has(e.entry_id))
+        : visibleStaged;
+
+    function toggleSelect(id: string) {
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    }
 
     // Unlinked = pending and not yet attached to any PR
     const unlinkedStaged = visibleStaged.filter((e) => !(e as any).pull_request_id);
@@ -445,6 +459,7 @@ function SCChangesView({
                 : `Batch commit — ${entries.length} change${entries.length !== 1 ? "s" : ""}`);
             const commit = await api.approveCommit({ staging_ids: ids, message: msg, author_id: user.id });
             setStaged((s) => s.filter((x) => !ids.includes(x.entry_id)));
+            setSelectedIds(new Set());
             setCommitMsg("");
             t(`Committed ${entries.length} change${entries.length !== 1 ? "s" : ""}`);
             window.dispatchEvent(new CustomEvent("mjcc:committed"));
@@ -464,10 +479,28 @@ function SCChangesView({
         try {
             await api.rejectStaging(entry.entry_id);
             setStaged((s) => s.filter((x) => x.entry_id !== entry.entry_id));
+            setSelectedIds((prev) => { const next = new Set(prev); next.delete(entry.entry_id); return next; });
             t("Entry removed");
             window.dispatchEvent(new CustomEvent("mjcc:staging-changed"));
         } catch (err: any) {
             t(`Failed: ${err?.message || "Unknown error"}`);
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function doUnstage(entries: StagingEntry[]) {
+        if (!entries.length) return;
+        setBusy(true);
+        try {
+            await api.unstageMany(entries.map((e) => e.entry_id));
+            const ids = new Set(entries.map((e) => e.entry_id));
+            setStaged((s) => s.filter((x) => !ids.has(x.entry_id)));
+            setSelectedIds(new Set());
+            t(`Unstaged ${entries.length} change${entries.length !== 1 ? "s" : ""}`);
+            window.dispatchEvent(new CustomEvent("mjcc:staging-changed"));
+        } catch (err: any) {
+            t(`Unstage failed: ${err?.message || "Unknown error"}`);
         } finally {
             setBusy(false);
         }
@@ -956,16 +989,23 @@ function SCChangesView({
                         onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && visibleStaged.length > 0) setConfirm(visibleStaged); }} />
                 </div>
             )}
-            {canCommit && (
-                <SaveBar
-                    dirtyCount={visibleStaged.length}
-                    saved={visibleStaged.length === 0}
-                    busy={busy}
-                    canEdit={canCommit}
-                    onSave={() => setConfirm(visibleStaged)}
-                    saveLabel={`Commit${visibleStaged.length > 0 ? ` (${visibleStaged.length})` : ""}`}
-                    savePrimary
-                />
+            {canCommit && visibleStaged.length > 0 && (
+                <div className="save-bar">
+                    <div className="save-bar-l">
+                        <span className="dirty-chip">
+                            {I.alert({ style: { width: 12, height: 12 } })}
+                            {selectedIds.size > 0 ? `${selectedIds.size} selected` : `${visibleStaged.length} unsaved`}
+                        </span>
+                    </div>
+                    <div className="save-bar-actions">
+                        <button className="btn" disabled={busy || toAct.length === 0} onClick={() => doUnstage(toAct)}>
+                            Unstage{toAct.length > 0 && toAct.length < visibleStaged.length ? ` (${toAct.length})` : toAct.length > 0 ? ` (${toAct.length})` : ""}
+                        </button>
+                        <button className="btn primary" disabled={busy || toAct.length === 0} onClick={() => setConfirm(toAct)}>
+                            {I.save({ style: { width: 14, height: 14 } })} Commit ({toAct.length})
+                        </button>
+                    </div>
+                </div>
             )}
 
             {/* CHANGES — unstaged draft items */}
@@ -1034,8 +1074,12 @@ function SCChangesView({
                         const label = OP_LABEL[op] || op;
                         const summary = stagedSummary(ch);
                         const inPR = !!(ch as any).pull_request_id;
+                        const isSelected = selectedIds.has(ch.entry_id);
                         return (
-                            <div key={ch.entry_id} className="sc-vsc-file-row">
+                            <div key={ch.entry_id}
+                                className={"sc-vsc-file-row" + (isSelected ? " sc-row-selected" : "")}
+                                onClick={() => toggleSelect(ch.entry_id)}
+                                style={{ cursor: "pointer" }}>
                                 <span className="sc-vsc-file-icon">
                                     {I.database({ style: { width: 13, height: 13, opacity: 0.6 } })}
                                 </span>
@@ -1047,7 +1091,7 @@ function SCChangesView({
                                     </span>
                                 </div>
                                 <span className={"sc-vsc-badge sc-vsc-badge-" + kind.toLowerCase()}>{kind}</span>
-                                <div className="sc-vsc-file-actions">
+                                <div className="sc-vsc-file-actions" onClick={(e) => e.stopPropagation()}>
                                     {canCommit ? (
                                         <>
                                             <button className="sc-icon-btn danger" title="Discard / reject" disabled={busy} onClick={() => doReject(ch)}>
