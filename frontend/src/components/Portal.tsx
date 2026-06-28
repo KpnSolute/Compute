@@ -56,6 +56,7 @@ import { SourceControlPanel, SourceControlPage } from "./SourceControl";
 import { SaveBar } from "./ui/ActionBars";
 import { ItemInspector } from "./ui/ItemInspector";
 import { Reports } from "./Reports";
+import { PullSheet } from "./PullSheet";
 import { Settings } from "./Settings";
 import { AgentBubble } from "./AgentBubble";
 import { AIUsageView, AIToolsView, AIPresetsView } from "./AIStudio";
@@ -1102,6 +1103,7 @@ function InventoryView({
     onSync,
     openSC,
     go,
+    onPullSheet,
 }: {
     user: User;
     period: [number, number];
@@ -1109,6 +1111,7 @@ function InventoryView({
     onSync: () => void;
     openSC?: () => void;
     go?: (key: string) => void;
+    onPullSheet?: () => void;
 }) {
     const lvl = ROLE_LEVEL[user.role];
     const canStage = lvl >= 10;
@@ -1836,6 +1839,11 @@ function InventoryView({
                     <button className="btn no-print" onClick={onSync}>
                         {I.refresh()} Refresh
                     </button>
+                    {lvl >= 20 && onPullSheet && (
+                        <button className="btn" onClick={onPullSheet}>
+                            {I.clipboard()} Pull Sheet
+                        </button>
+                    )}
                     {lvl >= 30 && (
                         <button
                             className="btn primary"
@@ -4441,6 +4449,7 @@ export function Portal({
     ]);
     const [explorerOpen, setExplorerOpen] = useState(false);
     const [openPrId, setOpenPrId] = useState<string | null>(null); // deep-link target PR for SourceControl
+    const [showPullSheet, setShowPullSheet] = useState(false);
     const [scPanelOpen, setScPanelOpen] = useState(false);
     const [invState, reloadInv] = useInventory(period);
     const apiStatus = invState.loading ? 'syncing' : invState.error && invState.error !== 'empty' ? 'error' : 'live';
@@ -4535,10 +4544,33 @@ export function Portal({
         if (active === "dashboard") return <Dashboard {...common} />;
         if (active === "inventory")
             return (
-                <InventoryView
-                    {...common}
-                    openSC={() => setScPanelOpen(true)}
-                />
+                <>
+                    {showPullSheet && (
+                        <div className="overlay" style={{ alignItems: 'flex-start', padding: '24px 16px', overflowY: 'auto' }} onClick={() => setShowPullSheet(false)}>
+                            <div style={{ background: 'var(--bg)', borderRadius: 'var(--radius)', width: '100%', maxWidth: 900, margin: '0 auto', padding: '0 0 24px', minHeight: 400 }} onClick={e => e.stopPropagation()}>
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 16px 0' }}>
+                                    <button className="modal-x" onClick={() => setShowPullSheet(false)} aria-label="Close Pull Sheet">{I.x()}</button>
+                                </div>
+                                <div style={{ padding: '0 20px' }}>
+                                    <PullSheet
+                                        user={user}
+                                        initialMonth={period[0] + 1}
+                                        initialYear={period[1]}
+                                        onStagingDone={() => {
+                                            setShowPullSheet(false);
+                                            goTo('sourcectrl');
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    <InventoryView
+                        {...common}
+                        openSC={() => setScPanelOpen(true)}
+                        onPullSheet={() => setShowPullSheet(true)}
+                    />
+                </>
             );
         if (active === "haccp") return <ComplianceHub user={user} />;
         if (active === "dailyops") return <DailyOps user={user} />;

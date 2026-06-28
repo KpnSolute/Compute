@@ -4,6 +4,36 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.20.8 - 2026-06-28 - Pull Sheet component + Reports previous-month default
+
+**mjcc-ui:** Added `PullSheet.tsx` — a manager tool for recording weekly inventory pulls. Loads live inventory via `api.getInventory(month, year)`, shows a filterable table (SKU / Description / Unit Price / On Hand / Pull Qty input / Value Pulled), persists drafts to `localStorage` under `mjcc_pull_${year}_${month}_w${week}`, and stages via the existing `api.stageWeeklyPull`. Fixed-bottom toolbar appears when any qty > 0 with Save Draft and Stage Pull buttons. Confirm dialog lists all pulled items with per-item value and total. After confirm, dispatches `mjcc:committed` + `mjcc:staging-changed` and calls `onStagingDone`.
+
+**Portal.tsx:** Added `showPullSheet` state. Added `onPullSheet` prop to `InventoryView` (visible at lvl >= 20 — assistant+). The Pull Sheet button is in the inventory toolbar. Clicking it opens PullSheet as a full-page overlay (backdrop click or X closes it). `onStagingDone` closes the overlay and navigates to `sourcectrl`.
+
+**Reports.tsx:** Reports now owns a local `period` state defaulting to the previous calendar month (0-indexed) and year, independent of the Portal's global period. Added month/year selectors in the `ph-actions` bar so users can change the report period without affecting the rest of the portal.
+
+**Build:** `tsc --noEmit` clean, `npm run build` passing. Pre-existing chunk-size warnings unchanged.
+
+**Push:** pending
+
+---
+
+## v4.20.7 - 2026-06-28 - Auto month rollover + stageWeeklyPull API method
+
+**mjcc-api:** Two additions, no new files.
+
+1. `backend/staging/dispatch.py` — added `_rollover_opening_balances(sup, db_month, year)` module-level helper. Reads the previous month's `monthly_inventory` rows, aggregates week-0 aggregate pull transactions, computes per-item closing balance (`on_hand + w_received - w_issued - week0_pulls`), and writes that closing balance as the current month's `on_hand` for any item whose current `on_hand` is still 0 (explicit openings are never overridden). Called at the tail of `dispatch_inventory_save` wrapped in try/except — never blocks a commit. Result key `rolled_over` added to return dict when count > 0.
+
+2. `backend/routes/sourcectrl.py` — no change needed. Verified lines 1088-1110: the staff guard correctly blocks `direction=issued` staging for non-manager roles; managers and admins can stage `inventory_week_update` with `direction=issued` without restriction.
+
+3. `frontend/src/lib/api.ts` — added `stageWeeklyPull()` method after `saveInventory`. Posts to `POST /api/staging` with `operation: inventory_week_update`, `direction: issued`, `entity_id: pull/{year}/{month}/w{week}`, `field_name: pull_sheet`. Fully typed inline, no new imports.
+
+**Verification:** `ruff check` clean on both touched backend files; `py_compile backend/staging/dispatch.py` OK; `tsc --noEmit` clean (no output = no errors).
+
+**Push:** pending
+
+---
+
 ## v4.20.6 - 2026-06-28 - Session-safe Source Control commits and account cache hardening
 
 **Codex:** Investigated the reported June inventory commit that appeared to fail when the browser session expired. Live Supabase CLI checks showed the stuck batch is 291 pending `inventory_save` rows for June 2026, linked to PR #33, with 0 matching `inventory_transactions` rows, so the current batch has not partially written ledger rows. Existing June transaction-log rows are from earlier merged commits.

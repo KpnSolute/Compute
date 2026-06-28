@@ -279,11 +279,17 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
 
 export function Reports({
   user: _user,
-  period,
+  period: _period,
 }: {
   user: User;
   period: [number, number];
 }) {
+  // Default to previous month — reports typically cover the completed period
+  const _now = new Date();
+  const prevMonth0 = _now.getMonth() === 0 ? 11 : _now.getMonth() - 1; // 0-indexed
+  const prevYear = _now.getMonth() === 0 ? _now.getFullYear() - 1 : _now.getFullYear();
+  const [period, setPeriod] = useState<[number, number]>([prevMonth0, prevYear]);
+
   const [invItems, setInvItems] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
   const [commits, setCommits] = useState<any[]>([]);
@@ -405,6 +411,26 @@ export function Reports({
           </div>
         </div>
         <div className="ph-actions">
+          <select
+            className="field"
+            style={{ width: 'auto', padding: '5px 10px', fontSize: 13 }}
+            value={period[0]}
+            onChange={e => setPeriod([Number(e.target.value), period[1]])}
+            aria-label="Report month"
+          >
+            {MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
+          </select>
+          <select
+            className="field"
+            style={{ width: 'auto', padding: '5px 10px', fontSize: 13 }}
+            value={period[1]}
+            onChange={e => setPeriod([period[0], Number(e.target.value)])}
+            aria-label="Report year"
+          >
+            {[new Date().getFullYear() - 1, new Date().getFullYear()].map(y => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
           {tab === 'catalogue' && (
             <>
               <button className="btn" onClick={() => printOne(active)}>

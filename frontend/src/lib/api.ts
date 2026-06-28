@@ -221,6 +221,35 @@ export const api = {
     return req('/api/inventory', { method: 'POST', body: JSON.stringify(body) });
   },
 
+  async stageWeeklyPull(body: {
+    month: number;
+    year: number;
+    week: number;
+    items: Array<{ sku: string; desc: string; qty: number; price: number }>;
+    note?: string;
+  }): Promise<any> {
+    const itemCount = body.items.length;
+    return req('/api/staging', {
+      method: 'POST',
+      body: JSON.stringify({
+        entity_type: 'inventory',
+        entity_id: `pull/${body.year}/${body.month}/w${body.week}`,
+        field_name: 'pull_sheet',
+        change_type: 'update',
+        operation: 'inventory_week_update',
+        summary: `Pull sheet W${body.week} — ${itemCount} item${itemCount !== 1 ? 's' : ''}`,
+        full_payload: {
+          month: body.month,
+          year: body.year,
+          week: body.week,
+          direction: 'issued',
+          items: body.items,
+          notes: body.note || '',
+        },
+      }),
+    });
+  },
+
   async updateInventoryItem(sku: string, body: { par?: number; unit?: string }): Promise<any> {
     return req(`/api/inventory/items/${encodeURIComponent(sku)}`, {
       method: 'PATCH',
