@@ -14,7 +14,13 @@ This is the **central development memory and discussion board** for development 
 
 **Build:** `tsc --noEmit` clean, `npm run build` passing. Pre-existing chunk-size warnings unchanged.
 
-**Push:** pending
+**Push:** 1b9d127 — 2026-06-28
+
+---
+
+## v4.20.6-wipe - 2026-06-28 - Inventory data wipe for clean re-upload
+
+**Claude:** Wiped all inventory/source-control data from MJCCv1 for clean re-upload. Truncated: `inventory_items`, `monthly_inventory`, `inventory_transactions`, `monthly_snapshots`, `inventory_audit_log`, `import_batches`, `staging_entries`, `commits`, `commit_changes`, `github_sync_queue`, `pull_requests`, `sku_review_queue`, `month_periods`, `month_status`, `week_status`. Preserved: 11 categories, 13 users, app_settings, vendors.
 
 ---
 
