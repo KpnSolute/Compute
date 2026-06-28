@@ -4,6 +4,16 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.20.2 - 2026-06-27 - Codex active inventory data wipe for clean re-upload
+
+**Codex:** After deploying the inventory calculation and temp-SKU fixes, wiped active inventory/import/source-control data from live Supabase `MJCCv1` so the team can re-upload sheets from a clean state. Cleared `inventory_items`, `monthly_inventory`, `inventory_transactions`, `monthly_snapshots`, `inventory_versions`, `inventory_audit_log`, `import_batches`, `staging_entries`, `commits`, `commit_changes`, `github_sync_queue`, `pull_requests`, `sku_review_queue`, `invoices`, `invoice_items`, `item_barcodes`, `month_periods`, `month_status`, `week_gross`, and `week_status`.
+
+**Codex verification:** Post-wipe counts are 0 for the active inventory/import/source-control tables. Preserved `user_profiles` (13), `app_settings` (11), `inventory_categories` (11), and `vendors` (3). Production API health returned `ok` before the wipe.
+
+**Push:** pending - not yet pushed
+
+---
+
 ## v4.20.1 - 2026-06-27 - Codex inventory calculation contract + clean re-upload prep
 
 **Codex:** Hardened inventory calculations so API responses count both weekly issued columns and May-style month-level `total_pulled_raw` entries stored in `inventory_transactions` with `week_number=0`. `GET /api/inventory` and inventory history now return `totalReceived`, `totalIssued`, `aggregateIssued`, `closingQty`, and `value` per item, plus period metadata totals, so frontend reports and dashboards do not ignore verified monthly pull totals.
