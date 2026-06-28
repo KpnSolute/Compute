@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { I } from '../lib/icons';
 import { type User, MONTHS } from '../lib/constants';
-import { iTotal, invToList } from '../lib/supabase';
 import { api } from '../lib/api';
 import { TemplatesPanel } from './Templates';
 
@@ -41,15 +40,24 @@ function Loading({ label = 'Loading…' }) {
 
 function buildReports(period: [number, number], invItems: any[], events: any[], commits: any[]) {
   const periodLbl = MONTHS[period[0]] + ' ' + period[1];
-  const flatInv = invToList(invItems);
-  const rollupInv = flatInv.map((it: any) => ({
-    id: it.sku || String(Math.random()),
-    cat: it.category || it.cat,
-    item: it.desc,
-    price: it.price || 0,
+
+  // Sort by category then description — matches corporate report expectation
+  const sorted = [...invItems].sort((a: any, b: any) =>
+    (a.category || '').localeCompare(b.category || '') ||
+    (a.desc || '').localeCompare(b.desc || '')
+  );
+
+  const totalRcv = (it: any) => (it.w1r||0)+(it.w2r||0)+(it.w3r||0)+(it.w4r||0);
+  const totalIss = (it: any) => (it.w1i||0)+(it.w2i||0)+(it.w3i||0)+(it.w4i||0);
+  const closingQty = (it: any) => Math.max(0, (it.onHand||0) + totalRcv(it) - totalIss(it));
+
+  const moninvRows = sorted.map((it: any) => ({
+    ...it,
     opening: it.onHand || 0,
-    received: 0,
-    issued: 0,
+    totalRcv: totalRcv(it),
+    totalIss: totalIss(it),
+    closing: closingQty(it),
+    value: closingQty(it) * (it.price || 0),
   }));
 
   return [
@@ -60,15 +68,15 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
       icon: 'box',
       period: periodLbl,
       columns: [
+        { key: 'category', label: 'Category' },
         { key: 'sku', label: 'SKU' },
         { key: 'desc', label: 'Description' },
-        { key: 'category', label: 'Category' },
         { key: 'price', label: 'Unit Price', get: (r: any) => '$' + (r.price || 0).toFixed(2) },
         { key: 'onHand', label: 'On Hand' },
         { key: 'par', label: 'Par' },
-        { key: 'value', label: 'Value', get: (r: any) => '$' + (iTotal ? iTotal(r) : 0).toFixed(2) },
+        { key: 'value', label: 'Value', get: (r: any) => '$' + ((r.onHand || 0) * (r.price || 0)).toFixed(2) },
       ],
-      build: () => flatInv,
+      build: () => sorted,
     },
     {
       id: 'moninv',
@@ -77,15 +85,26 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
       icon: 'fileText',
       period: periodLbl,
       columns: [
-        { key: 'item', label: 'Item' },
-        { key: 'cat', label: 'Category' },
+        { key: 'category', label: 'Category' },
+        { key: 'sku', label: 'SKU' },
+        { key: 'desc', label: 'Description' },
+        { key: 'unit', label: 'Unit' },
         { key: 'opening', label: 'Opening' },
-        { key: 'received', label: 'Received' },
-        { key: 'issued', label: 'Issued' },
-        { key: 'closing', label: 'Closing', get: (r: any) => Math.max(0, (r.opening || 0) + (r.received || 0) - (r.issued || 0)) },
-        { key: 'value', label: 'Value', get: (r: any) => '$' + (Math.max(0, (r.opening || 0) + (r.received || 0) - (r.issued || 0)) * r.price).toFixed(2) },
+        { key: 'w1r', label: 'W1 Rcv', get: (r: any) => r.w1r || 0 },
+        { key: 'w1i', label: 'W1 Iss', get: (r: any) => r.w1i || 0 },
+        { key: 'w2r', label: 'W2 Rcv', get: (r: any) => r.w2r || 0 },
+        { key: 'w2i', label: 'W2 Iss', get: (r: any) => r.w2i || 0 },
+        { key: 'w3r', label: 'W3 Rcv', get: (r: any) => r.w3r || 0 },
+        { key: 'w3i', label: 'W3 Iss', get: (r: any) => r.w3i || 0 },
+        { key: 'w4r', label: 'W4 Rcv', get: (r: any) => r.w4r || 0 },
+        { key: 'w4i', label: 'W4 Iss', get: (r: any) => r.w4i || 0 },
+        { key: 'totalRcv', label: 'Total Rcv' },
+        { key: 'totalIss', label: 'Total Iss' },
+        { key: 'closing', label: 'Closing' },
+        { key: 'price', label: 'Unit Price', get: (r: any) => '$' + (r.price || 0).toFixed(2) },
+        { key: 'value', label: 'Value', get: (r: any) => '$' + (r.value || 0).toFixed(2) },
       ],
-      build: () => rollupInv,
+      build: () => moninvRows,
     },
     {
       id: 'invoices',
@@ -268,10 +287,11 @@ export function Reports({
 
   useEffect(() => {
     let alive = true;
+    setLoading(true);
     async function load() {
       try {
         const [invData, evData, cmData] = await Promise.all([
-          api.getInventory().catch(() => null),
+          api.getInventory(period[0] + 1, period[1]).catch(() => null),
           api.getEvents().catch(() => []),
           api.getCommits().catch(() => []),
         ]);
@@ -290,7 +310,7 @@ export function Reports({
     }
     load();
     return () => { alive = false; };
-  }, []);
+  }, [period]);
 
   const reports = useMemo(() => buildReports(period, invItems, events, commits), [period, invItems, events, commits]);
 
@@ -524,7 +544,7 @@ export function Reports({
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.slice(0, 60).map((r: any, i: number) => (
+                    {rows.map((r: any, i: number) => (
                       <tr key={i}>
                         {active.columns.map((c: any) => (
                           <td key={c.key}>
@@ -537,19 +557,6 @@ export function Reports({
                     ))}
                   </tbody>
                 </table>
-                {rows.length > 60 && (
-                  <div
-                    style={{
-                      padding: '10px 14px',
-                      fontSize: 11.5,
-                      color: 'var(--faint)',
-                      borderTop: '1px solid var(--line-soft)',
-                    }}
-                  >
-                    Showing 60 of {rows.length} — download the CSV for the full
-                    report.
-                  </div>
-                )}
               </div>
             )}
           </div>

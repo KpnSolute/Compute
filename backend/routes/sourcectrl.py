@@ -123,10 +123,18 @@ def _granular_commit_changes(
                 # action CHECK allows only 'pull' | 'enter' | 'revert'.
                 if status == "delete":
                     action = "revert"
-                elif (field or "").endswith("_issued"):
+                elif field == "total_pulled_raw" or (field or "").endswith("_issued"):
                     action = "pull"
                 else:
                     action = "enter"
+                # total_pulled_raw is a month-aggregate pull (no weekly breakdown):
+                # store as week_number=0 to distinguish from per-week w1_issued rows.
+                if field == "total_pulled_raw":
+                    week_number = 0
+                elif wk_m:
+                    week_number = int(wk_m.group(1))
+                else:
+                    week_number = None
                 rows.append(
                     {
                         "commit_id": commit_id,
@@ -143,7 +151,7 @@ def _granular_commit_changes(
                         "action": action,
                         "month": db_month,
                         "year": year,
-                        "week_number": int(wk_m.group(1)) if wk_m else None,
+                        "week_number": week_number,
                         "metadata": {
                             "operation": op,
                             "description": r.get("description"),
@@ -398,18 +406,46 @@ def _apply_entries(
     #     DB guard and the dispatch published-check); there is no override — to edit
     #     a closed period an admin reopens it (month_status.status='open') first.
     overwrite_clears = _apply_confirmed_inventory_overwrites(entries)
-    replay_results = []
+    # Batch inventory_save entries by (month, year) so the 3 fixed Supabase overhead
+    # queries (month_status, categories, new_items_cat) run once per period instead of
+    # once per entry. 266 entries → 1 dispatch call; items carry per-item _staging_entry_id.
+    _inv_save_groups: dict[tuple, list] = {}
+    _other_entries = []
     for entry in entries:
         op = entry.get("operation")
         fp = entry.get("full_payload")
-        if op and fp:
-            extra = {
-                "_staging_entry_id": entry["entry_id"],
-            }
-            result = replay(op, {**fp, **extra})
-            replay_results.append(
-                {"entry_id": entry["entry_id"], "operation": op, "result": result}
-            )
+        if not op or not fp:
+            continue
+        if op == "inventory_save":
+            key = (fp.get("month"), fp.get("year"))
+            _inv_save_groups.setdefault(key, []).append(entry)
+        else:
+            _other_entries.append(entry)
+
+    replay_results = []
+    for group in _inv_save_groups.values():
+        first_fp = group[0]["full_payload"]
+        merged_items = [
+            {**item, "_staging_entry_id": e["entry_id"]}
+            for e in group
+            for item in (e["full_payload"].get("items") or [])
+        ]
+        merged_payload = {
+            **first_fp,
+            "items": merged_items,
+            "_staging_entry_id": group[0]["entry_id"],
+            "_batch_staging_ids": [e["entry_id"] for e in group],
+            "review_new": any(e["full_payload"].get("review_new") for e in group),
+        }
+        result = replay("inventory_save", merged_payload)
+        for e in group:
+            replay_results.append({"entry_id": e["entry_id"], "operation": "inventory_save", "result": result})
+
+    for entry in _other_entries:
+        op = entry.get("operation")
+        fp = entry.get("full_payload")
+        result = replay(op, {**fp, "_staging_entry_id": entry["entry_id"]})
+        replay_results.append({"entry_id": entry["entry_id"], "operation": op, "result": result})
 
     # 2 — all-or-nothing. If ANY entry failed to replay, abort the WHOLE commit:
     #     create no commit, mark nothing merged, leave every entry pending with a

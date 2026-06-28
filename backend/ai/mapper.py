@@ -121,6 +121,7 @@ _INV_ALIASES: dict[str, str] = {
     "w4receivable": "w4r",
     "receivedweek4": "w4r",
     "receiveweek4": "w4r",
+    "w1i": "w1i",
     "week1issued": "w1i",
     "week1issue": "w1i",
     "week1pulled": "w1i",
@@ -131,6 +132,15 @@ _INV_ALIASES: dict[str, str] = {
     "w1pull": "w1i",
     "issuedweek1": "w1i",
     "pullweek1": "w1i",
+    # New standard workbook: "Received Wk1" / "Pulled Wk1" style headers
+    "receivedwk1": "w1r",
+    "receivedwk2": "w2r",
+    "receivedwk3": "w3r",
+    "receivedwk4": "w4r",
+    "pulledwk1": "w1i",
+    "pulledwk2": "w2i",
+    "pulledwk3": "w3i",
+    "pulledwk4": "w4i",
     "w2i": "w2i",
     "week2issued": "w2i",
     "week2issue": "w2i",
@@ -262,31 +272,34 @@ def map_rows_to_inventory(
         # the whole commit). Inventory counts and prices can't be physically
         # negative, so floor them to 0 here at data entry — an audit artifact in
         # one row must not block importing the rest.
-        items.append(
-            {
-                "sku": sku,
-                "desc": desc,
-                "category": category,
-                "price": max(0.0, _safe_float(mapped.get("price"))),
-                # Only carry par when the sheet actually has a par column; else
-                # None so dispatch preserves any existing par (never zeroes it).
-                "par": (
-                    max(0, _safe_int(mapped.get("par")))
-                    if "par" in canonical_values
-                    else None
-                ),
-                "onHand": max(0, _safe_int(mapped.get("onHand"))),
-                "unit": str(mapped.get("unit") or "each").strip(),
-                "w1r": max(0, _safe_int(mapped.get("w1r"))),
-                "w2r": max(0, _safe_int(mapped.get("w2r"))),
-                "w3r": max(0, _safe_int(mapped.get("w3r"))),
-                "w4r": max(0, _safe_int(mapped.get("w4r"))),
-                "w1i": max(0, _safe_int(mapped.get("w1i"))),
-                "w2i": max(0, _safe_int(mapped.get("w2i"))),
-                "w3i": max(0, _safe_int(mapped.get("w3i"))),
-                "w4i": max(0, _safe_int(mapped.get("w4i"))),
-            }
-        )
+        item: dict = {
+            "sku": sku,
+            "desc": desc,
+            "category": category,
+            "price": max(0.0, _safe_float(mapped.get("price"))),
+            # Only carry par when the sheet actually has a par column; else
+            # None so dispatch preserves any existing par (never zeroes it).
+            "par": (
+                max(0, _safe_int(mapped.get("par")))
+                if "par" in canonical_values
+                else None
+            ),
+            "onHand": max(0, _safe_int(mapped.get("onHand"))),
+            "unit": str(mapped.get("unit") or "each").strip(),
+            "w1r": max(0, _safe_int(mapped.get("w1r"))),
+            "w2r": max(0, _safe_int(mapped.get("w2r"))),
+            "w3r": max(0, _safe_int(mapped.get("w3r"))),
+            "w4r": max(0, _safe_int(mapped.get("w4r"))),
+            "w1i": max(0, _safe_int(mapped.get("w1i"))),
+            "w2i": max(0, _safe_int(mapped.get("w2i"))),
+            "w3i": max(0, _safe_int(mapped.get("w3i"))),
+            "w4i": max(0, _safe_int(mapped.get("w4i"))),
+        }
+        # May case: monthly Total Pulled present but weekly pulls were blank.
+        # Pass through so dispatch can apply without inventing weekly distribution.
+        if row.get("total_pulled_raw") is not None:
+            item["total_pulled_raw"] = max(0, _safe_int(row.get("total_pulled_raw")))
+        items.append(item)
 
     if not items:
         return None

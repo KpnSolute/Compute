@@ -104,10 +104,12 @@ def resolve_and_write_item(
         sup.table("inventory_items").update(fields).eq("id", item_id).execute()
         return item_id, sku, False
 
-    # New item: honor a known category, else route to the New Items review
-    # bucket. force_review_category only redirects items whose category is
-    # unknown (None) — a recognized category from the parsed payload is kept.
-    if force_review_category and not category_id:
+    # New item: when force_review_category is set (data-entry path), ALWAYS route
+    # to fallback_category_id (New Items) so the manager reviews everything ingestion
+    # introduces — even items whose category was guessed by the parser.
+    # Without force_review_category, honor the known category; fall back to New Items
+    # only when category is None.
+    if force_review_category:
         fields["category_id"] = fallback_category_id
     else:
         fields["category_id"] = category_id or fallback_category_id

@@ -146,7 +146,14 @@ def _parse_mjcc_monthly_inventory(content: bytes) -> list[dict[str, Any]]:
         header_info = _find_mjcc_grid_header(rows)
         if not header_info:
             continue
-        _, desc_col = header_info
+        header_row_idx, desc_col = header_info
+        # New standard 14-col workbook has named headers like "Opening OH" /
+        # "Received Wk1" — offset arithmetic below is wrong for that layout.
+        # Bail out and let _parse_mjcc_flat_inventory handle it instead.
+        _hdr = rows[header_row_idx]
+        _hdr_norm = {re.sub(r"[^a-z0-9]", "", str(c or "").lower()) for c in _hdr}
+        if "openingoh" in _hdr_norm or "receivedwk1" in _hdr_norm:
+            continue
 
         # Derive column offsets relative to the description column.
         # Standard MJCC layout (desc_col=1):
@@ -272,6 +279,19 @@ _FLAT_INV_HEADER_ALIASES: dict[str, str] = {
     "latestunitcost$": "price",
     "unitcost": "price",
     "price": "price",
+    # weekly received/issued — new standard workbook (Received Wk1 / Pulled Wk1 …)
+    "receivedwk1": "w1r",
+    "receivedwk2": "w2r",
+    "receivedwk3": "w3r",
+    "receivedwk4": "w4r",
+    "pulledwk1": "w1i",
+    "pulledwk2": "w2i",
+    "pulledwk3": "w3i",
+    "pulledwk4": "w4i",
+    # May case: weekly pull cols blank but verified monthly Total Pulled present.
+    # Mapped to a passthrough field so dispatch can apply it without inventing
+    # per-week distribution. Total Received and Ending OH are NOT mapped.
+    "totalpulled": "total_pulled_raw",
     # par / reorder threshold (header normalized: non-alphanumerics stripped)
     "par": "par",
     "parlevel": "par",
@@ -385,6 +405,19 @@ def _parse_mjcc_flat_inventory(content: bytes) -> list[dict[str, Any]]:
             # so map_rows_to_inventory sees the column even if the first row is blank.
             if "par" in col_map.values():
                 row_out["par"] = par if par is not None else 0
+            # Emit weekly received/issued when the sheet carries those columns.
+            for _wk in ("w1r", "w2r", "w3r", "w4r", "w1i", "w2i", "w3i", "w4i"):
+                if _wk in col_map.values():
+                    _v = _clamp_nonneg(rec.get(_wk))
+                    row_out[_wk] = _v if _v is not None else 0
+            # May case: weekly pull cols blank but Total Pulled is a verified monthly
+            # figure. Preserve as total_pulled_raw so dispatch can apply it safely
+            # without guessing per-week distribution.
+            if "total_pulled_raw" in col_map.values():
+                _weekly_pulls = sum(row_out.get(k, 0) or 0 for k in ("w1i", "w2i", "w3i", "w4i"))
+                _tp = _clamp_nonneg(rec.get("total_pulled_raw"))
+                if _weekly_pulls == 0 and _tp:
+                    row_out["total_pulled_raw"] = _tp
             parsed.append(row_out)
 
         if parsed:
