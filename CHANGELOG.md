@@ -14,7 +14,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** Supabase CLI `db query --linked` verified `user_profiles` shape and live role counts, and confirmed the June 2026 stuck batch remains 291 pending with 0 pending ledger rows. Backend `ruff check` and `ruff format --check` passed on `backend/routes/sourcectrl.py`; focused source-control tests passed (`2 passed`); `py_compile` passed. Frontend lint, typecheck, and production build passed with the existing Vite dynamic-import/chunk-size warnings.
 
-**Push:** pending - not yet pushed
+**Push:** 7b7d1b6 — 2026-06-28
 
 ---
 
