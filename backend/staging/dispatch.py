@@ -102,7 +102,11 @@ def dispatch_inventory_save(payload: dict) -> dict:
         }
 
     # Audit metadata threaded from the commit path (_apply_entries injects _staging_entry_id).
+    # When _apply_entries batches many entries into one call, _batch_staging_ids carries all IDs.
     staging_entry_id = payload.get("_staging_entry_id")
+    batch_staging_ids: list[str] = payload.get("_batch_staging_ids") or (
+        [staging_entry_id] if staging_entry_id else []
+    )
     source_file = payload.get("source_file")
     source_hash = payload.get("source_hash")
     batch_id = payload.get("import_batch_id")
@@ -188,6 +192,9 @@ def dispatch_inventory_save(payload: dict) -> dict:
         if tpr is not None:
             pr_qty = _non_negative(tpr, "total_pulled_raw", item.get("sku"))
             if pr_qty:
+                # Per-item staging_entry_id: set when _apply_entries batches multiple
+                # entries into one call (each item carries its own entry's ID).
+                item_sid = item.get("_staging_entry_id") or staging_entry_id
                 txn_pull_rows.append(
                     {
                         "item_id": item_id,
@@ -201,7 +208,7 @@ def dispatch_inventory_save(payload: dict) -> dict:
                         "source_file": source_file,
                         "source_hash": source_hash,
                         "batch_id": batch_id,
-                        "staging_entry_id": staging_entry_id,
+                        "staging_entry_id": item_sid,
                         "txn_date": txn_date,
                         "created_by": created_by,
                     }
@@ -222,13 +229,15 @@ def dispatch_inventory_save(payload: dict) -> dict:
             ).execute()
 
     # Write week_number=0 aggregate pull rows. Idempotent: clear prior week0 rows
-    # from this exact staging entry before re-inserting so a retried commit never
-    # double-counts. Filters by BOTH staging_entry_id AND week_number=0 to leave
-    # unrelated weekly ledger rows (other staging entries) untouched.
+    # for ALL staging_entry_ids in this batch before re-inserting. Use in_() so a
+    # 266-entry batch is one DELETE instead of 266 separate deletes.
     if txn_pull_rows:
-        if staging_entry_id:
-            sup.table("inventory_transactions").delete().eq(
-                "staging_entry_id", staging_entry_id
+        ids_to_clear = list({r["staging_entry_id"] for r in txn_pull_rows if r.get("staging_entry_id")})
+        if not ids_to_clear and batch_staging_ids:
+            ids_to_clear = batch_staging_ids
+        if ids_to_clear:
+            sup.table("inventory_transactions").delete().in_(
+                "staging_entry_id", ids_to_clear
             ).eq("week_number", 0).execute()
         sup.table("inventory_transactions").insert(txn_pull_rows).execute()
 
