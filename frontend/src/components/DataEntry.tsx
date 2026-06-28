@@ -36,6 +36,7 @@ interface UploadResult {
     ai_model?: string;
     pr_id?: string | null;
     pr_number?: number | null;
+    description?: string;
     overwrite?: boolean;
     overwrite_scope?: {
         kind: string;
@@ -727,7 +728,9 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                 await api.mergePull(result.pr_id);
             } else {
                 // Fallback for older uploads with no PR attached
-                const msg = `AI batch: ${result.file} — ${result.staged_count} entries (${MONTHS[(result.month ?? 1) - 1] ?? result.month} ${result.year})`;
+                const baseMsg = `AI batch: ${result.file} — ${result.staged_count} entries (${MONTHS[(result.month ?? 1) - 1] ?? result.month} ${result.year})`;
+                const note = (result.description || description || '').trim();
+                const msg = note ? `${baseMsg}\n\n${note}` : baseMsg;
                 await api.approveCommit({ staging_ids: stagingIds, message: msg, author_id: user.id });
             }
             const mergedPrId = result.pr_id || undefined;
@@ -1044,16 +1047,16 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                     <>
                         <Hr />
                         <div>
-                            <div style={STEP_LBL}>3 — Change description <span style={{ fontWeight: 400, color: 'var(--faint)', textTransform: 'none' }}>(optional · logged with commit)</span></div>
+                            <div style={STEP_LBL}>3 — Source Control note <span style={{ fontWeight: 400, color: 'var(--faint)', textTransform: 'none' }}>(optional · saved to PR and commit)</span></div>
                             <textarea
                                 className={`sheet-inp txt${aiPrefs.effects ? ' ai-ring' : ''}`}
                                 value={description} rows={2} maxLength={500}
-                                placeholder="Describe what this upload contains..."
+                                placeholder="Example: May 2026 opening inventory, W1 received invoices, or monthly pulls..."
                                 style={{ width: '100%', resize: 'vertical', fontSize: 12.5 }}
                                 onChange={e => setDescription(e.target.value)}
                             />
                             <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 4 }}>
-                                {description.length}/500 · the AI will use this as context when parsing ambiguous fields
+                                {description.length}/500 · used as AI parsing context and saved in Source Control
                             </div>
                         </div>
                     </>

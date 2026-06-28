@@ -332,6 +332,14 @@ class ClosePRBody(BaseModel):
     note: Optional[str] = None
 
 
+def _pr_commit_message(pr: dict) -> str:
+    title = (pr.get("title") or "Untitled request").strip()
+    description = (pr.get("description") or "").strip()
+    if description and description not in title:
+        return f"{title}\n\n{description}"
+    return title
+
+
 # ── core replay→commit helper ─────────────────────────────────────────────────
 
 
@@ -439,13 +447,21 @@ def _apply_entries(
         }
         result = replay("inventory_save", merged_payload)
         for e in group:
-            replay_results.append({"entry_id": e["entry_id"], "operation": "inventory_save", "result": result})
+            replay_results.append(
+                {
+                    "entry_id": e["entry_id"],
+                    "operation": "inventory_save",
+                    "result": result,
+                }
+            )
 
     for entry in _other_entries:
         op = entry.get("operation")
         fp = entry.get("full_payload")
         result = replay(op, {**fp, "_staging_entry_id": entry["entry_id"]})
-        replay_results.append({"entry_id": entry["entry_id"], "operation": op, "result": result})
+        replay_results.append(
+            {"entry_id": entry["entry_id"], "operation": op, "result": result}
+        )
 
     # 2 — all-or-nothing. If ANY entry failed to replay, abort the WHOLE commit:
     #     create no commit, mark nothing merged, leave every entry pending with a
@@ -895,6 +911,12 @@ async def submit_staging(
             [entry["entry_id"]],
             auth_user["id"],
             title=f"{body.entity_type} changes - {auth_user.get('display_name', 'staff')}",
+            description=str(
+                (body.metadata or {}).get("summary")
+                or body.summary
+                or body.new_value
+                or ""
+            ),
             entity_scope=body.entity_type,
         )
         if pr:
@@ -1285,7 +1307,7 @@ async def merge_pull_request(
         result = _apply_entries(
             entries,
             author_id=pr["author_id"],
-            message=pr["title"],
+            message=_pr_commit_message(pr),
             source="pull_request",
             pr_id=pr_id,
         )

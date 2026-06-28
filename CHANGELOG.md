@@ -4,13 +4,27 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.20.3 - 2026-06-27 - Codex Source Control note commits
+
+**Codex:** Made the Data Entry "Source Control note" travel the full pipeline: upload form -> staging metadata/review note -> auto-created pull request description -> merge commit message. Existing open PRs now append new descriptions instead of dropping them, so repeated uploads in one work session keep their notes visible.
+
+**Codex automation/manual:** Manual dashboard staging now seeds the auto-PR description from its staging summary, and AI automation staging now copies `notes` into staging metadata, review note, PR description, and therefore the merge commit message. PR merges now build the final commit message from PR title plus PR description.
+
+**Codex UI:** Renamed the Data Entry field from "Change description" to "Source Control note" and clarified that it is saved to PR and commit history while still helping AI parse ambiguous files.
+
+**Verification:** `ruff` passed on touched backend files, focused backend tests passed (`10 passed, 1 skipped`), frontend typecheck and lint passed, and production build passed with the existing bundle-size warning.
+
+**Push:** pending - not yet pushed
+
+---
+
 ## v4.20.2 - 2026-06-27 - Codex active inventory data wipe for clean re-upload
 
 **Codex:** After deploying the inventory calculation and temp-SKU fixes, wiped active inventory/import/source-control data from live Supabase `MJCCv1` so the team can re-upload sheets from a clean state. Cleared `inventory_items`, `monthly_inventory`, `inventory_transactions`, `monthly_snapshots`, `inventory_versions`, `inventory_audit_log`, `import_batches`, `staging_entries`, `commits`, `commit_changes`, `github_sync_queue`, `pull_requests`, `sku_review_queue`, `invoices`, `invoice_items`, `item_barcodes`, `month_periods`, `month_status`, `week_gross`, and `week_status`. Also emptied the old `_bak_...` inventory/source-control backup tables so the database has no retained inventory rows.
 
 **Codex verification:** Post-wipe counts are 0 for active inventory/import/source-control tables and 0 for old backup inventory/source-control tables. Preserved `user_profiles` (13), `app_settings` (11), `inventory_categories` (11), and `vendors` (3). Production API health returned `ok` before and after the wipe.
 
-**Push:** pending - not yet pushed
+**Push:** Codex -> acd2539 - 2026-06-27
 
 ---
 

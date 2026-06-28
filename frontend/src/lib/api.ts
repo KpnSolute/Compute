@@ -486,7 +486,7 @@ export const api = {
   },
 
   // Data Entry
-  async uploadDataEntry(file: File, hint: string, month?: number, year?: number, week?: number, direction?: string, description?: string, signal?: AbortSignal, overwrite?: boolean): Promise<{ batch_id: string; staged_count: number; staging_ids?: string[]; sku_queued?: number; operations: Record<string, number>; file: string; month: number; year: number; reconciliation?: any; ai_provider?: string; ai_model?: string; overwrite?: boolean; overwrite_scope?: any }> {
+  async uploadDataEntry(file: File, hint: string, month?: number, year?: number, week?: number, direction?: string, description?: string, signal?: AbortSignal, overwrite?: boolean): Promise<{ batch_id: string; staged_count: number; staging_ids?: string[]; sku_queued?: number; operations: Record<string, number>; file: string; month: number; year: number; description?: string; reconciliation?: any; ai_provider?: string; ai_model?: string; overwrite?: boolean; overwrite_scope?: any }> {
     const token = getBackendToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;

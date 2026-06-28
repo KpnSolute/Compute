@@ -17,6 +17,7 @@ import hashlib
 import calendar
 from datetime import datetime, timezone
 from typing import Any, Optional
+
 from fastapi import (
     APIRouter,
     HTTPException,
@@ -30,19 +31,22 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from backend.ai import context as ctx
+from backend.ai import diff as diff_engine
+from backend.ai import engine as ai_engine
+from backend.ai import invoice_parser
+from backend.ai import mapper
+from backend.ai import parser as file_parser
+from backend.inventory_identity import canonical_sku
+from backend.routes import jwt_validator
+from backend.routes._deps import ensure_pr_for_entries
+from supabase import create_client
+
 # Thread pool dedicated to blocking parse work so FastAPI's event loop stays free
 # during multi-minute AI/OCR jobs on large PDFs.
 _parse_executor = concurrent.futures.ThreadPoolExecutor(
     max_workers=4, thread_name_prefix="de-parse"
 )
-from backend.routes import jwt_validator
-from backend.routes._deps import ensure_pr_for_entries
-from supabase import create_client
-from backend.ai import engine as ai_engine
-from backend.ai import invoice_parser
-from backend.ai import parser as file_parser
-from backend.ai import mapper, context as ctx, diff as diff_engine
-from backend.inventory_identity import canonical_sku
 
 log = logging.getLogger("mjcc.data_entry")
 
@@ -1379,6 +1383,7 @@ async def upload_file(
             [s["entry_id"] for s in staged],
             submitter,
             title=f"Invoice import — {fname}",
+            description=(description or "").strip(),
         )
 
         op_counts: dict[str, int] = {}

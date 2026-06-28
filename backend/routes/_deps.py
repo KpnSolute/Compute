@@ -101,6 +101,7 @@ def ensure_pr_for_entries(
     """
     if not entry_ids:
         return None
+    clean_description = (description or "").strip()
     try:
         valid_rows = []
         for entry_chunk in _chunks(entry_ids):
@@ -140,7 +141,7 @@ def ensure_pr_for_entries(
                 .insert(
                     {
                         "title": title.strip() or "Untitled request",
-                        "description": (description or "").strip(),
+                        "description": clean_description,
                         "author_id": author_id,
                         "entity_scope": inferred_scope,
                     }
@@ -148,6 +149,21 @@ def ensure_pr_for_entries(
                 .execute()
             )
             pr = (opened.data or [None])[0]
+        elif clean_description:
+            existing_description = (pr.get("description") or "").strip()
+            if clean_description not in existing_description:
+                next_description = (
+                    f"{existing_description}\n\n{clean_description}"
+                    if existing_description
+                    else clean_description
+                )
+                updated = (
+                    supabase_service.table("pull_requests")
+                    .update({"description": next_description[:2000]})
+                    .eq("pr_id", pr["pr_id"])
+                    .execute()
+                )
+                pr = (updated.data or [pr])[0]
         if not pr:
             return None
 

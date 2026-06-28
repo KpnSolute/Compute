@@ -60,11 +60,13 @@ def _require_user_id(args: dict) -> str:
     return str(user_id)
 
 
-def _wrap_in_pr(entry_ids: list[str], user_id: str, title: str) -> dict | None:
+def _wrap_in_pr(
+    entry_ids: list[str], user_id: str, title: str, description: str = ""
+) -> dict | None:
     try:
         from backend.routes._deps import ensure_pr_for_entries
 
-        return ensure_pr_for_entries(entry_ids, user_id, title)
+        return ensure_pr_for_entries(entry_ids, user_id, title, description=description)
     except Exception:
         return None
 
@@ -449,6 +451,7 @@ def stage_inventory_save(args: dict, user_role: str) -> dict:
         "review_new": True,
         "items": items,
     }
+    note = str(payload.get("notes") or "").strip()
     row = {
         "entity_type": "inventory",
         "entity_id": batch_id,
@@ -458,8 +461,10 @@ def stage_inventory_save(args: dict, user_role: str) -> dict:
         "change_type": "ai_stage",
         "metadata": {
             "summary": f"AI-staged {len(items)} inventory item(s) for {month}/{year}",
+            "description": note,
             "source": "agent",
         },
+        "review_note": note or None,
         "status": "pending",
         "submitted_by": user_id,
         "source": "ai_agent",
@@ -472,7 +477,9 @@ def stage_inventory_save(args: dict, user_role: str) -> dict:
         r = _client().table("staging_entries").insert(row).execute()
         staged = r.data or []
         entry_ids = [x["entry_id"] for x in staged if x.get("entry_id")]
-        pr = _wrap_in_pr(entry_ids, user_id, f"AI inventory update {month}/{year}")
+        pr = _wrap_in_pr(
+            entry_ids, user_id, f"AI inventory update {month}/{year}", note
+        )
         return {
             "staged": len(entry_ids),
             "entry_ids": entry_ids,
@@ -519,6 +526,7 @@ def stage_inventory_week_update(args: dict, user_role: str) -> dict:
         "review_new": True,
         "items": items,
     }
+    note = str(payload.get("notes") or "").strip()
     row = {
         "entity_type": "inventory",
         "entity_id": batch_id,
@@ -528,8 +536,10 @@ def stage_inventory_week_update(args: dict, user_role: str) -> dict:
         "change_type": "ai_stage",
         "metadata": {
             "summary": f"AI-staged {len(items)} item(s) for W{week} {direction} {month}/{year}",
+            "description": note,
             "source": "agent",
         },
+        "review_note": note or None,
         "status": "pending",
         "submitted_by": user_id,
         "source": "ai_agent",
@@ -543,7 +553,10 @@ def stage_inventory_week_update(args: dict, user_role: str) -> dict:
         staged = r.data or []
         entry_ids = [x["entry_id"] for x in staged if x.get("entry_id")]
         pr = _wrap_in_pr(
-            entry_ids, user_id, f"AI W{week} {direction} update {month}/{year}"
+            entry_ids,
+            user_id,
+            f"AI W{week} {direction} update {month}/{year}",
+            note,
         )
         return {
             "staged": len(entry_ids),
