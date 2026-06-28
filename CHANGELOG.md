@@ -4,6 +4,18 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.20.10] - 2026-06-28 - Inventory workbook regression tests and transaction qty guard
+
+**Codex:** Added regression coverage for real inventory workbook structure before the production wipe/re-upload. The parser tests now cover formula total cells without cached Excel values, confirm the real June workbook does not create pull quantities from blank/formula pull columns, and verify the external monthly template parses from the `Inventory` sheet without counting notes.
+
+**Codex UI:** Hardened Source Control transaction display so SKU and other identifier updates no longer render identifier values as item quantities. Quantity display is now limited to inventory movement/opening fields; non-quantity changes show as Updated.
+
+**Verification:** Backend venv tests passed (`26 passed, 1 skipped`), focused inventory tests passed (`23 passed, 1 skipped`), Ruff passed on touched backend files, frontend lint had no errors with existing warnings, `npx tsc --noEmit` passed, and `npm run build` passed with existing Vite chunk/dynamic-import warnings. Backend import passed with placeholder env variable names; `SUPABASE_JWT_SECRET` warning is expected for placeholder-only import.
+
+**Push:** pending
+
+---
+
 ## [v4.20.9] — 2026-06-28 — Fix TEMP_000 multi-collision on inventory upload
 
 **Claude:** Root-caused a silent data loss bug: all items without a vendor SKU appear as `TEMP_000` in the exported spreadsheet. `resolve_and_write_item` matched all of them to the same `inventory_items` row, so each row overwrote the previous one's opening balance — only the last item survived. This caused a $1,555.22 opening value gap in May and $1,087 gap in June (confirmed by exact arithmetic from the xlsx files).

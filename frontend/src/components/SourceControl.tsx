@@ -145,10 +145,32 @@ function actionClass(action?: string | null) {
     return "received";
 }
 
+const QUANTITY_FIELDS = new Set([
+    "on_hand",
+    "w1_received",
+    "w2_received",
+    "w3_received",
+    "w4_received",
+    "w1_issued",
+    "w2_issued",
+    "w3_issued",
+    "w4_issued",
+    "total_pulled_raw",
+]);
+
 function transactionQty(txn: SourceTransaction) {
+    const field = txn.field_name || txn.field || "";
+    if (!QUANTITY_FIELDS.has(field)) return null;
     if (txn.new_value != null) return Number(txn.new_value);
     const parsed = Number(txn.new_value_text);
     return Number.isFinite(parsed) ? parsed : null;
+}
+
+function transactionActionLabel(txn: SourceTransaction) {
+    const field = txn.field_name || txn.field || "";
+    if (!QUANTITY_FIELDS.has(field)) return "Updated";
+    if (field === "on_hand") return "Opening";
+    return actionLabel(txn.action);
 }
 
 function periodLabel(txn: SourceTransaction) {
@@ -284,7 +306,7 @@ function TransactionLogView({ active }: { active: boolean }) {
                                             {row.sku && <small>{row.sku}</small>}
                                         </div>
                                     </td>
-                                    <td><span className={`sc-action-pill ${actionClass(row.action)}`}>{actionLabel(row.action)}</span></td>
+                                    <td><span className={`sc-action-pill ${actionClass(row.action)}`}>{transactionActionLabel(row)}</span></td>
                                     <td className="num">{qty == null ? "-" : qty.toLocaleString()}</td>
                                     <td className="muted">{periodLabel(row)}</td>
                                     <td>

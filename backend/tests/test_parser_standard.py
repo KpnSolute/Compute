@@ -13,6 +13,7 @@ openpyxl = pytest.importorskip("openpyxl")
 
 _JUNE_PATH = pathlib.Path(r"C:\Users\ogdev\JobCorp\June 2026\June Pre-Published Inventory.xlsx")
 _MAY_PATH = pathlib.Path(r"C:\Users\ogdev\JobCorp\May 2026\May Published Inventory.xlsx")
+_TEMPLATE_PATH = pathlib.Path(r"C:\Users\ogdev\JobCorp\Monthly Inventory Template.xlsx")
 
 STANDARD_HEADER = [
     "Category", "SKU", "Description", "Opening OH",
@@ -118,6 +119,46 @@ def test_june_total_pulled_not_preserved_when_weekly_present():
     assert "total_pulled_raw" not in rows[0], "total_pulled_raw emitted when weekly pulls present"
 
 
+def test_formula_totals_without_cached_values_are_derived_from_weekly_columns():
+    """openpyxl data_only=True returns None for uncached formulas; weekly cells remain authoritative."""
+    from backend.ai.parser import parse_excel
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Inventory"
+    ws.append(STANDARD_HEADER)
+    ws.append([
+        "Dry Goods",
+        "1067389",
+        "SYRUP, PNCK SS CUP SHLF STABL",
+        0,
+        3,
+        None,
+        1,
+        None,
+        0,
+        None,
+        "=SUM(E2,G2,I2)",
+        "=SUM(F2,H2,J2)",
+        "=D2+K2-L2",
+        16.56,
+    ])
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    rows = parse_excel(buf.getvalue())
+    assert rows
+    item = rows[0]
+    assert item["onHand"] == 0
+    assert item["w1r"] == 3
+    assert item["w2r"] == 1
+    assert item["w3r"] == 0
+    assert item["w1i"] == 0
+    assert item["w2i"] == 0
+    assert item["w3i"] == 0
+    assert "total_pulled_raw" not in item
+
+
 # ── real workbook row counts ───────────────────────────────────────────────
 
 @pytest.mark.skipif(not _JUNE_PATH.exists(), reason="June workbook not present")
@@ -183,3 +224,29 @@ def test_may_total_pulled_raw_present():
     # carry total_pulled_raw (those where weekly pull cols were blank).
     preserved = [r for r in rows if r.get("total_pulled_raw")]
     assert preserved, "No total_pulled_raw values preserved from May workbook"
+
+
+@pytest.mark.skipif(not _JUNE_PATH.exists(), reason="June workbook not present")
+def test_real_june_formula_pulls_do_not_create_raw_pulls():
+    """June has formula Total Pulled cells with no cached values and blank pull columns."""
+    from backend.ai.parser import parse_excel
+
+    rows = parse_excel(_JUNE_PATH.read_bytes())
+    assert rows
+    assert not [r for r in rows if r.get("total_pulled_raw")]
+    assert sum(
+        (r.get("w1i") or 0)
+        + (r.get("w2i") or 0)
+        + (r.get("w3i") or 0)
+        + (r.get("w4i") or 0)
+        for r in rows
+    ) == 0
+
+
+@pytest.mark.skipif(not _TEMPLATE_PATH.exists(), reason="Template workbook not present")
+def test_template_inventory_sheet_parses_without_double_counting_notes():
+    from backend.ai.parser import parse_excel
+
+    rows = parse_excel(_TEMPLATE_PATH.read_bytes())
+    assert len(rows) >= 200
+    assert {r.get("__sheet") for r in rows} == {"Inventory"}
