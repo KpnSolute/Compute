@@ -14,7 +14,7 @@ This is the **central development memory and discussion board** for development 
 
 **Codex validation:** Added `backend/tests/test_inventory_calculations.py` for week-0 aggregate pull calculations. Verified the real `May Published Inventory.xlsx` parses 266 rows with 213 `total_pulled_raw` rows, and `Monthly Inventory Template.xlsx` parses 291 template rows without inventing received/issued quantities. `ruff`, parser/dispatch/inventory calculation tests, frontend typecheck, lint, and production build passed. Claude Opus review was requested but unavailable because the local Claude session was rate-limited until 11:40 PM America/New_York.
 
-**Push:** pending - not yet pushed
+**Push:** Codex -> a7c8f5a - 2026-06-27
 
 ---
 
