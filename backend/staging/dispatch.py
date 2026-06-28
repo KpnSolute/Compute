@@ -122,7 +122,7 @@ def dispatch_inventory_save(payload: dict) -> dict:
     count = 0
     dropped = 0
     rows: list[dict] = []
-    txn_pull_rows: list[dict] = []  # week_number=0 aggregate pulls for total_pulled_raw items
+    txn_rows: list[dict] = []  # week 1-4 spreadsheet cells + week 0 aggregate pulls
     for item in items:
         # Identity is resolved by SKU only; an unknown category resolves to None
         # so a brand-new item lands in "New Items" for manager review.
@@ -170,18 +170,42 @@ def dispatch_inventory_save(payload: dict) -> dict:
             monthly_fields["unit_price"] = item["price"]
         # Only write weekly columns when explicitly present in the payload — omitting
         # them preserves existing W1-W4 data instead of zeroing it on every save.
-        for src, col in [
-            ("w1r", "w1_received"),
-            ("w2r", "w2_received"),
-            ("w3r", "w3_received"),
-            ("w4r", "w4_received"),
-            ("w1i", "w1_issued"),
-            ("w2i", "w2_issued"),
-            ("w3i", "w3_issued"),
-            ("w4i", "w4_issued"),
+        for src, col, week_number, txn_type in [
+            ("w1r", "w1_received", 1, "received"),
+            ("w2r", "w2_received", 2, "received"),
+            ("w3r", "w3_received", 3, "received"),
+            ("w4r", "w4_received", 4, "received"),
+            ("w1i", "w1_issued", 1, "issued"),
+            ("w2i", "w2_issued", 2, "issued"),
+            ("w3i", "w3_issued", 3, "issued"),
+            ("w4i", "w4_issued", 4, "issued"),
         ]:
             if src in item:
-                monthly_fields[col] = _non_negative(item[src], src, item.get("sku"))
+                qty = _non_negative(item[src], src, item.get("sku"))
+                monthly_fields[col] = qty
+                if qty:
+                    item_sid = item.get("_staging_entry_id") or staging_entry_id
+                    txn_rows.append(
+                        {
+                            "item_id": item_id,
+                            "sku": _sku,
+                            "month": db_month,
+                            "year": year,
+                            "week_number": week_number,
+                            "txn_type": txn_type,
+                            "quantity": qty,
+                            "unit_price": _non_negative(
+                                item.get("price"), "price", item.get("sku")
+                            )
+                            or 0,
+                            "source_file": source_file,
+                            "source_hash": source_hash,
+                            "batch_id": batch_id,
+                            "staging_entry_id": item_sid,
+                            "txn_date": txn_date,
+                            "created_by": created_by,
+                        }
+                    )
         rows.append(monthly_fields)
         count += 1
 
@@ -195,7 +219,7 @@ def dispatch_inventory_save(payload: dict) -> dict:
                 # Per-item staging_entry_id: set when _apply_entries batches multiple
                 # entries into one call (each item carries its own entry's ID).
                 item_sid = item.get("_staging_entry_id") or staging_entry_id
-                txn_pull_rows.append(
+                txn_rows.append(
                     {
                         "item_id": item_id,
                         "sku": _sku,
@@ -204,7 +228,10 @@ def dispatch_inventory_save(payload: dict) -> dict:
                         "week_number": 0,
                         "txn_type": "issued",
                         "quantity": pr_qty,
-                        "unit_price": _non_negative(item.get("price"), "price", item.get("sku")) or 0,
+                        "unit_price": _non_negative(
+                            item.get("price"), "price", item.get("sku")
+                        )
+                        or 0,
                         "source_file": source_file,
                         "source_hash": source_hash,
                         "batch_id": batch_id,
@@ -237,18 +264,21 @@ def dispatch_inventory_save(payload: dict) -> dict:
                 on_conflict="item_id,month,year",
             ).execute()
 
-    # Write week_number=0 aggregate pull rows. Idempotent: clear prior week0 rows
-    # for ALL staging_entry_ids in this batch before re-inserting. Use in_() so a
-    # 266-entry batch is one DELETE instead of 266 separate deletes.
-    if txn_pull_rows:
-        ids_to_clear = list({r["staging_entry_id"] for r in txn_pull_rows if r.get("staging_entry_id")})
+    # Write ledger rows for spreadsheet weekly cells and week_number=0 aggregate
+    # pulls. Idempotent: clear prior rows for ALL staging_entry_ids in this batch
+    # before re-inserting. Use in_() so a 266-entry batch is one DELETE instead of
+    # 266 separate deletes.
+    if txn_rows:
+        ids_to_clear = list(
+            {r["staging_entry_id"] for r in txn_rows if r.get("staging_entry_id")}
+        )
         if not ids_to_clear and batch_staging_ids:
             ids_to_clear = batch_staging_ids
         if ids_to_clear:
             sup.table("inventory_transactions").delete().in_(
                 "staging_entry_id", ids_to_clear
-            ).eq("week_number", 0).execute()
-        sup.table("inventory_transactions").insert(txn_pull_rows).execute()
+            ).execute()
+        sup.table("inventory_transactions").insert(txn_rows).execute()
 
     result = {
         "applied": count,

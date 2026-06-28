@@ -78,6 +78,34 @@ export interface Commit {
   pr_title?: string | null;
 }
 
+export interface SourceTransaction {
+  change_id?: string;
+  commit_id?: string | null;
+  item_id?: string | null;
+  sku?: string | null;
+  description?: string | null;
+  entity_type?: string | null;
+  entity_id?: string | null;
+  field?: string | null;
+  field_name?: string | null;
+  action?: string | null;
+  old_value?: number | null;
+  new_value?: number | null;
+  old_value_text?: string | null;
+  new_value_text?: string | null;
+  month?: number | null;
+  year?: number | null;
+  week_number?: number | null;
+  created_at?: string | null;
+  commit_message?: string | null;
+  github_sha?: string | null;
+  github_synced_at?: string | null;
+  author_name?: string | null;
+  author_role?: string | null;
+  unit_price?: number | null;
+  unit?: string | null;
+}
+
 export interface StagingEntry {
   entry_id: string;
   entity_type: string;
@@ -397,6 +425,16 @@ export const api = {
   // Source Control
   async getCommits(limit = 50, offset = 0): Promise<Commit[]> {
     return req(`/api/commits?limit=${limit}&offset=${offset}`);
+  },
+
+  async getTransactions(params?: { limit?: number; offset?: number; action?: string; month?: number; year?: number }): Promise<SourceTransaction[]> {
+    const p = new URLSearchParams();
+    p.set('limit', String(params?.limit ?? 300));
+    p.set('offset', String(params?.offset ?? 0));
+    if (params?.action) p.set('action', params.action);
+    if (params?.month !== undefined) p.set('month', String(params.month));
+    if (params?.year !== undefined) p.set('year', String(params.year));
+    return req(`/api/transactions?${p.toString()}`);
   },
 
   async getStaging(entityType?: string): Promise<StagingEntry[]> {

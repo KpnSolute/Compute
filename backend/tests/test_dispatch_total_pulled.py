@@ -12,6 +12,7 @@ and week_number=0 for the total_pulled_raw field.
 
 Uses in-memory fake Supabase client — zero network/DB required.
 """
+
 import os
 import sys
 from unittest.mock import MagicMock, patch
@@ -29,6 +30,7 @@ DRY_CAT_ID = "cat-dry"
 
 
 # ── minimal fake Supabase client ─────────────────────────────────────────────
+
 
 class _Result:
     def __init__(self, data):
@@ -81,20 +83,34 @@ class _FakeQuery:
 
     def execute(self):
         rows = self._t._rows
-        plain_filters = {k: v for k, v in self._filters.items() if not k.startswith("__in_")}
+        plain_filters = {
+            k: v for k, v in self._filters.items() if not k.startswith("__in_")
+        }
+        in_filters = {
+            k.removeprefix("__in_"): v
+            for k, v in self._filters.items()
+            if k.startswith("__in_")
+        }
+
+        def _matches(row):
+            return all(row.get(k) == v for k, v in plain_filters.items()) and all(
+                row.get(k) in vals for k, vals in in_filters.items()
+            )
 
         if self._op == "select":
-            matched = [r for r in rows if all(r.get(k) == v for k, v in plain_filters.items())]
+            matched = [r for r in rows if _matches(r)]
             return _Result(matched)
 
         if self._op == "update":
             for r in rows:
-                if all(r.get(k) == v for k, v in plain_filters.items()):
+                if _matches(r):
                     r.update(self._payload)
             return _Result([])
 
         if self._op == "insert":
-            payload = self._payload if isinstance(self._payload, list) else [self._payload]
+            payload = (
+                self._payload if isinstance(self._payload, list) else [self._payload]
+            )
             inserted = []
             for item in payload:
                 new = dict(item)
@@ -104,13 +120,15 @@ class _FakeQuery:
             return _Result(inserted)
 
         if self._op == "upsert":
-            payload = self._payload if isinstance(self._payload, list) else [self._payload]
+            payload = (
+                self._payload if isinstance(self._payload, list) else [self._payload]
+            )
             for item in payload:
                 rows.append(dict(item))
             return _Result([])
 
         if self._op == "delete":
-            keep = [r for r in rows if not all(r.get(k) == v for k, v in plain_filters.items())]
+            keep = [r for r in rows if not _matches(r)]
             self._t._rows[:] = keep
             return _Result([])
 
@@ -149,9 +167,17 @@ class FakeSup:
             {"id": NEW_ITEMS_CAT_ID, "name": "New Items"},
         ]
         self._tables = {
-            "inventory_items": _FakeTable(items or [
-                {"id": ITEM_ID, "sku": "DRY-001", "description": "Rice", "category_id": DRY_CAT_ID},
-            ]),
+            "inventory_items": _FakeTable(
+                items
+                or [
+                    {
+                        "id": ITEM_ID,
+                        "sku": "DRY-001",
+                        "description": "Rice",
+                        "category_id": DRY_CAT_ID,
+                    },
+                ]
+            ),
             "inventory_categories": _FakeTable(cats),
             "monthly_inventory": _FakeTable([]),
             "inventory_transactions": _FakeTable(txns or []),
@@ -173,6 +199,7 @@ class FakeSup:
 
 # ── dispatch tests ────────────────────────────────────────────────────────────
 
+
 def test_total_pulled_raw_writes_week0_transaction():
     """An item with total_pulled_raw gets a week_number=0 issued transaction."""
     from backend.staging.dispatch import dispatch_inventory_save
@@ -182,14 +209,16 @@ def test_total_pulled_raw_writes_week0_transaction():
         "month": 5,
         "year": 2026,
         "_staging_entry_id": STAGING_ID,
-        "items": [{
-            "sku": "DRY-001",
-            "desc": "Rice",
-            "category": "Dry Goods",
-            "onHand": 100,
-            "price": 1.5,
-            "total_pulled_raw": 40.0,
-        }],
+        "items": [
+            {
+                "sku": "DRY-001",
+                "desc": "Rice",
+                "category": "Dry Goods",
+                "onHand": 100,
+                "price": 1.5,
+                "total_pulled_raw": 40.0,
+            }
+        ],
     }
     with patch("backend.staging.dispatch._client", return_value=sup):
         result = dispatch_inventory_save(payload)
@@ -210,27 +239,31 @@ def test_total_pulled_raw_retry_is_idempotent():
     """Replaying the same staging entry replaces the prior week0 row."""
     from backend.staging.dispatch import dispatch_inventory_save
 
-    existing = [{
-        "id": "txn-old",
-        "item_id": ITEM_ID,
-        "staging_entry_id": STAGING_ID,
-        "week_number": 0,
-        "txn_type": "issued",
-        "quantity": 30.0,
-    }]
+    existing = [
+        {
+            "id": "txn-old",
+            "item_id": ITEM_ID,
+            "staging_entry_id": STAGING_ID,
+            "week_number": 0,
+            "txn_type": "issued",
+            "quantity": 30.0,
+        }
+    ]
     sup = FakeSup(txns=existing)
     payload = {
         "month": 5,
         "year": 2026,
         "_staging_entry_id": STAGING_ID,
-        "items": [{
-            "sku": "DRY-001",
-            "desc": "Rice",
-            "category": "Dry Goods",
-            "onHand": 100,
-            "price": 1.5,
-            "total_pulled_raw": 40.0,
-        }],
+        "items": [
+            {
+                "sku": "DRY-001",
+                "desc": "Rice",
+                "category": "Dry Goods",
+                "onHand": 100,
+                "price": 1.5,
+                "total_pulled_raw": 40.0,
+            }
+        ],
     }
     with patch("backend.staging.dispatch._client", return_value=sup):
         result = dispatch_inventory_save(payload)
@@ -259,21 +292,27 @@ def test_other_staging_entry_txns_preserved():
         "month": 5,
         "year": 2026,
         "_staging_entry_id": STAGING_ID,
-        "items": [{
-            "sku": "DRY-001",
-            "desc": "Rice",
-            "category": "Dry Goods",
-            "onHand": 100,
-            "total_pulled_raw": 40.0,
-        }],
+        "items": [
+            {
+                "sku": "DRY-001",
+                "desc": "Rice",
+                "category": "Dry Goods",
+                "onHand": 100,
+                "total_pulled_raw": 40.0,
+            }
+        ],
     }
     with patch("backend.staging.dispatch._client", return_value=sup):
         dispatch_inventory_save(payload)
 
     txns = sup.txns
-    assert len(txns) == 2, f"Expected 2 transactions (other preserved + new), got {txns}"
+    assert len(txns) == 2, (
+        f"Expected 2 transactions (other preserved + new), got {txns}"
+    )
     assert any(t["staging_entry_id"] == "stage-other" for t in txns)
-    assert any(t["week_number"] == 0 and t["staging_entry_id"] == STAGING_ID for t in txns)
+    assert any(
+        t["week_number"] == 0 and t["staging_entry_id"] == STAGING_ID for t in txns
+    )
 
 
 def test_no_total_pulled_raw_no_transaction():
@@ -284,13 +323,101 @@ def test_no_total_pulled_raw_no_transaction():
     payload = {
         "month": 5,
         "year": 2026,
-        "items": [{"sku": "DRY-001", "desc": "Rice", "category": "Dry Goods", "onHand": 100}],
+        "items": [
+            {"sku": "DRY-001", "desc": "Rice", "category": "Dry Goods", "onHand": 100}
+        ],
     }
     with patch("backend.staging.dispatch._client", return_value=sup):
         result = dispatch_inventory_save(payload)
 
     assert result["applied"] == 1
     assert len(sup.txns) == 0
+
+
+def test_weekly_cells_write_week_1_to_4_ledger_rows():
+    """Full-month weekly cells create matching week 1-4 ledger rows."""
+    from backend.staging.dispatch import dispatch_inventory_save
+
+    sup = FakeSup()
+    payload = {
+        "month": 5,
+        "year": 2026,
+        "_staging_entry_id": STAGING_ID,
+        "items": [
+            {
+                "sku": "DRY-001",
+                "desc": "Rice",
+                "category": "Dry Goods",
+                "price": 1.5,
+                "w1r": 2,
+                "w2r": 3,
+                "w3i": 4,
+                "w4i": 0,
+            }
+        ],
+    }
+    with patch("backend.staging.dispatch._client", return_value=sup):
+        result = dispatch_inventory_save(payload)
+
+    assert result["applied"] == 1
+    assert [
+        (t["week_number"], t["txn_type"], t["quantity"])
+        for t in sorted(sup.txns, key=lambda row: (row["week_number"], row["txn_type"]))
+    ] == [
+        (1, "received", 2),
+        (2, "received", 3),
+        (3, "issued", 4),
+    ]
+    assert all(t["staging_entry_id"] == STAGING_ID for t in sup.txns)
+
+
+def test_inventory_save_retry_replaces_weekly_and_week0_rows_for_same_staging_id():
+    """Retrying a full-month save clears all prior rows for that staging entry."""
+    from backend.staging.dispatch import dispatch_inventory_save
+
+    existing = [
+        {
+            "id": "txn-old-week",
+            "item_id": ITEM_ID,
+            "staging_entry_id": STAGING_ID,
+            "week_number": 1,
+            "txn_type": "received",
+            "quantity": 99,
+        },
+        {
+            "id": "txn-old-week0",
+            "item_id": ITEM_ID,
+            "staging_entry_id": STAGING_ID,
+            "week_number": 0,
+            "txn_type": "issued",
+            "quantity": 88,
+        },
+    ]
+    sup = FakeSup(txns=existing)
+    payload = {
+        "month": 5,
+        "year": 2026,
+        "_staging_entry_id": STAGING_ID,
+        "items": [
+            {
+                "sku": "DRY-001",
+                "desc": "Rice",
+                "category": "Dry Goods",
+                "w1r": 2,
+                "total_pulled_raw": 4,
+            }
+        ],
+    }
+    with patch("backend.staging.dispatch._client", return_value=sup):
+        result = dispatch_inventory_save(payload)
+
+    assert result["applied"] == 1
+    assert sorted(
+        (t["week_number"], t["txn_type"], t["quantity"]) for t in sup.txns
+    ) == [
+        (0, "issued", 4),
+        (1, "received", 2),
+    ]
 
 
 def test_zero_total_pulled_raw_no_transaction():
@@ -301,7 +428,15 @@ def test_zero_total_pulled_raw_no_transaction():
     payload = {
         "month": 5,
         "year": 2026,
-        "items": [{"sku": "DRY-001", "desc": "Rice", "category": "Dry Goods", "onHand": 100, "total_pulled_raw": 0}],
+        "items": [
+            {
+                "sku": "DRY-001",
+                "desc": "Rice",
+                "category": "Dry Goods",
+                "onHand": 100,
+                "total_pulled_raw": 0,
+            }
+        ],
     }
     with patch("backend.staging.dispatch._client", return_value=sup):
         result = dispatch_inventory_save(payload)
@@ -312,23 +447,30 @@ def test_zero_total_pulled_raw_no_transaction():
 
 # ── commit_changes diff tests ─────────────────────────────────────────────────
 
-@pytest.mark.skipif(not _HAS_SUPABASE, reason="SUPABASE_URL not set — routes.__init__ requires it")
+
+@pytest.mark.skipif(
+    not _HAS_SUPABASE, reason="SUPABASE_URL not set — routes.__init__ requires it"
+)
 def test_granular_commit_changes_total_pulled_raw():
     """total_pulled_raw diff row gets action='pull' and week_number=0."""
     from backend.routes.sourcectrl import _granular_commit_changes
 
-    diffs = [{
-        "operation": "inventory_save",
-        "month": 5,
-        "year": 2026,
-        "rows": [{
-            "sku": "DRY-001",
-            "status": "update",
-            "before": {},
-            "after": {"total_pulled_raw": 40.0},
-            "changes": ["total_pulled_raw"],
-        }],
-    }]
+    diffs = [
+        {
+            "operation": "inventory_save",
+            "month": 5,
+            "year": 2026,
+            "rows": [
+                {
+                    "sku": "DRY-001",
+                    "status": "update",
+                    "before": {},
+                    "after": {"total_pulled_raw": 40.0},
+                    "changes": ["total_pulled_raw"],
+                }
+            ],
+        }
+    ]
 
     mock_sup = MagicMock()
     mock_sup.table.return_value.select.return_value.in_.return_value.execute.return_value.data = [

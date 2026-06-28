@@ -4,6 +4,22 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.20.5 - 2026-06-28 - Ledger-backed Source Control transaction tree
+
+**Codex:** Replaced the broad audit reconciliation gate with a cleaner item/direction model. Full-month `inventory_save` imports now write week 1-4 `inventory_transactions` rows whenever spreadsheet weekly received/issued cells are present, while May-style `total_pulled_raw` still writes week 0 aggregate pull rows. Confirmed overwrite commits now clear both cached monthly/weekly columns and the matching transaction ledger scope before replaying the replacement upload.
+
+**Codex DB:** Added `backend/migrations/021_audit_per_item_ledger_reconciliation.sql` and applied the function to live MJCCv1. `audit_inventory_period` now reconciles only item/direction pairs that have week 1-4 ledger rows, keeps week 0 aggregate pulls excluded, and removes the old broad `v_has_ledger` period gate. Live May 2026 audit re-check: 0 open findings and 0 open reconciliation drift rows.
+
+**Codex UI/API:** Added `/api/transactions`, backed by granular `commit_changes`, and rebuilt the full Source Control page so History opens as a transaction-log/tree table with search, type, month, and year filters. The working-tree Changes tab remains for staging/commits, but Source Control no longer opens to an empty oversized panel when there are no staged changes.
+
+**Claude review:** Local Claude Sonnet reviewed the diff. The broad overwrite deletes were flagged as possible data-loss, but they are intentional full-scope replacement behavior for confirmed month/week overwrites. Added comments clarifying that scope, and replaced a fragile week-number extraction in `dispatch_inventory_save`.
+
+**Verification:** Live Supabase function verified; May 2026 audit returned 0 open findings. `ruff` passed on touched backend files, focused backend tests passed (`11 passed, 1 skipped`), frontend typecheck and lint passed, and production build passed with existing Vite chunk warnings. Browser desktop check loaded the new Source Control transaction-log layout locally; it showed the expected pre-deploy `/api/transactions` 404 because the production API had not yet received this commit.
+
+**Push:** pending - not yet pushed
+
+---
+
 ## v4.20.4 - 2026-06-28 - Fix 220 false-positive audit drift errors
 
 **Claude:** `audit_inventory_period` was firing `reconciliation_drift` errors for every item in any `inventory_save` import (220+ errors for May). Root cause: `inventory_save` writes directly to `monthly_inventory.w_received` columns without creating `inventory_transactions` rows for received quantities. The audit compared the cached received totals against an empty ledger and flagged every item.

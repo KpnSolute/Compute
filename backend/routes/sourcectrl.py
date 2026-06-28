@@ -273,7 +273,12 @@ def _apply_confirmed_inventory_overwrites(entries: list[dict]) -> list[dict]:
             _, month, year = key
             db_month = max(0, month - 1)
             _assert_inventory_overwrite_allowed(sup, db_month, year, month)
+            # A confirmed month overwrite is a full scope replacement: clear all
+            # cache and ledger rows for that period, then replay the new upload.
             sup.table("monthly_inventory").delete().eq("month", db_month).eq(
+                "year", year
+            ).execute()
+            sup.table("inventory_transactions").delete().eq("month", db_month).eq(
                 "year", year
             ).execute()
             cleared.append({"scope": "month", "month": month, "year": year})
@@ -285,9 +290,14 @@ def _apply_confirmed_inventory_overwrites(entries: list[dict]) -> list[dict]:
         db_month = max(0, month - 1)
         _assert_inventory_overwrite_allowed(sup, db_month, year, month)
         col = f"w{week}_{direction}"
+        # A confirmed weekly overwrite replaces the whole week+direction scope,
+        # not just matching SKUs, so deleted rows cannot linger in reports.
         sup.table("monthly_inventory").update({col: 0}).eq("month", db_month).eq(
             "year", year
         ).execute()
+        sup.table("inventory_transactions").delete().eq("month", db_month).eq(
+            "year", year
+        ).eq("week_number", week).eq("txn_type", direction).execute()
         cleared.append(
             {
                 "scope": "week",
@@ -531,6 +541,7 @@ def _apply_entries(
     # Tree rows are for DISPLAY — the data is already applied + committed above, so
     # a commit_changes failure must NEVER abort the commit. Best-effort with a
     # summary-row fallback if the granular insert fails.
+    changes: list[dict] = []
     try:
         changes = _granular_commit_changes(commit_id, precomputed_diffs)
         if not changes:
@@ -542,9 +553,11 @@ def _apply_entries(
             "[COMMIT] granular commit_changes failed, retrying summary rows: %s", exc
         )
         try:
-            _insert_commit_changes(_summary_commit_changes(commit_id, applied_entries))
+            changes = _summary_commit_changes(commit_id, applied_entries)
+            _insert_commit_changes(changes)
         except Exception as exc2:
             log.warning("[COMMIT] summary commit_changes also failed: %s", exc2)
+            changes = []
 
     # 5 — mark the whole set merged
     if applied_entry_ids:
@@ -706,6 +719,114 @@ async def get_commits(
             ),
             reverse=True,
         )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/transactions")
+async def get_transactions(
+    limit: int = 200,
+    offset: int = 0,
+    action: Optional[str] = None,
+    month: Optional[int] = None,
+    year: Optional[int] = None,
+    auth_user: dict = Depends(_get_auth_user),
+):
+    try:
+        q = (
+            _client()
+            .table("commit_changes")
+            .select(
+                "change_id,commit_id,item_id,month,year,week_number,field,field_name,"
+                "old_value,new_value,old_value_text,new_value_text,action,entity_type,"
+                "entity_id,change_type,metadata,created_at"
+            )
+        )
+        if action:
+            q = q.eq("action", action)
+        if month is not None:
+            q = q.eq("month", month)
+        if year is not None:
+            q = q.eq("year", year)
+        changes_r = (
+            q.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+        )
+        changes = changes_r.data or []
+        if not changes:
+            return []
+
+        commit_ids = list({row["commit_id"] for row in changes if row.get("commit_id")})
+        commit_map: dict[str, dict] = {}
+        if commit_ids:
+            commits_r = (
+                _client()
+                .table("commits")
+                .select(
+                    "commit_id,message,author_id,status,branch,created_at,merged_at,"
+                    "github_sha,github_synced_at,pull_request_id"
+                )
+                .in_("commit_id", commit_ids)
+                .execute()
+            )
+            commit_map = {c["commit_id"]: c for c in (commits_r.data or [])}
+
+        item_ids = list({row["item_id"] for row in changes if row.get("item_id")})
+        item_map: dict[str, dict] = {}
+        if item_ids:
+            items_r = (
+                _client()
+                .table("inventory_items")
+                .select("id,sku,description,unit_price,unit")
+                .in_("id", item_ids)
+                .execute()
+            )
+            item_map = {i["id"]: i for i in (items_r.data or [])}
+
+        author_ids = list(
+            {c["author_id"] for c in commit_map.values() if c.get("author_id")}
+        )
+        profile_map: dict[str, dict] = {}
+        if author_ids:
+            profiles_r = (
+                _client()
+                .table("user_profiles")
+                .select("id,username,display_name,role")
+                .in_("id", author_ids)
+                .execute()
+            )
+            profile_map = {p["id"]: p for p in (profiles_r.data or [])}
+
+        result = []
+        for row in changes:
+            commit = commit_map.get(row.get("commit_id") or "", {})
+            item = item_map.get(row.get("item_id") or "", {})
+            profile = profile_map.get(commit.get("author_id"), {})
+            result.append(
+                {
+                    **row,
+                    "created_at": row.get("created_at")
+                    or commit.get("merged_at")
+                    or commit.get("created_at"),
+                    "commit_message": commit.get("message"),
+                    "commit_status": commit.get("status"),
+                    "github_sha": commit.get("github_sha"),
+                    "github_synced_at": commit.get("github_synced_at"),
+                    "author_id": commit.get("author_id"),
+                    "author_name": profile.get("display_name")
+                    or profile.get("username")
+                    or commit.get("author_id"),
+                    "author_role": profile.get("role"),
+                    "sku": item.get("sku") or row.get("entity_id"),
+                    "description": item.get("description")
+                    or (row.get("metadata") or {}).get("summary"),
+                    "unit_price": item.get("unit_price"),
+                    "unit": item.get("unit"),
+                }
+            )
+        result.sort(key=lambda r: r.get("created_at") or "", reverse=True)
         return result
     except HTTPException:
         raise

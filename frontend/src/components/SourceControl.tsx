@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { I } from "../lib/icons";
 import { type User, ROLE_LEVEL, ROLE_LABEL } from "../lib/constants";
-import { api, type Commit, type StagingEntry } from "../lib/api";
+import { api, type Commit, type SourceTransaction, type StagingEntry } from "../lib/api";
 import { useEscapeClose } from "../lib/useEscapeClose";
 import { PageToolbar } from "./ui/ActionBars";
 import { matchesInventoryQuery, parseInventoryQuery } from "../lib/inventorySearch";
@@ -128,6 +128,181 @@ function prStatusPill(status: string) {
 }
 
 // ── shared hook ─────────────────────────────────────────────────────────────
+const MONTH_LABELS = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+];
+
+function actionLabel(action?: string | null) {
+    if (action === "pull") return "Issued";
+    if (action === "revert") return "Reverted";
+    return "Received";
+}
+
+function actionClass(action?: string | null) {
+    if (action === "pull") return "issued";
+    if (action === "revert") return "reverted";
+    return "received";
+}
+
+function transactionQty(txn: SourceTransaction) {
+    if (txn.new_value != null) return Number(txn.new_value);
+    const parsed = Number(txn.new_value_text);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function periodLabel(txn: SourceTransaction) {
+    const month = typeof txn.month === "number" ? MONTH_LABELS[txn.month] : null;
+    const year = txn.year || "";
+    const week = txn.week_number != null && txn.week_number > 0 ? `Week ${txn.week_number}` : "Month";
+    if (!month && !year) return week;
+    return `${week} - ${month || "Period"} ${year}`.trim();
+}
+
+function TransactionLogView({ active }: { active: boolean }) {
+    const [rows, setRows] = useState<SourceTransaction[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [search, setSearch] = useState("");
+    const [typeFilter, setTypeFilter] = useState("all");
+    const [monthFilter, setMonthFilter] = useState("all");
+    const [yearFilter, setYearFilter] = useState("all");
+
+    const loadRows = useCallback(async () => {
+        if (!active) return;
+        setLoading(true);
+        try {
+            const data = await api.getTransactions({
+                limit: 800,
+                action: typeFilter === "all" ? undefined : typeFilter,
+                month: monthFilter === "all" ? undefined : Number(monthFilter),
+                year: yearFilter === "all" ? undefined : Number(yearFilter),
+            });
+            setRows(data || []);
+        } catch (err: any) {
+            t(`Transaction log failed: ${err?.message || "Unknown error"}`);
+            setRows([]);
+        } finally {
+            setLoading(false);
+        }
+    }, [active, monthFilter, typeFilter, yearFilter]);
+
+    useEffect(() => { void loadRows(); }, [loadRows]);
+    useEffect(() => {
+        if (!active) return;
+        const h = () => void loadRows();
+        window.addEventListener("mjcc:committed", h);
+        return () => window.removeEventListener("mjcc:committed", h);
+    }, [active, loadRows]);
+
+    const years = useMemo(() => {
+        const found = new Set(rows.map((r) => r.year).filter(Boolean) as number[]);
+        return Array.from(found).sort((a, b) => b - a);
+    }, [rows]);
+
+    const filteredRows = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        if (!q) return rows;
+        return rows.filter((row) => {
+            const haystack = [
+                row.sku,
+                row.description,
+                row.commit_message,
+                row.author_name,
+                row.field_name || row.field,
+                actionLabel(row.action),
+                periodLabel(row),
+            ].join(" ").toLowerCase();
+            return haystack.includes(q);
+        });
+    }, [rows, search]);
+
+    return (
+        <div className="sc-log">
+            <div className="sc-log-head">
+                <div>
+                    <h3>Transaction Log</h3>
+                    <p>{filteredRows.length} of {rows.length} entries</p>
+                </div>
+                <button className="btn" onClick={loadRows} disabled={loading}>
+                    {I.refresh({ style: { width: 14, height: 14 } })} Refresh
+                </button>
+            </div>
+
+            <div className="sc-log-filters">
+                <label className="sc-log-search">
+                    {I.search({ style: { width: 16, height: 16 } })}
+                    <input
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Search transactions, SKU, item, commit..."
+                    />
+                </label>
+                <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+                    <option value="all">All Types</option>
+                    <option value="enter">Received</option>
+                    <option value="pull">Issued</option>
+                    <option value="revert">Reverted</option>
+                </select>
+                <select value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)}>
+                    <option value="all">All Months</option>
+                    {MONTH_LABELS.map((label, idx) => <option key={label} value={idx}>{label}</option>)}
+                </select>
+                <select value={yearFilter} onChange={(e) => setYearFilter(e.target.value)}>
+                    <option value="all">All Years</option>
+                    {years.map((year) => <option key={year} value={year}>{year}</option>)}
+                </select>
+            </div>
+
+            <div className="sc-log-table-wrap">
+                <table className="sc-log-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Item</th>
+                            <th>Type</th>
+                            <th className="num">Qty</th>
+                            <th>Period</th>
+                            <th>Commit</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {loading && (
+                            <tr><td colSpan={6}><div className="sc-loading"><div className="spinner" style={{ width: 14, height: 14 }} /> Loading transactions...</div></td></tr>
+                        )}
+                        {!loading && filteredRows.length === 0 && (
+                            <tr><td colSpan={6}><div className="sc-empty"><div className="sc-empty-title">No transactions found</div><div className="sc-empty-sub">Commit inventory changes to build the tree.</div></div></td></tr>
+                        )}
+                        {!loading && filteredRows.map((row, idx) => {
+                            const qty = transactionQty(row);
+                            const key = row.change_id || `${row.commit_id}-${idx}`;
+                            return (
+                                <tr key={key}>
+                                    <td className="muted">{row.created_at ? new Date(row.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "-"}</td>
+                                    <td>
+                                        <div className="sc-log-item">
+                                            <span>{row.description || row.sku || row.entity_id || "Inventory change"}</span>
+                                            {row.sku && <small>{row.sku}</small>}
+                                        </div>
+                                    </td>
+                                    <td><span className={`sc-action-pill ${actionClass(row.action)}`}>{actionLabel(row.action)}</span></td>
+                                    <td className="num">{qty == null ? "-" : qty.toLocaleString()}</td>
+                                    <td className="muted">{periodLabel(row)}</td>
+                                    <td>
+                                        <div className="sc-log-commit">
+                                            <span>{row.commit_message || "Commit"}</span>
+                                            <small>{shortSha(row.github_sha) || shortSha(row.commit_id || "")}</small>
+                                        </div>
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
+
 function useSCData(isOpen: boolean) {
     const [staged, setStaged] = useState<StagingEntry[]>([]);
     const [commits, setCommits] = useState<Commit[]>([]);
@@ -1267,10 +1442,14 @@ export function SourceControlPage({
     user, openPrId, onConsumePrId,
 }: { user: User; openPrId?: string | null; onConsumePrId?: () => void }) {
     const { staged, setStaged, commits, loading, loadData } = useSCData(true);
-    const [tab, setTab] = useState<SCPageTab>('changes');
+    const [tab, setTab] = useState<SCPageTab>('history');
     const lastCommit = commits[0];
     const lvl = ROLE_LEVEL[user.role] ?? 0;
     const canReview = lvl >= 30;
+
+    useEffect(() => {
+        if (openPrId) setTab('prs');
+    }, [openPrId]);
 
     return (
         <div className="sc-page">
@@ -1314,18 +1493,22 @@ export function SourceControlPage({
                 )}
             </PageToolbar>
             <div className="sc-page-body">
-                <div className="sc-page-panel card">
-                    <SCChangesView
-                        user={user}
-                        staged={staged}
-                        setStaged={setStaged}
-                        commits={commits}
-                        loading={loading}
-                        openPrId={openPrId}
-                        onConsumePrId={onConsumePrId}
-                        loadData={loadData}
-                        externalTab={tab}
-                    />
+                <div className="sc-page-panel">
+                    {tab === 'history' ? (
+                        <TransactionLogView active={tab === 'history'} />
+                    ) : (
+                        <SCChangesView
+                            user={user}
+                            staged={staged}
+                            setStaged={setStaged}
+                            commits={commits}
+                            loading={loading}
+                            openPrId={openPrId}
+                            onConsumePrId={onConsumePrId}
+                            loadData={loadData}
+                            externalTab={tab}
+                        />
+                    )}
                 </div>
             </div>
         </div>
