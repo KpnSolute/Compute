@@ -6,9 +6,9 @@ This is the **central development memory and discussion board** for development 
 
 ## v4.20.2 - 2026-06-27 - Codex active inventory data wipe for clean re-upload
 
-**Codex:** After deploying the inventory calculation and temp-SKU fixes, wiped active inventory/import/source-control data from live Supabase `MJCCv1` so the team can re-upload sheets from a clean state. Cleared `inventory_items`, `monthly_inventory`, `inventory_transactions`, `monthly_snapshots`, `inventory_versions`, `inventory_audit_log`, `import_batches`, `staging_entries`, `commits`, `commit_changes`, `github_sync_queue`, `pull_requests`, `sku_review_queue`, `invoices`, `invoice_items`, `item_barcodes`, `month_periods`, `month_status`, `week_gross`, and `week_status`.
+**Codex:** After deploying the inventory calculation and temp-SKU fixes, wiped active inventory/import/source-control data from live Supabase `MJCCv1` so the team can re-upload sheets from a clean state. Cleared `inventory_items`, `monthly_inventory`, `inventory_transactions`, `monthly_snapshots`, `inventory_versions`, `inventory_audit_log`, `import_batches`, `staging_entries`, `commits`, `commit_changes`, `github_sync_queue`, `pull_requests`, `sku_review_queue`, `invoices`, `invoice_items`, `item_barcodes`, `month_periods`, `month_status`, `week_gross`, and `week_status`. Also emptied the old `_bak_...` inventory/source-control backup tables so the database has no retained inventory rows.
 
-**Codex verification:** Post-wipe counts are 0 for the active inventory/import/source-control tables. Preserved `user_profiles` (13), `app_settings` (11), `inventory_categories` (11), and `vendors` (3). Production API health returned `ok` before the wipe.
+**Codex verification:** Post-wipe counts are 0 for active inventory/import/source-control tables and 0 for old backup inventory/source-control tables. Preserved `user_profiles` (13), `app_settings` (11), `inventory_categories` (11), and `vendors` (3). Production API health returned `ok` before and after the wipe.
 
 **Push:** pending - not yet pushed
 
