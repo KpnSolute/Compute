@@ -27,6 +27,11 @@ from datetime import datetime, timezone
 
 NEW_ITEMS_CATEGORY = "New Items"
 
+# Spreadsheet placeholder SKUs that are not unique identifiers — all rows with
+# one of these should be resolved by description instead of SKU so 20 distinct
+# items with SKU="TEMP_000" don't all collapse onto the same inventory_items row.
+_PLACEHOLDER_SKUS = frozenset({'TEMP_000', 'TEMP', 'TEMP0', 'TEMP_0'})
+
 
 def gen_sku() -> str:
     """Generate a collision-free synthetic SKU (matches the migration format)."""
@@ -75,13 +80,34 @@ def resolve_and_write_item(
     lands in the New Items bucket even if a category was guessed — so the manager
     reviews everything ingestion introduces.
     """
-    sku = canonical_sku(sku) or gen_sku()
+    raw_sku = canonical_sku(sku)
     now_iso = datetime.now(timezone.utc).isoformat()
 
-    existing = (
-        sup.table("inventory_items").select("id").eq("sku", sku).limit(1).execute()
-    )
-    row = (existing.data or [None])[0]
+    if raw_sku in _PLACEHOLDER_SKUS:
+        # Multi-collision placeholder: look up by description so distinct items
+        # with the same placeholder SKU (e.g. 20 rows all saying "TEMP_000") each
+        # resolve to their own row across re-uploads. Exact, case-insensitive match.
+        norm_desc = (desc or "").strip() or "No description"
+        desc_r = (
+            sup.table("inventory_items")
+            .select("id,sku")
+            .ilike("description", norm_desc)
+            .limit(1)
+            .execute()
+        )
+        desc_row = (desc_r.data or [None])[0]
+        if desc_row:
+            sku = desc_row["sku"]
+            row = {"id": desc_row["id"]}
+        else:
+            sku = gen_sku()
+            row = None
+    else:
+        sku = raw_sku or gen_sku()
+        existing = (
+            sup.table("inventory_items").select("id").eq("sku", sku).limit(1).execute()
+        )
+        row = (existing.data or [None])[0]
 
     # Shared fields written on both insert and update. Only write par/price/unit
     # when the payload actually carries them — a missing value must not zero the
