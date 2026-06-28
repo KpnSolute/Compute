@@ -16,7 +16,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** Live Supabase function verified; May 2026 audit returned 0 open findings. `ruff` passed on touched backend files, focused backend tests passed (`11 passed, 1 skipped`), frontend typecheck and lint passed, and production build passed with existing Vite chunk warnings. Browser desktop check loaded the new Source Control transaction-log layout locally; it showed the expected pre-deploy `/api/transactions` 404 because the production API had not yet received this commit.
 
-**Push:** pending - not yet pushed
+**Push:** Codex -> f039c69 - 2026-06-28
 
 ---
 
