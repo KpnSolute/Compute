@@ -1,5 +1,6 @@
 import logging
 import os
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
@@ -221,6 +222,90 @@ def _insert_commit_changes(changes: list[dict]) -> None:
         _client().table("commit_changes").insert(change_chunk).execute()
 
 
+def _commit_file_ref(entries: list[dict], pr_id: Optional[str] = None) -> str:
+    """Stable idempotency key for one commit attempt.
+
+    If the browser loses the response mid-commit, retrying the same staging set
+    should finish bookkeeping for the existing commit instead of replaying into
+    a duplicate commit row.
+    """
+    ids = sorted(str(e["entry_id"]) for e in entries if e.get("entry_id"))
+    scope = f"pr:{pr_id}" if pr_id else "direct"
+    digest = hashlib.sha256(f"{scope}|{'|'.join(ids)}".encode("utf-8")).hexdigest()
+    return f"sourcectrl:{digest}"
+
+
+def _count_commit_changes(commit_id: str) -> int:
+    r = (
+        _client()
+        .table("commit_changes")
+        .select("change_id")
+        .eq("commit_id", commit_id)
+        .execute()
+    )
+    return len(r.data or [])
+
+
+def _enqueue_github_sync_once(commit_id: str, message: str, change_count: int) -> None:
+    existing = (
+        _client()
+        .table("github_sync_queue")
+        .select("id")
+        .eq("operation", "push_archive_snapshot")
+        .eq("commit_id", commit_id)
+        .limit(1)
+        .execute()
+    )
+    if existing.data:
+        return
+    _client().table("github_sync_queue").insert(
+        {
+            "operation": "push_archive_snapshot",
+            "payload": {
+                "commit_id": commit_id,
+                "message": message,
+                "change_count": change_count,
+            },
+            "commit_id": commit_id,
+            "attempts": 0,
+        }
+    ).execute()
+
+
+def _finalize_applied_entries(
+    *,
+    entries: list[dict],
+    author_id: str,
+    commit_id: str,
+    message: str,
+    change_count: int,
+    now: str,
+) -> None:
+    applied_entry_ids = [e["entry_id"] for e in entries if e.get("entry_id")]
+    if applied_entry_ids:
+        _update_staging_entries(
+            applied_entry_ids,
+            {
+                "status": "merged",
+                "reviewed_by": author_id,
+                "reviewed_at": now,
+            },
+        )
+
+    staging_batch_ids = list({e.get("batch_id") for e in entries if e.get("batch_id")})
+    if staging_batch_ids:
+        try:
+            _client().table("import_batches").update(
+                {"status": "merged", "merged_at": now}
+            ).in_("staging_batch_id", staging_batch_ids).eq(
+                "status", "staged"
+            ).execute()
+        except Exception as exc:
+            log.warning("[COMMIT] import_batches merge flip failed: %s", exc)
+
+    _enqueue_github_sync_once(commit_id, message, change_count)
+
+
 def _inventory_overwrite_key(payload: dict) -> tuple | None:
     if not payload.get("overwrite"):
         return None
@@ -373,6 +458,53 @@ def _apply_entries(
     Returns {**commit_row, change_count, replayed, applied, failed:[]}.
     """
     now = datetime.now(timezone.utc).isoformat()
+    if not entries:
+        raise HTTPException(
+            status_code=422, detail="No pending staging entries to commit."
+        )
+
+    file_ref = _commit_file_ref(entries, pr_id)
+    existing_commit_r = (
+        _client()
+        .table("commits")
+        .select("*")
+        .eq("file_ref", file_ref)
+        .limit(1)
+        .execute()
+    )
+    existing_commit = (existing_commit_r.data or [None])[0]
+    if existing_commit:
+        commit_id = existing_commit["commit_id"]
+        change_count = _count_commit_changes(commit_id)
+        if change_count == 0:
+            try:
+                changes = _summary_commit_changes(commit_id, entries)
+                _insert_commit_changes(changes)
+                change_count = len(changes)
+            except Exception as exc:
+                log.warning("[COMMIT] recovery summary commit_changes failed: %s", exc)
+        _finalize_applied_entries(
+            entries=entries,
+            author_id=author_id,
+            commit_id=commit_id,
+            message=existing_commit.get("message") or message,
+            change_count=change_count,
+            now=now,
+        )
+        log.info(
+            "[COMMIT] recovered existing commit %s for %d pending staging row(s)",
+            commit_id,
+            len(entries),
+        )
+        return {
+            **existing_commit,
+            "change_count": change_count,
+            "replayed": 0,
+            "applied": len(entries),
+            "overwrite_clears": [],
+            "failed": [],
+            "recovered": True,
+        }
 
     # 0 — PRE-FLIGHT VALIDATION. Validate every entry BEFORE writing any. The
     #     replay loop below writes to the DB per-entry, so without this a failure
@@ -524,6 +656,7 @@ def _apply_entries(
         "merged_at": now,
         "merged_by": author_id,
         "source": source,
+        "file_ref": file_ref,
     }
     if pr_id:
         commit_row["pull_request_id"] = pr_id
@@ -1423,6 +1556,45 @@ async def merge_pull_request(
         )
         entries = entries_r.data or []
         if not entries:
+            existing_commit_r = (
+                _client()
+                .table("commits")
+                .select("*")
+                .eq("pull_request_id", pr_id)
+                .eq("status", "merged")
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            existing_commit = (existing_commit_r.data or [None])[0]
+            if existing_commit:
+                _client().rpc(
+                    "sc_finalize_merge",
+                    {
+                        "p_pr": pr_id,
+                        "p_commit": existing_commit["commit_id"],
+                        "p_merged_by": auth_user["id"],
+                    },
+                ).execute()
+                updated_pr_r = (
+                    _client()
+                    .table("pull_requests")
+                    .select("*")
+                    .eq("pr_id", pr_id)
+                    .limit(1)
+                    .execute()
+                )
+                updated_pr = (updated_pr_r.data or [pr])[0]
+                change_count = _count_commit_changes(existing_commit["commit_id"])
+                return {
+                    **existing_commit,
+                    "change_count": change_count,
+                    "replayed": 0,
+                    "applied": 0,
+                    "failed": [],
+                    "recovered": True,
+                    "pr": updated_pr,
+                }
             raise HTTPException(status_code=422, detail="No pending entries to merge.")
 
         result = _apply_entries(

@@ -40,8 +40,10 @@ export function Login({ onLogin, layout = 'split' }: LoginProps) {
 
     let res;
 
+    const shouldRemember = type === 'admin' ? remember : false;
+
     if (type === 'staff') {
-      res = await backendPinLogin(username, pinVal || '');
+      res = await backendPinLogin(username, pinVal || '', shouldRemember);
     } else {
       const supaRes = await realLogin({ username, type: 'admin', password });
       if (!supaRes.ok) {
@@ -50,7 +52,7 @@ export function Login({ onLogin, layout = 'split' }: LoginProps) {
         return;
       }
       if (supaRes.user?.access_token) {
-        res = await backendLogin(supaRes.user.access_token);
+        res = await backendLogin(supaRes.user.access_token, shouldRemember);
       } else {
         setBusy(false);
         setErr('No auth token received from Supabase');
@@ -70,7 +72,7 @@ export function Login({ onLogin, layout = 'split' }: LoginProps) {
       }
       return;
     }
-    if (res.user) onLogin(res.user, remember);
+    if (res.user) onLogin(res.user, shouldRemember);
   }
 
   function onAdminSubmit(e: React.FormEvent) {

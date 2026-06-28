@@ -3745,23 +3745,28 @@ function UsersView({ user: currentUser }: { user: User }) {
     };
 
     const users = state.users || [];
+    const activeUsers = users.filter((u: any) => u.active !== false).length;
+    const disabledUsers = users.length - activeUsers;
     return (
         <div className="fade-in">
             <div className="page-head">
                 <div>
                     <h2>Users &amp; Access</h2>
                     <div className="ph-sub">
-                        {users.length} accounts · role-based access control
+                        {users.length} accounts · {activeUsers} active · {disabledUsers} disabled
                         {!isSudo && " · read-only view"}
                     </div>
                 </div>
-                {isSudo && (
-                    <div className="ph-actions">
+                <div className="ph-actions">
+                    <button className="btn" onClick={loadUsers} disabled={state.loading}>
+                        {I.refresh()} Refresh
+                    </button>
+                    {isSudo && (
                         <button className="btn primary" onClick={openCreate}>
                             {I.plus()} Invite user
                         </button>
-                    </div>
-                )}
+                    )}
+                </div>
             </div>
 
             {state.loading && <Loading label="Loading directory…" />}

@@ -1,4 +1,4 @@
-import { getBackendToken, clearBackendToken } from './supabase';
+import { getBackendToken, clearBackendToken, ensureFreshBackendAuth } from './supabase';
 
 const envBase = (import.meta.env as Record<string, string>).VITE_API_BASE;
 if (!envBase) {
@@ -462,6 +462,7 @@ export const api = {
   },
 
   async approveCommit(body: ApproveCommitBody): Promise<Commit> {
+    await ensureFreshBackendAuth();
     return req('/api/commits', { method: 'POST', body: JSON.stringify(body) });
   },
 
@@ -513,6 +514,7 @@ export const api = {
   },
 
   async mergePull(prId: string): Promise<any> {
+    await ensureFreshBackendAuth();
     return req(`/api/pulls/${encodeURIComponent(prId)}/merge`, { method: 'POST' });
   },
 

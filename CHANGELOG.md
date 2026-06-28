@@ -4,6 +4,20 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.20.6 - 2026-06-28 - Session-safe Source Control commits and account cache hardening
+
+**Codex:** Investigated the reported June inventory commit that appeared to fail when the browser session expired. Live Supabase CLI checks showed the stuck batch is 291 pending `inventory_save` rows for June 2026, linked to PR #33, with 0 matching `inventory_transactions` rows, so the current batch has not partially written ledger rows. Existing June transaction-log rows are from earlier merged commits.
+
+**Codex API:** Hardened Source Control commit recovery. `POST /api/commits` now rejects empty/no-longer-pending commit attempts instead of creating empty commits, and new commits get a deterministic `commits.file_ref` idempotency key based on the staged entry set. If a browser loses the response after a server-side commit row is created, retrying the same staging set now recovers the existing commit, marks staging rows merged, flips import batches, and queues GitHub archive sync only once. PR merge retry now also finalizes an open PR if its commit already exists but PR finalization was interrupted.
+
+**Codex UI/Auth:** Optimized browser cache and account control. Remembered admin sessions persist in `localStorage`; non-remembered and staff PIN sessions stay tab-scoped in `sessionStorage`; logout/expiry clears both backend token stores and the Supabase auth cache. The app refreshes `/api/auth/me` every 5 minutes and on focus so role/active changes take effect without a full browser restart. Source Control now refreshes auth before commit/merge and reloads staging/PR state after commit/merge errors so stale drawer state is reconciled.
+
+**Verification:** Supabase CLI `db query --linked` verified `user_profiles` shape and live role counts, and confirmed the June 2026 stuck batch remains 291 pending with 0 pending ledger rows. Backend `ruff check` and `ruff format --check` passed on `backend/routes/sourcectrl.py`; focused source-control tests passed (`2 passed`); `py_compile` passed. Frontend lint, typecheck, and production build passed with the existing Vite dynamic-import/chunk-size warnings.
+
+**Push:** pending - not yet pushed
+
+---
+
 ## v4.20.5 - 2026-06-28 - Ledger-backed Source Control transaction tree
 
 **Codex:** Replaced the broad audit reconciliation gate with a cleaner item/direction model. Full-month `inventory_save` imports now write week 1-4 `inventory_transactions` rows whenever spreadsheet weekly received/issued cells are present, while May-style `total_pulled_raw` still writes week 0 aggregate pull rows. Confirmed overwrite commits now clear both cached monthly/weekly columns and the matching transaction ledger scope before replaying the replacement upload.

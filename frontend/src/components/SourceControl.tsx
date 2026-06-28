@@ -606,8 +606,14 @@ function SCChangesView({
             setExpandedPR(null);
         } catch (err: any) {
             t(`Merge failed: ${err?.message || "Unknown error"}`);
+            try {
+                await Promise.all([loadData(), loadPRs()]);
+            } catch {
+                // Best-effort reconciliation; keep the action button from getting stuck.
+            }
+        } finally {
+            setPrActionBusy(null);
         }
-        setPrActionBusy(null);
     };
 
     const doClosePR = async (pr_id: string) => {
@@ -644,6 +650,7 @@ function SCChangesView({
             void commit;
         } catch (err: any) {
             t(`Commit failed: ${err?.message || "Unknown error"}`);
+            await loadData();
         } finally {
             setBusy(false);
         }

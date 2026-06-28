@@ -38,7 +38,7 @@ export function clearSupaConfig() {
 }
 
 export function isConnected(): boolean {
-  return !!getBackendToken() || localStorage.getItem('mjc_backend_token') !== null;
+  return !!getBackendToken();
 }
 
 /* memoised client */
@@ -143,6 +143,8 @@ function _publicUser(p: any): User {
 
 /* ── BACKEND AUTHENTICATION ── */
 const BACKEND_TOKEN_KEY = 'mjc_backend_token';
+const BACKEND_TOKEN_PERSIST_KEY = 'mjc_backend_token_persist';
+const SUPABASE_AUTH_STORAGE_KEY = 'kpn_supa_auth';
 
 export interface BackendAuthResult {
   ok: boolean;
@@ -153,15 +155,36 @@ export interface BackendAuthResult {
 
 export function getBackendToken(): string | null {
   try {
-    return localStorage.getItem(BACKEND_TOKEN_KEY) || null;
+    return sessionStorage.getItem(BACKEND_TOKEN_KEY) || localStorage.getItem(BACKEND_TOKEN_KEY) || null;
   } catch (e) {
     return null;
   }
 }
 
-export function saveBackendToken(token: string) {
+export function isBackendTokenPersistent(): boolean {
   try {
-    localStorage.setItem(BACKEND_TOKEN_KEY, token);
+    if (sessionStorage.getItem(BACKEND_TOKEN_KEY)) return false;
+    if (localStorage.getItem(BACKEND_TOKEN_PERSIST_KEY) === '1') return true;
+    // Legacy remembered sessions predate the explicit persist flag.
+    return !!localStorage.getItem(BACKEND_TOKEN_KEY);
+  } catch (e) {
+    return false;
+  }
+}
+
+export function saveBackendToken(token: string, remember = true) {
+  try {
+    if (remember) {
+      localStorage.setItem(BACKEND_TOKEN_KEY, token);
+      localStorage.setItem(BACKEND_TOKEN_PERSIST_KEY, '1');
+      sessionStorage.removeItem(BACKEND_TOKEN_KEY);
+      sessionStorage.removeItem(BACKEND_TOKEN_PERSIST_KEY);
+    } else {
+      sessionStorage.setItem(BACKEND_TOKEN_KEY, token);
+      sessionStorage.setItem(BACKEND_TOKEN_PERSIST_KEY, '0');
+      localStorage.removeItem(BACKEND_TOKEN_KEY);
+      localStorage.removeItem(BACKEND_TOKEN_PERSIST_KEY);
+    }
   } catch (e) {
     console.warn('[Auth] Failed to save backend token:', e);
   }
@@ -170,6 +193,10 @@ export function saveBackendToken(token: string) {
 export function clearBackendToken() {
   try {
     localStorage.removeItem(BACKEND_TOKEN_KEY);
+    localStorage.removeItem(BACKEND_TOKEN_PERSIST_KEY);
+    localStorage.removeItem(SUPABASE_AUTH_STORAGE_KEY);
+    sessionStorage.removeItem(BACKEND_TOKEN_KEY);
+    sessionStorage.removeItem(BACKEND_TOKEN_PERSIST_KEY);
   } catch (e) {}
 }
 
@@ -178,7 +205,7 @@ export function clearBackendToken() {
  * @param accessToken - JWT from Supabase Auth
  * @returns { ok, token, user, error }
  */
-export async function backendLogin(accessToken: string): Promise<BackendAuthResult> {
+export async function backendLogin(accessToken: string, remember = true): Promise<BackendAuthResult> {
   if (!accessToken) {
     return { ok: false, error: 'Access token is required' };
   }
@@ -206,7 +233,7 @@ export async function backendLogin(accessToken: string): Promise<BackendAuthResu
 
     const data = await response.json();
     console.debug('[Auth] Backend login succeeded, token saved');
-    saveBackendToken(data.access_token);
+    saveBackendToken(data.access_token, remember);
 
     return {
       ok: true,
@@ -225,7 +252,7 @@ export async function backendLogin(accessToken: string): Promise<BackendAuthResu
  * @param pin - 4-digit PIN
  * @returns { ok, token, user, error }
  */
-export async function backendPinLogin(username: string, pin: string): Promise<BackendAuthResult> {
+export async function backendPinLogin(username: string, pin: string, remember = false): Promise<BackendAuthResult> {
   username = (username || '').trim().toLowerCase();
   if (!username || !pin) {
     return { ok: false, error: 'Username and PIN are required' };
@@ -254,7 +281,7 @@ export async function backendPinLogin(username: string, pin: string): Promise<Ba
 
     const data = await response.json();
     console.debug('[Auth] Backend PIN login succeeded, token saved');
-    saveBackendToken(data.access_token);
+    saveBackendToken(data.access_token, remember);
 
     return {
       ok: true,
@@ -264,6 +291,30 @@ export async function backendPinLogin(username: string, pin: string): Promise<Ba
   } catch (e: any) {
     console.warn('[Auth] Backend PIN login error:', e.message);
     return { ok: false, error: e.message || 'Network error' };
+  }
+}
+
+export async function ensureFreshBackendAuth(minTtlSeconds = 300): Promise<void> {
+  const db = getSupaClient();
+  if (!db) return;
+
+  try {
+    const { data } = await db.auth.getSession();
+    let session = data.session;
+    if (!session) return;
+
+    const expiresAt = session.expires_at ?? 0;
+    if (expiresAt && expiresAt - Date.now() / 1000 < minTtlSeconds) {
+      const { data: refreshed, error } = await db.auth.refreshSession();
+      if (error) return;
+      session = refreshed.session || session;
+    }
+
+    if (session?.access_token) {
+      await backendLogin(session.access_token, isBackendTokenPersistent());
+    }
+  } catch {
+    // Best-effort only. The request path still handles 401s centrally.
   }
 }
 
@@ -293,7 +344,7 @@ export function initAuthRefresh() {
   if (!db) return;
   db.auth.onAuthStateChange((event, session) => {
     if (event === 'TOKEN_REFRESHED' && session?.access_token) {
-      backendLogin(session.access_token).catch(() => {});
+      backendLogin(session.access_token, isBackendTokenPersistent()).catch(() => {});
     }
     if (event === 'SIGNED_OUT' && !_logoutInProgress) {
       window.dispatchEvent(

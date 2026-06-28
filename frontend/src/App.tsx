@@ -1,29 +1,59 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { User } from './lib/constants';
-import { clearBackendToken, getBackendToken, initAuthRefresh, realLogout } from './lib/supabase';
+import {
+  clearBackendToken,
+  getBackendToken,
+  initAuthRefresh,
+  isBackendTokenPersistent,
+  realLogout,
+} from './lib/supabase';
 import { startSessionWatch, stopSessionWatch, IDLE_LIMIT_MS, LAST_ACTIVITY_KEY } from './lib/session';
 import { api } from './lib/api';
 import { Login } from './components/Login';
 import { Portal } from './components/Portal';
 
 const SKEY = 'kpn_session';
+const ACCOUNT_REFRESH_MS = 5 * 60 * 1000;
+
+function readStoredSession(): User | null {
+  try {
+    return JSON.parse(sessionStorage.getItem(SKEY) || localStorage.getItem(SKEY) || 'null');
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredSession(user: User, remember = isBackendTokenPersistent()) {
+  try {
+    if (remember) {
+      localStorage.setItem(SKEY, JSON.stringify(user));
+      sessionStorage.removeItem(SKEY);
+    } else {
+      sessionStorage.setItem(SKEY, JSON.stringify(user));
+      localStorage.removeItem(SKEY);
+    }
+  } catch {}
+}
+
+function clearStoredSession() {
+  try { localStorage.removeItem(SKEY); } catch {}
+  try { sessionStorage.removeItem(SKEY); } catch {}
+}
 
 function loadSession(): User | null {
   try {
-    const u = JSON.parse(localStorage.getItem(SKEY) || 'null');
+    const u = readStoredSession();
     const hasToken = !!getBackendToken();
     if (!u || !hasToken) {
       clearBackendToken();
-      if (u) {
-        try { localStorage.removeItem(SKEY); } catch {}
-      }
+      if (u) clearStoredSession();
       return null;
     }
     // Reject sessions that are past the idle limit.
     const lastActivity = parseInt(localStorage.getItem(LAST_ACTIVITY_KEY) || '0', 10);
     if (lastActivity > 0 && Date.now() - lastActivity > IDLE_LIMIT_MS) {
       clearBackendToken();
-      try { localStorage.removeItem(SKEY); } catch {}
+      clearStoredSession();
       try { localStorage.removeItem(LAST_ACTIVITY_KEY); } catch {}
       return null;
     }
@@ -50,7 +80,7 @@ function App() {
   const teardown = useCallback(async (reason?: 'idle' | 'unauthorized' | 'logout') => {
     stopSessionWatch();
     await realLogout();
-    try { localStorage.removeItem(SKEY); } catch {}
+    clearStoredSession();
     try { localStorage.removeItem(LAST_ACTIVITY_KEY); } catch {}
     setUser(null);
     if (reason === 'idle') {
@@ -66,10 +96,57 @@ function App() {
     if (user) {
       startSessionWatch();
       // A 401 here dispatches mjc:session-expired automatically via api.ts req().
-      api.getMe().catch(() => {});
+      api.getMe()
+        .then((me) => {
+          const next = { ...user, ...me };
+          setUser(next);
+          saveStoredSession(next);
+        })
+        .catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Account control freshness: role, active status, and profile edits should not
+  // wait for a full browser restart. Validate on a short cadence and on focus.
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    let inFlight = false;
+
+    async function refreshAccount() {
+      if (inFlight || !getBackendToken()) return;
+      inFlight = true;
+      try {
+        const me = await api.getMe();
+        if (cancelled) return;
+        setUser((prev) => {
+          if (!prev) return prev;
+          const next = { ...prev, ...me };
+          saveStoredSession(next);
+          return next;
+        });
+      } catch {
+        // api.ts owns 401 teardown dispatch; non-auth failures should not kick the user out.
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    const intervalId = setInterval(refreshAccount, ACCOUNT_REFRESH_MS);
+    const onVisibility = () => {
+      if (!document.hidden) void refreshAccount();
+    };
+    window.addEventListener('focus', onVisibility);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+      window.removeEventListener('focus', onVisibility);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Session-expired listener — handles both inline 401s and idle/cross-tab expirations.
   useEffect(() => {
@@ -116,11 +193,7 @@ function App() {
   function handleLogin(u: User, remember: boolean) {
     setUser(u);
     startSessionWatch();
-    if (remember) {
-      try { localStorage.setItem(SKEY, JSON.stringify(u)); } catch {}
-    } else {
-      try { localStorage.removeItem(SKEY); } catch {}
-    }
+    saveStoredSession(u, remember);
     showToast('<span>Signed in as ' + (u.display_name || u.username) + '</span>', 2600);
   }
 
