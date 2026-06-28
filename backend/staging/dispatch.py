@@ -86,6 +86,7 @@ def dispatch_inventory_save(payload: dict) -> dict:
                 "w2i",
                 "w3i",
                 "w4i",
+                "total_pulled_raw",
             ),
         )
     except ValueError as exc:
@@ -100,6 +101,14 @@ def dispatch_inventory_save(payload: dict) -> dict:
             "error": f"Period {month}/{year} is published and cannot be modified",
         }
 
+    # Audit metadata threaded from the commit path (_apply_entries injects _staging_entry_id).
+    staging_entry_id = payload.get("_staging_entry_id")
+    source_file = payload.get("source_file")
+    source_hash = payload.get("source_hash")
+    batch_id = payload.get("import_batch_id")
+    created_by = payload.get("_author_id") or payload.get("created_by")
+    txn_date = payload.get("txn_date") or datetime.now(timezone.utc).date().isoformat()
+
     cat_r = sup.table("inventory_categories").select("id,name").execute()
     cat_map = {r["name"]: r["id"] for r in (cat_r.data or [])}
     new_items_cat_id = get_new_items_category_id(sup)
@@ -109,6 +118,7 @@ def dispatch_inventory_save(payload: dict) -> dict:
     count = 0
     dropped = 0
     rows: list[dict] = []
+    txn_pull_rows: list[dict] = []  # week_number=0 aggregate pulls for total_pulled_raw items
     for item in items:
         # Identity is resolved by SKU only; an unknown category resolves to None
         # so a brand-new item lands in "New Items" for manager review.
@@ -171,6 +181,32 @@ def dispatch_inventory_save(payload: dict) -> dict:
         rows.append(monthly_fields)
         count += 1
 
+        # May-style workbooks: weekly pull columns blank but Total Pulled (col L) is
+        # verified. Record as a week_number=0 aggregate issued transaction so
+        # source-control history shows the pull without inventing per-week distribution.
+        tpr = item.get("total_pulled_raw")
+        if tpr is not None:
+            pr_qty = _non_negative(tpr, "total_pulled_raw", item.get("sku"))
+            if pr_qty:
+                txn_pull_rows.append(
+                    {
+                        "item_id": item_id,
+                        "sku": _sku,
+                        "month": db_month,
+                        "year": year,
+                        "week_number": 0,
+                        "txn_type": "issued",
+                        "quantity": pr_qty,
+                        "unit_price": _non_negative(item.get("price"), "price", item.get("sku")) or 0,
+                        "source_file": source_file,
+                        "source_hash": source_hash,
+                        "batch_id": batch_id,
+                        "staging_entry_id": staging_entry_id,
+                        "txn_date": txn_date,
+                        "created_by": created_by,
+                    }
+                )
+
     # Batched, atomic write. Rows are grouped by their exact column signature so a
     # batched upsert never introduces NULLs for columns a row omitted (which would
     # wipe existing weekly data). Each group is a single statement -> one snapshot
@@ -184,6 +220,17 @@ def dispatch_inventory_save(payload: dict) -> dict:
                 batch,
                 on_conflict="item_id,month,year",
             ).execute()
+
+    # Write week_number=0 aggregate pull rows. Idempotent: clear prior week0 rows
+    # from this exact staging entry before re-inserting so a retried commit never
+    # double-counts. Filters by BOTH staging_entry_id AND week_number=0 to leave
+    # unrelated weekly ledger rows (other staging entries) untouched.
+    if txn_pull_rows:
+        if staging_entry_id:
+            sup.table("inventory_transactions").delete().eq(
+                "staging_entry_id", staging_entry_id
+            ).eq("week_number", 0).execute()
+        sup.table("inventory_transactions").insert(txn_pull_rows).execute()
 
     result = {
         "applied": count,
@@ -719,6 +766,7 @@ def validate_payload(operation: str, full_payload: dict) -> str | None:
                     "w2i",
                     "w3i",
                     "w4i",
+                    "total_pulled_raw",
                 ),
             )
         elif operation == "inventory_week_update":

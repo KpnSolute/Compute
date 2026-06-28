@@ -4,6 +4,84 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.19.5 — 2026-06-27 — Production sudo login verified, uploads held
+
+**Codex:** Honored the user hold on spreadsheet uploads. Used the normal production Admin/Manager login flow for the existing Jeremiah sudo account, then verified the authenticated browser session in `https://kpncompute.onrender.com/` without opening or submitting any upload/file chooser actions.
+
+**Verification:** Browser shows Jeremiah McDowell / Sudo Administrator in the portal. Production `/api/auth/login`, `/api/auth/me`, `/api/inventory`, `/api/staging`, `/api/commits`, `/api/events`, `/api/menu/Sat`, and `/api/agent/config` all returned `200` during login/dashboard bootstrap. Console sweep showed only pre-existing form-label accessibility issues, no runtime errors.
+
+**Push:** pending — not yet pushed
+
+---
+
+
+## v4.19.4 — 2026-06-27 — Week-0 pull audit drift guard applied to MJCCv1
+
+**Codex:** Added `backend/migrations/019_audit_ignore_week0_aggregate.sql` and applied it to live Supabase project `MJCCv1` (`mgvyylvmkxhhataavqjz`). The `audit_inventory_period` reconciliation check now compares monthly_inventory weekly cache columns only against ledger rows with `week_number BETWEEN 1 AND 4`, so legitimate week-0 month-level pull aggregates do not create false `reconciliation_drift` errors. Week-0 rows remain visible to source-control history and suspicious-quantity audit checks.
+
+**Verification:** Live Supabase function definition verified to contain `week_number BETWEEN 1 AND 4`; `pytest -q` passed (`24 passed, 1 skipped`); ruff passed on edited backend/test files; backend import passed with dummy Supabase env; frontend lint/build/type checks passed with pre-existing lint warnings only. Browser smoke check loaded `https://kpncompute.onrender.com/` to the manager login screen; upload UI testing still needs an authenticated manager session.
+
+**Push:** pending — not yet pushed
+
+---
+
+## v4.19.3 — 2026-06-27 — Source-control hardening: total_pulled_raw storage + New Items routing fix
+
+**[Claude]** Task 2 backend hardening — surgical edits across 4 files, 1 new test file.
+
+**Bug fix — `inventory_identity.py`:** `resolve_and_write_item` with `force_review_category=True` was only routing new items to New Items when `category_id` was None. Fixed: when `force_review_category=True`, NEW items always land in fallback_category_id (New Items) regardless of parsed category. UPDATE path is unchanged — existing SKU category is never overwritten. This was the root cause of `test_force_review_routes_new_item_to_new_items_even_with_category` failing.
+
+**`total_pulled_raw` → auditable ledger row — `dispatch.py`:**
+- `dispatch_inventory_save` now threads audit metadata from payload (`_staging_entry_id`, `source_file`, `source_hash`, `import_batch_id`, `created_by`, `txn_date`) — same fields as `dispatch_inventory_week`.
+- Items with `total_pulled_raw > 0` get one `inventory_transactions` row: `week_number=0`, `txn_type='issued'`. No fake per-week distribution.
+- Idempotent: retries clear prior `staging_entry_id + week_number=0` rows only — unrelated staging entries' rows (e.g. weekly invoices) are untouched.
+- `total_pulled_raw` added to `_validate_inventory_item_numbers` tuple and `validate_payload` preflight.
+
+**Diff engine — `diff.py`:** `_diff_inventory_item` now includes `total_pulled_raw` in `after` and `changes` when the item carries it. Always treated as a change (no DB before-value exists).
+
+**Commit tree — `sourcectrl.py`:** `_granular_commit_changes` now sets `action='pull'` and `week_number=0` for the `total_pulled_raw` field, so the Source Control tree shows it as a pull action rather than an 'enter'.
+
+**Tests:** `tests/test_inventory_identity.py` — 7/7 pass (previously 6/7; force_review test now passes). `backend/tests/test_parser_standard.py` — 11/11 pass. `backend/tests/test_dispatch_total_pulled.py` — 6 new tests: 5 pass (dispatch idempotency, transaction creation, isolation), 1 skipped (diff/commit_changes test skips without SUPABASE_URL since routes/__init__ raises at import). Total: 23 passed, 1 skipped.
+
+**Ruff:** exit 0 on all 4 edited files.
+
+**Push:** pending
+
+---
+
+## v4.19.2 — 2026-06-27 — Excel inventory hardening: new standard 14-column workbook
+
+**[Claude]** Hardened `backend/ai/parser.py` and `backend/ai/mapper.py` for the new standard MJCC workbook format (`Inventory!A:N`: Category, SKU, Description, Opening OH, Received Wk1–3, Pulled Wk1–3, Total Received, Total Pulled, Ending OH, Unit Price).
+
+**Root causes fixed:**
+- `_parse_mjcc_monthly_inventory` fired first and used old offset arithmetic (desc_col+2 = price, desc_col+3 = weekly), giving wrong column assignments for the new named-header layout. Added a guard: if the header row contains `openingoh` or `receivedwk1`, bail out and let the flat parser handle it.
+- `_FLAT_INV_HEADER_ALIASES` lacked aliases for `receivedwk1/2/3/4`, `pulledwk1/2/3/4`, and `totalpulled`. Added all.
+- `_parse_mjcc_flat_inventory` never emitted weekly fields (`w1r`, `w2r`, `w3r`, `w1i`, etc.); now emits them when the sheet carries those columns.
+- **May case**: weekly pull columns are blank but Total Pulled (col L) carries a verified monthly figure. Parser now preserves it as `total_pulled_raw` when all wXi are 0; dispatch/commit can apply it safely without inventing per-week distribution.
+- `_INV_ALIASES` (mapper) was missing `"w1i": "w1i"` self-map — pre-existing bug, all other w*i had self-maps. Fixed.
+- `map_rows_to_inventory` now passes `total_pulled_raw` through to the dispatch payload when present.
+- Ending OH (col M) deliberately NOT mapped anywhere — no alias, no path to `onHand`.
+
+**Tests:** `backend/tests/test_parser_standard.py` — 11 tests, all pass (including real May + June workbooks via `skipif` guard). Covers: Opening OH → onHand, Ending OH NOT onHand, w1r/w2r/w3r mapping, w1i/w2i/w3i when present, total_pulled_raw preservation (May), total_pulled_raw absent when weekly pulls present (June), row counts ≥200.
+
+**Ruff:** exit 0 on all edited files.
+
+**Push:** pending
+
+---
+
+## v4.19.1 — 2026-06-27 — Codex orchestration kickoff for Excel inventory hardening
+
+**Codex:** Read the current forum, AGENTS instructions, MJCC tooling skill, spreadsheet workflow, browser workflow, and Supabase workflow. Verified Claude Code CLI is installed and usable from this Windows repo (`claude 2.1.191`), including a successful non-interactive Sonnet smoke test and read-only repo orientation. Confirmed Claude MCP connectivity reports Supabase, Chrome DevTools, GitHub, sequential-thinking, and TestSprite connected; `claude doctor` timed out after two minutes, so it is not being used as the readiness gate.
+
+**Codex:** Inspected the new standard Excel files: `June Pre-Published Inventory.xlsx` and `May Published Inventory.xlsx`. Both use `Inventory` + `Review` sheets and a 14-column `Inventory!A:N` structure: Category, SKU, Description, Opening OH, Received/Pulled Wk1-Wk3, Total Received, Total Pulled, Ending OH, Unit Price. June has 291 item rows; May has 266 item rows. Formula columns are K/M for both; June also formulas L because weekly pull columns are blank, while May carries verified monthly Total Pulled values in L.
+
+**Codex:** Ran read-only Supabase checks against MJCCv1. Production has live source-control/audit tables populated (`staging_entries`, `commit_changes`, `inventory_transactions`, `pull_requests`, `commits`) with movement traceability columns present. Current live staging operations are only `inventory_save` and `inventory_week_update`; `commit_changes.action` currently shows only `enter`, so delete/recategorize/rename/re-SKU visible audit semantics need targeted verification/hardening before Monday.
+
+**Push:** pending — not yet pushed
+
+---
+
 ## v4.19.0 — 2026-06-25 — Envo: floating selection bar (inventory + source control)
 
 **[mjcc-ui]** Introduced the **envo** UI pattern across Inventory and Source Control.

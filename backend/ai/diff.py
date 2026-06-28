@@ -51,6 +51,10 @@ def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dic
         "on_hand": item.get("onHand", 0),
         "category": item.get("category", ""),
     }
+    # May-style workbooks carry total_pulled_raw when weekly pull columns are blank.
+    # Surface it in the diff so commit_changes records an auditable pull action.
+    if item.get("total_pulled_raw") is not None:
+        after["total_pulled_raw"] = item["total_pulled_raw"]
 
     if not live:
         return {
@@ -98,6 +102,9 @@ def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dic
         for k in ("description", "unit_price", "par_level", "on_hand", "category")
         if before.get(k) != after.get(k)
     ]
+    # total_pulled_raw is always a new pull record — no before value in DB.
+    if "total_pulled_raw" in after:
+        changed_fields.append("total_pulled_raw")
 
     return {
         "sku": sku,

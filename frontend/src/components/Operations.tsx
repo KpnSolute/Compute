@@ -399,12 +399,27 @@ export function MonthlyInventory({
     })).filter((wt) => wt.total > 0),
   [rows, maxWeeks]);
 
+  // Per-week issued qty totals — determines which weeks have pull sheets recorded.
+  const pullTotals = useMemo(() =>
+    Array.from({ length: maxWeeks }, (_, i) => i + 1).map((wk) => ({
+      wk,
+      qty: rows.reduce((s, r) => s + (r[`w${wk}i`] || 0), 0),
+    })).filter((pt) => pt.qty > 0),
+  [rows, maxWeeks]);
+
   const nextWeek = weekTotals.length < maxWeeks ? weekTotals.length + 1 : null;
 
   function handleAddWeek(wk: number) {
     // Fire prefill event so DataEntry picks up month/year/week on mount.
     window.dispatchEvent(new CustomEvent('mjcc:dataentry-prefill', {
       detail: { week: wk, month: m, year: y, direction: 'received' },
+    }));
+    go?.('dataentry');
+  }
+
+  function handleAddPull(wk: number) {
+    window.dispatchEvent(new CustomEvent('mjcc:dataentry-prefill', {
+      detail: { week: wk, month: m, year: y, direction: 'issued' },
     }));
     go?.('dataentry');
   }
@@ -550,19 +565,31 @@ export function MonthlyInventory({
           {/* ── Week receipt tile strip ── */}
           {(weekTotals.length > 0 || nextWeek) && (
             <div className="wk-tile-row">
-              {weekTotals.map((wt) => (
-                <button key={wt.wk} className="wk-tile wk-tile--recorded" onClick={() => setWeek(wt.wk)}>
-                  <span className="wkt-label">Week {wt.wk}</span>
-                  <span className="wkt-val">{fmtMoney(wt.total)}</span>
-                  <span className="wkt-sub">received · tap to filter</span>
-                </button>
-              ))}
+              {weekTotals.map((wt) => {
+                const pull = pullTotals.find((pt) => pt.wk === wt.wk);
+                return (
+                  <button key={wt.wk} className="wk-tile wk-tile--recorded" onClick={() => setWeek(wt.wk)}>
+                    <span className="wkt-label">Week {wt.wk}</span>
+                    <span className="wkt-val">{fmtMoney(wt.total)}</span>
+                    <span className="wkt-sub">
+                      received{pull ? ` · ${pull.qty} pulled` : ' · no pulls yet'} · tap to filter
+                    </span>
+                  </button>
+                );
+              })}
               {nextWeek && (
-                <button className="wk-tile wk-tile--add" onClick={() => handleAddWeek(nextWeek)}>
-                  <span className="wkt-plus">+</span>
-                  <span className="wkt-label">Week {nextWeek}</span>
-                  <span className="wkt-sub">record invoice</span>
-                </button>
+                <>
+                  <button className="wk-tile wk-tile--add" onClick={() => handleAddWeek(nextWeek)}>
+                    <span className="wkt-plus">+</span>
+                    <span className="wkt-label">Week {nextWeek}</span>
+                    <span className="wkt-sub">record invoice</span>
+                  </button>
+                  <button className="wk-tile wk-tile--add" onClick={() => handleAddPull(nextWeek)}>
+                    <span className="wkt-plus">↓</span>
+                    <span className="wkt-label">Week {nextWeek}</span>
+                    <span className="wkt-sub">record pulls</span>
+                  </button>
+                </>
               )}
             </div>
           )}

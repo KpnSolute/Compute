@@ -123,10 +123,18 @@ def _granular_commit_changes(
                 # action CHECK allows only 'pull' | 'enter' | 'revert'.
                 if status == "delete":
                     action = "revert"
-                elif (field or "").endswith("_issued"):
+                elif field == "total_pulled_raw" or (field or "").endswith("_issued"):
                     action = "pull"
                 else:
                     action = "enter"
+                # total_pulled_raw is a month-aggregate pull (no weekly breakdown):
+                # store as week_number=0 to distinguish from per-week w1_issued rows.
+                if field == "total_pulled_raw":
+                    week_number = 0
+                elif wk_m:
+                    week_number = int(wk_m.group(1))
+                else:
+                    week_number = None
                 rows.append(
                     {
                         "commit_id": commit_id,
@@ -143,7 +151,7 @@ def _granular_commit_changes(
                         "action": action,
                         "month": db_month,
                         "year": year,
-                        "week_number": int(wk_m.group(1)) if wk_m else None,
+                        "week_number": week_number,
                         "metadata": {
                             "operation": op,
                             "description": r.get("description"),
