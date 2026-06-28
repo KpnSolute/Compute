@@ -218,7 +218,16 @@ def dispatch_inventory_save(payload: dict) -> dict:
     # batched upsert never introduces NULLs for columns a row omitted (which would
     # wipe existing weekly data). Each group is a single statement -> one snapshot
     # refresh per period (see statement-level trigger), instead of one per row.
+    #
+    # Dedup by (item_id, month, year) first: when multiple spreadsheet rows share
+    # the same SKU (e.g. 20 no-SKU rows all resolve to the same item_id), a single
+    # batch upsert with duplicate conflict keys raises PG error 21000. Last write wins,
+    # matching the old sequential per-entry behavior.
     if rows:
+        _seen: dict[tuple, dict] = {}
+        for r in rows:
+            _seen[(r["item_id"], r["month"], r["year"])] = r
+        rows = list(_seen.values())
         groups: dict[tuple, list[dict]] = {}
         for r in rows:
             groups.setdefault(tuple(sorted(r.keys())), []).append(r)
