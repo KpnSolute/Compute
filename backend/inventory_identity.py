@@ -104,12 +104,11 @@ def resolve_and_write_item(
         sup.table("inventory_items").update(fields).eq("id", item_id).execute()
         return item_id, sku, False
 
-    # New item: when force_review_category is set (data-entry path), ALWAYS route
-    # to fallback_category_id (New Items) so the manager reviews everything ingestion
-    # introduces — even items whose category was guessed by the parser.
-    # Without force_review_category, honor the known category; fall back to New Items
-    # only when category is None.
-    if force_review_category:
+    # New item: when force_review_category is set AND the category is unrecognized
+    # (category_id is None), route to fallback_category_id (New Items) for manager
+    # review. When the spreadsheet provides a category that maps to a known system
+    # category, honor it — only truly unknown items land in New Items.
+    if force_review_category and not category_id:
         fields["category_id"] = fallback_category_id
     else:
         fields["category_id"] = category_id or fallback_category_id
