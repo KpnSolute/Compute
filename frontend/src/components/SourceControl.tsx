@@ -1248,7 +1248,12 @@ function SCChangesView({
                         </div>
                     )}
 
-                    {stagedOpen && visibleStaged.map((ch) => {
+                    {stagedOpen && visibleStaged.length > 100 && (
+                        <div style={{ padding: '6px 12px', fontSize: 11, color: 'var(--muted)', borderBottom: '1px solid var(--line)' }}>
+                            Showing first 100 of {visibleStaged.length} staged entries — use Commit ({visibleStaged.length}) to apply all at once.
+                        </div>
+                    )}
+                    {stagedOpen && visibleStaged.slice(0, 100).map((ch) => {
                         const op = (ch as any).operation || ch.change_type;
                         const kind = OP_KIND[op] ?? "M";
                         const label = OP_LABEL[op] || op;

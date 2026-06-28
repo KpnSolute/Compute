@@ -2980,7 +2980,7 @@ function InventoryView({
                     )}
                 </div>
             )}
-            {canStage && (
+            {canStage && selectedSkus.size === 0 && (
                 <SaveBar
                     dirtyCount={Object.keys(draft).length + Object.keys(wkDraft).length}
                     saved={(Object.keys(draft).length + Object.keys(wkDraft).length) === 0}
