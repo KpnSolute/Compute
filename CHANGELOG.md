@@ -4,6 +4,17 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.20.4 - 2026-06-28 - Fix 220 false-positive audit drift errors
+
+**Claude:** `audit_inventory_period` was firing `reconciliation_drift` errors for every item in any `inventory_save` import (220+ errors for May). Root cause: `inventory_save` writes directly to `monthly_inventory.w_received` columns without creating `inventory_transactions` rows for received quantities. The audit compared the cached received totals against an empty ledger and flagged every item.
+
+Fix: migration `020_audit_skip_drift_when_no_ledger.sql` — gates the reconciliation_drift INSERT behind a `v_has_ledger` boolean check. If the period has zero week 1–4 transaction rows, the drift check is skipped entirely. Drift check remains active for periods built via weekly invoice/pull-sheet updates (`inventory_week_update`) where the ledger and cache must agree.
+
+Cleared stale false positives from `inventory_audit_log`, re-ran audit for May (month=4, year=2026) → **0 findings**.
+
+**Build:** migration applied to MJCCv1 directly via Supabase MCP.
+**Push:** 7fc2db5 — 2026-06-28
+
 ## v4.20.3 - 2026-06-27 - Codex Source Control note commits
 
 **Codex:** Made the Data Entry "Source Control note" travel the full pipeline: upload form -> staging metadata/review note -> auto-created pull request description -> merge commit message. Existing open PRs now append new descriptions instead of dropping them, so repeated uploads in one work session keep their notes visible.
