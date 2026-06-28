@@ -4,6 +4,7 @@ Maps parsed file rows → dispatch payload shapes.
 """
 
 import re
+import hashlib
 from typing import Any
 from backend.ai import engine, context
 from backend.inventory_identity import canonical_sku
@@ -232,6 +233,14 @@ def _gen_sku(category: str, counters: dict[str, int]) -> str:
     return f"{prefix}-{counters[prefix]:03d}"
 
 
+def _gen_review_sku(category: str, desc: str, row_number: int) -> str:
+    """Stable temporary SKU for spreadsheet rows missing a real item code."""
+    key = f"{category.strip().lower()}|{desc.strip().lower()}|{row_number}"
+    row_part = f"{min(max(row_number, 1), 9999):04d}"
+    hash_part = hashlib.sha1(key.encode("utf-8")).hexdigest()[:6].upper()
+    return f"MJC-{row_part}{hash_part}"
+
+
 def map_rows_to_inventory(
     rows: list[dict],
     categories: dict[str, int],
@@ -255,18 +264,16 @@ def map_rows_to_inventory(
         return None  # not enough signal — needs AI
 
     items = []
-    _sku_counters: dict[str, int] = {}
-    for row in rows:
+    for row_number, row in enumerate(rows, start=1):
         mapped = {mapping[h]: row[h] for h in headers if h in mapping}
         if not mapped:
             continue
 
         raw_cat = str(mapped.get("category") or "")
         category = _closest_category(raw_cat, categories) or raw_cat or "Dry Goods"
-        sku = canonical_sku(str(mapped.get("sku") or "")) or _gen_sku(
-            category, _sku_counters
-        )
-        desc = str(mapped.get("desc") or sku).strip()
+        raw_sku = canonical_sku(str(mapped.get("sku") or ""))
+        desc = str(mapped.get("desc") or raw_sku).strip()
+        sku = raw_sku or _gen_review_sku(category, desc, row_number)
 
         # Dispatch rejects negative quantities/prices outright (which would abort
         # the whole commit). Inventory counts and prices can't be physically

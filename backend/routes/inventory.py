@@ -56,6 +56,11 @@ class InventoryItem(BaseModel):
     w4i: Optional[int] = None
     # Computed: on_hand (opening) + received - issued = actual ending stock.
     running_total: Optional[int] = None
+    totalReceived: Optional[int] = None
+    totalIssued: Optional[int] = None
+    aggregateIssued: Optional[int] = None
+    closingQty: Optional[int] = None
+    value: Optional[float] = None
     sku_pending: Optional[bool] = None
     needs_attention: Optional[bool] = None
 
@@ -93,12 +98,53 @@ def _to_float(v, default=0.0) -> float:
         return default
 
 
-def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
+def _week0_issued_by_item(
+    db_month: int, year: int, item_ids: list[str]
+) -> dict[str, int]:
+    """Return month-level pull totals stored as week_number=0 ledger rows.
+
+    May-style published workbooks can carry a verified Total Pulled value without
+    per-week pull columns. Those pulls are intentionally stored in
+    inventory_transactions week 0 so we do not invent a fake week placement, but
+    API totals still need to count them for closing/value calculations.
+    """
+    if not item_ids:
+        return {}
+    totals: dict[str, int] = {}
+    try:
+        for idx in range(0, len(item_ids), 100):
+            chunk = item_ids[idx : idx + 100]
+            result = (
+                supabase_service.table("inventory_transactions")
+                .select("item_id,quantity")
+                .eq("month", db_month)
+                .eq("year", year)
+                .eq("week_number", 0)
+                .in_("txn_type", ["issued", "adjustment_decrease"])
+                .in_("item_id", chunk)
+                .execute()
+            )
+            for row in result.data or []:
+                item_id = row.get("item_id")
+                if item_id:
+                    totals[item_id] = totals.get(item_id, 0) + int(
+                        _to_float(row.get("quantity"))
+                    )
+    except Exception:
+        logger.exception("Error loading week-0 issued ledger totals")
+    return totals
+
+
+def _flatten_rows(
+    rows: list[dict], aggregate_issued: Optional[dict[str, int]] = None
+) -> list[InventoryItem]:
     """Flatten nested Supabase join result into InventoryItem list."""
     items = []
+    aggregate_issued = aggregate_issued or {}
     for row in rows:
         inv_item = row.get("inventory_items") or {}
         cat = inv_item.get("inventory_categories") or {}
+        item_id = inv_item.get("id") or row.get("item_id")
         oh = max(0, int(_to_float(row.get("on_hand"))))
         w1r = int(_to_float(row.get("w1_received")))
         w2r = int(_to_float(row.get("w2_received")))
@@ -108,16 +154,20 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
         w2i = int(_to_float(row.get("w2_issued")))
         w3i = int(_to_float(row.get("w3_issued")))
         w4i = int(_to_float(row.get("w4_issued")))
-        running_total = max(0, oh + w1r + w2r + w3r + w4r - w1i - w2i - w3i - w4i)
+        total_received = w1r + w2r + w3r + w4r
+        aggregate_issued_qty = int(_to_float(aggregate_issued.get(item_id or "", 0)))
+        total_issued = w1i + w2i + w3i + w4i + aggregate_issued_qty
+        running_total = max(0, oh + total_received - total_issued)
+        price = _to_float(row.get("unit_price"))
         items.append(
             InventoryItem(
-                id=inv_item.get("id"),
+                id=item_id,
                 sku=inv_item.get("sku") or "",
                 desc=inv_item.get("description") or "",
                 onHand=oh,
                 par=max(0, int(_to_float(inv_item.get("par_level")))),
                 category=cat.get("name") or "",
-                price=_to_float(row.get("unit_price")),
+                price=price,
                 unit=inv_item.get("unit") or "each",
                 w1r=w1r,
                 w2r=w2r,
@@ -128,6 +178,11 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
                 w3i=w3i,
                 w4i=w4i,
                 running_total=running_total,
+                totalReceived=total_received,
+                totalIssued=total_issued,
+                aggregateIssued=aggregate_issued_qty,
+                closingQty=running_total,
+                value=running_total * price,
                 sku_pending=bool(inv_item.get("sku_pending")),
                 needs_attention=bool(inv_item.get("needs_attention")),
             )
@@ -144,7 +199,7 @@ def _serialize_dt(dt) -> str:
 
 
 _JOIN_SELECT = (
-    "id, month, year, on_hand, "
+    "id, item_id, month, year, on_hand, "
     "w1_received, w2_received, w3_received, w4_received, "
     "w1_issued, w2_issued, w3_issued, w4_issued, "
     "unit_price, created_at, "
@@ -210,27 +265,21 @@ async def get_inventory(
         if not result.data:
             raise HTTPException(status_code=404, detail="Inventory not found")
 
-        items = _flatten_rows(result.data)
+        item_ids = [row.get("item_id") for row in result.data if row.get("item_id")]
+        aggregate_issued = _week0_issued_by_item(db_month, year, item_ids)
+        items = _flatten_rows(result.data, aggregate_issued)
         period_id = f"{year}-{month:02d}"
         created_at = _serialize_dt(result.data[0].get("created_at"))
 
         over_issued_count = sum(
             1
-            for row in result.data
-            if (
-                max(0, int(_to_float(row.get("on_hand"))))
-                + int(_to_float(row.get("w1_received")))
-                + int(_to_float(row.get("w2_received")))
-                + int(_to_float(row.get("w3_received")))
-                + int(_to_float(row.get("w4_received")))
-            )
-            < (
-                int(_to_float(row.get("w1_issued")))
-                + int(_to_float(row.get("w2_issued")))
-                + int(_to_float(row.get("w3_issued")))
-                + int(_to_float(row.get("w4_issued")))
-            )
+            for item in items
+            if (item.onHand or 0) + (item.totalReceived or 0) < (item.totalIssued or 0)
         )
+        total_received = sum(item.totalReceived or 0 for item in items)
+        total_issued = sum(item.totalIssued or 0 for item in items)
+        aggregate_issued_total = sum(item.aggregateIssued or 0 for item in items)
+        closing_value = sum(item.value or 0 for item in items)
 
         return InventoryResponse(
             id=period_id,
@@ -241,6 +290,10 @@ async def get_inventory(
                 "period": period_id,
                 "weeks_in_period": weeks_in_month(month, year),
                 "over_issued_count": over_issued_count,
+                "total_received": total_received,
+                "total_issued": total_issued,
+                "aggregate_issued": aggregate_issued_total,
+                "closing_value": closing_value,
             },
             notes="",
             created_at=created_at or datetime.now(timezone.utc).isoformat(),
@@ -571,7 +624,9 @@ async def get_inventory_history(
             if not result.data:
                 continue
 
-            items = _flatten_rows(result.data)
+            item_ids = [row.get("item_id") for row in result.data if row.get("item_id")]
+            aggregate_issued = _week0_issued_by_item(db_m, y, item_ids)
+            items = _flatten_rows(result.data, aggregate_issued)
             m = db_m + 1  # 1-indexed for display
             period_id = f"{y}-{m:02d}"
             created_at = _serialize_dt(result.data[0].get("created_at"))

@@ -17,6 +17,11 @@ export interface InspectRow {
     needs_attention?: boolean;
     w1i: number; w2i: number; w3i: number; w4i: number;
     w1r: number; w2r: number; w3r: number; w4r: number;
+    aggregateIssued?: number;
+    totalReceived?: number;
+    totalIssued?: number;
+    closingQty?: number;
+    value?: number;
 }
 
 interface ItemInspectorProps {
@@ -113,11 +118,12 @@ export function ItemInspector({
             totalRcv += w === week ? rcv : (row as any)[`w${w}r`] || 0;
             totalIss += w === week ? iss : (row as any)[`w${w}i`] || 0;
         }
+        totalIss += row.aggregateIssued || 0;
         const closing = Math.max(0, onHand + totalRcv - totalIss);
         return { totalRcv, totalIss, closing, value: closing * price };
     }, [row, week, rcv, iss, onHand, price]);
 
-    const isLow = onHand < par && par > 0;
+    const isLow = projection.closing < par && par > 0;
 
     async function stageAll() {
         if (!dirty || busy) return;

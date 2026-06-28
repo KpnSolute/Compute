@@ -47,9 +47,15 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
     (a.desc || '').localeCompare(b.desc || '')
   );
 
-  const totalRcv = (it: any) => (it.w1r||0)+(it.w2r||0)+(it.w3r||0)+(it.w4r||0);
-  const totalIss = (it: any) => (it.w1i||0)+(it.w2i||0)+(it.w3i||0)+(it.w4i||0);
-  const closingQty = (it: any) => Math.max(0, (it.onHand||0) + totalRcv(it) - totalIss(it));
+  const totalRcv = (it: any) => typeof it.totalReceived === 'number'
+    ? it.totalReceived
+    : (it.w1r||0)+(it.w2r||0)+(it.w3r||0)+(it.w4r||0);
+  const totalIss = (it: any) => typeof it.totalIssued === 'number'
+    ? it.totalIssued
+    : (it.w1i||0)+(it.w2i||0)+(it.w3i||0)+(it.w4i||0)+(it.aggregateIssued||0);
+  const closingQty = (it: any) => typeof it.closingQty === 'number'
+    ? it.closingQty
+    : Math.max(0, (it.onHand||0) + totalRcv(it) - totalIss(it));
 
   const moninvRows = sorted.map((it: any) => ({
     ...it,
@@ -74,7 +80,7 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
         { key: 'price', label: 'Unit Price', get: (r: any) => '$' + (r.price || 0).toFixed(2) },
         { key: 'onHand', label: 'On Hand' },
         { key: 'par', label: 'Par' },
-        { key: 'value', label: 'Value', get: (r: any) => '$' + ((r.onHand || 0) * (r.price || 0)).toFixed(2) },
+        { key: 'value', label: 'Value', get: (r: any) => '$' + ((typeof r.value === 'number' ? r.value : closingQty(r) * (r.price || 0))).toFixed(2) },
       ],
       build: () => sorted,
     },
@@ -98,6 +104,7 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
         { key: 'w3i', label: 'W3 Iss', get: (r: any) => r.w3i || 0 },
         { key: 'w4r', label: 'W4 Rcv', get: (r: any) => r.w4r || 0 },
         { key: 'w4i', label: 'W4 Iss', get: (r: any) => r.w4i || 0 },
+        { key: 'aggregateIssued', label: 'Month Pull', get: (r: any) => r.aggregateIssued || 0 },
         { key: 'totalRcv', label: 'Total Rcv' },
         { key: 'totalIss', label: 'Total Iss' },
         { key: 'closing', label: 'Closing' },

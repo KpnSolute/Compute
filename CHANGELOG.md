@@ -4,6 +4,20 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.20.1 - 2026-06-27 - Codex inventory calculation contract + clean re-upload prep
+
+**Codex:** Hardened inventory calculations so API responses count both weekly issued columns and May-style month-level `total_pulled_raw` entries stored in `inventory_transactions` with `week_number=0`. `GET /api/inventory` and inventory history now return `totalReceived`, `totalIssued`, `aggregateIssued`, `closingQty`, and `value` per item, plus period metadata totals, so frontend reports and dashboards do not ignore verified monthly pull totals.
+
+**Codex UI:** Updated shared inventory totals, dashboard summary math, Operations, Reports, and Item Inspector projections to use the API calculation contract or fall back to weekly columns plus `aggregateIssued`. Reports now expose a separate `Month Pull` column so aggregate pulls are counted without inventing a fake week placement.
+
+**Codex parser:** Changed blank spreadsheet SKU handling from reusable category counters to stable incremental review SKUs (`MJC-0001xxxxxx`, `MJC-0002xxxxxx`, etc.), so blank-SKU rows stay separate during source-control review and do not collapse into one temporary item on re-upload.
+
+**Codex validation:** Added `backend/tests/test_inventory_calculations.py` for week-0 aggregate pull calculations. Verified the real `May Published Inventory.xlsx` parses 266 rows with 213 `total_pulled_raw` rows, and `Monthly Inventory Template.xlsx` parses 291 template rows without inventing received/issued quantities. `ruff`, parser/dispatch/inventory calculation tests, frontend typecheck, lint, and production build passed. Claude Opus review was requested but unavailable because the local Claude session was rate-limited until 11:40 PM America/New_York.
+
+**Push:** pending - not yet pushed
+
+---
+
 ## v4.20.0 — 2026-06-27 — Codex Monday hardening + pull sheet tiles + corporate reports
 
 **Claude (Senior Dev Manager):**

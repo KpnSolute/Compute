@@ -304,6 +304,10 @@ export function MonthlyInventory({
           opening: it.onHand || 0,
           w1r: it.w1r || 0, w2r: it.w2r || 0, w3r: it.w3r || 0, w4r: it.w4r || 0,
           w1i: it.w1i || 0, w2i: it.w2i || 0, w3i: it.w3i || 0, w4i: it.w4i || 0,
+          aggregateIssued: it.aggregateIssued || 0,
+          totalReceived: it.totalReceived,
+          totalIssued: it.totalIssued,
+          closingQty: it.closingQty,
         }));
         // Check for uncommitted draft
         const draft = restoreDraft();
@@ -350,7 +354,9 @@ export function MonthlyInventory({
   }
 
   const totalRcv = (r: any) => (r.w1r || 0) + (r.w2r || 0) + (r.w3r || 0) + (r.w4r || 0);
-  const totalIss = (r: any) => (r.w1i || 0) + (r.w2i || 0) + (r.w3i || 0) + (r.w4i || 0);
+  const totalIss = (r: any) => (
+    (r.w1i || 0) + (r.w2i || 0) + (r.w3i || 0) + (r.w4i || 0) + (r.aggregateIssued || 0)
+  );
   const closing = (r: any) => Math.max(0, (r.opening || 0) + totalRcv(r) - totalIss(r));
 
   // Week-scoped accessors

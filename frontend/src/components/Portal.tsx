@@ -726,15 +726,20 @@ function Dashboard({
     const monRows = invToList(live || {}).map((it: any) => ({
         price: it.price || 0,
         opening: it.onHand || 0,
-        received: (it.w1r || 0) + (it.w2r || 0) + (it.w3r || 0) + (it.w4r || 0),
-        issued: (it.w1i || 0) + (it.w2i || 0) + (it.w3i || 0) + (it.w4i || 0),
+        received: typeof it.totalReceived === "number"
+            ? it.totalReceived
+            : (it.w1r || 0) + (it.w2r || 0) + (it.w3r || 0) + (it.w4r || 0),
+        issued: typeof it.totalIssued === "number"
+            ? it.totalIssued
+            : (it.w1i || 0) + (it.w2i || 0) + (it.w3i || 0) + (it.w4i || 0) + (it.aggregateIssued || 0),
+        closing: typeof it.closingQty === "number" ? it.closingQty : undefined,
     }));
     const miSum = monRows.reduce(
         (a: any, r: any) => {
             a.open += r.opening * r.price;
             a.recv += r.received * r.price;
             a.iss  += r.issued * r.price;
-            a.close += Math.max(0, r.opening + r.received - r.issued) * r.price;
+            a.close += (typeof r.closing === "number" ? r.closing : Math.max(0, r.opening + r.received - r.issued)) * r.price;
             return a;
         },
         { open: 0, recv: 0, iss: 0, close: 0 },
@@ -1414,17 +1419,21 @@ function InventoryView({
             w2i: it.w2i || 0,
             w3i: it.w3i || 0,
             w4i: it.w4i || 0,
-                        w1r: it.w1r || 0,
+            w1r: it.w1r || 0,
             w2r: it.w2r || 0,
             w3r: it.w3r || 0,
             w4r: it.w4r || 0,
-                        sku_pending: it.sku_pending ?? String(it.sku || "").startsWith("MJC-"),
+            aggregateIssued: it.aggregateIssued || 0,
+            totalReceived: it.totalReceived,
+            totalIssued: it.totalIssued,
+            closingQty: it.closingQty,
+            value: typeof it.value === "number" ? it.value : iTotal(it),
+            sku_pending: it.sku_pending ?? String(it.sku || "").startsWith("MJC-"),
             needs_attention: it.needs_attention ?? it.sku_pending ?? String(it.sku || "").startsWith("MJC-"),
             status:
-                (it.onHand || 0) < (it.par || 0) && (it.par || 0) > 0
+                ((typeof it.closingQty === "number" ? it.closingQty : it.onHand || 0) < (it.par || 0)) && (it.par || 0) > 0
                     ? "low"
                     : "ok",
-            value: iTotal(it),
         }))
         : [];
     const cats: string[] = live ? [...new Set(rows.map((r: any) => r.cat))] : [];

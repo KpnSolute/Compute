@@ -465,9 +465,17 @@ export function catColor(c: string) {
   return CCOLOR[c] || '#1E73E8';
 }
 export function iTotal(it: any) {
-  const rcv = (it.w1r || 0) + (it.w2r || 0) + (it.w3r || 0) + (it.w4r || 0);
-  const iss = (it.w1i || 0) + (it.w2i || 0) + (it.w3i || 0) + (it.w4i || 0);
-  return Math.max(0, (it.onHand || 0) + rcv - iss) * (it.price || 0);
+  if (typeof it.value === 'number') return it.value;
+  const rcv = typeof it.totalReceived === 'number'
+    ? it.totalReceived
+    : (it.w1r || 0) + (it.w2r || 0) + (it.w3r || 0) + (it.w4r || 0);
+  const iss = typeof it.totalIssued === 'number'
+    ? it.totalIssued
+    : (it.w1i || 0) + (it.w2i || 0) + (it.w3i || 0) + (it.w4i || 0) + (it.aggregateIssued || 0);
+  const closing = typeof it.closingQty === 'number'
+    ? it.closingQty
+    : Math.max(0, (it.onHand || 0) + rcv - iss);
+  return closing * (it.price || 0);
 }
 export function invToList(inv: any) {
   if (Array.isArray(inv)) return inv;
@@ -496,9 +504,15 @@ export function reorders(inv: any) {
   // Ending/running stock = onHand(opening) + received - issued, matching iTotal
   // and the backend. Reorder off ending, not the opening balance.
   return invToList(inv).filter((i) => {
-    const rcv = (i.w1r || 0) + (i.w2r || 0) + (i.w3r || 0) + (i.w4r || 0);
-    const iss = (i.w1i || 0) + (i.w2i || 0) + (i.w3i || 0) + (i.w4i || 0);
-    const ending = Math.max(0, (i.onHand || 0) + rcv - iss);
+    const rcv = typeof i.totalReceived === 'number'
+      ? i.totalReceived
+      : (i.w1r || 0) + (i.w2r || 0) + (i.w3r || 0) + (i.w4r || 0);
+    const iss = typeof i.totalIssued === 'number'
+      ? i.totalIssued
+      : (i.w1i || 0) + (i.w2i || 0) + (i.w3i || 0) + (i.w4i || 0) + (i.aggregateIssued || 0);
+    const ending = typeof i.closingQty === 'number'
+      ? i.closingQty
+      : Math.max(0, (i.onHand || 0) + rcv - iss);
     return ending < (i.par || 0) && (i.par || 0) > 0;
   });
 }
