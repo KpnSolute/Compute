@@ -112,6 +112,19 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
         { key: 'value', label: 'Value', get: (r: any) => '$' + (r.value || 0).toFixed(2) },
       ],
       build: () => moninvRows,
+      summary: (rows: any[]) => {
+        const fmt = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const startBal  = rows.reduce((s, r) => s + (r.opening  || 0) * (r.price || 0), 0);
+        const rcvBal    = rows.reduce((s, r) => s + (r.totalRcv || 0) * (r.price || 0), 0);
+        const pullBal   = rows.reduce((s, r) => s + (r.totalIss || 0) * (r.price || 0), 0);
+        const endBal    = rows.reduce((s, r) => s + (r.closing  || 0) * (r.price || 0), 0);
+        return [
+          { label: 'Starting Balance', value: fmt(startBal) },
+          { label: 'Total Received',   value: fmt(rcvBal) },
+          { label: 'Total Pulled',     value: fmt(pullBal) },
+          { label: 'Ending Balance',   value: fmt(endBal) },
+        ];
+      },
     },
     {
       id: 'invoices',
@@ -362,6 +375,21 @@ export function Reports({
           '</tr>',
       )
       .join('');
+
+    // Summary block for inventory reports with opening/received/issued/closing values
+    const summary = rep.summary ? rep.summary(data) : null;
+    const summaryHtml = summary
+      ? '<div style="margin-top:20px;border-top:2px solid #0E2148;padding-top:14px">' +
+          '<table style="width:auto;border-collapse:collapse;font-size:12px">' +
+          '<tr>' +
+          summary.map((s: { label: string; value: string }) =>
+            '<td style="padding:6px 20px 6px 0;font-weight:700;color:#0E2148;white-space:nowrap">' +
+            s.label + '</td><td style="padding:6px 20px 6px 0;font-size:14px;font-weight:700">' +
+            s.value + '</td>'
+          ).join('</tr><tr>') +
+          '</tr></table></div>'
+      : '';
+
     const w = window.open('', '_blank');
     if (!w) return;
     w.document.write(
@@ -379,7 +407,9 @@ export function Reports({
         th +
         '</tr></thead><tbody>' +
         tr +
-        '</tbody></table></body></html>',
+        '</tbody></table>' +
+        summaryHtml +
+        '</body></html>',
     );
     w.document.close();
     setTimeout(() => w.print(), 250);
