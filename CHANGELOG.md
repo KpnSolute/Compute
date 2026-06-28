@@ -4,6 +4,17 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.20.9] — 2026-06-28 — Fix TEMP_000 multi-collision on inventory upload
+
+**Claude:** Root-caused a silent data loss bug: all items without a vendor SKU appear as `TEMP_000` in the exported spreadsheet. `resolve_and_write_item` matched all of them to the same `inventory_items` row, so each row overwrote the previous one's opening balance — only the last item survived. This caused a $1,555.22 opening value gap in May and $1,087 gap in June (confirmed by exact arithmetic from the xlsx files).
+
+Fix: added `_PLACEHOLDER_SKUS` set in `backend/inventory_identity.py`. When the incoming SKU is a known multi-collision placeholder, the resolver falls back to an exact case-insensitive description lookup. Found → reuse the existing MJC- SKU. Not found → generate a new unique MJC- SKU. This makes re-uploads idempotent: first upload creates unique items, second upload finds them by description.
+
+**Build:** ruff clean (no frontend changes).
+**Push:** 99553c3 — 2026-06-28
+
+---
+
 ## v4.20.8 - 2026-06-28 - Pull Sheet component + Reports previous-month default
 
 **mjcc-ui:** Added `PullSheet.tsx` — a manager tool for recording weekly inventory pulls. Loads live inventory via `api.getInventory(month, year)`, shows a filterable table (SKU / Description / Unit Price / On Hand / Pull Qty input / Value Pulled), persists drafts to `localStorage` under `mjcc_pull_${year}_${month}_w${week}`, and stages via the existing `api.stageWeeklyPull`. Fixed-bottom toolbar appears when any qty > 0 with Save Draft and Stage Pull buttons. Confirm dialog lists all pulled items with per-item value and total. After confirm, dispatches `mjcc:committed` + `mjcc:staging-changed` and calls `onStagingDone`.
