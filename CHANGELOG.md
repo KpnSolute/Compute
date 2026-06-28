@@ -4,6 +4,27 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## v4.20.0 — 2026-06-27 — Codex Monday hardening + pull sheet tiles + corporate reports
+
+**Claude (Senior Dev Manager):**
+
+### Backend (Codex changes committed)
+- `parser.py`: detects new 14-col standard workbook (Opening OH / Received Wk1 / Pulled Wk1 headers); bails from legacy grid parser for these layouts so flat parser handles them. Maps `Received Wk1–4` → `w1r–w4r`, `Pulled Wk1–4` → `w1i–w4i`. Preserves `total_pulled_raw` when weekly pull cols are blank (May-style workbooks where only monthly Total Pulled is verified).
+- `dispatch.py`: writes `week_number=0` aggregate issued transaction to `inventory_transactions` when `total_pulled_raw` is present. Idempotent on retry (clears prior week0 rows by `staging_entry_id` before re-insert). Audit metadata (source_file, source_hash, batch_id, created_by) threaded through.
+- `sourcectrl.py`: `total_pulled_raw` field correctly gets `action='pull'` / `week_number=0` in `commit_changes`.
+- `inventory_identity.py`: `force_review_category=True` now routes **all** new data-entry items to New Items bucket, not just items whose category was unknown — managers review every item the AI introduces.
+- `migration 019`: `audit_inventory_period()` excludes `week_number=0` aggregate rows from `reconciliation_drift` check (they intentionally don't populate weekly cache columns).
+- `backend/tests/conftest.py`: stubs `supabase` module so dispatch unit tests run without SDK installed. **16 tests pass, 1 skipped (needs SUPABASE_URL).**
+
+### Frontend
+- `Operations.tsx`: week tiles now show pulled qty alongside received value (e.g. "received · 42 pulled"). New **Record pulls** add-tile mirrors the invoice tile — fires `mjcc:dataentry-prefill` with `direction: 'issued'` so DataEntry opens pre-filled for pull sheet uploads by week.
+- `Reports.tsx`: Monthly Inventory Roll-up now loads **period-specific** inventory (`month+1/year`) instead of current snapshot; reloads when period changes. Expanded columns: Category, SKU, Description, Unit, Opening, W1–W4 Rcv/Iss each, Total Rcv, Total Iss, Closing, Unit Price, Value. Items sorted by category then description. Removed 60-row preview cap — all items show. Dropped dead `invToList`/`iTotal` imports.
+
+**Build:** `tsc -b && vite build ✓` · `ruff check backend/ai/ backend/staging/ backend/inventory_identity.py backend/routes/sourcectrl.py backend/tests/ ✓`
+**Push:** `d6e6de3` — 2026-06-27
+
+---
+
 ## v4.19.5 — 2026-06-27 — Production sudo login verified, uploads held
 
 **Codex:** Honored the user hold on spreadsheet uploads. Used the normal production Admin/Manager login flow for the existing Jeremiah sudo account, then verified the authenticated browser session in `https://kpncompute.onrender.com/` without opening or submitting any upload/file chooser actions.
