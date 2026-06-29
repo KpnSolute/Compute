@@ -4,6 +4,27 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.24.0] — 2026-06-29 — Data verified against workbooks + OpenCode BUG HUNT fixes
+
+**Claude:** User reported a critical data error in pulls/item-mapping and asked me to (1) verify the DB matches the spreadsheets and fill in proper data, and (2) apply the OpenCode BUG HUNT suggestions.
+
+**Per-item DB↔workbook verification (both months):** Generated a per-SKU comparison (opening / received / pulled) of `monthly_inventory` against the May Published and June Pre-Published workbooks via Supabase MCP.
+- **June: 0 diffs** across all 291 items (no sheet_not_in_db, no db_not_in_sheet, no movement mismatches).
+- **May: 0 real diffs.** An initial run flagged 4 Disposables SKUs (4311643, 7347636, 9723966, 9331034) as opening↔received swaps, but a fresh read of the raw sheet showed them as Opening 0 / Received Wk2 — matching the DB exactly. The flag was a transient bad read (workbook open in Excel mid-save), not a DB error.
+- Categories: all 266 May / 291 June items map to the 9 real categories (May breakdown matches the Review tab exactly); zero items in New Items/Uncategorized.
+- Rollover: May ending 213 = June opening 213, 231/231 shared items, $9,575.02 → $9,575.02.
+- `audit_inventory_period(4,2026)` and `(5,2026)` both return 0; monthly snapshots refreshed. **The data was already correct — no DB writes needed this round.**
+
+**OpenCode BUG HUNT fixes applied (commit e0539a4):**
+- **BUG #1** (diff omitted weekly columns): `_diff_inventory_item` now includes w1r..w3p (mapped to w1_received..w3_pulled) in before/after/changed_fields, so weekly movement shows in the commit preview. Only flags weekly columns present in the payload.
+- **BUG #4** (month=0 falsy trap): `dispatch_inventory_save`/`_week` use explicit None checks instead of `or`.
+- **BUG #2/#3** were already resolved by the v4.22 migration (single `w*_pulled` columns; `on_hand` dropped). **BUG #5** (negative clamp) intentionally retained — dispatch rejects negatives, so the data-entry floor prevents one audit artifact from aborting a whole import; removing it would risk breaking commits.
+
+**Build:** ruff clean, pytest 23 passed / 1 skipped.
+**Push:** e0539a4 — 2026-06-29.
+
+---
+
 ## [v2.0.0] — 2026-06-29 — **CHANGELOG MILESTONE: VERSION 2 COMMITTED** (emphasized)
 
 **OpenCode:** Committed all pending source changes including AI engine/parser/mapper/invoice_parser updates, backend route updates (agent, data_entry, inventory, sourcectrl), staging dispatch updates, inventory_identity and periods modules, main.py wiring, test infrastructure updates, and frontend components (Operations, Portal, PullSheet, Reports, SourceControl) + API client. This marks the v2.0.0 changelog entry milestone.
@@ -102,7 +123,7 @@ This assumes month is 1-indexed but doesn't validate. Fix: use `payload.get("mon
 
 **Verification:** Full analysis completed. No code changes made — this is a research report.
 **Push:** 5aa66a7 (previous push)
-**Push:** pending — OpenCode (this log entry only)
+**Push:** OpenCode → `6a48126` — 2026-06-29
 
 ---
 
