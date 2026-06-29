@@ -3,6 +3,11 @@ import { I } from '../lib/icons';
 import { type User, ROLE_LEVEL, MONTHS } from '../lib/constants';
 import { catColor, fmtMoney, fmtMoneyFull } from '../lib/supabase';
 import { api } from '../lib/api';
+import {
+  totalReceived as fTotalReceived,
+  totalPulled as fTotalPulled,
+  endingQty as fEndingQty,
+} from '../lib/inventoryFormulas';
 import { matchesInventoryQuery, parseInventoryQuery } from '../lib/inventorySearch';
 
 const SNACK_HOURS = [
@@ -370,9 +375,9 @@ export function MonthlyInventory({
     setSaved(false);
   }
 
-  const totalRcv = (r: any) => (r.w1r || 0) + (r.w2r || 0) + (r.w3r || 0);
-  const totalIss = (r: any) => (r.w1p || 0) + (r.w2p || 0) + (r.w3p || 0);
-  const closing = (r: any) => Math.max(0, (r.opening || 0) + totalRcv(r) - totalIss(r));
+  const totalRcv = (r: any) => fTotalReceived(r.w1r, r.w2r, r.w3r);
+  const totalIss = (r: any) => fTotalPulled(r.w1p, r.w2p, r.w3p);
+  const closing = (r: any) => fEndingQty(r.opening, totalRcv(r), totalIss(r));
   const rowChanged = (r: any) => {
     const original = initRows.find((base: any) => base.id === r.id);
     if (!original) return true;

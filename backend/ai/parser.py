@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from backend.ai import invoice_parser
+from backend import inventory_formulas as fi
 
 
 def _num(value: Any) -> float | int | None:
@@ -565,19 +566,20 @@ def _grid_totals(content: bytes) -> dict[str, float] | None:
             if (not sku and not d) or "total" in d.lower() or d.lower() in ("description", "item description"):
                 continue
             t["item_count"] += 1
-            t["opening"] += _cell(row, "openingoh") or 0
-            t["received"] += (
-                (_cell(row, "receivedwk1") or 0)
-                + (_cell(row, "receivedwk2") or 0)
-                + (_cell(row, "receivedwk3") or 0)
+            t["opening"] += fi.num(_cell(row, "openingoh"))
+            t["received"] += fi.total_received(
+                _cell(row, "receivedwk1"),
+                _cell(row, "receivedwk2"),
+                _cell(row, "receivedwk3"),
             )
-            wk_pull = (
-                (_cell(row, "pulledwk1") or 0)
-                + (_cell(row, "pulledwk2") or 0)
-                + (_cell(row, "pulledwk3") or 0)
+            wk_pull = fi.total_pulled(
+                _cell(row, "pulledwk1"),
+                _cell(row, "pulledwk2"),
+                _cell(row, "pulledwk3"),
             )
-            t["pulled"] += wk_pull if wk_pull else (_cell(row, "totalpulled") or 0)
-        t["ending"] = t["opening"] + t["received"] - t["pulled"]
+            # weekly pulls win; fall back to the verified monthly Total Pulled cell
+            t["pulled"] += wk_pull if wk_pull else fi.num(_cell(row, "totalpulled"))
+        t["ending"] = fi.ending_oh(t["opening"], t["received"], t["pulled"])
         return t
     return None
 

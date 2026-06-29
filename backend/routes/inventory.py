@@ -28,6 +28,7 @@ from backend.inventory_identity import (
     get_new_items_category_id,
     resolve_and_write_item,
 )
+from backend import inventory_formulas as fi
 from backend.periods import weeks_in_month
 
 logger = logging.getLogger(__name__)
@@ -106,24 +107,31 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
         inv_item = row.get("inventory_items") or {}
         cat = inv_item.get("inventory_categories") or {}
         item_id = inv_item.get("id") or row.get("item_id")
-        oh = max(0, int(_to_float(row.get("opening_oh"))))
-        w1r = int(_to_float(row.get("w1_received")))
-        w2r = int(_to_float(row.get("w2_received")))
-        w3r = int(_to_float(row.get("w3_received")))
-        w1p = int(_to_float(row.get("w1_pulled")))
-        w2p = int(_to_float(row.get("w2_pulled")))
-        w3p = int(_to_float(row.get("w3_pulled")))
-        total_received = w1r + w2r + w3r
-        total_pulled = w1p + w2p + w3p
-        running_total = max(0, oh + total_received - total_pulled)
+        oh = max(0, int(fi.num(row.get("opening_oh"))))
+        w1r = int(fi.num(row.get("w1_received")))
+        w2r = int(fi.num(row.get("w2_received")))
+        w3r = int(fi.num(row.get("w3_received")))
+        w1p = int(fi.num(row.get("w1_pulled")))
+        w2p = int(fi.num(row.get("w2_pulled")))
+        w3p = int(fi.num(row.get("w3_pulled")))
+        # Derived columns via the canonical template formulas (single source).
+        total_received = int(fi.total_received(w1r, w2r, w3r))
+        total_pulled = int(fi.total_pulled(w1p, w2p, w3p))
+        running_total = int(fi.ending_qty(oh, total_received, total_pulled))
         price = _to_float(row.get("unit_price"))
         opening_unit_cost = _to_float(row.get("opening_unit_cost"), price)
-        opening_value = _to_float(row.get("opening_value"), oh * opening_unit_cost)
-        received_value = _to_float(row.get("received_value"), total_received * price)
-        pulled_value = _to_float(row.get("pulled_value"), total_pulled * price)
+        opening_value = _to_float(
+            row.get("opening_value"), fi.opening_value(oh, opening_unit_cost)
+        )
+        received_value = _to_float(
+            row.get("received_value"), fi.received_value(total_received, price)
+        )
+        pulled_value = _to_float(
+            row.get("pulled_value"), fi.pulled_value(total_pulled, price)
+        )
         ending_value = _to_float(
             row.get("ending_value"),
-            max(0.0, opening_value + received_value - pulled_value),
+            fi.ending_value(opening_value, received_value, pulled_value),
         )
         items.append(
             InventoryItem(

@@ -44,6 +44,7 @@ import {
     catColor,
     getBackendToken,
 } from "../lib/supabase";
+import { itemTotals } from "../lib/inventoryFormulas";
 import { api } from "../lib/api";
 import { ComplianceHub } from "./ComplianceHub";
 import { DataEntry } from "./DataEntry";
@@ -724,21 +725,20 @@ function Dashboard({
         }));
     }
 
-    const monRows = invToList(live || {}).map((it: any) => ({
-        price: it.price || 0,
-        opening: it.onHand || 0,
-        received: typeof it.totalReceived === "number"
-            ? it.totalReceived
-            : (it.w1r || 0) + (it.w2r || 0) + (it.w3r || 0),
-        issued: typeof it.totalPulled === "number"
-            ? it.totalPulled
-            : (it.w1p || 0) + (it.w2p || 0) + (it.w3p || 0),
-        closing: typeof it.closingQty === "number" ? it.closingQty : undefined,
-        openingValue: it.openingValue,
-        receivedValue: it.receivedValue,
-        pulledValue: it.pulledValue,
-        endingValue: it.endingValue ?? it.value,
-    }));
+    const monRows = invToList(live || {}).map((it: any) => {
+        const t = itemTotals(it);
+        return {
+            price: it.price || 0,
+            opening: it.onHand || 0,
+            received: t.received,
+            issued: t.pulled,
+            closing: typeof it.closingQty === "number" ? it.closingQty : undefined,
+            openingValue: it.openingValue,
+            receivedValue: it.receivedValue,
+            pulledValue: it.pulledValue,
+            endingValue: it.endingValue ?? it.value,
+        };
+    });
     const miSum = monRows.reduce(
         (a: any, r: any) => {
             a.open += typeof r.openingValue === "number" ? r.openingValue : r.opening * r.price;

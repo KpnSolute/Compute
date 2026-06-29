@@ -9,6 +9,7 @@ from backend.inventory_identity import (
     get_new_items_category_id,
     resolve_and_write_item,
 )
+from backend import inventory_formulas as fi
 
 log = logging.getLogger("mjcc.dispatch")
 
@@ -106,43 +107,35 @@ def _rollover_opening_balances(
         iid = prev["item_id"]
         if iid in explicit_on_hand_item_ids or curr_map.get(iid, 0) != 0:
             continue
-        # Ending = opening + received - pulled, all from the w*_pulled columns
+        # Ending = opening + received - pulled, via the canonical template formula
         # (total_pulled_raw now lands in w3_pulled, so no week-0 ledger lookup).
-        closing = max(
-            0,
-            (
-                (prev.get("opening_oh") or 0)
-                + (prev.get("w1_received") or 0)
-                + (prev.get("w2_received") or 0)
-                + (prev.get("w3_received") or 0)
-                - (prev.get("w1_pulled") or 0)
-                - (prev.get("w2_pulled") or 0)
-                - (prev.get("w3_pulled") or 0)
-            ),
+        prev_received = fi.total_received(
+            prev.get("w1_received"), prev.get("w2_received"), prev.get("w3_received")
         )
+        prev_pulled = fi.total_pulled(
+            prev.get("w1_pulled"), prev.get("w2_pulled"), prev.get("w3_pulled")
+        )
+        closing = fi.ending_qty(prev.get("opening_oh"), prev_received, prev_pulled)
         if closing > 0:
             ending_value = prev.get("ending_value")
             if ending_value is None:
                 opening_value = prev.get("opening_value")
                 if opening_value is None:
-                    opening_value = (prev.get("opening_oh") or 0) * (
-                        prev.get("opening_unit_cost") or prev.get("unit_price") or 0
+                    opening_value = fi.opening_value(
+                        prev.get("opening_oh"),
+                        prev.get("opening_unit_cost") or prev.get("unit_price"),
                     )
                 received_value = prev.get("received_value")
                 if received_value is None:
-                    received_value = (
-                        (prev.get("w1_received") or 0)
-                        + (prev.get("w2_received") or 0)
-                        + (prev.get("w3_received") or 0)
-                    ) * (prev.get("unit_price") or 0)
+                    received_value = fi.received_value(
+                        prev_received, prev.get("unit_price")
+                    )
                 pulled_value = prev.get("pulled_value")
                 if pulled_value is None:
-                    pulled_value = (
-                        (prev.get("w1_pulled") or 0)
-                        + (prev.get("w2_pulled") or 0)
-                        + (prev.get("w3_pulled") or 0)
-                    ) * (prev.get("unit_price") or 0)
-                ending_value = max(0, opening_value + received_value - pulled_value)
+                    pulled_value = fi.pulled_value(prev_pulled, prev.get("unit_price"))
+                ending_value = fi.ending_value(
+                    opening_value, received_value, pulled_value
+                )
             opening_unit_cost = (ending_value / closing) if closing else None
             sup.table("monthly_inventory").upsert(
                 {
@@ -293,11 +286,10 @@ def dispatch_inventory_save(payload: dict) -> dict:
             "opening_value" in monthly_fields or "received_value" in monthly_fields
         ):
             monthly_fields["pulled_value"] = monthly_fields.get("pulled_value", 0)
-            monthly_fields["ending_value"] = max(
-                0,
-                (monthly_fields.get("opening_value") or 0)
-                + (monthly_fields.get("received_value") or 0)
-                - (monthly_fields.get("pulled_value") or 0),
+            monthly_fields["ending_value"] = fi.ending_value(
+                monthly_fields.get("opening_value"),
+                monthly_fields.get("received_value"),
+                monthly_fields.get("pulled_value"),
             )
         for src, col, week_number, txn_type in [
             ("w1r", "w1_received", 1, "received"),

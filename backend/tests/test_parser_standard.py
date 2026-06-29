@@ -519,17 +519,29 @@ def test_may_ending_oh_not_onhand():
     assert not mismatches, f"Ending OH imported as onHand for: {mismatches[:5]}"
 
 
+def test_total_pulled_raw_fallback_for_blank_weekly_pulls():
+    """Safety net: a non-standard sheet with blank weekly pulls but a verified
+    monthly Total Pulled must still carry total_pulled_raw (legacy/edge files)."""
+    from backend.ai.parser import parse_excel
+
+    rows = parse_excel(
+        _wb_bytes(
+            [["Produce", "77002", "Lettuce", 60, 15, None, 10, None, 8, None, 33, 40, 27, 0.89]]
+        )
+    )
+    assert rows and rows[0].get("total_pulled_raw") == 40
+
+
 @pytest.mark.skipif(not _MAY_PATH.exists(), reason="May workbook not present")
-def test_may_total_pulled_raw_present():
-    """Real May workbook: items with blank weekly pulls should carry total_pulled_raw."""
+def test_standardized_may_uses_per_week_pulls_not_fallback():
+    """The standardized May workbook now carries real per-week pulls, so the
+    total_pulled_raw fallback should NOT fire (it sums to the verified total)."""
     from backend.ai.parser import parse_excel
 
     rows = parse_excel(_MAY_PATH.read_bytes())
     assert rows
-    # May has verified monthly Total Pulled in col L; at least some rows should
-    # carry total_pulled_raw (those where weekly pull cols were blank).
-    preserved = [r for r in rows if r.get("total_pulled_raw")]
-    assert preserved, "No total_pulled_raw values preserved from May workbook"
+    assert not [r for r in rows if r.get("total_pulled_raw")]
+    assert sum((r.get("w1p") or 0) + (r.get("w2p") or 0) + (r.get("w3p") or 0) for r in rows) == 543
 
 
 @pytest.mark.skipif(not _JUNE_PATH.exists(), reason="June workbook not present")

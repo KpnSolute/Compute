@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { I } from '../lib/icons';
 import { type User, MONTHS, ROLE_LEVEL, MEAL_LOG_TYPES } from '../lib/constants';
 import { api } from '../lib/api';
+import { itemTotals } from '../lib/inventoryFormulas';
 import { TemplatesPanel } from './Templates';
 
 function toCSV(columns: { label: string; key?: string; get?: (r: any) => any }[], rows: any[]) {
@@ -173,15 +174,9 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
     itemDesc(a).localeCompare(itemDesc(b))
   );
 
-  const totalRcv = (it: any) => typeof it.totalReceived === 'number'
-    ? it.totalReceived
-    : (it.w1r||0)+(it.w2r||0)+(it.w3r||0);
-  const totalIss = (it: any) => typeof it.totalPulled === 'number'
-    ? it.totalPulled
-    : (it.w1p||0)+(it.w2p||0)+(it.w3p||0);
-  const closingQty = (it: any) => typeof it.closingQty === 'number'
-    ? it.closingQty
-    : Math.max(0, (it.onHand||0) + totalRcv(it) - totalIss(it));
+  const totalRcv = (it: any) => itemTotals(it).received;
+  const totalIss = (it: any) => itemTotals(it).pulled;
+  const closingQty = (it: any) => itemTotals(it).ending;
 
   const moninvRows = sorted.map((it: any) => ({
     ...it,

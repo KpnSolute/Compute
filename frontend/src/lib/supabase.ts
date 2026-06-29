@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type { User } from './constants';
+import { itemEndingValue, itemTotals, isBelowPar } from './inventoryFormulas';
 
 /* localStorage keys — identical to the dashboard so config is shared */
 const SUPA_URL_KEY = 'mjc_supa_url';
@@ -516,17 +517,7 @@ export function catColor(c: string) {
   return CCOLOR[c] || '#1E73E8';
 }
 export function iTotal(it: any) {
-  if (typeof it.value === 'number') return it.value;
-  const rcv = typeof it.totalReceived === 'number'
-    ? it.totalReceived
-    : (it.w1r || 0) + (it.w2r || 0) + (it.w3r || 0);
-  const pulled = typeof it.totalPulled === 'number'
-    ? it.totalPulled
-    : (it.w1p || 0) + (it.w2p || 0) + (it.w3p || 0);
-  const closing = typeof it.closingQty === 'number'
-    ? it.closingQty
-    : Math.max(0, (it.onHand || 0) + rcv - pulled);
-  return closing * (it.price || 0);
+  return itemEndingValue(it);
 }
 export function invToList(inv: any) {
   if (Array.isArray(inv)) return inv;
@@ -552,18 +543,7 @@ export function catTotals(inv: any) {
     .sort((a, b) => b.val - a.val);
 }
 export function reorders(inv: any) {
-  return invToList(inv).filter((i) => {
-    const rcv = typeof i.totalReceived === 'number'
-      ? i.totalReceived
-      : (i.w1r || 0) + (i.w2r || 0) + (i.w3r || 0);
-    const pulled = typeof i.totalPulled === 'number'
-      ? i.totalPulled
-      : (i.w1p || 0) + (i.w2p || 0) + (i.w3p || 0);
-    const ending = typeof i.closingQty === 'number'
-      ? i.closingQty
-      : Math.max(0, (i.onHand || 0) + rcv - pulled);
-    return ending < (i.par || 0) && (i.par || 0) > 0;
-  });
+  return invToList(inv).filter((i) => isBelowPar(itemTotals(i).ending, i.par));
 }
 export function fmtMoney(n: number) {
   return '$' + (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
