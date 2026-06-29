@@ -4,6 +4,25 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.22.0] — 2026-06-29 — Schema migration: 3-week opening_oh/pulled model
+
+**Claude:** Full schema migration from the old `on_hand + w1-w4_issued + w4/w5_received` layout to the Monthly Inventory Template structure: `opening_oh`, `w1-w3_received`, `w1-w3_pulled`, `status`. Migration was done in phases across two sessions.
+
+**DB changes (Supabase MJCCv1):**
+- New columns added and backfilled: `opening_oh` (from `on_hand`), `w1-w3_pulled` (May pulls from `inventory_transactions`), `status`
+- Old columns dropped: `on_hand`, `w1-w4_issued`, `w4/w5_received`, `w5_issued`
+- Views `dashboard_summary` and `live_inventory` dropped and recreated with new columns (no w4/w5, pulled replaces issued)
+- All 7 dependent RPCs updated: `perform_rollover`, `audit_inventory_period`, `increment_inventory_field`, `recompute_week_totals`, `refresh_monthly_snapshot`, `revert_to_commit`, `import_archive_month`
+
+**Backend:** `backend/routes/inventory.py` — `InventoryItem` model uses `w1p/w2p/w3p` + `totalPulled`; `_JOIN_SELECT` updated; `_flatten_rows` reads `opening_oh`/`w*_pulled`; `_week0_issued_by_item` removed. `backend/staging/dispatch.py` — `_rollover_opening_balances` reads `opening_oh`/`w*_pulled`; `dispatch_inventory_save` writes `opening_oh`/`w1-w3_pulled`; validation tuples updated.
+
+**Frontend:** `Portal.tsx` — `ISSUED` → `PULLED`, `WeeklyField` updated to 3 weeks, `maxWeeks` defaults to 3; `Operations.tsx`, `Reports.tsx`, `ItemInspector.tsx`, `supabase.ts` — all `w1-w4i`/`aggregateIssued`/`totalIssued` → `w1-w3p`/`totalPulled`; Reports columns renamed (W1-W3 Pulled, dropped W4/Month Pull).
+
+**Build:** tsc clean, `npm run build` passing, `ruff check` passing.
+**Push:** 82405ef — 2026-06-29
+
+---
+
 ## [v4.21.3] - 2026-06-29 - Report and Pull Sheet production layout pass
 
 **Codex UI:** Upgraded the Reports preview from a plain item list into an inventory-report surface with KPI cards for Items, Categories, Received Units, Issued Units, Ending Value, and Reorder Needed. The Monthly Inventory Roll-up now uses spreadsheet-style columns: category, item description, UOM, unit price, par level, beginning inventory, weekly received/issued, totals, ending inventory, and ending value.
