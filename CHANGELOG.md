@@ -4,6 +4,23 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.25.1] — 2026-06-29 — Extract workbook formulas + apply them internally
+
+**Claude:** Requirement: the system must extract the workbook's formulas by default and apply them to its internals (not trust cached/stale results).
+
+**Ground truth (June Published, read with data_only=False):** the grid's derived columns ARE formulas — `Total Received==SUM(E,G,I)`, `Total Pulled==SUM(F,H,J)`, `Ending OH==D+K-L` — and their cached results are fresh. The stale `Total Pulled=0 / Ending OH=821` live only in the Review tab's **hand-keyed (hardcoded, non-formula)** control block, which was never updated after pulls were entered.
+
+**Change (commit e917176):**
+- `parser.extract_workbook_formula_report()` reads the actual formula strings, confirms they match the template shapes, recomputes every derived column from the raw weekly cells, and counts stale cached cells (cached ≠ recomputed). The grid — formulas applied to raw cells — is authoritative; cached formula results are never trusted.
+- `extract_workbook_reconciliation()` now carries the formula report and `authoritative="grid"`.
+- `data_entry`: **downgraded the Review-control gate from hard-block to a warning.** Because the system recomputes the correct totals from the formulas, a stale hand-keyed Review block no longer blocks a valid upload — it's surfaced as an advisory delta and the recomputed grid is imported.
+- tests: formula extraction/template-match + stale-cache detection.
+
+**Build:** ruff clean, pytest 19 passed / 3 skipped (parser suite).
+**Push:** e917176 — 2026-06-29.
+
+---
+
 ## [v4.25.0] — 2026-06-29 — Review-tab reconciliation gate (extraction now knows the Review)
 
 **Claude:** User reported the extraction was "falsifying" data — DB ≠ uploaded workbook. Diagnosed and fixed.
