@@ -326,6 +326,75 @@ def test_formula_totals_without_cached_values_are_derived_from_weekly_columns():
     assert "total_pulled_raw" not in item
 
 
+# ── Review-tab reconciliation ──────────────────────────────────────────────
+
+
+def _wb_with_review(data_rows, review_rows):
+    """Build a workbook with an Inventory grid + a Review control block."""
+    wb = openpyxl.Workbook()
+    inv = wb.active
+    inv.title = "Inventory"
+    inv.append(STANDARD_HEADER)
+    for row in data_rows:
+        inv.append(row)
+    rv = wb.create_sheet("Review")
+    rv.append(["JUNE 2026 INVENTORY REVIEW"])
+    rv.append([])
+    rv.append(["Quantity Control", "Verified Total"])
+    for label, val in review_rows:
+        rv.append([label, val])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_reconciliation_passes_when_grid_matches_review():
+    from backend.ai.parser import extract_workbook_reconciliation
+
+    # one item: opening 5, received 10 (4+3+3), pulled 6 (2+2+2) → ending 9
+    content = _wb_with_review(
+        [["Dairy", "111", "Milk", 5, 4, 2, 3, 2, 3, 2, 10, 6, 9, 1.0]],
+        [("Inventory Items", 1), ("Opening OH", 5), ("Total Received", 10),
+         ("Total Pulled", 6), ("Ending OH", 9)],
+    )
+    r = extract_workbook_reconciliation(content)
+    assert r is not None
+    assert r["reconciled"] is True, r["mismatches"]
+
+
+def test_reconciliation_fails_when_review_is_stale():
+    """Grid has pulls but the Review tab still shows zero pulls (stale) — must flag."""
+    from backend.ai.parser import extract_workbook_reconciliation
+
+    content = _wb_with_review(
+        [["Dairy", "111", "Milk", 5, 4, 2, 3, 2, 3, 2, 10, 6, 9, 1.0]],
+        [("Inventory Items", 1), ("Opening OH", 5), ("Total Received", 10),
+         ("Total Pulled", 0), ("Ending OH", 15)],
+    )
+    r = extract_workbook_reconciliation(content)
+    assert r is not None
+    assert r["reconciled"] is False
+    metrics = {m["metric"] for m in r["mismatches"]}
+    assert "pulled" in metrics and "ending" in metrics
+
+
+def test_reconciliation_none_without_review_tab():
+    from backend.ai.parser import extract_workbook_reconciliation
+
+    # _wb_bytes builds an Inventory sheet only — no Review control block.
+    content = _wb_bytes([["Dairy", "111", "Milk", 5, 4, 2, 3, 2, 3, 2, 10, 6, 9, 1.0]])
+    assert extract_workbook_reconciliation(content) is None
+
+
+@pytest.mark.skipif(not _MAY_PATH.exists(), reason="May workbook not present")
+def test_reconciliation_may_published_is_clean():
+    from backend.ai.parser import extract_workbook_reconciliation
+
+    r = extract_workbook_reconciliation(_MAY_PATH.read_bytes())
+    assert r is not None
+    assert r["reconciled"] is True, r["mismatches"]
+
+
 # ── real workbook row counts ───────────────────────────────────────────────
 
 

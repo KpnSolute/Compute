@@ -512,6 +512,145 @@ def _parse_mjcc_flat_inventory(content: bytes) -> list[dict[str, Any]]:
     return []
 
 
+# Review-tab "Quantity Control" labels → reconciliation metric. The control block
+# lists a verified total per metric (label in col A, value in the next column).
+_REVIEW_CONTROL_LABELS = {
+    "inventoryitems": "item_count",
+    "openingoh": "opening",
+    "totalreceived": "received",
+    "totalpulled": "pulled",
+    "endingoh": "ending",
+}
+
+
+def _grid_totals(content: bytes) -> dict[str, float] | None:
+    """Sum the Inventory sheet into {item_count, opening, received, pulled, ending}.
+
+    pulled uses the per-week Pulled columns, falling back to Total Pulled when the
+    weekly cells are blank (May-style verified monthly total). Returns None if no
+    recognizable Inventory grid is present.
+    """
+    try:
+        import openpyxl
+    except ImportError:
+        return None
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    except Exception:
+        return None
+    for ws in wb.worksheets:
+        rows = list(ws.iter_rows(values_only=True))
+        hdr_idx = None
+        cols: dict[str, int] = {}
+        for i, row in enumerate(rows[:15]):
+            norm = {_norm_header(c): j for j, c in enumerate(row)}
+            if "openingoh" in norm and "receivedwk1" in norm:
+                hdr_idx = i
+                cols = norm
+                break
+        if hdr_idx is None:
+            continue
+
+        def _cell(row, key):
+            j = cols.get(key)
+            return _num(row[j]) if j is not None and j < len(row) else None
+
+        t = {"item_count": 0.0, "opening": 0.0, "received": 0.0, "pulled": 0.0}
+        for row in rows[hdr_idx + 1 :]:
+            if all(v is None for v in row):
+                continue
+            sku = row[cols["sku"]] if "sku" in cols and cols["sku"] < len(row) else None
+            desc = row[cols["description"]] if "description" in cols and cols["description"] < len(row) else None
+            d = str(desc or "").strip()
+            if (not sku and not d) or "total" in d.lower() or d.lower() in ("description", "item description"):
+                continue
+            t["item_count"] += 1
+            t["opening"] += _cell(row, "openingoh") or 0
+            t["received"] += (
+                (_cell(row, "receivedwk1") or 0)
+                + (_cell(row, "receivedwk2") or 0)
+                + (_cell(row, "receivedwk3") or 0)
+            )
+            wk_pull = (
+                (_cell(row, "pulledwk1") or 0)
+                + (_cell(row, "pulledwk2") or 0)
+                + (_cell(row, "pulledwk3") or 0)
+            )
+            t["pulled"] += wk_pull if wk_pull else (_cell(row, "totalpulled") or 0)
+        t["ending"] = t["opening"] + t["received"] - t["pulled"]
+        return t
+    return None
+
+
+def _review_controls(content: bytes) -> dict[str, float] | None:
+    """Read the Review tab's Quantity Control block (verified totals per metric).
+
+    Returns {item_count, opening, received, pulled, ending} from the verified
+    column, or None when no Review control block is present.
+    """
+    try:
+        import openpyxl
+    except ImportError:
+        return None
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    except Exception:
+        return None
+    for ws in wb.worksheets:
+        if "review" not in str(ws.title or "").lower():
+            continue
+        controls: dict[str, float] = {}
+        for row in ws.iter_rows(values_only=True):
+            if not row:
+                continue
+            label = _norm_header(row[0])
+            metric = _REVIEW_CONTROL_LABELS.get(label)
+            if not metric or metric in controls:
+                continue
+            # verified total is the first numeric cell to the right of the label
+            for cell in row[1:]:
+                val = _num(cell)
+                if val is not None:
+                    controls[metric] = val
+                    break
+        if controls:
+            return controls
+    return None
+
+
+def extract_workbook_reconciliation(content: bytes) -> dict[str, Any] | None:
+    """Reconcile a monthly workbook's Inventory grid against its Review controls.
+
+    The Inventory grid is the line-item detail; the Review tab's Quantity Control
+    block is the manager's verified totals. They must agree. Returns
+    {grid, review, deltas, mismatches, reconciled} or None when either side is
+    absent (e.g. weekly invoice CSVs or non-template files), so callers can skip
+    reconciliation without error.
+    """
+    grid = _grid_totals(content)
+    review = _review_controls(content)
+    if not grid or not review:
+        return None
+    metrics = ("item_count", "opening", "received", "pulled", "ending")
+    deltas: dict[str, float] = {}
+    mismatches: list[dict[str, float]] = []
+    for m in metrics:
+        if m not in review:
+            continue
+        g = round(grid.get(m, 0), 2)
+        r = round(review[m], 2)
+        deltas[m] = round(g - r, 2)
+        if abs(g - r) > 0.001:
+            mismatches.append({"metric": m, "grid": g, "review": r, "delta": round(g - r, 2)})
+    return {
+        "grid": {k: round(v, 2) for k, v in grid.items()},
+        "review": {k: round(v, 2) for k, v in review.items()},
+        "deltas": deltas,
+        "mismatches": mismatches,
+        "reconciled": len(mismatches) == 0,
+    }
+
+
 _HEADER_ROW_TOKENS = set(_FLAT_INV_HEADER_ALIASES) | {
     "itemdescription",
     "qty",

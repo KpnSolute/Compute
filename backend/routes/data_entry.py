@@ -540,7 +540,17 @@ def _extract_ops(
                         },
                     }
                 )
-        return ops, {}
+        # Reconcile the workbook's Inventory grid against its Review control totals
+        # so a file whose Review tab disagrees with its own line items is caught
+        # before it is written (None for weekly CSVs / files with no Review tab).
+        meta: dict = {}
+        try:
+            recon = file_parser.extract_workbook_reconciliation(content)
+            if recon is not None:
+                meta["workbook_reconciliation"] = recon
+        except Exception:
+            log.exception("[DATA-ENTRY] workbook reconciliation failed (non-fatal)")
+        return ops, meta
 
     if operation == "event_create":
         if rows is not None:
@@ -1227,6 +1237,38 @@ async def upload_file(
                     )
                     return
 
+            # Workbook reconciliation: the Inventory grid must agree with the
+            # Review tab's verified Quantity Control totals. A file whose Review
+            # disagrees with its own line items (e.g. a stale Review tab that was
+            # not recalculated after pulls were entered) is internally
+            # inconsistent — block it rather than write data that matches neither.
+            wb_recon: dict = parsed_meta.get("workbook_reconciliation") or {}
+            if wb_recon and not wb_recon.get("reconciled", True):
+                mm = wb_recon.get("mismatches", [])
+                log.error(
+                    "[DATA-ENTRY] BLOCKED workbook_reconciliation_failed | file=%s mismatches=%s",
+                    fname,
+                    mm,
+                )
+                detail = "; ".join(
+                    f"{m['metric']}: grid {m['grid']:g} vs Review {m['review']:g}"
+                    for m in mm
+                )
+                yield _err(
+                    422,
+                    {
+                        "error": "workbook_reconciliation_failed",
+                        "message": (
+                            "The Inventory sheet does not match the Review tab's verified "
+                            f"totals — {detail}. The Review tab is likely stale (recalculate "
+                            "its Total Received / Total Pulled / Ending OH formulas) or the "
+                            "item rows are wrong. Fix the workbook and re-upload."
+                        ),
+                        "workbook_reconciliation": wb_recon,
+                    },
+                )
+                return
+
         try:
             item_count_r = (
                 _client()
@@ -1423,6 +1465,8 @@ async def upload_file(
             resp["invoice_id"] = invoice_id
         if reconciliation:
             resp["reconciliation"] = reconciliation
+        if parsed_meta.get("workbook_reconciliation"):
+            resp["workbook_reconciliation"] = parsed_meta["workbook_reconciliation"]
         if description:
             resp["description"] = description[:500]
 
