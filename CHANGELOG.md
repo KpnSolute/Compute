@@ -4,6 +4,21 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.23.0] — 2026-06-29 — Template parser wiring + full inventory wipe
+
+**Claude:** Completed the Monthly Inventory Template integration and reset inventory data at the user's request.
+
+**Rollover diagnosis (May→June):** Verified against the three source workbooks (Template, May Published, June Pre-Published). Quantities roll over **exactly** — May per-item ending (Opening + Received − Total Pulled col L) = 213 units = June Opening OH = 213 units, zero mismatches across all 230 shared items. The previously-flagged "$54.22 gap" is **purely price revaluation**: May ending $9,575.02 at May prices vs June opening $9,629.24 (same 213 units at June's updated unit prices). The template carries the physical *count* forward by design; value is derived from current unit price. No rollover bug — earlier "177 mismatches" was a false alarm from computing May ending without subtracting pulls (May stores pulls only as monthly Total Pulled, not per-week).
+
+**Parser wiring fix (critical):** After the v4.22.0 column rename, dispatch read `w1p/w2p/w3p` but the file-import path (parser→mapper) still emitted `w1i/w2i/w3i` — uploaded template pulls were silently dropped. Unified the whole import chain on the 3-week pulled vocabulary: `parser.py` (template "Pulled Wk1-3"→w1p/w2p/w3p, legacy grid folds W4→W3), `mapper.py` (aliases + builder), `context.py` (AI prompt), `diff.py` (inventory_week preview maps issued→w*_pulled column), `sourcectrl.py` (staff-pull guard). Tests updated; 21 passed / 1 skipped.
+
+**Full inventory wipe (user-authorized, irreversible):** Deleted ALL rows from commit_changes, github_sync_queue, inventory_versions, pull_requests, commits, inventory_audit_log, inventory_transactions, item_barcodes, monthly_inventory, sku_review_queue, monthly_snapshots, staging_entries, inventory_items (327). Broke the commits↔pull_requests circular FK by nulling commits.pull_request_id first. KEPT inventory_categories (11: 9 template cats + New Items + Uncategorized). Par levels are now 0 (catalog wiped; template has no Par column). User will re-import May/June via the portal UI.
+
+**Build:** ruff clean, pytest 21 passed/1 skipped.
+**Push:** 1d5a5a3 (parser wiring) — 2026-06-29. DB wipe via Supabase MCP (not a code change).
+
+---
+
 ## [v4.22.0] — 2026-06-29 — Schema migration: 3-week opening_oh/pulled model
 
 **Claude:** Full schema migration from the old `on_hand + w1-w4_issued + w4/w5_received` layout to the Monthly Inventory Template structure: `opening_oh`, `w1-w3_received`, `w1-w3_pulled`, `status`. Migration was done in phases across two sessions.
