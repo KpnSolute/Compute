@@ -4,6 +4,17 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.23.1] - 2026-06-29 - Manual workbook reconciliation for May/June inventory
+
+**Codex:** Reconciled live Supabase inventory against the local source workbooks after the portal import produced a messy June dataset. Verified `monthly_inventory` is on the template schema (`opening_oh`, W1-W3 received, W1-W3 pulled, `status`) and that May/June rows match the workbook movement fields and computed ending balances.
+
+**DB repair:** Removed one stale duplicate June row for old Cranberry SKU `F00480038`; June now uses the correct workbook SKU `F00408038`. Refreshed monthly snapshots for May 2026 and June 2026. May remains 266 rows / 213 ending units / $9,575.02 ending value. June is now 291 rows / 821 ending units / $34,959.28 ending value. May ending units roll into June opening units exactly (213 to 213), with zero rollover mismatches after the Cranberry SKU bridge.
+
+**Verification:** Supabase CLI row-level workbook comparison passed: May 0 missing / 0 extra / 0 movement-or-calculation diffs; June 0 missing / 0 extra / 0 movement-or-calculation diffs. `audit_inventory_period(4, 2026)` and `audit_inventory_period(5, 2026)` both returned 0. Source-control staging has 0 pending staged items.
+**Push:** Codex - changelog-only record for Supabase CLI repair.
+
+---
+
 ## [v4.23.0] — 2026-06-29 — Template parser wiring + full inventory wipe
 
 **Claude:** Completed the Monthly Inventory Template integration and reset inventory data at the user's request.
