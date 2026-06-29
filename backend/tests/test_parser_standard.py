@@ -395,6 +395,47 @@ def test_reconciliation_may_published_is_clean():
     assert r["reconciled"] is True, r["mismatches"]
 
 
+def test_formula_report_extracts_and_matches_template():
+    """The system extracts the derived-column formulas and confirms they match the
+    template (=SUM(E,G,I) / =SUM(F,H,J) / =D+K-L), recomputing internally."""
+    from backend.ai.parser import extract_workbook_formula_report
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Inventory"
+    ws.append(STANDARD_HEADER)
+    ws.append([
+        "Dairy", "111", "Milk", 5, 4, 2, 3, 2, 3, 2,
+        "=SUM(E2,G2,I2)", "=SUM(F2,H2,J2)", "=D2+K2-L2", 1.0,
+    ])
+    buf = io.BytesIO()
+    wb.save(buf)
+    rep = extract_workbook_formula_report(buf.getvalue())
+    assert rep is not None
+    assert rep["recomputed_internally"] is True
+    assert all(rep["template_match"].values())
+    assert rep["formulas"]["ending_oh"] == "=D2+K2-L2"
+
+
+def test_formula_report_flags_stale_cached_cell():
+    """A cached formula result that disagrees with the recomputed value is flagged
+    as stale (system uses the recomputed value, not the cache)."""
+    from backend.ai.parser import extract_workbook_formula_report
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Inventory"
+    ws.append(STANDARD_HEADER)
+    # Total Pulled cached as 0 though weekly pulls sum to 6 → stale.
+    ws.append(["Dairy", "111", "Milk", 5, 4, 2, 3, 2, 3, 2, 10, 0, 15, 1.0])
+    buf = io.BytesIO()
+    wb.save(buf)
+    rep = extract_workbook_formula_report(buf.getvalue())
+    assert rep is not None
+    assert rep["stale_cached_cells"]["total_pulled"] == 1
+    assert rep["stale_cached_cells"]["ending_oh"] == 1
+
+
 # ── real workbook row counts ───────────────────────────────────────────────
 
 

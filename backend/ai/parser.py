@@ -618,6 +618,107 @@ def _review_controls(content: bytes) -> dict[str, float] | None:
     return None
 
 
+def extract_workbook_formula_report(content: bytes) -> dict[str, Any] | None:
+    """Extract the workbook's derived-column formulas and recompute them internally.
+
+    The template's Total Received / Total Pulled / Ending OH columns are formula
+    driven (=SUM(E,G,I), =SUM(F,H,J), =D+K-L). Excel's cached results can be stale
+    (saved without a recalc) or absent (workbook written programmatically), so the
+    system must NOT trust those cached cells — it recomputes each derived column
+    from the raw weekly cells (i.e. it applies the formula itself).
+
+    Returns the extracted formula strings, whether they match the expected template
+    formulas, and how many cached cells were stale (cached != recomputed). Returns
+    None when there is no recognizable Inventory grid.
+    """
+    try:
+        import openpyxl
+    except ImportError:
+        return None
+    try:
+        wb_f = openpyxl.load_workbook(io.BytesIO(content), data_only=False)
+        wb_v = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+    except Exception:
+        return None
+
+    def _find(ws):
+        rows = list(ws.iter_rows(values_only=True))
+        for i, row in enumerate(rows[:15]):
+            norm = {_norm_header(c): j for j, c in enumerate(row)}
+            if "openingoh" in norm and "receivedwk1" in norm:
+                return i, norm
+        return None, None
+
+    ws_f = next((w for w in wb_f.worksheets if _find(w)[0] is not None), None)
+    if ws_f is None:
+        return None
+    hdr_idx, cols = _find(ws_f)
+    ws_v = wb_v[ws_f.title]
+    first = hdr_idx + 2  # 1-based row of the first data row
+
+    def _fstr(metric):
+        j = cols.get(metric)
+        if j is None:
+            return None
+        return ws_f.cell(row=first, column=j + 1).value
+
+    formulas = {
+        "total_received": _fstr("totalreceived"),
+        "total_pulled": _fstr("totalpulled"),
+        "ending_oh": _fstr("endingoh"),
+    }
+    # Expected template shapes (column letters are fixed in the template).
+    expected = {
+        "total_received": "=SUM(E,G,I)",
+        "total_pulled": "=SUM(F,H,J)",
+        "ending_oh": "=D+K-L",
+    }
+
+    def _shape(f):
+        # strip row numbers so '=SUM(E2,G2,I2)' -> '=SUM(E,G,I)'
+        return re.sub(r"\d+", "", str(f or "")).replace(" ", "").upper()
+
+    template_match = {
+        k: (_shape(formulas[k]) == expected[k]) for k in expected if formulas[k]
+    }
+
+    stale = {"total_received": 0, "total_pulled": 0, "ending_oh": 0}
+    rows_v = list(ws_v.iter_rows(values_only=True))
+    for vr in rows_v[hdr_idx + 1 :]:
+        if all(c is None for c in vr):
+            continue
+        d = _num(vr[cols["openingoh"]]) or 0 if cols["openingoh"] < len(vr) else 0
+        rec = sum(
+            _num(vr[cols[k]]) or 0
+            for k in ("receivedwk1", "receivedwk2", "receivedwk3")
+            if cols.get(k) is not None and cols[k] < len(vr)
+        )
+        pul = sum(
+            _num(vr[cols[k]]) or 0
+            for k in ("pulledwk1", "pulledwk2", "pulledwk3")
+            if cols.get(k) is not None and cols[k] < len(vr)
+        )
+        for metric, computed in (
+            ("totalreceived", rec),
+            ("totalpulled", pul),
+            ("endingoh", d + rec - pul),
+        ):
+            j = cols.get(metric)
+            if j is None or j >= len(vr):
+                continue
+            cached = _num(vr[j])
+            if cached is not None and abs(cached - computed) > 0.001:
+                key = {"totalreceived": "total_received", "totalpulled": "total_pulled", "endingoh": "ending_oh"}[metric]
+                stale[key] += 1
+
+    return {
+        "formulas": formulas,
+        "template_match": template_match,
+        "stale_cached_cells": stale,
+        "recomputed_internally": True,
+    }
+
+
 def extract_workbook_reconciliation(content: bytes) -> dict[str, Any] | None:
     """Reconcile a monthly workbook's Inventory grid against its Review controls.
 
@@ -648,6 +749,10 @@ def extract_workbook_reconciliation(content: bytes) -> dict[str, Any] | None:
         "deltas": deltas,
         "mismatches": mismatches,
         "reconciled": len(mismatches) == 0,
+        # grid is computed by applying the workbook formulas to the raw cells, so it
+        # is authoritative; review controls are an advisory cross-check.
+        "authoritative": "grid",
+        "formulas": extract_workbook_formula_report(content),
     }
 
 
