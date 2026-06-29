@@ -4,6 +4,19 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.25.2] — 2026-06-29 — May+June wiped for parse test; template/API/gate audit
+
+**Claude:** Wiped May (db_month 4) and June (db_month 5) 2026 period data — monthly_inventory, inventory_transactions, monthly_snapshots, inventory_audit_log — for a clean parsing test. Catalog (327 items) + categories retained.
+
+**Template ↔ schema/API/gate audit (grounded in the 3 reference files):** confirmed the system is fully aligned to the Monthly Inventory Template and applies its formulas at every layer — no restructuring needed:
+- **Schema** `monthly_inventory`: opening_oh, w1-3 received, w1-3 pulled, unit_price + value controls (opening_unit_cost/opening_value/received_value/pulled_value/ending_value). Total Received / Total Pulled / Ending OH are NOT stored — derived.
+- **Formula application**: Total Received = ΣwNr, Total Pulled = ΣwNp, Ending OH = opening + received − pulled — applied in `inventory._flatten_rows`, the `live_inventory` view, dispatch (save value fallback + rollover), and the parser (`extract_workbook_formula_report` recomputes from raw cells; cached/Review formula results never trusted).
+- **Gates**: parse-time formula extraction + Review reconciliation (advisory), non-negative validation, published-period guard, `over_pulled_count` (negative-ending), reorder `order_qty = par − ending`.
+
+**Build:** ruff clean, pytest 31 passed / 4 skipped, frontend tsc clean. No code change this turn (already conformant). DB wipe via Supabase MCP.
+
+---
+
 ## [v4.25.1] — 2026-06-29 — Extract workbook formulas + apply them internally
 
 **Claude:** Requirement: the system must extract the workbook's formulas by default and apply them to its internals (not trust cached/stale results).
