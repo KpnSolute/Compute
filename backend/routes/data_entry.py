@@ -110,6 +110,22 @@ def _overwrite_scope(month: int, year: int, week: int, direction: str) -> dict:
     }
 
 
+def _weekly_inventory_column(direction: str) -> str | None:
+    if direction == "received":
+        return "received"
+    if direction in ("issued", "pulled"):
+        return "pulled"
+    return None
+
+
+def _weekly_txn_type(direction: str) -> str | None:
+    if direction == "received":
+        return "received"
+    if direction in ("issued", "pulled"):
+        return "issued"
+    return None
+
+
 def _existing_inventory_scope_count(
     month: int, year: int, week: int, direction: str
 ) -> int:
@@ -124,7 +140,10 @@ def _existing_inventory_scope_count(
         .limit(1)
     )
     if week in (1, 2, 3, 4):
-        col = f"w{week}_{direction}"
+        column_direction = _weekly_inventory_column(direction)
+        if not column_direction:
+            return 0
+        col = f"w{week}_{column_direction}"
         query = query.gt(col, 0)
     result = query.execute()
     return int(result.count or 0)

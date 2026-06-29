@@ -2,9 +2,12 @@
 
 import os
 import uuid
+from calendar import month_name
 from datetime import datetime, timedelta, timezone
 
 from supabase import create_client
+
+from backend import inventory_formulas as fi
 
 ROLE_LEVEL: dict[str, int] = {
     "staff": 10,
@@ -60,6 +63,56 @@ def _require_user_id(args: dict) -> str:
     return str(user_id)
 
 
+def _period_from_args(args: dict) -> tuple[int, int, int]:
+    now = datetime.now(timezone.utc)
+    display_month = int(args.get("month", now.month))
+    year = int(args.get("year", now.year))
+    db_month = display_month - 1 if 1 <= display_month <= 12 else display_month
+    return display_month, db_month, year
+
+
+def _period_label(db_month: int, year: int) -> str:
+    display_month = db_month + 1 if 0 <= db_month <= 11 else db_month
+    label = (
+        month_name[display_month] if 1 <= display_month <= 12 else f"Month {db_month}"
+    )
+    return f"{label} {year}"
+
+
+def _ending_qty(row: dict | None) -> float:
+    if not row:
+        return 0.0
+    received = fi.total_received(
+        row.get("w1_received"), row.get("w2_received"), row.get("w3_received")
+    )
+    pulled = fi.total_pulled(
+        row.get("w1_pulled"), row.get("w2_pulled"), row.get("w3_pulled")
+    )
+    return fi.ending_qty(row.get("opening_oh"), received, pulled)
+
+
+def _ending_value(
+    row: dict | None, fallback_unit_price: float | int | None = 0
+) -> float:
+    if not row:
+        return 0.0
+    if row.get("ending_value") is not None:
+        return fi.num(row.get("ending_value"))
+    if any(
+        row.get(key) is not None
+        for key in ("opening_value", "received_value", "pulled_value")
+    ):
+        return fi.ending_value(
+            row.get("opening_value"),
+            row.get("received_value"),
+            row.get("pulled_value"),
+        )
+    unit_price = row.get("unit_price")
+    return _ending_qty(row) * fi.num(
+        unit_price if unit_price is not None else fallback_unit_price
+    )
+
+
 def _wrap_in_pr(
     entry_ids: list[str], user_id: str, title: str, description: str = ""
 ) -> dict | None:
@@ -77,7 +130,6 @@ def _wrap_in_pr(
 def get_dashboard_stats(args: dict, user_role: str) -> dict:
     try:
         svc = _client()
-        now = datetime.now(timezone.utc)
         users_r = (
             svc.table("user_profiles")
             .select("id", count="exact")
@@ -90,40 +142,44 @@ def get_dashboard_stats(args: dict, user_role: str) -> dict:
             .eq("status", "upcoming")
             .execute()
         )
-        items_r = (
-            svc.table("inventory_items").select("id,unit_price,par_level").execute()
-        )
-        inv_r = (
-            svc.table("monthly_inventory")
-            .select("item_id,opening_oh")
-            .eq("month", now.month)
-            .eq("year", now.year)
+        live_r = (
+            svc.table("live_inventory")
+            .select("id,on_hand,par_level,sub_total")
             .execute()
         )
-        inv_map = {r["item_id"]: r["opening_oh"] for r in (inv_r.data or [])}
-        total_val = 0.0
-        reorder_n = 0
-        for item in items_r.data or []:
-            oh = inv_map.get(item["id"], 0)
-            total_val += oh * (item.get("unit_price") or 0)
-            if oh < (item.get("par_level") or 0):
-                reorder_n += 1
+        live_rows = live_r.data or []
+        total_val = sum(float(row.get("sub_total") or 0) for row in live_rows)
+        reorder_n = sum(
+            1
+            for row in live_rows
+            if float(row.get("on_hand") or 0) < float(row.get("par_level") or 0)
+        )
+        status_r = (
+            svc.table("month_status")
+            .select("month,year")
+            .eq("status", "open")
+            .order("year", desc=True)
+            .order("month", desc=True)
+            .limit(1)
+            .execute()
+        )
+        status = (status_r.data or [{}])[0]
+        db_month = int(status.get("month", datetime.now(timezone.utc).month - 1))
+        year = int(status.get("year", datetime.now(timezone.utc).year))
         return {
             "active_users": users_r.count or 0,
             "upcoming_events": events_r.count or 0,
-            "inventory_items": len(items_r.data or []),
+            "inventory_items": len(live_rows),
             "items_below_par": reorder_n,
             "estimated_inventory_value": round(total_val, 2),
-            "period": f"{now.strftime('%B')} {now.year}",
+            "period": _period_label(db_month, year),
         }
     except Exception as exc:
         return {"error": str(exc)}
 
 
 def get_inventory(args: dict, user_role: str) -> dict:
-    now = datetime.now(timezone.utc)
-    month = int(args.get("month", now.month))
-    year = int(args.get("year", now.year))
+    display_month, db_month, year = _period_from_args(args)
     try:
         svc = _client()
         items = (
@@ -135,12 +191,16 @@ def get_inventory(args: dict, user_role: str) -> dict:
         )
         inv = (
             svc.table("monthly_inventory")
-            .select("item_id,opening_oh")
-            .eq("month", month)
+            .select(
+                "item_id,opening_oh,w1_received,w2_received,w3_received,"
+                "w1_pulled,w2_pulled,w3_pulled,unit_price,"
+                "opening_value,received_value,pulled_value,ending_value"
+            )
+            .eq("month", db_month)
             .eq("year", year)
             .execute()
         )
-        inv_map = {r["item_id"]: r["opening_oh"] for r in (inv.data or [])}
+        inv_map = {r["item_id"]: r for r in (inv.data or [])}
         result = []
         new_items = []
         total_val = 0.0
@@ -152,9 +212,10 @@ def get_inventory(args: dict, user_role: str) -> dict:
                 if not is_new
                 else "New Items"
             )
-            oh = inv_map.get(item["id"], 0)
+            row_data = inv_map.get(item["id"], {})
+            oh = _ending_qty(row_data)
             par = item.get("par_level") or 0
-            val = oh * (item.get("unit_price") or 0)
+            val = _ending_value(row_data, item.get("unit_price"))
             total_val += val
             row = {
                 "sku": sku or f"(new:{item['id'][:8]})",
@@ -165,6 +226,10 @@ def get_inventory(args: dict, user_role: str) -> dict:
                 "below_par": oh < par,
                 "unit": item.get("unit", ""),
                 "value": round(val, 2),
+                "opening_value": round(float(row_data.get("opening_value") or 0), 2),
+                "received_value": round(float(row_data.get("received_value") or 0), 2),
+                "pulled_value": round(float(row_data.get("pulled_value") or 0), 2),
+                "ending_value": round(val, 2),
                 "is_new_item": is_new,
             }
             if is_new:
@@ -175,7 +240,7 @@ def get_inventory(args: dict, user_role: str) -> dict:
         below = [r for r in all_items if r["below_par"]]
         cats = sorted(set(r["category"] for r in result if r["category"]))
         return {
-            "month": month,
+            "month": display_month,
             "year": year,
             "total_items": len(all_items),
             "new_items_count": len(new_items),
@@ -244,25 +309,16 @@ def get_menu(args: dict, user_role: str) -> dict:
 
 
 def get_reorders(args: dict, user_role: str) -> dict:
-    now = datetime.now(timezone.utc)
     try:
         svc = _client()
-        items = (
-            svc.table("inventory_items")
-            .select("id,sku,description,par_level,unit,unit_price")
+        live = (
+            svc.table("live_inventory")
+            .select("sku,description,on_hand,par_level,order_qty,unit_price")
             .execute()
         )
-        inv = (
-            svc.table("monthly_inventory")
-            .select("item_id,opening_oh")
-            .eq("month", now.month)
-            .eq("year", now.year)
-            .execute()
-        )
-        inv_map = {r["item_id"]: r["opening_oh"] for r in (inv.data or [])}
         reorders = []
-        for item in items.data or []:
-            oh = inv_map.get(item["id"], 0)
+        for item in live.data or []:
+            oh = float(item.get("on_hand") or 0)
             par = item.get("par_level") or 0
             if oh < par:
                 reorders.append(
@@ -271,13 +327,25 @@ def get_reorders(args: dict, user_role: str) -> dict:
                         "description": item["description"],
                         "on_hand": oh,
                         "par_level": par,
-                        "shortage": par - oh,
-                        "unit": item.get("unit", ""),
+                        "shortage": float(item.get("order_qty") or (par - oh)),
+                        "unit": "",
                     }
                 )
         reorders.sort(key=lambda x: x["shortage"], reverse=True)
+        status = (
+            svc.table("month_status")
+            .select("month,year")
+            .eq("status", "open")
+            .order("year", desc=True)
+            .order("month", desc=True)
+            .limit(1)
+            .execute()
+        )
+        period = (status.data or [{}])[0]
+        db_month = int(period.get("month", datetime.now(timezone.utc).month - 1))
+        year = int(period.get("year", datetime.now(timezone.utc).year))
         return {
-            "period": f"{now.strftime('%B')} {now.year}",
+            "period": _period_label(db_month, year),
             "reorder_count": len(reorders),
             "items": reorders[:20],
         }
@@ -286,22 +354,33 @@ def get_reorders(args: dict, user_role: str) -> dict:
 
 
 def get_period_status(args: dict, user_role: str) -> dict:
-    now = datetime.now(timezone.utc)
     try:
         svc = _client()
+        status = (
+            svc.table("month_status")
+            .select("month,year,status")
+            .eq("status", "open")
+            .order("year", desc=True)
+            .order("month", desc=True)
+            .limit(1)
+            .execute()
+        )
+        current = (status.data or [{}])[0]
+        db_month = int(current.get("month", datetime.now(timezone.utc).month - 1))
+        year = int(current.get("year", datetime.now(timezone.utc).year))
         r = (
             svc.table("monthly_inventory")
             .select("month,year", count="exact")
-            .eq("month", now.month)
-            .eq("year", now.year)
+            .eq("month", db_month)
+            .eq("year", year)
             .execute()
         )
         has_current = (r.count or 0) > 0
         return {
-            "current_month": now.month,
-            "current_year": now.year,
+            "current_month": db_month + 1 if 0 <= db_month <= 11 else db_month,
+            "current_year": year,
             "has_inventory_for_current_period": has_current,
-            "period_label": now.strftime("%B %Y"),
+            "period_label": _period_label(db_month, year),
         }
     except Exception as exc:
         return {"error": str(exc)}

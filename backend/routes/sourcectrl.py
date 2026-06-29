@@ -381,6 +381,22 @@ def _inventory_overwrite_key(payload: dict) -> tuple | None:
     return ("month", month, year)
 
 
+def _weekly_inventory_column(direction: str) -> str | None:
+    if direction == "received":
+        return "received"
+    if direction in ("issued", "pulled"):
+        return "pulled"
+    return None
+
+
+def _weekly_txn_type(direction: str) -> str | None:
+    if direction == "received":
+        return "received"
+    if direction in ("issued", "pulled"):
+        return "issued"
+    return None
+
+
 def _assert_inventory_overwrite_allowed(
     sup, db_month: int, year: int, display_month: int
 ) -> None:
@@ -431,11 +447,13 @@ def _apply_confirmed_inventory_overwrites(entries: list[dict]) -> list[dict]:
             continue
 
         _, month, year, week, direction = key
-        if direction not in ("received", "issued"):
+        column_direction = _weekly_inventory_column(direction)
+        txn_type = _weekly_txn_type(direction)
+        if not column_direction or not txn_type:
             continue
         db_month = max(0, month - 1)
         _assert_inventory_overwrite_allowed(sup, db_month, year, month)
-        col = f"w{week}_{direction}"
+        col = f"w{week}_{column_direction}"
         # A confirmed weekly overwrite replaces the whole week+direction scope,
         # not just matching SKUs, so deleted rows cannot linger in reports.
         sup.table("monthly_inventory").update({col: 0}).eq("month", db_month).eq(
@@ -443,7 +461,7 @@ def _apply_confirmed_inventory_overwrites(entries: list[dict]) -> list[dict]:
         ).execute()
         sup.table("inventory_transactions").delete().eq("month", db_month).eq(
             "year", year
-        ).eq("week_number", week).eq("txn_type", direction).execute()
+        ).eq("week_number", week).eq("txn_type", txn_type).execute()
         cleared.append(
             {
                 "scope": "week",

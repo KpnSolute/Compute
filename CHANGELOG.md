@@ -4,6 +4,56 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.4] — 2026-06-29 — June live repair applied + parser prevention fix verified
+
+**Codex:** Implemented the June correction plan. Applied the targeted live Supabase repair for June 2026 (`monthly_inventory.month=5`, `year=2026`): deleted stale cranberry row `F00480038`, updated `3330099.pulled_value` to `-1.90`, and updated `6358832.pulled_value` to `-33.08`. Refreshed the June monthly snapshot with `refresh_monthly_snapshot(5, 2026)`.
+
+**Result:** Live June now matches `June Published Inventory.xlsx` exactly: 291 rows, opening 214, received 611, pulled 625, ending 200; values opening $9,575.02, received $30,744.57, pulled/flow $30,814.01, ending $9,505.58. Live per-SKU fingerprint now matches the workbook (`6fc31ec41f8120ec8257a20a019d3a1f`). Snapshot now shows `item_count=291`, `starting_total=$9,575.02`, `grand_total=$9,505.58`. `audit_inventory_period(5, 2026)` returned 0.
+
+**Rollover note:** May `F00480038` and June `F00408038` are the cranberry SKU rename/split. The corrected June data matches the published workbook; it is not a same-SKU auto-rollover for that one item.
+
+**Build:** `python -m ruff check backend/` passed; `python -m pytest backend/tests -q` passed (37 passed / 1 skipped); targeted parser/storage tests passed (34 passed / 1 skipped).
+**Push:** Codex → 56f3bdc — 2026-06-29.
+
+---
+
+## [v4.26.3] — 2026-06-29 — June Published live parse + rollover verification
+
+**Codex:** Read-only verification of the user's June Published workbook against live Supabase June 2026 (`monthly_inventory.month=5`, `year=2026`) plus May→June rollover audit.
+
+**Workbook parse:** Local parser produced 291 unique SKU rows and reconciled to Review controls: opening 214, received 611, pulled 625, ending 200; values opening $9,575.02, received $30,744.57, flow/pulled $30,814.01, ending $9,505.58. Expected per-SKU fingerprint: `6fc31ec41f8120ec8257a20a019d3a1f`.
+
+**Live check:** Live June currently does NOT exactly match the standardized workbook: 292 rows, opening 216, received 611, pulled 625, ending 202; values opening $9,686.42, received $30,744.57, pulled $30,848.99, ending $9,616.98. Live fingerprint: `50823686755e738b75caa57377e1a443`. Root differences found: extra carried cranberry row `F00480038` (+2 opening / +$111.40) while the June workbook uses `F00408038`; signed Review flow values for `3330099` and `6358832` are stored as `0` instead of `-1.90` and `-33.08` (+$34.98 pulled/flow value drift).
+
+**Rollover audit:** 230 shared SKUs rolled May ending qty/value into June opening exactly (213 qty / $9,575.02). 35 May-only SKUs ended at zero and harmlessly do not appear in June. 61 June-only SKUs exist; only `F00408038` has a positive workbook opening. One expected SKU (`6358832`) has June opening 1 despite May ending 0, matching the workbook but not a pure auto-rollover.
+**Push:** pending — not yet pushed.
+
+---
+
+## [v4.26.2] — 2026-06-29 — May Published live parse verification
+
+**Codex:** Read-only verification of the user's May Published workbook against live Supabase May 2026 (`monthly_inventory.month=4`, `year=2026`). The local parser produced 266 unique SKU rows and reconciled to Review controls: opening 167, received 589, pulled 543, ending 213; values opening $7,828.94, received $29,718.76, pulled $27,972.68, ending $9,575.02.
+
+**Live check:** Supabase live rows matched the same 266 rows and totals exactly. Per-SKU fingerprint across SKU, opening, W1-W3 received/pulled, unit price, opening/received/pulled/ending values matched (`1031188e890fcc2792edd55e6f3b48b1`). Sanity checks: 0 missing SKUs, 0 duplicate SKUs, 0 negative ending rows, 0 null prices, 0 null value controls.
+**Push:** pending — not yet pushed.
+
+---
+
+## [v4.26.1] — 2026-06-29 — Standardized Review controls + signed inventory flow
+
+**Codex:** Continued Claude's formula/source-control refactor against the standardized May and June Published workbooks supplied by the user.
+
+**Workbook verification:** May Published reconciles at 266 items / 167 opening / 589 received / 543 pulled / 213 ending. June Published reconciles at 291 items / 214 opening / 611 received / 625 pulled / 200 ending. Both workbooks match the standard grid formulas (`Total Received=SUM(E,G,I)`, `Total Pulled=SUM(F,H,J)`, `Ending OH=D+K-L`) and the Review tab controls.
+
+**Fixes:** Extended parser reconciliation to include standardized Review counts (`Invoice SKUs`, `Opening/Temp Items`, `Negative Ending Rows`) plus the Financial Control block. Preserved signed `Inventory Flow Value` rows instead of clamping them to zero, so June's parsed financial totals now match Review exactly (`opening $9,575.02`, `received $30,744.57`, `flow $30,814.01`, `ending $9,505.58`). Dispatch now accepts signed `pulled_value` while still rejecting negative physical quantities. Source-control overwrite cleanup now maps UI `issued` direction to real `wN_pulled` columns and `inventory_transactions.txn_type='issued'`.
+
+**Agent/API tools:** Routed remaining AI tool inventory calculations through the canonical formula helpers and open-period `live_inventory` view, removing more inline opening-only/dashboard math.
+
+**Verification:** Supabase MCP confirmed live `monthly_inventory` uses `w1_pulled/w2_pulled/w3_pulled` plus signed-capable numeric `pulled_value`/`ending_value`; no `wN_issued` monthly columns were present. `python -m ruff check backend/` passed; `python -m pytest backend/tests -q` passed (37 passed / 1 skipped); targeted parser/storage tests passed (34 passed / 1 skipped). `python -c "import backend.main"` could not run in the current shell because no local `.venv` exists and the active Python lacks `fastapi`.
+**Push:** pending — not yet pushed.
+
+---
+
 ## [v4.26.0] — 2026-06-29 — Canonical inventory formula layer (one source of truth)
 
 **Claude:** Logic refactor — embedded the standardized workbook's formulas into one canonical layer and routed every tier through it, deleting the duplicated inline math.

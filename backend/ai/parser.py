@@ -41,6 +41,16 @@ def _clamp_nonneg(value: Any) -> float | int | None:
     return n if n >= 0 else 0
 
 
+def _signed_num(value: Any) -> float | int | None:
+    """Parse a signed numeric value.
+
+    Quantity cells are non-negative physical counts, but Review financial flow
+    cells can be negative when price/cost movement makes ending value exceed
+    opening plus receipts. Preserve those signed audit values.
+    """
+    return _num(value)
+
+
 def _inventory_category(label: Any) -> str | None:
     text = str(label or "").strip()
     if not text:
@@ -372,7 +382,11 @@ def _parse_review_value_rows(wb) -> dict[str, dict[str, Any]]:
                 "pulled_value",
                 "ending_value",
             ):
-                parsed = _clamp_nonneg(rec.get(key))
+                parsed = (
+                    _signed_num(rec.get(key))
+                    if key == "pulled_value"
+                    else _clamp_nonneg(rec.get(key))
+                )
                 if parsed is not None:
                     values[key] = parsed
             if "pulled_value" not in values and (
@@ -382,11 +396,10 @@ def _parse_review_value_rows(wb) -> dict[str, dict[str, Any]]:
             if "ending_value" not in values and (
                 "opening_value" in values or "received_value" in values
             ):
-                values["ending_value"] = max(
-                    0,
-                    (values.get("opening_value") or 0)
-                    + (values.get("received_value") or 0)
-                    - (values.get("pulled_value") or 0),
+                values["ending_value"] = fi.ending_value(
+                    values.get("opening_value"),
+                    values.get("received_value"),
+                    values.get("pulled_value"),
                 )
             if values:
                 value_by_sku[sku] = values
@@ -517,10 +530,24 @@ def _parse_mjcc_flat_inventory(content: bytes) -> list[dict[str, Any]]:
 # lists a verified total per metric (label in col A, value in the next column).
 _REVIEW_CONTROL_LABELS = {
     "inventoryitems": "item_count",
+    "invoiceskus": "invoice_skus",
+    "openingtempitems": "temp_items",
     "openingoh": "opening",
     "totalreceived": "received",
     "totalpulled": "pulled",
     "endingoh": "ending",
+    "negativeendingrows": "negative_ending_rows",
+}
+
+
+_REVIEW_FINANCIAL_LABELS = {
+    "openinginventoryvalue": "opening_value",
+    "productreceiptvalue": "received_value",
+    "netinvoicereceiptvalue": "net_receipt_value",
+    "creditssurchargenet": "credits_surcharge_net",
+    "endinginventoryvalue": "ending_value",
+    "inventoryflowvalue": "pulled_value",
+    "endingdifferencecheck": "ending_difference_check",
 }
 
 
@@ -556,18 +583,25 @@ def _grid_totals(content: bytes) -> dict[str, float] | None:
             j = cols.get(key)
             return _num(row[j]) if j is not None and j < len(row) else None
 
-        t = {"item_count": 0.0, "opening": 0.0, "received": 0.0, "pulled": 0.0}
+        items: list[dict[str, Any]] = []
         for row in rows[hdr_idx + 1 :]:
             if all(v is None for v in row):
                 continue
             sku = row[cols["sku"]] if "sku" in cols and cols["sku"] < len(row) else None
-            desc = row[cols["description"]] if "description" in cols and cols["description"] < len(row) else None
+            desc = (
+                row[cols["description"]]
+                if "description" in cols and cols["description"] < len(row)
+                else None
+            )
             d = str(desc or "").strip()
-            if (not sku and not d) or "total" in d.lower() or d.lower() in ("description", "item description"):
+            if (
+                (not sku and not d)
+                or "total" in d.lower()
+                or d.lower() in ("description", "item description")
+            ):
                 continue
-            t["item_count"] += 1
-            t["opening"] += fi.num(_cell(row, "openingoh"))
-            t["received"] += fi.total_received(
+            opening = fi.num(_cell(row, "openingoh"))
+            received = fi.total_received(
                 _cell(row, "receivedwk1"),
                 _cell(row, "receivedwk2"),
                 _cell(row, "receivedwk3"),
@@ -578,9 +612,11 @@ def _grid_totals(content: bytes) -> dict[str, float] | None:
                 _cell(row, "pulledwk3"),
             )
             # weekly pulls win; fall back to the verified monthly Total Pulled cell
-            t["pulled"] += wk_pull if wk_pull else fi.num(_cell(row, "totalpulled"))
-        t["ending"] = fi.ending_oh(t["opening"], t["received"], t["pulled"])
-        return t
+            pulled = wk_pull if wk_pull else fi.num(_cell(row, "totalpulled"))
+            items.append(
+                {"sku": sku, "opening": opening, "received": received, "pulled": pulled}
+            )
+        return fi.review_controls(items)
     return None
 
 
@@ -618,6 +654,47 @@ def _review_controls(content: bytes) -> dict[str, float] | None:
         if controls:
             return controls
     return None
+
+
+def _review_financial_controls(content: bytes) -> dict[str, float] | None:
+    """Read the Review tab's Financial Control block."""
+    try:
+        import openpyxl
+    except ImportError:
+        return None
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    except Exception:
+        return None
+    for ws in wb.worksheets:
+        if "review" not in str(ws.title or "").lower():
+            continue
+        controls: dict[str, float] = {}
+        for row in ws.iter_rows(values_only=True):
+            for idx, cell in enumerate(row):
+                metric = _REVIEW_FINANCIAL_LABELS.get(_norm_header(cell))
+                if not metric or metric in controls:
+                    continue
+                for value in row[idx + 1 :]:
+                    val = _num(value)
+                    if val is not None:
+                        controls[metric] = val
+                        break
+        if controls:
+            return controls
+    return None
+
+
+def _parsed_financial_totals(content: bytes) -> dict[str, float] | None:
+    rows = _parse_mjcc_flat_inventory(content)
+    if not rows:
+        return None
+    return {
+        "opening_value": sum(fi.num(r.get("opening_value")) for r in rows),
+        "received_value": sum(fi.num(r.get("received_value")) for r in rows),
+        "pulled_value": sum(fi.num(r.get("pulled_value")) for r in rows),
+        "ending_value": sum(fi.num(r.get("ending_value")) for r in rows),
+    }
 
 
 def extract_workbook_formula_report(content: bytes) -> dict[str, Any] | None:
@@ -710,7 +787,11 @@ def extract_workbook_formula_report(content: bytes) -> dict[str, Any] | None:
                 continue
             cached = _num(vr[j])
             if cached is not None and abs(cached - computed) > 0.001:
-                key = {"totalreceived": "total_received", "totalpulled": "total_pulled", "endingoh": "ending_oh"}[metric]
+                key = {
+                    "totalreceived": "total_received",
+                    "totalpulled": "total_pulled",
+                    "endingoh": "ending_oh",
+                }[metric]
                 stale[key] += 1
 
     return {
@@ -744,8 +825,32 @@ def extract_workbook_reconciliation(content: bytes) -> dict[str, Any] | None:
         r = round(review[m], 2)
         deltas[m] = round(g - r, 2)
         if abs(g - r) > 0.001:
-            mismatches.append({"metric": m, "grid": g, "review": r, "delta": round(g - r, 2)})
-    return {
+            mismatches.append(
+                {"metric": m, "grid": g, "review": r, "delta": round(g - r, 2)}
+            )
+    parsed_financial = _parsed_financial_totals(content)
+    review_financial = _review_financial_controls(content)
+    financial = None
+    if parsed_financial and review_financial:
+        financial_metrics = (
+            "opening_value",
+            "received_value",
+            "pulled_value",
+            "ending_value",
+        )
+        financial_deltas = {
+            m: round(parsed_financial.get(m, 0) - review_financial.get(m, 0), 2)
+            for m in financial_metrics
+            if m in review_financial
+        }
+        financial = {
+            "parsed": {k: round(v, 2) for k, v in parsed_financial.items()},
+            "review": {k: round(v, 2) for k, v in review_financial.items()},
+            "deltas": financial_deltas,
+            "reconciled": all(abs(v) <= 0.001 for v in financial_deltas.values()),
+        }
+
+    result = {
         "grid": {k: round(v, 2) for k, v in grid.items()},
         "review": {k: round(v, 2) for k, v in review.items()},
         "deltas": deltas,
@@ -756,6 +861,9 @@ def extract_workbook_reconciliation(content: bytes) -> dict[str, Any] | None:
         "authoritative": "grid",
         "formulas": extract_workbook_formula_report(content),
     }
+    if financial is not None:
+        result["financial"] = financial
+    return result
 
 
 _HEADER_ROW_TOKENS = set(_FLAT_INV_HEADER_ALIASES) | {

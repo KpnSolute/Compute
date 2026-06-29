@@ -286,10 +286,10 @@ async def delete_category(cat_id: str, auth_user: dict = Depends(_require_manage
 @router.get("/dashboard/stats")
 async def get_dashboard_stats(auth_user: dict = Depends(_get_auth_user)):
     try:
-        # total_value = current inventory value for the open period, from
-        # live_inventory (sub_total = ending stock x unit_price). live_inventory
-        # derives from monthly_inventory, so this is period-aligned and uses the
-        # canonical ending math (opening + received - issued), not opening alone.
+        # total_value = current inventory value for the open period. The
+        # live_inventory view prefers monthly_inventory.ending_value so dashboard
+        # totals follow workbook Review controls instead of recomputing value
+        # from quantity x current catalog price.
         total_value = 0.0
         try:
             tv = supabase_service.table("live_inventory").select("sub_total").execute()

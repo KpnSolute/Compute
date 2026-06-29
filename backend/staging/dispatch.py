@@ -56,6 +56,15 @@ def _non_negative(value, field: str, sku: str | None = None):
     return number
 
 
+def _numeric(value, field: str, sku: str | None = None):
+    if value is None:
+        return None
+    try:
+        return float(str(value).replace(",", ""))
+    except (TypeError, ValueError):
+        raise ValueError(f"{field} must be numeric for SKU {sku or 'unknown'}")
+
+
 def _validate_inventory_item_numbers(
     items: list[dict], fields: tuple[str, ...]
 ) -> None:
@@ -63,7 +72,10 @@ def _validate_inventory_item_numbers(
         sku = item.get("sku")
         for field in fields:
             if field in item and item.get(field) is not None:
-                _non_negative(item.get(field), field, sku)
+                if field == "pulled_value":
+                    _numeric(item.get(field), field, sku)
+                else:
+                    _non_negative(item.get(field), field, sku)
 
 
 def _rollover_opening_balances(
@@ -279,8 +291,11 @@ def dispatch_inventory_save(payload: dict) -> dict:
             ("ending_value", "ending_value"),
         ):
             if item.get(payload_key) is not None:
-                monthly_fields[column] = _non_negative(
-                    item.get(payload_key), payload_key, item.get("sku")
+                parser = _numeric if payload_key == "pulled_value" else _non_negative
+                monthly_fields[column] = parser(
+                    item.get(payload_key),
+                    payload_key,
+                    item.get("sku"),
                 )
         if "ending_value" not in monthly_fields and (
             "opening_value" in monthly_fields or "received_value" in monthly_fields
@@ -961,6 +976,11 @@ def validate_payload(operation: str, full_payload: dict) -> str | None:
                     "w2p",
                     "w3p",
                     "total_pulled_raw",
+                    "opening_unit_cost",
+                    "opening_value",
+                    "received_value",
+                    "pulled_value",
+                    "ending_value",
                 ),
             )
         elif operation == "inventory_week_update":

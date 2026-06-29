@@ -12,7 +12,7 @@ import pytest
 openpyxl = pytest.importorskip("openpyxl")
 
 _JUNE_PATH = pathlib.Path(
-    r"C:\Users\ogdev\JobCorp\June 2026\June Pre-Published Inventory.xlsx"
+    r"C:\Users\ogdev\JobCorp\June 2026\June Published Inventory.xlsx"
 )
 _MAY_PATH = pathlib.Path(
     r"C:\Users\ogdev\JobCorp\May 2026\May Published Inventory.xlsx"
@@ -354,8 +354,13 @@ def test_reconciliation_passes_when_grid_matches_review():
     # one item: opening 5, received 10 (4+3+3), pulled 6 (2+2+2) → ending 9
     content = _wb_with_review(
         [["Dairy", "111", "Milk", 5, 4, 2, 3, 2, 3, 2, 10, 6, 9, 1.0]],
-        [("Inventory Items", 1), ("Opening OH", 5), ("Total Received", 10),
-         ("Total Pulled", 6), ("Ending OH", 9)],
+        [
+            ("Inventory Items", 1),
+            ("Opening OH", 5),
+            ("Total Received", 10),
+            ("Total Pulled", 6),
+            ("Ending OH", 9),
+        ],
     )
     r = extract_workbook_reconciliation(content)
     assert r is not None
@@ -368,8 +373,13 @@ def test_reconciliation_fails_when_review_is_stale():
 
     content = _wb_with_review(
         [["Dairy", "111", "Milk", 5, 4, 2, 3, 2, 3, 2, 10, 6, 9, 1.0]],
-        [("Inventory Items", 1), ("Opening OH", 5), ("Total Received", 10),
-         ("Total Pulled", 0), ("Ending OH", 15)],
+        [
+            ("Inventory Items", 1),
+            ("Opening OH", 5),
+            ("Total Received", 10),
+            ("Total Pulled", 0),
+            ("Ending OH", 15),
+        ],
     )
     r = extract_workbook_reconciliation(content)
     assert r is not None
@@ -404,10 +414,24 @@ def test_formula_report_extracts_and_matches_template():
     ws = wb.active
     ws.title = "Inventory"
     ws.append(STANDARD_HEADER)
-    ws.append([
-        "Dairy", "111", "Milk", 5, 4, 2, 3, 2, 3, 2,
-        "=SUM(E2,G2,I2)", "=SUM(F2,H2,J2)", "=D2+K2-L2", 1.0,
-    ])
+    ws.append(
+        [
+            "Dairy",
+            "111",
+            "Milk",
+            5,
+            4,
+            2,
+            3,
+            2,
+            3,
+            2,
+            "=SUM(E2,G2,I2)",
+            "=SUM(F2,H2,J2)",
+            "=D2+K2-L2",
+            1.0,
+        ]
+    )
     buf = io.BytesIO()
     wb.save(buf)
     rep = extract_workbook_formula_report(buf.getvalue())
@@ -473,8 +497,36 @@ def test_june_review_financial_controls_are_preserved():
     rows = parse_excel(_JUNE_PATH.read_bytes())
     assert round(sum(r.get("opening_value") or 0 for r in rows), 2) == 9575.02
     assert round(sum(r.get("received_value") or 0 for r in rows), 2) == 30744.57
-    assert round(sum(r.get("pulled_value") or 0 for r in rows), 2) == 0
-    assert round(sum(r.get("ending_value") or 0 for r in rows), 2) == 40319.59
+    assert round(sum(r.get("pulled_value") or 0 for r in rows), 2) == 30814.01
+    assert round(sum(r.get("ending_value") or 0 for r in rows), 2) == 9505.58
+
+
+@pytest.mark.skipif(not _JUNE_PATH.exists(), reason="June workbook not present")
+def test_june_signed_inventory_flow_values_are_preserved():
+    from backend.ai.parser import parse_excel
+
+    rows = parse_excel(_JUNE_PATH.read_bytes())
+    signed = {
+        r["sku"]: r.get("pulled_value") for r in rows if r.get("pulled_value", 0) < 0
+    }
+    assert signed == {"3330099": -1.9000000000000057, "6358832": -33.08}
+
+
+@pytest.mark.skipif(not _JUNE_PATH.exists(), reason="June workbook not present")
+def test_june_review_controls_include_standardized_counts_and_financials():
+    from backend.ai.parser import extract_workbook_reconciliation
+
+    recon = extract_workbook_reconciliation(_JUNE_PATH.read_bytes())
+    assert recon is not None
+    assert recon["reconciled"] is True
+    assert recon["grid"]["invoice_skus"] == 277
+    assert recon["grid"]["temp_items"] == 14
+    assert recon["grid"]["negative_ending_rows"] == 0
+    assert recon["review"]["invoice_skus"] == 277
+    assert recon["review"]["temp_items"] == 14
+    assert recon["review"]["negative_ending_rows"] == 0
+    assert recon["financial"]["reconciled"] is True
+    assert recon["financial"]["parsed"]["pulled_value"] == 30814.01
 
 
 @pytest.mark.skipif(not _MAY_PATH.exists(), reason="May workbook not present")
@@ -526,7 +578,24 @@ def test_total_pulled_raw_fallback_for_blank_weekly_pulls():
 
     rows = parse_excel(
         _wb_bytes(
-            [["Produce", "77002", "Lettuce", 60, 15, None, 10, None, 8, None, 33, 40, 27, 0.89]]
+            [
+                [
+                    "Produce",
+                    "77002",
+                    "Lettuce",
+                    60,
+                    15,
+                    None,
+                    10,
+                    None,
+                    8,
+                    None,
+                    33,
+                    40,
+                    27,
+                    0.89,
+                ]
+            ]
         )
     )
     assert rows and rows[0].get("total_pulled_raw") == 40
@@ -541,12 +610,18 @@ def test_standardized_may_uses_per_week_pulls_not_fallback():
     rows = parse_excel(_MAY_PATH.read_bytes())
     assert rows
     assert not [r for r in rows if r.get("total_pulled_raw")]
-    assert sum((r.get("w1p") or 0) + (r.get("w2p") or 0) + (r.get("w3p") or 0) for r in rows) == 543
+    assert (
+        sum(
+            (r.get("w1p") or 0) + (r.get("w2p") or 0) + (r.get("w3p") or 0)
+            for r in rows
+        )
+        == 543
+    )
 
 
 @pytest.mark.skipif(not _JUNE_PATH.exists(), reason="June workbook not present")
 def test_real_june_formula_pulls_do_not_create_raw_pulls():
-    """June has formula Total Pulled cells with no cached values and blank pull columns."""
+    """Standardized June has real per-week pulls; Total Pulled Raw stays unused."""
     from backend.ai.parser import parse_excel
 
     rows = parse_excel(_JUNE_PATH.read_bytes())
@@ -557,7 +632,7 @@ def test_real_june_formula_pulls_do_not_create_raw_pulls():
             (r.get("w1p") or 0) + (r.get("w2p") or 0) + (r.get("w3p") or 0)
             for r in rows
         )
-        == 0
+        == 625
     )
 
 
