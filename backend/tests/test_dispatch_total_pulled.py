@@ -1,14 +1,15 @@
 """
-Unit tests for total_pulled_raw → inventory_transactions (week_number=0).
+Unit tests for total_pulled_raw → inventory_transactions (week_number=3) + w3_pulled.
 
 Verifies that dispatch_inventory_save:
-  - writes a week_number=0 issued transaction when an item carries total_pulled_raw
-  - clears prior week0 rows for the same staging_entry_id on retry (idempotent)
+  - writes a week_number=3 issued transaction AND sets the w3_pulled column when an
+    item carries total_pulled_raw (verified monthly pull, no weekly split)
+  - clears prior rows for the same staging_entry_id on retry (idempotent)
   - does NOT erase unrelated staging entries' transaction rows
   - writes no transaction rows when total_pulled_raw is absent
 
 Also verifies that _granular_commit_changes in sourcectrl assigns action='pull'
-and week_number=0 for the total_pulled_raw field.
+and week_number=3 for the total_pulled_raw field.
 
 Uses in-memory fake Supabase client — zero network/DB required.
 """
@@ -200,8 +201,10 @@ class FakeSup:
 # ── dispatch tests ────────────────────────────────────────────────────────────
 
 
-def test_total_pulled_raw_writes_week0_transaction():
-    """An item with total_pulled_raw gets a week_number=0 issued transaction."""
+def test_total_pulled_raw_writes_week3_transaction_and_column():
+    """An item with total_pulled_raw gets a week_number=3 issued transaction AND
+    its verified monthly pull is written into the w3_pulled column so the stored
+    ending (opening + received - pulled) is correct."""
     from backend.staging.dispatch import dispatch_inventory_save
 
     sup = FakeSup()
@@ -227,12 +230,15 @@ def test_total_pulled_raw_writes_week0_transaction():
     txns = sup.txns
     assert len(txns) == 1, f"Expected 1 transaction, got {txns}"
     txn = txns[0]
-    assert txn["week_number"] == 0
+    assert txn["week_number"] == 3
     assert txn["txn_type"] == "issued"
     assert txn["quantity"] == 40.0
     assert txn["staging_entry_id"] == STAGING_ID
     assert txn["item_id"] == ITEM_ID
     assert txn["unit_price"] == 1.5
+    # w3_pulled column must carry the verified monthly total
+    mi = sup.table("monthly_inventory")._rows
+    assert mi and mi[0].get("w3_pulled") == 40.0, f"w3_pulled not set; got {mi}"
 
 
 def test_total_pulled_raw_retry_is_idempotent():
@@ -311,7 +317,7 @@ def test_other_staging_entry_txns_preserved():
     )
     assert any(t["staging_entry_id"] == "stage-other" for t in txns)
     assert any(
-        t["week_number"] == 0 and t["staging_entry_id"] == STAGING_ID for t in txns
+        t["week_number"] == 3 and t["staging_entry_id"] == STAGING_ID for t in txns
     )
 
 
@@ -414,8 +420,8 @@ def test_inventory_save_retry_replaces_weekly_and_week0_rows_for_same_staging_id
     assert sorted(
         (t["week_number"], t["txn_type"], t["quantity"]) for t in sup.txns
     ) == [
-        (0, "issued", 4),
         (1, "received", 2),
+        (3, "issued", 4),
     ]
 
 
@@ -482,7 +488,7 @@ def test_granular_commit_changes_total_pulled_raw():
     assert len(changes) == 1, f"Expected 1 change row, got {changes}"
     c = changes[0]
     assert c["action"] == "pull"
-    assert c["week_number"] == 0
+    assert c["week_number"] == 3
     assert c["field_name"] == "total_pulled_raw"
     assert c["new_value"] == 40.0
     assert c["item_id"] == ITEM_ID

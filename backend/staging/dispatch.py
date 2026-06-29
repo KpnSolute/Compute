@@ -88,21 +88,6 @@ def _rollover_opening_balances(
 
     prev_ids = [r["item_id"] for r in prev_r.data]
 
-    # Aggregate week-0 pulls from inventory_transactions (May-style total_pulled_raw)
-    txn_r = (
-        sup.table("inventory_transactions")
-        .select("item_id,quantity")
-        .in_("item_id", prev_ids)
-        .eq("month", prev_db_month)
-        .eq("year", prev_year)
-        .eq("week_number", 0)
-        .eq("txn_type", "issued")
-        .execute()
-    )
-    agg_pulls: dict[str, float] = {}
-    for t in txn_r.data or []:
-        agg_pulls[t["item_id"]] = agg_pulls.get(t["item_id"], 0) + (t["quantity"] or 0)
-
     # Existing current rows with nonzero openings are preserved. Full-month sheets
     # that explicitly sent Opening OH are also preserved, even when the value is 0.
     curr_r = (
@@ -120,6 +105,8 @@ def _rollover_opening_balances(
         iid = prev["item_id"]
         if iid in explicit_on_hand_item_ids or curr_map.get(iid, 0) != 0:
             continue
+        # Ending = opening + received - pulled, all from the w*_pulled columns
+        # (total_pulled_raw now lands in w3_pulled, so no week-0 ledger lookup).
         closing = max(
             0,
             (
@@ -130,7 +117,6 @@ def _rollover_opening_balances(
                 - (prev.get("w1_pulled") or 0)
                 - (prev.get("w2_pulled") or 0)
                 - (prev.get("w3_pulled") or 0)
-                - agg_pulls.get(iid, 0)
             ),
         )
         if closing > 0:
@@ -290,12 +276,18 @@ def dispatch_inventory_save(payload: dict) -> dict:
         count += 1
 
         # May-style workbooks: weekly pull columns blank but Total Pulled (col L) is
-        # verified. Record as a week_number=0 aggregate issued transaction so
-        # source-control history shows the pull without inventing per-week distribution.
+        # verified. The 3-week schema has no month-aggregate column, so attribute
+        # the verified monthly total to week 3 (the last week) — both the
+        # w3_pulled column AND a matching week-3 ledger row, so the stored ending
+        # (opening + received - pulled) and the audit ledger reconcile. Only used
+        # when per-week pulls are absent (parser guarantees mutual exclusivity).
         tpr = item.get("total_pulled_raw")
         if tpr is not None:
             pr_qty = _non_negative(tpr, "total_pulled_raw", item.get("sku"))
             if pr_qty:
+                monthly_fields["w3_pulled"] = (
+                    monthly_fields.get("w3_pulled", 0) + pr_qty
+                )
                 # Per-item staging_entry_id: set when _apply_entries batches multiple
                 # entries into one call (each item carries its own entry's ID).
                 item_sid = item.get("_staging_entry_id") or staging_entry_id
@@ -305,7 +297,7 @@ def dispatch_inventory_save(payload: dict) -> dict:
                         "sku": _sku,
                         "month": db_month,
                         "year": year,
-                        "week_number": 0,
+                        "week_number": 3,
                         "txn_type": "issued",
                         "quantity": pr_qty,
                         "unit_price": _non_negative(

@@ -128,10 +128,10 @@ def _granular_commit_changes(
                     action = "pull"
                 else:
                     action = "enter"
-                # total_pulled_raw is a month-aggregate pull (no weekly breakdown):
-                # store as week_number=0 to distinguish from per-week w1_issued rows.
+                # total_pulled_raw is a verified monthly pull with no weekly split;
+                # it is attributed to week 3 (matching dispatch's w3_pulled write).
                 if field == "total_pulled_raw":
-                    week_number = 0
+                    week_number = 3
                 elif wk_m:
                     week_number = int(wk_m.group(1))
                 else:
