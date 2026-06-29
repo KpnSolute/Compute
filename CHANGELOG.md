@@ -4,6 +4,15 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.5] — 2026-06-29 — June period wiped for clean re-upload test
+
+**Codex:** Per user request, wiped live June 2026 period data so the fixed parser/dispatch logic can be tested by re-uploading `June Published Inventory.xlsx` through Data Entry. Deleted only June period artifacts: `monthly_inventory` rows (`month=5`, `year=2026`), `inventory_transactions`, `monthly_snapshots`, and `inventory_audit_log`. Catalog/items/categories and May data were left untouched.
+
+**Verification:** Before wipe: June had 291 monthly rows, 709 transaction rows, 1 snapshot, 0 audit rows. After wipe: June has 0 monthly rows, 0 transaction rows, 0 snapshots, 0 audit rows. May remains intact with 266 monthly rows and 1 snapshot.
+**Push:** pending — not yet pushed.
+
+---
+
 ## [v4.26.4] — 2026-06-29 — June live repair applied + parser prevention fix verified
 
 **Codex:** Implemented the June correction plan. Applied the targeted live Supabase repair for June 2026 (`monthly_inventory.month=5`, `year=2026`): deleted stale cranberry row `F00480038`, updated `3330099.pulled_value` to `-1.90`, and updated `6358832.pulled_value` to `-33.08`. Refreshed the June monthly snapshot with `refresh_monthly_snapshot(5, 2026)`.
@@ -13,7 +22,7 @@ This is the **central development memory and discussion board** for development 
 **Rollover note:** May `F00480038` and June `F00408038` are the cranberry SKU rename/split. The corrected June data matches the published workbook; it is not a same-SKU auto-rollover for that one item.
 
 **Build:** `python -m ruff check backend/` passed; `python -m pytest backend/tests -q` passed (37 passed / 1 skipped); targeted parser/storage tests passed (34 passed / 1 skipped).
-**Push:** Codex → 56f3bdc — 2026-06-29.
+**Push:** Codex → c8e63ee — 2026-06-29.
 
 ---
 
