@@ -11,7 +11,7 @@ This is the **central development memory and discussion board** for development 
 **Fix:** Corrected Meal Log data entry and reporting. The Meal Log form now uses explicit payer types (`Staff`, `Visitor`, `Monitor`, `Comp Guest`) instead of incorrectly reusing meal-period names as the row type. Backend log payloads now include the selected form date plus signed/paid/complimentary summary counts. The Reports page now loads live `meal_log` entries from `/api/logs/daily`, filters them by the selected report month/year, and calculates signed entries, meals served, paid meals, and complimentary meals from the stored rows.
 
 **Verification:** Production API staff login + inventory smoke passed; production meal-log create/read/delete smoke completed with 0 test rows left in `daily_operations_logs`. `python -m ruff check backend/` passed; targeted backend tests passed (25 passed / 1 skipped); `npx tsc --noEmit` passed; `npm run build` passed with existing Vite warnings; `npm run lint` passed with existing warnings only.
-**Push:** pending — Codex
+**Push:** Codex → acb2f22 — 2026-06-29
 
 ---
 
