@@ -21,6 +21,17 @@ def _client():
     return _svc
 
 
+# Payload weekly key → monthly_inventory column name.
+_WEEK_FIELD_MAP = [
+    ("w1r", "w1_received"),
+    ("w2r", "w2_received"),
+    ("w3r", "w3_received"),
+    ("w1p", "w1_pulled"),
+    ("w2p", "w2_pulled"),
+    ("w3p", "w3_pulled"),
+]
+
+
 # ── per-operation diff handlers ───────────────────────────────────────────────
 
 
@@ -60,6 +71,12 @@ def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dic
     ):
         if item.get(field) is not None:
             after[field] = item[field]
+    # Weekly movement columns (BUG #1): the payload carries w1r..w3p but the diff
+    # historically only compared item-level + value fields, so weekly received/pulled
+    # changes never surfaced in the commit preview. Map payload keys → DB column names.
+    for src, col in _WEEK_FIELD_MAP:
+        if item.get(src) is not None:
+            after[col] = item[src]
     # May-style workbooks carry total_pulled_raw when weekly pull columns are blank.
     # Surface it in the diff so commit_changes records an auditable pull action.
     if item.get("total_pulled_raw") is not None:
@@ -89,7 +106,8 @@ def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dic
             _client()
             .table("monthly_inventory")
             .select(
-                "opening_oh,opening_unit_cost,opening_value,received_value,pulled_value,ending_value"
+                "opening_oh,opening_unit_cost,opening_value,received_value,pulled_value,ending_value,"
+                "w1_received,w2_received,w3_received,w1_pulled,w2_pulled,w3_pulled"
             )
             .eq("item_id", live["id"])
             .eq("month", db_month)
@@ -118,6 +136,10 @@ def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dic
     ):
         if field in after or live_monthly.get(field) is not None:
             before[field] = live_monthly.get(field)
+    # Weekly columns into `before` from the live monthly row (BUG #1).
+    for _src, col in _WEEK_FIELD_MAP:
+        if col in after or live_monthly.get(col) is not None:
+            before[col] = live_monthly.get(col)
 
     changed_fields = [
         k
@@ -135,6 +157,11 @@ def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dic
         )
         if before.get(k) != after.get(k)
     ]
+    # Weekly movement changes — only flag columns actually present in the payload,
+    # so a value-only save doesn't spuriously diff blank weekly fields (BUG #1).
+    for _src, col in _WEEK_FIELD_MAP:
+        if col in after and (before.get(col) or 0) != (after.get(col) or 0):
+            changed_fields.append(col)
     # total_pulled_raw is always a new pull record — no before value in DB.
     if "total_pulled_raw" in after:
         changed_fields.append("total_pulled_raw")

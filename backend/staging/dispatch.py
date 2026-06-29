@@ -164,8 +164,14 @@ def _rollover_opening_balances(
 
 
 def dispatch_inventory_save(payload: dict) -> dict:
-    month = payload.get("month") or datetime.now().month  # 1-indexed from staging
-    year = payload.get("year") or datetime.now().year
+    # 1-indexed month from staging. Use explicit None checks, NOT `or`, so a
+    # provided value is never silently swapped for the current month (BUG #4).
+    month = payload.get("month")
+    if month is None:
+        month = datetime.now().month
+    year = payload.get("year")
+    if year is None:
+        year = datetime.now().year
     items = payload.get("items", [])
     notes = payload.get("notes", "")
     if not items:
@@ -542,8 +548,13 @@ def dispatch_inventory_week(payload: dict) -> dict:
     on_hand (opening) and the other weeks are never touched. Unrecognized SKUs
     resolve into "New Items" for manager review (force_review).
     """
-    month = payload.get("month") or datetime.now().month  # 1-indexed
-    year = payload.get("year") or datetime.now().year
+    # 1-indexed month; explicit None checks so a real value is never replaced (BUG #4).
+    month = payload.get("month")
+    if month is None:
+        month = datetime.now().month
+    year = payload.get("year")
+    if year is None:
+        year = datetime.now().year
     week = int(payload.get("week") or 0)
     direction = (payload.get("direction") or "received").lower()
     items = payload.get("items", [])
