@@ -4,6 +4,35 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.25.0] — 2026-06-29 — Review-tab reconciliation gate (extraction now knows the Review)
+
+**Claude:** User reported the extraction was "falsifying" data — DB ≠ uploaded workbook. Diagnosed and fixed.
+
+**Diagnosis:** Per-item parsing of the June Published workbook is actually correct — all 291 grid items match Supabase exactly (received 611, pulled 625 to the item). The two real causes of divergence:
+1. **Extraction was blind to the Review tab.** `parse_excel` read only the Inventory grid; nothing reconciled it against the Review's Quantity Control verified totals. The uploaded June file is internally inconsistent — grid pulled 625 / ending 200, but its Review tab still says pulled 0 / ending 821 (stale; not recalculated after pulls were entered). Nothing caught this.
+2. **Rollover phantom.** `_rollover_opening_balances` re-injected the old cranberry SKU `F00480038` (in May, not in the June file) → +1 row / +2 opening. Removed the June phantom row; June now matches the upload (291 rows, opening 214, received 611, pulled 625, ending 200). Durable fix is consistent cranberry SKU across the source files (May uses F00480038, June uses F00408038).
+
+**Feature — workbook reconciliation (commit fa3d354):**
+- `parser.extract_workbook_reconciliation()` sums the Inventory grid and reads the Review Quantity Control block (Inventory Items / Opening OH / Total Received / Total Pulled / Ending OH), returning per-metric deltas + a `reconciled` flag (None when no Review tab).
+- `data_entry`: threads it through the inventory_save parse meta and **blocks** an upload whose grid disagrees with its Review controls (mirrors the invoice reconciliation gate), surfacing the mismatch in the response.
+- Tests: synthetic pass/fail/no-review + real May Published reconciles clean; June Published correctly flagged.
+
+**Build:** ruff clean, pytest 29 passed / 4 skipped.
+**Push:** fa3d354 — 2026-06-29.
+
+---
+
+## [v4.24.3] — 2026-06-29 — Live UI inventory value display wiring
+
+**Codex:** Checked the production Chrome session at `https://kpncompute.onrender.com` through the normal login flow. The dashboard and inventory pages were loading live data, not empty state: dashboard showed 291 June line items and the Inventory page rendered 291 table rows with no API error. Found the UI display bug: the main Inventory Value card showed the audited API value `$40,319.59`, while the dashboard Monthly Inventory card still recomputed closing value as `$34,959.28` from quantity × current unit price. Inventory page category totals and row values had the same stale recomputation path.
+
+**Fix:** Updated `frontend/src/components/Portal.tsx` so dashboard monthly cards and Inventory page regular/grouped/compact totals prefer API audited value fields (`openingValue`, `receivedValue`, `pulledValue`, `endingValue`/`value`) and only fall back to local quantity × price math when a row has an unsaved draft edit. Updated `frontend/src/components/Operations.tsx` so Monthly Inventory summary cards, row value cells, and grouped totals use audited API values unless the row has local edits.
+
+**Verification:** Chrome production smoke confirmed live data is present but deployed UI is still pre-fix until this frontend change is shipped. Local frontend `npx tsc --noEmit` passed; `npm run build` passed with existing Vite dynamic-import/chunk-size warnings.
+**Push:** included in this production release — Codex
+
+---
+
 ## [v4.24.2] — 2026-06-29 — Live API/report verification and meal-log calculations
 
 **Codex:** Verified production API inventory responses with an authenticated staff session against live Supabase totals. `/api/inventory?month=5&year=2026` returns 266 May rows with closing value $9,575.02; `/api/inventory?month=6&year=2026` returns 291 June rows with opening value $9,575.02 and closing value $40,319.59. Supabase audit remains clean for May and June.
