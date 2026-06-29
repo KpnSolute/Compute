@@ -95,12 +95,12 @@ def get_dashboard_stats(args: dict, user_role: str) -> dict:
         )
         inv_r = (
             svc.table("monthly_inventory")
-            .select("item_id,on_hand")
+            .select("item_id,opening_oh")
             .eq("month", now.month)
             .eq("year", now.year)
             .execute()
         )
-        inv_map = {r["item_id"]: r["on_hand"] for r in (inv_r.data or [])}
+        inv_map = {r["item_id"]: r["opening_oh"] for r in (inv_r.data or [])}
         total_val = 0.0
         reorder_n = 0
         for item in items_r.data or []:
@@ -135,12 +135,12 @@ def get_inventory(args: dict, user_role: str) -> dict:
         )
         inv = (
             svc.table("monthly_inventory")
-            .select("item_id,on_hand")
+            .select("item_id,opening_oh")
             .eq("month", month)
             .eq("year", year)
             .execute()
         )
-        inv_map = {r["item_id"]: r["on_hand"] for r in (inv.data or [])}
+        inv_map = {r["item_id"]: r["opening_oh"] for r in (inv.data or [])}
         result = []
         new_items = []
         total_val = 0.0
@@ -254,12 +254,12 @@ def get_reorders(args: dict, user_role: str) -> dict:
         )
         inv = (
             svc.table("monthly_inventory")
-            .select("item_id,on_hand")
+            .select("item_id,opening_oh")
             .eq("month", now.month)
             .eq("year", now.year)
             .execute()
         )
-        inv_map = {r["item_id"]: r["on_hand"] for r in (inv.data or [])}
+        inv_map = {r["item_id"]: r["opening_oh"] for r in (inv.data or [])}
         reorders = []
         for item in items.data or []:
             oh = inv_map.get(item["id"], 0)

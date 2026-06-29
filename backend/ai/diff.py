@@ -78,7 +78,7 @@ def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dic
         mi_r = (
             _client()
             .table("monthly_inventory")
-            .select("on_hand")
+            .select("opening_oh")
             .eq("item_id", live["id"])
             .eq("month", db_month)
             .eq("year", year)
@@ -86,7 +86,7 @@ def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dic
             .execute()
         )
         if mi_r.data:
-            live_on_hand = int(mi_r.data[0].get("on_hand") or 0)
+            live_on_hand = int(mi_r.data[0].get("opening_oh") or 0)
 
     before = {
         "sku": live["sku"],
