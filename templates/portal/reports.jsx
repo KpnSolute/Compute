@@ -24,8 +24,8 @@ function buildReports(period, invState){
     { id:'moninv', name:'Monthly Inventory Roll-up', group:'Inventory', icon:'fileText', period:periodLbl,
       columns:[
         {key:'item',label:'Item'},{key:'cat',label:'Category'},
-        {key:'opening',label:'Opening'},{key:'received',label:'Received'},{key:'issued',label:'Issued'},
-        {key:'closing',label:'Closing',get:r=>Math.max(0,(r.opening||0)+(r.received||0)-(r.issued||0))},
+        {key:'opening',label:'Starting Bal'},{key:'received',label:'Total Received'},{key:'issued',label:'Total Pulled'},
+        {key:'closing',label:'Ending Bal',get:r=>Math.max(0,(r.opening||0)+(r.received||0)-(r.issued||0))},
         {key:'value',label:'Value',get:r=>'$'+(Math.max(0,(r.opening||0)+(r.received||0)-(r.issued||0))*r.price).toFixed(2)},
       ],
       build:()=> window.DS.monthlyRollup(inv, period) },

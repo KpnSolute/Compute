@@ -4,6 +4,68 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.20.15] - 2026-06-28 - Staff monthly report templates
+
+**Codex UI:** Opened Reports access to staff-level users while restricting staff-visible report choices to the Monthly Inventory Roll-up. Managers and admins still see the full report catalogue. The printable monthly inventory report now includes Starting Balance, Total Received, Total Pulled, and Ending Balance in the live report summary.
+
+**Codex templates:** Added a blank Monthly Inventory Report template under Inventory so staff can print a monthly paper report with the required balance fields: Starting Bal, Total Received, Total Pulled, and Ending Bal. Mirrored the same template/reference label updates into `templates/portal`.
+
+**Verification:** Frontend ESLint quiet passed, `npx tsc --noEmit` passed, and `npm run build` passed with existing Vite dynamic-import/chunk warnings. Browser UI testing was started but not completed before the commit/push request.
+
+**Push:** pending
+
+---
+
+## [v4.20.14] - 2026-06-28 - Archive snapshot balance columns
+
+**Codex UI:** Fixed the live Archives inventory snapshot view so snapshots no longer collapse to only an on-hand value. Each snapshot now calculates and displays Starting Balance, Total Received, Total Pulled, and Ending Balance from the same item-level inventory contract used by Reports, including month-level aggregate pulls via `totalIssued` / `aggregateIssued`. Below-par counts now use ending quantity instead of raw opening quantity.
+
+**Verification:** Frontend ESLint quiet passed, `npx tsc --noEmit` passed, and `npm run build` passed with existing Vite dynamic-import/chunk warnings.
+
+**Push:** pending
+
+---
+
+## [v4.20.13] - 2026-06-28 - June upload balance verification
+
+**Codex:** Checked live MJCCv1 after the June Pre-Published Inventory upload. June staged and merged 291 `inventory_save` entries, with 0 `TEMP_000` collisions, 0 `total_pulled_raw` rows, and 0 open June audit findings. June `monthly_inventory` has 291 rows, 117 rows with opening quantity, $9,629.24 opening value, and $25,330.04 received value.
+
+**Codex balance check:** Reconciled May closing (`opening + received - weekly issued - week-0 monthly pulls`) to June opening. Expected June opening quantity = 213; actual June opening quantity = 213. Expected June opening value at June prices = $9,629.24; actual June opening value = $9,629.24. One item bridged by matching description/value but different SKU: May `F00480038` -> June `F00408038`, `MF Cranberry Fusion 13X`, opening qty 2, value $111.40.
+
+**Codex DB:** Repaired the live June Source Control state caused by the pending local PR-finalization fix not being deployed yet. PR #38 is now `merged`, linked to commit `5f6f0b51-962c-4976-8022-98b006a678b4`, and that commit is linked back to PR #38 with `month=5`, `year=2026`. Live check shows 0 open PRs and 0 pending June staging rows.
+
+**Verification:** Read-only Supabase MCP SQL against June staging/monthly inventory/transactions/audit plus May-to-June reconciliation SQL; targeted SQL update for PR #38/commit linkage; final Supabase check passed.
+
+**Push:** pending
+
+---
+
+## [v4.20.12] - 2026-06-28 - Source Control PR finalization and auto-rollover hardening
+
+**Codex:** Fixed Source Control commit bookkeeping so direct commits of PR-linked staging entries now infer the shared `pull_request_id`, stamp the commit period from the staged payload, link the commit back to the PR, and mark the PR merged. This prevents the UI from showing stale open PRs after data is already merged. Source Control also refreshes PR state after direct commits.
+
+**Codex DB:** Repaired the live May upload state: PR #37 is now `merged`, linked to commit `01464df7-6ef6-42f0-9e85-1e2750ec510b`, and that commit is linked back to PR #37 with `month=4`, `year=2026`. Live check shows 0 open PRs and 0 open May audit findings.
+
+**Codex rollover:** Hardened upload-time opening-balance rollover. The helper now upserts missing next-month rows from the previous month's closing balance, includes week-5 movement and week-0 aggregate pulls, preserves explicit full-month Opening OH values even when they are 0, and also runs after weekly uploads so the first next-month invoice/pull upload can initialize openings.
+
+**Verification:** Ruff passed on touched backend files; backend import smoke passed with placeholder env; backend tests passed (`26 passed, 1 skipped`); frontend ESLint quiet passed; frontend `tsc --noEmit` passed; `npm run build` passed with existing Vite dynamic-import/chunk warnings.
+
+**Push:** pending
+
+---
+
+## [v4.20.11] - 2026-06-28 - May upload parse verification
+
+**Codex:** Checked live MJCCv1 after the May Published Inventory upload. The upload staged and merged 266 `inventory_save` entries for May 2026 from batch `c3b547c7-1957-49e9-8d17-bb6d35eed515`; parsed payloads contain 266 total items, 213 with `total_pulled_raw`, 0 `TEMP_000` collisions, and 20 distinct `TEMP_###` placeholder SKUs. Live May `monthly_inventory` has 266 rows, $7,850.32 opening value, $29,797.25 received value, and no weekly issued cache values. The issued/monthly pull data landed correctly as 213 week-0 `inventory_transactions` rows totaling quantity 543 and $28,072.55. Open May audit findings: 0.
+
+**Codex note:** Source-control bookkeeping still looks off: PR #37 remains open even though its 266 staging entries are marked `merged`, and the created commit (`01464df7`) is not linked back to the PR or period fields. Data is merged; PR/commit linkage needs cleanup if the Source Control UI shows stale state.
+
+**Verification:** Read-only Supabase MCP SQL against `staging_entries`, `monthly_inventory`, `inventory_transactions`, `commit_changes`, `pull_requests`, `commits`, and `inventory_audit_log`.
+
+**Push:** pending
+
+---
+
 ## [v4.20.10] - 2026-06-28 - Inventory workbook regression tests and transaction qty guard
 
 **Codex:** Added regression coverage for real inventory workbook structure before the production wipe/re-upload. The parser tests now cover formula total cells without cached Excel values, confirm the real June workbook does not create pull quantities from blank/formula pull columns, and verify the external monthly template parses from the `Inventory` sheet without counting notes.

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { I } from '../lib/icons';
-import { type User, MONTHS } from '../lib/constants';
+import { type User, MONTHS, ROLE_LEVEL } from '../lib/constants';
 import { api } from '../lib/api';
 import { TemplatesPanel } from './Templates';
 
@@ -291,7 +291,7 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
 }
 
 export function Reports({
-  user: _user,
+  user,
   period: _period,
 }: {
   user: User;
@@ -339,15 +339,23 @@ export function Reports({
   }, [period]);
 
   const reports = useMemo(() => buildReports(period, invItems, events, commits), [period, invItems, events, commits]);
+  const canSeeAllReports = ROLE_LEVEL[user.role] >= 30;
+  const availableReports = useMemo(
+    () => canSeeAllReports ? reports : reports.filter((r) => r.id === 'moninv'),
+    [canSeeAllReports, reports],
+  );
 
   useEffect(() => {
-    if (!sel && reports.length) setSel(reports[0].id);
-  }, [reports, sel]);
+    if (!availableReports.length) return;
+    if (!sel || !availableReports.some((r) => r.id === sel)) {
+      setSel(availableReports[0].id);
+    }
+  }, [availableReports, sel]);
 
-  const active = reports.find((r) => r.id === sel) || reports[0];
+  const active = availableReports.find((r) => r.id === sel) || availableReports[0];
   const rows = active?.build() || [];
 
-  const groups = ['Inventory', 'Compliance', 'Programs'];
+  const groups = canSeeAllReports ? ['Inventory', 'Compliance', 'Programs'] : ['Inventory'];
   const fileName = (rep: any) =>
     'MJCC_' + rep.id + '_' + new Date().toISOString().slice(0, 10) + '.csv';
 
@@ -499,7 +507,8 @@ export function Reports({
         <div className="grid-2">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {groups.map((g) => {
-              const items = reports.filter((r) => r.group === g);
+              const items = availableReports.filter((r) => r.group === g);
+              if (!items.length) return null;
               return (
                 <div className="card" key={g}>
                   <div className="card-head">

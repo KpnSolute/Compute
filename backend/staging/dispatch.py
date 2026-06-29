@@ -65,59 +65,89 @@ def _validate_inventory_item_numbers(
                 _non_negative(item.get(field), field, sku)
 
 
-def _rollover_opening_balances(sup, db_month: int, year: int) -> int:
-    """Carry the previous month's closing balance forward as opening on_hand for
-    items that have on_hand == 0 in the current month. Only fires when previous
-    month has data. Non-blocking — called after the main upsert."""
+def _rollover_opening_balances(
+    sup, db_month: int, year: int, explicit_on_hand_item_ids: set[str] | None = None
+) -> int:
+    """Carry previous-month closing balances into a newly detected next month."""
+    explicit_on_hand_item_ids = explicit_on_hand_item_ids or set()
     prev_db_month = db_month - 1 if db_month > 0 else 11
     prev_year = year if db_month > 0 else year - 1
 
-    prev_r = sup.table('monthly_inventory').select(
-        'item_id,on_hand,w1_received,w2_received,w3_received,w4_received,'
-        'w1_issued,w2_issued,w3_issued,w4_issued'
-    ).eq('month', prev_db_month).eq('year', prev_year).execute()
+    prev_r = (
+        sup.table("monthly_inventory")
+        .select(
+            "item_id,on_hand,w1_received,w2_received,w3_received,w4_received,"
+            "w5_received,w1_issued,w2_issued,w3_issued,w4_issued,w5_issued,unit_price"
+        )
+        .eq("month", prev_db_month)
+        .eq("year", prev_year)
+        .execute()
+    )
     if not prev_r.data:
         return 0
 
-    prev_ids = [r['item_id'] for r in prev_r.data]
+    prev_ids = [r["item_id"] for r in prev_r.data]
 
     # Aggregate week-0 pulls from inventory_transactions (May-style total_pulled_raw)
-    txn_r = sup.table('inventory_transactions').select('item_id,quantity').in_(
-        'item_id', prev_ids
-    ).eq('month', prev_db_month).eq('year', prev_year).eq('week_number', 0).eq(
-        'txn_type', 'issued'
-    ).execute()
+    txn_r = (
+        sup.table("inventory_transactions")
+        .select("item_id,quantity")
+        .in_("item_id", prev_ids)
+        .eq("month", prev_db_month)
+        .eq("year", prev_year)
+        .eq("week_number", 0)
+        .eq("txn_type", "issued")
+        .execute()
+    )
     agg_pulls: dict[str, float] = {}
     for t in txn_r.data or []:
-        agg_pulls[t['item_id']] = agg_pulls.get(t['item_id'], 0) + (t['quantity'] or 0)
+        agg_pulls[t["item_id"]] = agg_pulls.get(t["item_id"], 0) + (t["quantity"] or 0)
 
-    # Which items in the current month still have on_hand == 0?
-    curr_r = sup.table('monthly_inventory').select('item_id,on_hand').in_(
-        'item_id', prev_ids
-    ).eq('month', db_month).eq('year', year).execute()
-    curr_map = {r['item_id']: r.get('on_hand') or 0 for r in curr_r.data or []}
+    # Existing current rows with nonzero openings are preserved. Full-month sheets
+    # that explicitly sent Opening OH are also preserved, even when the value is 0.
+    curr_r = (
+        sup.table("monthly_inventory")
+        .select("item_id,on_hand")
+        .in_("item_id", prev_ids)
+        .eq("month", db_month)
+        .eq("year", year)
+        .execute()
+    )
+    curr_map = {r["item_id"]: r.get("on_hand") or 0 for r in curr_r.data or []}
 
     updated = 0
     for prev in prev_r.data:
-        iid = prev['item_id']
-        if curr_map.get(iid, 0) != 0:
-            continue  # explicit opening balance already set — don't override
-        closing = max(0, int(
-            (prev.get('on_hand') or 0)
-            + (prev.get('w1_received') or 0)
-            + (prev.get('w2_received') or 0)
-            + (prev.get('w3_received') or 0)
-            + (prev.get('w4_received') or 0)
-            - (prev.get('w1_issued') or 0)
-            - (prev.get('w2_issued') or 0)
-            - (prev.get('w3_issued') or 0)
-            - (prev.get('w4_issued') or 0)
-            - agg_pulls.get(iid, 0)
-        ))
+        iid = prev["item_id"]
+        if iid in explicit_on_hand_item_ids or curr_map.get(iid, 0) != 0:
+            continue
+        closing = max(
+            0,
+            (
+                (prev.get("on_hand") or 0)
+                + (prev.get("w1_received") or 0)
+                + (prev.get("w2_received") or 0)
+                + (prev.get("w3_received") or 0)
+                + (prev.get("w4_received") or 0)
+                + (prev.get("w5_received") or 0)
+                - (prev.get("w1_issued") or 0)
+                - (prev.get("w2_issued") or 0)
+                - (prev.get("w3_issued") or 0)
+                - (prev.get("w4_issued") or 0)
+                - (prev.get("w5_issued") or 0)
+                - agg_pulls.get(iid, 0)
+            ),
+        )
         if closing > 0:
-            sup.table('monthly_inventory').update({'on_hand': closing}).eq(
-                'item_id', iid
-            ).eq('month', db_month).eq('year', year).execute()
+            sup.table("monthly_inventory").upsert(
+                {
+                    "item_id": iid,
+                    "month": db_month,
+                    "year": year,
+                    "on_hand": closing,
+                    "unit_price": prev.get("unit_price") or 0,
+                },
+                on_conflict="item_id,month,year",
+            ).execute()
             updated += 1
     return updated
 
@@ -180,6 +210,7 @@ def dispatch_inventory_save(payload: dict) -> dict:
     dropped = 0
     rows: list[dict] = []
     txn_rows: list[dict] = []  # week 1-4 spreadsheet cells + week 0 aggregate pulls
+    explicit_on_hand_item_ids: set[str] = set()
     for item in items:
         # Identity is resolved by SKU only; an unknown category resolves to None
         # so a brand-new item lands in "New Items" for manager review.
@@ -210,6 +241,8 @@ def dispatch_inventory_save(payload: dict) -> dict:
             )
             dropped += 1
             continue
+        if item.get("onHand") is not None:
+            explicit_on_hand_item_ids.add(item_id)
 
         monthly_fields: dict = {
             "item_id": item_id,
@@ -353,11 +386,13 @@ def dispatch_inventory_save(payload: dict) -> dict:
         )
     # Auto-rollover: carry previous month closing balances forward as opening on_hand
     try:
-        rolled = _rollover_opening_balances(sup, db_month, year)
+        rolled = _rollover_opening_balances(
+            sup, db_month, year, explicit_on_hand_item_ids
+        )
         if rolled:
-            result['rolled_over'] = rolled
+            result["rolled_over"] = rolled
     except Exception as exc:
-        log.warning('[dispatch] rollover failed (non-blocking): %s', exc)
+        log.warning("[dispatch] rollover failed (non-blocking): %s", exc)
     return result
 
 
@@ -596,6 +631,12 @@ def dispatch_inventory_week(payload: dict) -> dict:
         result["error"] = (
             f"{dropped} item(s) dropped (unresolved SKU); {count} applied. Entry left pending for review."
         )
+    try:
+        rolled = _rollover_opening_balances(sup, db_month, year)
+        if rolled:
+            result["rolled_over"] = rolled
+    except Exception as exc:
+        log.warning("[dispatch] rollover failed (non-blocking): %s", exc)
     return result
 
 

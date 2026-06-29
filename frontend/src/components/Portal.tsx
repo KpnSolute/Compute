@@ -4162,9 +4162,34 @@ function ArchivesView(_props: { period: [number, number] }) {
             if (!alive) return;
             const arch = (data || []).map((s: any) => {
                 const items = s.items || [];
-                const low = items.filter((i: any) => i.onHand < i.par);
-                const value = items.reduce(
-                    (sum: number, i: any) => sum + i.onHand * (i.price || 0),
+                const totalReceived = (i: any) =>
+                    typeof i.totalReceived === "number"
+                        ? i.totalReceived
+                        : (i.w1r || 0) + (i.w2r || 0) + (i.w3r || 0) + (i.w4r || 0);
+                const totalPulled = (i: any) =>
+                    typeof i.totalIssued === "number"
+                        ? i.totalIssued
+                        : (i.w1i || 0) + (i.w2i || 0) + (i.w3i || 0) + (i.w4i || 0) + (i.aggregateIssued || 0);
+                const endingQty = (i: any) =>
+                    typeof i.closingQty === "number"
+                        ? i.closingQty
+                        : Math.max(0, (i.onHand || 0) + totalReceived(i) - totalPulled(i));
+                const low = items.filter((i: any) => endingQty(i) < (i.par || 0));
+                const startingBalance = items.reduce(
+                    (sum: number, i: any) => sum + (i.onHand || 0) * (i.price || 0),
+                    0,
+                );
+                const totalReceivedValue = items.reduce(
+                    (sum: number, i: any) => sum + totalReceived(i) * (i.price || 0),
+                    0,
+                );
+                const totalPulledValue = items.reduce(
+                    (sum: number, i: any) => sum + totalPulled(i) * (i.price || 0),
+                    0,
+                );
+                const endingBalance = items.reduce(
+                    (sum: number, i: any) =>
+                        sum + (typeof i.value === "number" ? i.value : endingQty(i) * (i.price || 0)),
                     0,
                 );
                 const meta = s.metadata || {};
@@ -4183,7 +4208,11 @@ function ArchivesView(_props: { period: [number, number] }) {
                 return {
                     period: s.id || dt.toISOString().slice(0, 7),
                     label,
-                    value,
+                    value: endingBalance,
+                    startingBalance,
+                    totalReceived: totalReceivedValue,
+                    totalPulled: totalPulledValue,
+                    endingBalance,
                     items: items.length,
                     low: low.length,
                     status: "archived",
@@ -4251,13 +4280,13 @@ function ArchivesView(_props: { period: [number, number] }) {
                                 </div>
                                 <div className="sc-lbl">{a.label}</div>
                                 <div className="sc-val">
-                                    {fmtMoney(a.value)}
+                                    {fmtMoney(a.endingBalance)}
                                 </div>
                                 <div
                                     className="sc-delta eq"
                                     style={{ marginTop: 4 }}
                                 >
-                                    {a.items} items · {a.low} below par
+                                    Start {fmtMoney(a.startingBalance)} · Rcv {fmtMoney(a.totalReceived)} · Pull {fmtMoney(a.totalPulled)}
                                 </div>
                             </div>
                         ))}
@@ -4271,7 +4300,10 @@ function ArchivesView(_props: { period: [number, number] }) {
                                 <thead>
                                     <tr>
                                         <th>Period</th>
-                                        <th className="r">On-Hand Value</th>
+                                        <th className="r">Starting Bal</th>
+                                        <th className="r">Total Received</th>
+                                        <th className="r">Total Pulled</th>
+                                        <th className="r">Ending Bal</th>
                                         <th className="r">Line Items</th>
                                         <th className="r">Below Par</th>
                                         <th>Status</th>
@@ -4285,7 +4317,16 @@ function ArchivesView(_props: { period: [number, number] }) {
                                                 {a.label}
                                             </td>
                                             <td className="r num">
-                                                {fmtMoneyFull(a.value)}
+                                                {fmtMoneyFull(a.startingBalance)}
+                                            </td>
+                                            <td className="r num">
+                                                {fmtMoneyFull(a.totalReceived)}
+                                            </td>
+                                            <td className="r num">
+                                                {fmtMoneyFull(a.totalPulled)}
+                                            </td>
+                                            <td className="r num">
+                                                {fmtMoneyFull(a.endingBalance)}
                                             </td>
                                             <td className="r num">{a.items}</td>
                                             <td

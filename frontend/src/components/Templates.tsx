@@ -5,6 +5,26 @@ import { INSPECTION_Q, FOODREQ_FIELDS } from '../lib/constants';
 function buildTemplates() {
   return [
     {
+      id: 'monthly-report',
+      kind: 'table',
+      name: 'Monthly Inventory Report',
+      group: 'Inventory',
+      icon: 'fileText',
+      desc: 'Printable month-end inventory summary for staff review and filing.',
+      note:
+        'Use one line per category or attached count sheet. Balance formula: Starting Balance + Total Received - Total Pulled = Ending Balance.',
+      columns: [
+        'Category / Section',
+        'Starting Bal',
+        'Total Received',
+        'Total Pulled',
+        'Ending Bal',
+        'Reviewed by',
+        'Notes',
+      ],
+      rows: 16,
+    },
+    {
       id: 'temp',
       kind: 'table',
       name: 'HACCP Temperature Log',
@@ -356,7 +376,7 @@ function tplCSV(tpl: any) {
 
 export function TemplatesPanel() {
   const templates = buildTemplates();
-  const groups = ['HACCP', 'Operations', 'Inspections'];
+  const groups = ['Inventory', 'HACCP', 'Operations', 'Inspections'];
 
   function downloadAll() {
     templates.forEach((t, i) => setTimeout(() => tplCSV(t), i * 150));

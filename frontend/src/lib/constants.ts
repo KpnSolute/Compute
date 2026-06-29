@@ -85,7 +85,7 @@ export const NAV = [
     group: 'Records',
     items: [
       { key: 'sourcectrl', label: 'Source Control', icon: 'branch', min: 10, badge: 'pending' },
-      { key: 'reports', label: 'Reports', icon: 'download', min: 30 },
+      { key: 'reports', label: 'Reports', icon: 'download', min: 10 },
       { key: 'archives', label: 'Archives', icon: 'archive', min: 20 },
     ],
   },

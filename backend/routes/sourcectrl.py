@@ -272,6 +272,58 @@ def _enqueue_github_sync_once(commit_id: str, message: str, change_count: int) -
     ).execute()
 
 
+def _entry_payload_period(entry: dict) -> tuple[int, int] | None:
+    fp = entry.get("full_payload") or {}
+    month = fp.get("month")
+    year = fp.get("year")
+    if not month or not year:
+        return None
+    try:
+        return (max(0, int(month) - 1), int(year))
+    except (TypeError, ValueError):
+        return None
+
+
+def _infer_commit_period(entries: list[dict]) -> tuple[int | None, int | None]:
+    periods = {period for entry in entries if (period := _entry_payload_period(entry))}
+    if len(periods) == 1:
+        return next(iter(periods))
+    return (None, None)
+
+
+def _infer_common_pr_id(entries: list[dict]) -> str | None:
+    pr_ids = {
+        entry.get("pull_request_id")
+        for entry in entries
+        if entry.get("pull_request_id")
+    }
+    if len(pr_ids) == 1:
+        return next(iter(pr_ids))
+    return None
+
+
+def _finalize_pull_request(
+    *, pr_id: str | None, commit_id: str, author_id: str, now: str
+) -> None:
+    if not pr_id:
+        return
+    try:
+        _client().table("commits").update({"pull_request_id": pr_id}).eq(
+            "commit_id", commit_id
+        ).is_("pull_request_id", "null").execute()
+        _client().table("pull_requests").update(
+            {
+                "status": "merged",
+                "commit_id": commit_id,
+                "merged_at": now,
+                "merged_by": author_id,
+                "updated_at": now,
+            }
+        ).eq("pr_id", pr_id).execute()
+    except Exception as exc:
+        log.warning("[COMMIT] pull request finalize failed: %s", exc)
+
+
 def _finalize_applied_entries(
     *,
     entries: list[dict],
@@ -280,6 +332,7 @@ def _finalize_applied_entries(
     message: str,
     change_count: int,
     now: str,
+    pr_id: str | None = None,
 ) -> None:
     applied_entry_ids = [e["entry_id"] for e in entries if e.get("entry_id")]
     if applied_entry_ids:
@@ -304,6 +357,9 @@ def _finalize_applied_entries(
             log.warning("[COMMIT] import_batches merge flip failed: %s", exc)
 
     _enqueue_github_sync_once(commit_id, message, change_count)
+    _finalize_pull_request(
+        pr_id=pr_id, commit_id=commit_id, author_id=author_id, now=now
+    )
 
 
 def _inventory_overwrite_key(payload: dict) -> tuple | None:
@@ -463,7 +519,9 @@ def _apply_entries(
             status_code=422, detail="No pending staging entries to commit."
         )
 
+    pr_id = pr_id or _infer_common_pr_id(entries)
     file_ref = _commit_file_ref(entries, pr_id)
+    commit_month, commit_year = _infer_commit_period(entries)
     existing_commit_r = (
         _client()
         .table("commits")
@@ -490,6 +548,7 @@ def _apply_entries(
             message=existing_commit.get("message") or message,
             change_count=change_count,
             now=now,
+            pr_id=pr_id,
         )
         log.info(
             "[COMMIT] recovered existing commit %s for %d pending staging row(s)",
@@ -658,6 +717,9 @@ def _apply_entries(
         "source": source,
         "file_ref": file_ref,
     }
+    if commit_month is not None and commit_year is not None:
+        commit_row["month"] = commit_month
+        commit_row["year"] = commit_year
     if pr_id:
         commit_row["pull_request_id"] = pr_id
 
@@ -733,6 +795,10 @@ def _apply_entries(
             "attempts": 0,
         }
     ).execute()
+
+    _finalize_pull_request(
+        pr_id=pr_id, commit_id=commit_id, author_id=author_id, now=now
+    )
 
     # 7 — post-session inventory audit: re-check each affected period for logical
     #     issues (negative endings, ledger drift, missing prices, duplicates) and

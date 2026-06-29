@@ -667,8 +667,8 @@ function SCChangesView({
             t(`Committed ${entries.length} change${entries.length !== 1 ? "s" : ""}`);
             window.dispatchEvent(new CustomEvent("mjcc:committed"));
             // DB needs a moment to make the new commit row queryable — re-fetch
-            // after 1 s so the commit shows in History without manual refresh.
-            setTimeout(() => loadData(), 1000);
+            // after 1 s so the commit/PR state shows without manual refresh.
+            setTimeout(() => { void Promise.all([loadData(), loadPRs()]); }, 1000);
             void commit;
         } catch (err: any) {
             t(`Commit failed: ${err?.message || "Unknown error"}`);
