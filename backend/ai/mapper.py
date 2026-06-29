@@ -113,6 +113,14 @@ _INV_ALIASES: dict[str, str] = {
     "w3receivable": "w3r",
     "receivedweek3": "w3r",
     "receiveweek3": "w3r",
+    # financial controls from MJCC Review sheets
+    "openingunitcost": "opening_unit_cost",
+    "openingvalue": "opening_value",
+    "receivedvalue": "received_value",
+    "pulledvalue": "pulled_value",
+    "issuedvalue": "pulled_value",
+    "inventoryflowvalue": "pulled_value",
+    "endingvalue": "ending_value",
     "w1i": "w1p",
     "w1p": "w1p",
     "week1issued": "w1p",
@@ -281,6 +289,15 @@ def map_rows_to_inventory(
             "w2p": max(0, _safe_int(mapped.get("w2p"))),
             "w3p": max(0, _safe_int(mapped.get("w3p"))),
         }
+        for value_key in (
+            "opening_unit_cost",
+            "opening_value",
+            "received_value",
+            "pulled_value",
+            "ending_value",
+        ):
+            if value_key in mapped:
+                item[value_key] = max(0.0, _safe_float(mapped.get(value_key)))
         # May case: monthly Total Pulled present but weekly pulls were blank.
         # Pass through so dispatch can apply without inventing weekly distribution.
         if row.get("total_pulled_raw") is not None:

@@ -848,7 +848,7 @@ def _open_weekly_import_batch(
     id + source metadata into each weekly op payload so dispatch writes traceable
     ledger rows. Returns the import batch_id, or None for non-weekly uploads.
     """
-    if week not in (1, 2, 3, 4) or not inventory_ops:
+    if week not in (1, 2, 3) or not inventory_ops:
         return None
     svc = _client()
     db_month = max(0, month - 1)

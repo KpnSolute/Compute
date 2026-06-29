@@ -94,7 +94,7 @@ interface PullSheetProps {
 const now = new Date();
 const DEFAULT_MONTH = now.getMonth() + 1; // 1-indexed current month
 const DEFAULT_YEAR = now.getFullYear();
-const DEFAULT_WEEK = Math.min(Math.ceil(now.getDate() / 7), 4);
+const DEFAULT_WEEK = Math.min(Math.ceil(now.getDate() / 7), 3);
 
 export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: PullSheetProps) {
   const lvl = ROLE_LEVEL[user.role];
@@ -136,6 +136,16 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
   }, [month, year]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const refresh = () => { void load(); };
+    window.addEventListener('mjcc:live-data-changed', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      window.removeEventListener('mjcc:live-data-changed', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [load]);
 
   // Load draft from localStorage when period/week changes
   useEffect(() => {
@@ -252,7 +262,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
 
   const monthOpts = MONTHS.map((m, i) => ({ value: i + 1, label: m }));
   const yearOpts = [DEFAULT_YEAR - 1, DEFAULT_YEAR, DEFAULT_YEAR + 1].map(y => ({ value: y, label: String(y) }));
-  const weekOpts = [1, 2, 3, 4].map(w => ({ value: w, label: `Week ${w}` }));
+  const weekOpts = [1, 2, 3].map(w => ({ value: w, label: `Week ${w}` }));
 
   return (
     <div className="fade-in" style={{ paddingBottom: anyPulled ? 72 : 0 }}>

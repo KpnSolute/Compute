@@ -44,7 +44,7 @@ class InventoryItem(BaseModel):
     category: str
     price: Optional[float] = Field(None, ge=0)
     unit: str = "each"
-    status: str = 'active'
+    status: str = "active"
     w1r: Optional[int] = None
     w2r: Optional[int] = None
     w3r: Optional[int] = None
@@ -57,6 +57,11 @@ class InventoryItem(BaseModel):
     totalPulled: Optional[int] = None
     closingQty: Optional[int] = None
     value: Optional[float] = None
+    openingUnitCost: Optional[float] = None
+    openingValue: Optional[float] = None
+    receivedValue: Optional[float] = None
+    pulledValue: Optional[float] = None
+    endingValue: Optional[float] = None
     sku_pending: Optional[bool] = None
     needs_attention: Optional[bool] = None
 
@@ -112,6 +117,14 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
         total_pulled = w1p + w2p + w3p
         running_total = max(0, oh + total_received - total_pulled)
         price = _to_float(row.get("unit_price"))
+        opening_unit_cost = _to_float(row.get("opening_unit_cost"), price)
+        opening_value = _to_float(row.get("opening_value"), oh * opening_unit_cost)
+        received_value = _to_float(row.get("received_value"), total_received * price)
+        pulled_value = _to_float(row.get("pulled_value"), total_pulled * price)
+        ending_value = _to_float(
+            row.get("ending_value"),
+            max(0.0, opening_value + received_value - pulled_value),
+        )
         items.append(
             InventoryItem(
                 id=item_id,
@@ -123,13 +136,22 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
                 price=price,
                 unit=inv_item.get("unit") or "each",
                 status=row.get("status") or "active",
-                w1r=w1r, w2r=w2r, w3r=w3r,
-                w1p=w1p, w2p=w2p, w3p=w3p,
+                w1r=w1r,
+                w2r=w2r,
+                w3r=w3r,
+                w1p=w1p,
+                w2p=w2p,
+                w3p=w3p,
                 running_total=running_total,
                 totalReceived=total_received,
                 totalPulled=total_pulled,
                 closingQty=running_total,
-                value=running_total * price,
+                value=ending_value,
+                openingUnitCost=opening_unit_cost,
+                openingValue=opening_value,
+                receivedValue=received_value,
+                pulledValue=pulled_value,
+                endingValue=ending_value,
                 sku_pending=bool(inv_item.get("sku_pending")),
                 needs_attention=bool(inv_item.get("needs_attention")),
             )
@@ -149,7 +171,7 @@ _JOIN_SELECT = (
     "id, item_id, month, year, opening_oh, status, "
     "w1_received, w2_received, w3_received, "
     "w1_pulled, w2_pulled, w3_pulled, "
-    "unit_price, created_at, "
+    "unit_price, opening_unit_cost, opening_value, received_value, pulled_value, ending_value, created_at, "
     "inventory_items!inner(id, sku, description, par_level, unit, sku_pending, needs_attention, "
     "  inventory_categories!inner(name)"
     ")"
@@ -223,6 +245,9 @@ async def get_inventory(
         )
         total_received = sum(item.totalReceived or 0 for item in items)
         total_pulled = sum(item.totalPulled or 0 for item in items)
+        opening_value = sum(item.openingValue or 0 for item in items)
+        received_value = sum(item.receivedValue or 0 for item in items)
+        pulled_value = sum(item.pulledValue or 0 for item in items)
         closing_value = sum(item.value or 0 for item in items)
 
         return InventoryResponse(
@@ -236,6 +261,9 @@ async def get_inventory(
                 "over_pulled_count": over_pulled_count,
                 "total_received": total_received,
                 "total_pulled": total_pulled,
+                "opening_value": opening_value,
+                "received_value": received_value,
+                "pulled_value": pulled_value,
                 "closing_value": closing_value,
             },
             notes="",
@@ -460,6 +488,16 @@ async def _save_inventory_retired(payload: "InventorySnapshot", auth_user: dict)
                 monthly_fields["unit_price"] = item.price
             if item.status:
                 monthly_fields["status"] = item.status
+            for attr, col in [
+                ("openingUnitCost", "opening_unit_cost"),
+                ("openingValue", "opening_value"),
+                ("receivedValue", "received_value"),
+                ("pulledValue", "pulled_value"),
+                ("endingValue", "ending_value"),
+            ]:
+                val = getattr(item, attr)
+                if val is not None:
+                    monthly_fields[col] = val
             for src, col in [
                 ("w1r", "w1_received"),
                 ("w2r", "w2_received"),
@@ -1029,7 +1067,7 @@ async def rollover_period(
 class WeekStatusRequest(BaseModel):
     month: int  # 1-indexed
     year: int
-    week: int  # 1-4
+    week: int  # 1-3
     status: str  # open | locked | published
 
 
@@ -1146,8 +1184,8 @@ async def set_week_status(
         raise HTTPException(
             status_code=422, detail="status must be open, locked, or published."
         )
-    if body.week not in (1, 2, 3, 4):
-        raise HTTPException(status_code=422, detail="week must be 1-4.")
+    if body.week not in (1, 2, 3):
+        raise HTTPException(status_code=422, detail="week must be 1-3.")
     db_month = body.month - 1
     try:
         supabase_service.rpc(

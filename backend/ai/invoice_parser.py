@@ -1116,15 +1116,15 @@ def invoice_items_to_ops(
 ) -> list[dict]:
     """Convert parsed invoice items to MJCC dispatch operation dicts.
 
-    week=0  → inventory_save (whole-month on_hand update)
-    week=1-4 → inventory_week_update (post qty_shipped into w{week}_{direction})
+    week=0  → inventory_save (whole-month opening update)
+    week=1-3 → inventory_week_update (post qty_shipped into w{week}_{direction})
 
     Items without a usable SKU or description are skipped. Unknown categories
     pass through as-is and resolve to 'New Items' in the dispatch layer when
     review_new=True.
     """
     live_cats = list(live_categories.keys()) if live_categories else None
-    weekly = week in (1, 2, 3, 4)
+    weekly = week in (1, 2, 3)
     invoice_ref = meta.get("invoice_number", "")
     ops: list[dict] = []
     skipped = 0

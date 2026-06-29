@@ -30,7 +30,7 @@ NEW_ITEMS_CATEGORY = "New Items"
 # Spreadsheet placeholder SKUs that are not unique identifiers — all rows with
 # one of these should be resolved by description instead of SKU so 20 distinct
 # items with SKU="TEMP_000" don't all collapse onto the same inventory_items row.
-_PLACEHOLDER_SKUS = frozenset({'TEMP_000', 'TEMP', 'TEMP0', 'TEMP_0'})
+_PLACEHOLDER_SKUS = frozenset({"TEMP_000", "TEMP", "TEMP0", "TEMP_0"})
 
 
 def gen_sku() -> str:

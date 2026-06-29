@@ -44,6 +44,10 @@ const itemCat = (it: any) => String(it.category || it.cat || it.category_name ||
 const itemUnit = (it: any) => String(it.unit || it.uom || it.unit_of_measure || '-');
 const itemPar = (it: any) => num(it.par ?? it.par_level ?? it.parLevel);
 const itemPrice = (it: any) => num(it.price ?? it.unit_price);
+const itemOpeningValue = (it: any) => num(it.openingValue ?? it.opening_value ?? ((it.onHand || 0) * itemPrice(it)));
+const itemReceivedValue = (it: any) => num(it.receivedValue ?? it.received_value);
+const itemPulledValue = (it: any) => num(it.pulledValue ?? it.pulled_value);
+const itemEndingValue = (it: any) => num(it.endingValue ?? it.ending_value ?? it.value);
 const fmtMoney = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function ReportPeriodSelect({
@@ -144,7 +148,10 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
     totalRcv: totalRcv(it),
     totalIss: totalIss(it),
     closing: closingQty(it),
-    value: closingQty(it) * (it.price || 0),
+    openingValue: itemOpeningValue(it),
+    receivedValue: itemReceivedValue(it) || totalRcv(it) * itemPrice(it),
+    pulledValue: itemPulledValue(it) || totalIss(it) * itemPrice(it),
+    value: itemEndingValue(it) || closingQty(it) * itemPrice(it),
   }));
 
   return [
@@ -161,7 +168,7 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
         { key: 'price', label: 'Unit Price', get: (r: any) => '$' + (r.price || 0).toFixed(2) },
         { key: 'onHand', label: 'On Hand' },
         { key: 'par', label: 'Par' },
-        { key: 'value', label: 'Value', get: (r: any) => '$' + ((typeof r.value === 'number' ? r.value : closingQty(r) * (r.price || 0))).toFixed(2) },
+        { key: 'value', label: 'Value', get: (r: any) => fmtMoney(itemEndingValue(r) || closingQty(r) * itemPrice(r)) },
       ],
       build: () => sorted,
     },
@@ -191,10 +198,10 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
       ],
       build: () => moninvRows,
       summary: (rows: any[]) => {
-        const startBal  = rows.reduce((s, r) => s + (r.opening  || 0) * (r.price || 0), 0);
-        const rcvBal    = rows.reduce((s, r) => s + (r.totalRcv || 0) * (r.price || 0), 0);
-        const pullBal   = rows.reduce((s, r) => s + (r.totalIss || 0) * (r.price || 0), 0);
-        const endBal    = rows.reduce((s, r) => s + (r.closing  || 0) * (r.price || 0), 0);
+        const startBal  = rows.reduce((s, r) => s + (r.openingValue ?? (r.opening || 0) * itemPrice(r)), 0);
+        const rcvBal    = rows.reduce((s, r) => s + (r.receivedValue ?? (r.totalRcv || 0) * itemPrice(r)), 0);
+        const pullBal   = rows.reduce((s, r) => s + (r.pulledValue ?? (r.totalIss || 0) * itemPrice(r)), 0);
+        const endBal    = rows.reduce((s, r) => s + (itemEndingValue(r) || (r.closing || 0) * itemPrice(r)), 0);
         return [
           { label: 'Starting Balance', value: fmtMoney(startBal) },
           { label: 'Total Received',   value: fmtMoney(rcvBal) },
@@ -384,6 +391,7 @@ export function Reports({
   const [events, setEvents] = useState<any[]>([]);
   const [commits, setCommits] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [liveTick, setLiveTick] = useState(0);
 
   const [tab, setTab] = useState('catalogue');
   const [sel, setSel] = useState('');
@@ -413,7 +421,17 @@ export function Reports({
     }
     load();
     return () => { alive = false; };
-  }, [period]);
+  }, [period, liveTick]);
+
+  useEffect(() => {
+    const refresh = () => setLiveTick((tick) => tick + 1);
+    window.addEventListener('mjcc:live-data-changed', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      window.removeEventListener('mjcc:live-data-changed', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, []);
 
   const reports = useMemo(() => buildReports(period, invItems, events, commits), [period, invItems, events, commits]);
   const canSeeAllReports = ROLE_LEVEL[user.role] >= 30;
@@ -443,7 +461,7 @@ export function Reports({
     }, 0);
     const endingValue = rows.reduce((s: number, r: any) => {
       const closing = r.closing ?? r.closingQty ?? r.onHand ?? r.on_hand ?? 0;
-      return s + num(closing) * itemPrice(r);
+      return s + (itemEndingValue(r) || num(closing) * itemPrice(r));
     }, 0);
     const reorderNeeded = rows.filter((r: any) => {
       const par = itemPar(r);

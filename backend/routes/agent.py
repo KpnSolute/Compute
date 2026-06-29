@@ -249,8 +249,10 @@ HACCP logs must be recorded at every meal service. Any out-of-range temperature 
 
 == INVENTORY SYSTEM ==
 Inventory is managed by SKU (primary identity). Each item has a category, unit, par level, and unit price.
-- Monthly inventory: on-hand counts recorded by period (month/year)
-- Weekly: W1–W4 received (deliveries/imports) and issued (consumed/exports) columns
+- Monthly inventory: opening counts recorded by period (month/year), then calculated ending counts
+- Weekly: W1-W3 received (deliveries/imports) and pulled/issued (consumed/exports) columns
+- Rollover: the next month opening quantity and opening value carry from the prior month ending quantity/value
+- Workbook financial controls: Review-sheet opening value, received value, pulled value, and ending value are the accounting source of truth when present
 - Items below par need reorder — this is the most common alert
 - New items (no SKU assigned) appear in the "New Items" review category and need manager approval
 - Categories include dry goods, proteins, produce, dairy, condiments, beverages, paper goods, etc.

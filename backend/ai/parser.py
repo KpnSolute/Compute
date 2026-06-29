@@ -280,6 +280,14 @@ _FLAT_INV_HEADER_ALIASES: dict[str, str] = {
     "latestunitcost$": "price",
     "unitcost": "price",
     "price": "price",
+    # financial controls from the workbook Review sheet
+    "openingunitcost": "opening_unit_cost",
+    "openingvalue": "opening_value",
+    "receivedvalue": "received_value",
+    "pulledvalue": "pulled_value",
+    "issuedvalue": "pulled_value",
+    "inventoryflowvalue": "pulled_value",
+    "endingvalue": "ending_value",
     # weekly received/pulled — Monthly Inventory Template (3 weeks)
     "receivedwk1": "w1r",
     "receivedwk2": "w2r",
@@ -307,6 +315,81 @@ _FLAT_INV_HEADER_ALIASES: dict[str, str] = {
 
 def _norm_header(value: Any) -> str:
     return re.sub(r"[^a-z0-9]", "", str(value or "").strip().lower())
+
+
+def _parse_review_value_rows(wb) -> dict[str, dict[str, Any]]:
+    """Extract audited financial values from the workbook Review sheet.
+
+    The flat Inventory sheet has quantities and a current unit price. The Review
+    sheet carries the auditable dollar values used by MJCC: opening value from
+    the prior month, receipt value from invoices, pull/flow value, and ending
+    value. Key these by SKU so the Inventory rows can be enriched without
+    double-counting the Review sheet as a second import table.
+    """
+    value_by_sku: dict[str, dict[str, Any]] = {}
+    for ws in wb.worksheets:
+        if "review" not in str(ws.title or "").lower():
+            continue
+        rows = list(ws.iter_rows(values_only=True))
+        header_idx: int | None = None
+        col_map: dict[int, str] = {}
+        for r_idx, row in enumerate(rows):
+            mapping: dict[int, str] = {}
+            for c_idx, cell in enumerate(row):
+                canonical = _FLAT_INV_HEADER_ALIASES.get(_norm_header(cell))
+                if canonical and c_idx not in mapping:
+                    mapping[c_idx] = canonical
+            fields = set(mapping.values())
+            if {
+                "sku",
+                "desc",
+                "opening_value",
+                "received_value",
+                "ending_value",
+            }.issubset(fields):
+                header_idx = r_idx
+                col_map = mapping
+                break
+        if header_idx is None:
+            continue
+        for row in rows[header_idx + 1 :]:
+            if all(v is None for v in row):
+                continue
+            rec: dict[str, Any] = {}
+            for c_idx, canonical in col_map.items():
+                if c_idx < len(row):
+                    rec[canonical] = row[c_idx]
+            sku = _inventory_sku(rec.get("sku"))
+            desc = str(rec.get("desc") or "").strip()
+            if not sku or not desc or "total" in desc.lower():
+                continue
+            values: dict[str, Any] = {}
+            for key in (
+                "opening_unit_cost",
+                "opening_value",
+                "received_value",
+                "pulled_value",
+                "ending_value",
+            ):
+                parsed = _clamp_nonneg(rec.get(key))
+                if parsed is not None:
+                    values[key] = parsed
+            if "pulled_value" not in values and (
+                "opening_value" in values or "received_value" in values
+            ):
+                values["pulled_value"] = 0
+            if "ending_value" not in values and (
+                "opening_value" in values or "received_value" in values
+            ):
+                values["ending_value"] = max(
+                    0,
+                    (values.get("opening_value") or 0)
+                    + (values.get("received_value") or 0)
+                    - (values.get("pulled_value") or 0),
+                )
+            if values:
+                value_by_sku[sku] = values
+    return value_by_sku
 
 
 def _parse_mjcc_flat_inventory(content: bytes) -> list[dict[str, Any]]:
@@ -341,6 +424,7 @@ def _parse_mjcc_flat_inventory(content: bytes) -> list[dict[str, Any]]:
         return []
 
     wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    review_values = _parse_review_value_rows(wb)
     for ws in wb.worksheets:
         rows = list(ws.iter_rows(values_only=True))
         if not rows:
@@ -413,10 +497,14 @@ def _parse_mjcc_flat_inventory(content: bytes) -> list[dict[str, Any]]:
             # figure. Preserve as total_pulled_raw so dispatch can apply it safely
             # without guessing per-week distribution.
             if "total_pulled_raw" in col_map.values():
-                _weekly_pulls = sum(row_out.get(k, 0) or 0 for k in ("w1p", "w2p", "w3p"))
+                _weekly_pulls = sum(
+                    row_out.get(k, 0) or 0 for k in ("w1p", "w2p", "w3p")
+                )
                 _tp = _clamp_nonneg(rec.get("total_pulled_raw"))
                 if _weekly_pulls == 0 and _tp:
                     row_out["total_pulled_raw"] = _tp
+            if sku in review_values:
+                row_out.update(review_values[sku])
             parsed.append(row_out)
 
         if parsed:

@@ -164,13 +164,20 @@ def build_inventory_context(categories: dict, vendors: dict) -> str:
     cat_list = ", ".join(f"{n} (id={i})" for n, i in categories.items())
     ven_list = ", ".join(f"{n} (id={i})" for n, i in vendors.items()) or "none"
     return f"""INVENTORY SCHEMA CONTEXT:
-inventory_items columns: sku (text, unique key), description (text), category (text — must match list), unit_price (float), par_level (int), unit (text, e.g. 'each','case','lb','oz','gal')
-monthly_inventory columns: item_id (fk), month (0-indexed int), year (int), opening_oh (int — prior month ending, the period's starting quantity), w1-w3 received, w1-w3 pulled, status
+inventory_items columns: sku (text, unique key), description (text), category (text - must match list), unit_price (float), par_level (int), unit (text, e.g. 'each','case','lb','oz','gal')
+monthly_inventory columns: item_id (fk), month (0-indexed int), year (int), opening_oh (int - prior month ending, the period's starting quantity), w1-w3 received, w1-w3 pulled, opening_unit_cost/opening_value/received_value/pulled_value/ending_value (audited financial controls from workbook Review sheets when present), status
+
+ROLLOVER CONTRACT:
+- Opening quantity for a month is the prior month ending quantity.
+- Opening value for a month is the prior month ending value. Do not recalculate opening value from the new month unit price when a carried value exists.
+- Ending quantity is opening_oh + W1-W3 received - W1-W3 pulled.
+- Ending value is opening_value + received_value - pulled_value when financial controls are present.
+- The current template has exactly 3 operational import weeks. Do not emit W4/W5 fields. Dates after the active template weeks are handled by period rollover/calendar logic, not by adding a fourth weekly column.
 
 VALID CATEGORIES (use exact name): {cat_list}
 VALID VENDORS: {ven_list}
 
-PAYLOAD FORMAT — inventory_save operation (Monthly Inventory Template, 3 weeks):
+PAYLOAD FORMAT - inventory_save operation (Monthly Inventory Template, 3 weeks):
 {{
   "month": <int 1-12>,
   "year": <int 4-digit>,
@@ -184,7 +191,12 @@ PAYLOAD FORMAT — inventory_save operation (Monthly Inventory Template, 3 weeks
       "par": <int — minimum stock level, 0 if unknown>,
       "onHand": <int — Opening OH (prior month ending)>,
       "w1r": 0, "w2r": 0, "w3r": 0,
-      "w1p": 0, "w2p": 0, "w3p": 0
+      "w1p": 0, "w2p": 0, "w3p": 0,
+      "opening_unit_cost": <float optional — Review sheet Opening Unit Cost>,
+      "opening_value": <float optional — Review sheet Opening Value>,
+      "received_value": <float optional — Review sheet Received Value>,
+      "pulled_value": <float optional — Review sheet Inventory Flow/Pulled Value>,
+      "ending_value": <float optional — Review sheet Ending Value>
     }}
   ]
 }}
@@ -192,8 +204,10 @@ PAYLOAD FORMAT — inventory_save operation (Monthly Inventory Template, 3 weeks
 Weekly cell rules:
 - Received Wk1/Wk2/Wk3 (invoice receipts) map to w1r/w2r/w3r.
 - Pulled Wk1/Wk2/Wk3 (pull sheet quantities) map to w1p/w2p/w3p.
-- Opening OH maps to onHand. Total Received, Total Pulled, and Ending OH are DERIVED — never import Ending OH as onHand.
+- Opening OH maps to onHand. Total Received, Total Pulled, and Ending OH are DERIVED - never import Ending OH as onHand.
 - When per-week pulls are blank but a verified monthly Total Pulled exists, emit "total_pulled_raw" instead of guessing a weekly split.
+- For full-month MJCC workbooks, read the Inventory sheet for quantities and the Review sheet for financial controls. Preserve Review values exactly when present; they are the accounting source of truth for monthly totals.
+- Use "issued" only as user-facing/vendor language. The stored monthly fields are pulled: w1p/w2p/w3p and pulled_value.
 - Preserve SKU exactly except trimming spaces and uppercasing letters; do not merge two different SKUs by description alone.
 """
 

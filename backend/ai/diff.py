@@ -51,6 +51,15 @@ def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dic
         "on_hand": item.get("onHand", 0),
         "category": item.get("category", ""),
     }
+    for field in (
+        "opening_unit_cost",
+        "opening_value",
+        "received_value",
+        "pulled_value",
+        "ending_value",
+    ):
+        if item.get(field) is not None:
+            after[field] = item[field]
     # May-style workbooks carry total_pulled_raw when weekly pull columns are blank.
     # Surface it in the diff so commit_changes records an auditable pull action.
     if item.get("total_pulled_raw") is not None:
@@ -72,13 +81,16 @@ def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dic
         live_category = cat_data.get("name") or ""
 
     # Fetch on_hand from monthly_inventory — inventory_items.on_hand is not maintained.
+    live_monthly = {}
     live_on_hand = 0
     if month is not None and year is not None:
         db_month = month - 1  # convert 1-indexed API month → 0-indexed DB month
         mi_r = (
             _client()
             .table("monthly_inventory")
-            .select("opening_oh")
+            .select(
+                "opening_oh,opening_unit_cost,opening_value,received_value,pulled_value,ending_value"
+            )
             .eq("item_id", live["id"])
             .eq("month", db_month)
             .eq("year", year)
@@ -86,7 +98,8 @@ def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dic
             .execute()
         )
         if mi_r.data:
-            live_on_hand = int(mi_r.data[0].get("opening_oh") or 0)
+            live_monthly = mi_r.data[0]
+            live_on_hand = int(live_monthly.get("opening_oh") or 0)
 
     before = {
         "sku": live["sku"],
@@ -96,10 +109,30 @@ def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dic
         "on_hand": live_on_hand,
         "category": live_category,
     }
+    for field in (
+        "opening_unit_cost",
+        "opening_value",
+        "received_value",
+        "pulled_value",
+        "ending_value",
+    ):
+        if field in after or live_monthly.get(field) is not None:
+            before[field] = live_monthly.get(field)
 
     changed_fields = [
         k
-        for k in ("description", "unit_price", "par_level", "on_hand", "category")
+        for k in (
+            "description",
+            "unit_price",
+            "par_level",
+            "on_hand",
+            "category",
+            "opening_unit_cost",
+            "opening_value",
+            "received_value",
+            "pulled_value",
+            "ending_value",
+        )
         if before.get(k) != after.get(k)
     ]
     # total_pulled_raw is always a new pull record — no before value in DB.

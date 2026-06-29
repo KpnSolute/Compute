@@ -25,7 +25,11 @@ class ApiError extends Error {
 
 async function req<T>(path: string, opts?: RequestInit): Promise<T> {
   const token = getBackendToken();
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+  };
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
@@ -33,6 +37,7 @@ async function req<T>(path: string, opts?: RequestInit): Promise<T> {
 
   const res = await fetch(BASE + path, {
     headers: { ...headers, ...opts?.headers },
+    cache: opts?.cache ?? 'no-store',
     ...opts,
   });
 
@@ -57,7 +62,11 @@ async function req<T>(path: string, opts?: RequestInit): Promise<T> {
     throw new ApiError(res.status, body);
   }
   if (res.status === 204) return undefined as T;
-  return res.json() as Promise<T>;
+  const data = await res.json() as T;
+  if ((opts?.method ?? 'GET').toUpperCase() !== 'GET') {
+    window.dispatchEvent(new CustomEvent('mjcc:live-data-changed', { detail: { path } }));
+  }
+  return data;
 }
 
 export interface Commit {
@@ -519,13 +528,16 @@ export const api = {
     const res = await fetch(BASE + '/api/staging', {
       method: 'DELETE',
       headers,
+      cache: 'no-store',
       body: JSON.stringify({ entry_ids: ids, review_note: reviewNote ?? 'Unstaged by user' }),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new ApiError(res.status, body?.detail || `Unstage failed (${res.status})`);
     }
-    return res.json();
+    const data = await res.json();
+    window.dispatchEvent(new CustomEvent('mjcc:live-data-changed', { detail: { path: '/api/staging' } }));
+    return data;
   },
 
   // Pull Requests
@@ -568,7 +580,7 @@ export const api = {
     if (direction !== undefined) form.append('direction', direction);
     if (description?.trim()) form.append('description', description.trim());
     if (overwrite !== undefined) form.append('overwrite', String(overwrite));
-    const res = await fetch(BASE + '/api/data-entry/upload', { method: 'POST', headers, body: form, signal });
+    const res = await fetch(BASE + '/api/data-entry/upload', { method: 'POST', headers, body: form, signal, cache: 'no-store' });
     if (!res.ok) {
       let body: string;
       try { const json = await res.json(); body = json.detail || JSON.stringify(json); }
@@ -605,6 +617,7 @@ export const api = {
                 reader.cancel().catch(() => {});
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 const { __ok, ...result } = data;
+                window.dispatchEvent(new CustomEvent('mjcc:live-data-changed', { detail: { path: '/api/data-entry/upload' } }));
                 resolve(result as any);
                 return;
               }
@@ -614,7 +627,9 @@ export const api = {
         pump();
       });
     }
-    return res.json();
+    const data = await res.json();
+    window.dispatchEvent(new CustomEvent('mjcc:live-data-changed', { detail: { path: '/api/data-entry/upload' } }));
+    return data;
   },
 
   async getDataEntryPreview(batchId: string): Promise<any[]> {

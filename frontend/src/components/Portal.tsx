@@ -1187,7 +1187,7 @@ function InventoryView({
     const [inspectTarget, setInspectTarget] = useState<any | null>(null);
     const [selectedSkus, setSelectedSkus] = useState<Set<string>>(new Set());
 
-    // Week lock status: keyed by week number (1-4), value = 'open'|'locked'|'published'
+    // Week lock status: keyed by week number (1-3), value = 'open'|'locked'|'published'
     const [weekLockStatus, setWeekLockStatus] = useState<Record<number, string>>({});
     const [weekLockBusy, setWeekLockBusy] = useState(false);
     const reloadWeekStatus = useCallback(() => {
@@ -1280,7 +1280,7 @@ function InventoryView({
         Record<string, Partial<Record<WeeklyField, number>>>
     >({});
 
-    // Invoice mode selectors: which week (1-4) and direction this staging batch
+    // Invoice mode selectors: which week (1-3) and direction this staging batch
     // represents. 0 = whole-month save (inventory_save). When week>0, the batch
     // is routed as inventory_week_update for that specific column only.
     const maxWeeks = (invState.metadata?.weeks_in_period as number) ?? 3;
@@ -4149,6 +4149,7 @@ function PlaceholderPage({ pageKey }: { pageKey: string }) {
 function ArchivesView(_props: { period: [number, number] }) {
     const [archives, setArchives] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [liveTick, setLiveTick] = useState(0);
 
     useEffect(() => {
         let alive = true;
@@ -4173,20 +4174,29 @@ function ArchivesView(_props: { period: [number, number] }) {
                         : Math.max(0, (i.onHand || 0) + totalReceived(i) - totalPulled(i));
                 const low = items.filter((i: any) => endingQty(i) < (i.par || 0));
                 const startingBalance = items.reduce(
-                    (sum: number, i: any) => sum + (i.onHand || 0) * (i.price || 0),
+                    (sum: number, i: any) =>
+                        sum + (typeof i.openingValue === "number" ? i.openingValue : (i.onHand || 0) * (i.price || 0)),
                     0,
                 );
                 const totalReceivedValue = items.reduce(
-                    (sum: number, i: any) => sum + totalReceived(i) * (i.price || 0),
+                    (sum: number, i: any) =>
+                        sum + (typeof i.receivedValue === "number" ? i.receivedValue : totalReceived(i) * (i.price || 0)),
                     0,
                 );
                 const totalPulledValue = items.reduce(
-                    (sum: number, i: any) => sum + totalPulled(i) * (i.price || 0),
+                    (sum: number, i: any) =>
+                        sum + (typeof i.pulledValue === "number" ? i.pulledValue : totalPulled(i) * (i.price || 0)),
                     0,
                 );
                 const endingBalance = items.reduce(
                     (sum: number, i: any) =>
-                        sum + (typeof i.value === "number" ? i.value : endingQty(i) * (i.price || 0)),
+                        sum + (
+                            typeof i.endingValue === "number"
+                                ? i.endingValue
+                                : typeof i.value === "number"
+                                  ? i.value
+                                  : endingQty(i) * (i.price || 0)
+                        ),
                     0,
                 );
                 const meta = s.metadata || {};
@@ -4224,6 +4234,16 @@ function ArchivesView(_props: { period: [number, number] }) {
         })();
         return () => {
             alive = false;
+        };
+    }, [liveTick]);
+
+    useEffect(() => {
+        const refresh = () => setLiveTick((tick) => tick + 1);
+        window.addEventListener("mjcc:live-data-changed", refresh);
+        window.addEventListener("focus", refresh);
+        return () => {
+            window.removeEventListener("mjcc:live-data-changed", refresh);
+            window.removeEventListener("focus", refresh);
         };
     }, []);
 

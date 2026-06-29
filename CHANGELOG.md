@@ -4,6 +4,28 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v2.0.0] — 2026-06-29 — **CHANGELOG MILESTONE: VERSION 2 COMMITTED** (emphasized)
+
+**OpenCode:** Committed all pending source changes including AI engine/parser/mapper/invoice_parser updates, backend route updates (agent, data_entry, inventory, sourcectrl), staging dispatch updates, inventory_identity and periods modules, main.py wiring, test infrastructure updates, and frontend components (Operations, Portal, PullSheet, Reports, SourceControl) + API client. This marks the v2.0.0 changelog entry milestone.
+
+**Status:** 3 commits remaining until prerelease of **Version 1 — Inventory Commute**.
+
+**Verification:** Full backend + frontend build verification pending post-push.
+**Push:** pending — OpenCode
+
+---
+
+**Codex:** Fixed the May-to-June value mismatch as an API/schema valuation bug. The quantities were already rolling correctly, but June opening value was being recalculated with June unit prices instead of carrying May ending value. Added explicit `monthly_inventory` financial controls (`opening_unit_cost`, `opening_value`, `received_value`, `pulled_value`, `ending_value`) and updated API flatten/save logic, reports, archives, monthly inventory, and live data refresh so UI totals use database-backed audited values instead of stale cache or local price math.
+
+**Codex AI/Data Entry:** Updated the parser/mapper/AI context/source-control diff path so full-month workbooks read Inventory sheet quantities plus Review sheet accounting controls, preserve `total_pulled_raw` when weekly pulls are blank, and keep all AI/schema language on the current 3-week `received/pulled` model. Invoice AI staging now only accepts W1-W3, and commit logs classify `w*_pulled`, `pulled_value`, and aggregate pulls as pull actions.
+
+**Supabase:** Applied migration `20260629060433_carry_inventory_values.sql` to MJCCv1 and backfilled May/June from the local source workbooks. Live totals now show May 2026 opening $7,828.94 / received $29,718.76 / pulled $27,972.68 / ending $9,575.02, and June 2026 opening $9,575.02 / received $30,744.57 / pulled $0.00 / ending $40,319.59. May ending value now equals June opening value.
+
+**Verification:** `python -m ruff check backend/` passed; targeted backend tests passed (25 passed / 1 skipped); `npx tsc --noEmit` passed; `npm run build` passed with existing Vite chunk warnings; `npm run lint` passed with existing warnings only. Supabase CLI verified May/June snapshots, no missing value-control rows, and `audit_inventory_period(4, 2026)` / `(5, 2026)` both returned 0.
+**Push:** pending - Codex
+
+---
+
 ## [v4.23.1] - 2026-06-29 - Manual workbook reconciliation for May/June inventory
 
 **Codex:** Reconciled live Supabase inventory against the local source workbooks after the portal import produced a messy June dataset. Verified `monthly_inventory` is on the template schema (`opening_oh`, W1-W3 received, W1-W3 pulled, `status`) and that May/June rows match the workbook movement fields and computed ending balances.

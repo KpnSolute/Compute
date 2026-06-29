@@ -124,7 +124,12 @@ def _granular_commit_changes(
                 # action CHECK allows only 'pull' | 'enter' | 'revert'.
                 if status == "delete":
                     action = "revert"
-                elif field == "total_pulled_raw" or (field or "").endswith("_issued"):
+                elif (
+                    field == "total_pulled_raw"
+                    or (field or "").endswith("_issued")
+                    or (field or "").endswith("_pulled")
+                    or field == "pulled_value"
+                ):
                     action = "pull"
                 else:
                     action = "enter"

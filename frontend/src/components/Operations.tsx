@@ -261,8 +261,9 @@ export function MonthlyInventory({
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [q, setQ] = useState('');
   const [viewMode, setViewMode] = useState<'flat' | 'group'>('flat');
-  const [week, setWeek] = useState(0); // 0 = All, 1-4 = W1-W4
-  const [maxWeeks, setMaxWeeks] = useState(4); // from API metadata.weeks_in_period
+  const [week, setWeek] = useState(0); // 0 = All, 1-3 = W1-W3
+  const [maxWeeks, setMaxWeeks] = useState(3); // from API metadata.weeks_in_period
+  const [liveTick, setLiveTick] = useState(0);
 
   // Local cache key for this period
   const draftKey = `mjcc_ops_draft_${m + 1}_${y}`;
@@ -293,7 +294,7 @@ export function MonthlyInventory({
     async function load() {
       try {
         const inv = await api.getInventory(m + 1, y);
-        const wip = inv.metadata?.weeks_in_period ?? 4;
+        const wip = inv.metadata?.weeks_in_period ?? 3;
         const flat = (inv.items || []).map((it: any) => ({
           id: it.sku || String(Math.random()),
           cat: it.category || it.cat || '',
@@ -307,6 +308,10 @@ export function MonthlyInventory({
           totalReceived: it.totalReceived,
           totalPulled: it.totalPulled,
           closingQty: it.closingQty,
+          openingValue: it.openingValue,
+          receivedValue: it.receivedValue,
+          pulledValue: it.pulledValue,
+          endingValue: it.endingValue ?? it.value,
         }));
         // Check for uncommitted draft
         const draft = restoreDraft();
@@ -333,7 +338,20 @@ export function MonthlyInventory({
     }
     load();
     return () => { alive = false; };
-  }, [m, y]);
+  }, [m, y, liveTick]);
+
+  useEffect(() => {
+    const refresh = () => {
+      if (!saved) return;
+      setLiveTick((tick) => tick + 1);
+    };
+    window.addEventListener('mjcc:live-data-changed', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      window.removeEventListener('mjcc:live-data-changed', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [saved]);
 
   function setR(id: string, f: string, v: string) {
     setRows((prev) => {
@@ -364,10 +382,10 @@ export function MonthlyInventory({
 
   const sum = rows.reduce(
     (a: any, r: any) => ({
-      open: a.open + (r.opening || 0) * r.price,
-      recv: a.recv + totalRcv(r) * r.price,
-      iss: a.iss + totalIss(r) * r.price,
-      close: a.close + closing(r) * r.price,
+      open: a.open + (typeof r.openingValue === 'number' ? r.openingValue : (r.opening || 0) * r.price),
+      recv: a.recv + (typeof r.receivedValue === 'number' ? r.receivedValue : totalRcv(r) * r.price),
+      iss: a.iss + (typeof r.pulledValue === 'number' ? r.pulledValue : totalIss(r) * r.price),
+      close: a.close + (typeof r.endingValue === 'number' ? r.endingValue : closing(r) * r.price),
     }),
     { open: 0, recv: 0, iss: 0, close: 0 },
   );

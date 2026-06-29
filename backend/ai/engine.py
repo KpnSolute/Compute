@@ -512,7 +512,12 @@ def _call_vision_provider(
 
     elif provider == "google":
         parts: list[dict] = [
-            {"inline_data": {"mime_type": _media_type(img), "data": base64.b64encode(img).decode()}}
+            {
+                "inline_data": {
+                    "mime_type": _media_type(img),
+                    "data": base64.b64encode(img).decode(),
+                }
+            }
             for img in images
         ]
         parts.append({"text": prompt})
@@ -526,7 +531,9 @@ def _call_vision_provider(
         content_parts: list[dict] = [
             {
                 "type": "image_url",
-                "image_url": {"url": f"data:{_media_type(img)};base64,{base64.b64encode(img).decode()}"},
+                "image_url": {
+                    "url": f"data:{_media_type(img)};base64,{base64.b64encode(img).decode()}"
+                },
             }
             for img in images
         ]
@@ -547,9 +554,13 @@ def _call_vision_provider(
             return _mistral_complete(messages, model, key)
         elif provider == "lm_studio":
             base_url = url or cfg.get("lm_studio_url") or "http://localhost:1234"
-            return _openai_complete(messages, model or "local-model", key or "lm-studio", base_url)
+            return _openai_complete(
+                messages, model or "local-model", key or "lm-studio", base_url
+            )
         else:
-            raise ValueError(f"Vision dispatch not implemented for provider: {provider!r}")
+            raise ValueError(
+                f"Vision dispatch not implemented for provider: {provider!r}"
+            )
 
 
 def _get_any_key(provider: str) -> str | None:
@@ -860,7 +871,11 @@ def complete_vision(
         operation or "?",
         str(last_exc)[:300],
     )
-    raise last_exc if last_exc else RuntimeError("Vision AI failed: no providers available")
+    raise (
+        last_exc
+        if last_exc
+        else RuntimeError("Vision AI failed: no providers available")
+    )
 
 
 def extract_json(text: str) -> dict | list:

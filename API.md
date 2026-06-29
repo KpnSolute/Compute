@@ -9,10 +9,12 @@
 
 ## Data Model Clarifications
 
-### `on_hand` vs ending balance
-- `on_hand` in `monthly_inventory` is the **opening balance** for the period — the count carried forward from the prior month's rollover.
-- **Ending balance (current stock)** = `on_hand + sum(w_received) − sum(w_issued)`. The rollover function uses this formula to seed the next month's opening balance.
-- `GET /api/inventory` returns `onHand` (opening balance). The frontend computes the running total from the week columns.
+### Opening vs ending balance
+- `opening_oh` in `monthly_inventory` is the **opening quantity** for the period: the count carried forward from the prior month's ending quantity.
+- **Ending quantity (current stock)** = `opening_oh + sum(w1-w3_received) - sum(w1-w3_pulled)`.
+- Opening value carries from the prior month's `ending_value`; do not recalculate it with the new month `unit_price`.
+- When workbook Review values are present, `opening_value`, `received_value`, `pulled_value`, and `ending_value` are the accounting source of truth.
+- `GET /api/inventory` returns `onHand` (opening quantity), `closingQty` (ending quantity), and the audited value fields. The frontend should display these API/database values rather than recomputing value from local cache.
 
 ### Par level is global
 - `par_level` lives in `inventory_items` and is **shared across all periods**.
@@ -35,7 +37,7 @@
 | Operation | `entity_id` format |
 |---|---|
 | `inventory_save` | `{sku}-{month_1indexed}-{year}` |
-| `inventory_week_update` | `W{week}-{received\|issued}-{month}-{year}` |
+| `inventory_week_update` | `W{week}-{received\|issued}-{month}-{year}` (week 1-3 only; issued maps to pulled storage) |
 | batch compact | `batch-compact-{month}-{year}` |
 | `item_update` / `item_delete` | `{sku}` |
 | `menu_save` | `{day_of_week}` |
@@ -213,8 +215,12 @@ If neither `month` nor `year` is provided, returns the most recent period in the
       "par": 0,
       "onHand": 0,
       "unit": "each",
-      "w1r": 0, "w2r": 0, "w3r": 0, "w4r": 0,
-      "w1i": 0, "w2i": 0, "w3i": 0, "w4i": 0
+      "w1r": 0, "w2r": 0, "w3r": 0,
+      "w1p": 0, "w2p": 0, "w3p": 0,
+      "openingValue": 0.00,
+      "receivedValue": 0.00,
+      "pulledValue": 0.00,
+      "endingValue": 0.00
     }
   ],
   "metadata": { "month": 6, "year": 2026, "period": "2026-06" },
@@ -222,7 +228,8 @@ If neither `month` nor `year` is provided, returns the most recent period in the
   "created_at": "ISO 8601"
 }
 ```
-- `onHand` = opening balance (DB `on_hand`). Ending balance = `onHand + sum(w_r) − sum(w_i)`.
+- `onHand` = opening quantity (DB `opening_oh`). Ending quantity = `onHand + sum(w*r) - sum(w*p)`.
+- `endingValue` is the audited DB value when present; fallback math is only for legacy rows without value controls.
 - Items sorted by SKU ascending.
 
 **Errors:** `400` bad month, `401` auth, `404` no inventory, `500` DB error.
@@ -912,8 +919,8 @@ These are the valid `operation` values. The dispatch registry in `backend/stagin
 
 | Operation | Entity Type | Dispatch Function | Description |
 |---|---|---|---|
-| `inventory_save` | `inventory` | `dispatch_inventory_save` | Upsert items + monthly `on_hand` for a full period |
-| `inventory_week_update` | `inventory` | `dispatch_inventory_week` | Write a single weekly column (`w{1-4}_{received\|issued}`) without touching `on_hand` |
+| `inventory_save` | `inventory` | `dispatch_inventory_save` | Upsert items + monthly `opening_oh`, W1-W3 movement fields, and audited value controls for a full period |
+| `inventory_week_update` | `inventory` | `dispatch_inventory_week` | Write a single W1-W3 weekly movement (`received` or user-facing `issued`, stored as `pulled`) without touching opening quantity |
 | `item_update` | `inventory` | `dispatch_item_update` | Edit item metadata: desc, category, price, **par**, unit, active, SKU rename |
 | `item_delete` | `inventory` | `dispatch_item_delete` | Soft delete (default) or hard delete (`hard: true` in payload) by SKU |
 | `menu_save` | `menu` | `dispatch_menu_save` | Replace all meal slots for a day-of-week in the active menu cycle |

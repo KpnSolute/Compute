@@ -77,7 +77,8 @@ def _rollover_opening_balances(
         sup.table("monthly_inventory")
         .select(
             "item_id,opening_oh,w1_received,w2_received,w3_received,"
-            "w1_pulled,w2_pulled,w3_pulled,unit_price"
+            "w1_pulled,w2_pulled,w3_pulled,unit_price,"
+            "opening_unit_cost,opening_value,received_value,pulled_value,ending_value"
         )
         .eq("month", prev_db_month)
         .eq("year", prev_year)
@@ -120,6 +121,29 @@ def _rollover_opening_balances(
             ),
         )
         if closing > 0:
+            ending_value = prev.get("ending_value")
+            if ending_value is None:
+                opening_value = prev.get("opening_value")
+                if opening_value is None:
+                    opening_value = (prev.get("opening_oh") or 0) * (
+                        prev.get("opening_unit_cost") or prev.get("unit_price") or 0
+                    )
+                received_value = prev.get("received_value")
+                if received_value is None:
+                    received_value = (
+                        (prev.get("w1_received") or 0)
+                        + (prev.get("w2_received") or 0)
+                        + (prev.get("w3_received") or 0)
+                    ) * (prev.get("unit_price") or 0)
+                pulled_value = prev.get("pulled_value")
+                if pulled_value is None:
+                    pulled_value = (
+                        (prev.get("w1_pulled") or 0)
+                        + (prev.get("w2_pulled") or 0)
+                        + (prev.get("w3_pulled") or 0)
+                    ) * (prev.get("unit_price") or 0)
+                ending_value = max(0, opening_value + received_value - pulled_value)
+            opening_unit_cost = (ending_value / closing) if closing else None
             sup.table("monthly_inventory").upsert(
                 {
                     "item_id": iid,
@@ -127,6 +151,11 @@ def _rollover_opening_balances(
                     "year": year,
                     "opening_oh": closing,
                     "unit_price": prev.get("unit_price") or 0,
+                    "opening_unit_cost": opening_unit_cost,
+                    "opening_value": ending_value,
+                    "received_value": 0,
+                    "pulled_value": 0,
+                    "ending_value": ending_value,
                 },
                 on_conflict="item_id,month,year",
             ).execute()
@@ -154,6 +183,11 @@ def dispatch_inventory_save(payload: dict) -> dict:
                 "w2p",
                 "w3p",
                 "total_pulled_raw",
+                "opening_unit_cost",
+                "opening_value",
+                "received_value",
+                "pulled_value",
+                "ending_value",
             ),
         )
     except ValueError as exc:
@@ -189,7 +223,7 @@ def dispatch_inventory_save(payload: dict) -> dict:
     count = 0
     dropped = 0
     rows: list[dict] = []
-    txn_rows: list[dict] = []  # week 1-4 spreadsheet cells + week 0 aggregate pulls
+    txn_rows: list[dict] = []  # week 1-3 spreadsheet cells + aggregate pulls
     explicit_on_hand_item_ids: set[str] = set()
     for item in items:
         # Identity is resolved by SKU only; an unknown category resolves to None
@@ -238,6 +272,27 @@ def dispatch_inventory_save(payload: dict) -> dict:
             monthly_fields["unit_price"] = item["price"]
         if item.get("status") is not None:
             monthly_fields["status"] = item["status"]
+        for payload_key, column in (
+            ("opening_unit_cost", "opening_unit_cost"),
+            ("opening_value", "opening_value"),
+            ("received_value", "received_value"),
+            ("pulled_value", "pulled_value"),
+            ("ending_value", "ending_value"),
+        ):
+            if item.get(payload_key) is not None:
+                monthly_fields[column] = _non_negative(
+                    item.get(payload_key), payload_key, item.get("sku")
+                )
+        if "ending_value" not in monthly_fields and (
+            "opening_value" in monthly_fields or "received_value" in monthly_fields
+        ):
+            monthly_fields["pulled_value"] = monthly_fields.get("pulled_value", 0)
+            monthly_fields["ending_value"] = max(
+                0,
+                (monthly_fields.get("opening_value") or 0)
+                + (monthly_fields.get("received_value") or 0)
+                - (monthly_fields.get("pulled_value") or 0),
+            )
         for src, col, week_number, txn_type in [
             ("w1r", "w1_received", 1, "received"),
             ("w2r", "w2_received", 2, "received"),
@@ -492,8 +547,11 @@ def dispatch_inventory_week(payload: dict) -> dict:
     week = int(payload.get("week") or 0)
     direction = (payload.get("direction") or "received").lower()
     items = payload.get("items", [])
-    if week not in (1, 2, 3, 4):
-        return {"applied": 0, "error": f"Invalid week {week} (expected 1-4)"}
+    if week not in (1, 2, 3):
+        return {
+            "applied": 0,
+            "error": f"Invalid week {week} (expected 1-3 for the current template schema)",
+        }
     if direction not in ("received", "issued"):
         return {"applied": 0, "error": f"Invalid direction {direction}"}
     if not items:

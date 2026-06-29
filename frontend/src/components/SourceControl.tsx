@@ -150,11 +150,9 @@ const QUANTITY_FIELDS = new Set([
     "w1_received",
     "w2_received",
     "w3_received",
-    "w4_received",
-    "w1_issued",
-    "w2_issued",
-    "w3_issued",
-    "w4_issued",
+    "w1_pulled",
+    "w2_pulled",
+    "w3_pulled",
     "total_pulled_raw",
 ]);
 

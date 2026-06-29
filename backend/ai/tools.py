@@ -508,8 +508,8 @@ def stage_inventory_week_update(args: dict, user_role: str) -> dict:
         return {"error": "month must be 1-12"}
     if year < 2020 or year > 2040:
         return {"error": "year must be 2020-2040"}
-    if week not in (1, 2, 3, 4):
-        return {"error": "week must be 1-4"}
+    if week not in (1, 2, 3):
+        return {"error": "week must be 1-3"}
     if direction not in ("received", "issued"):
         return {"error": "direction must be received or issued"}
     if not isinstance(items, list) or not items:
@@ -639,7 +639,7 @@ Available tools (call with <tool_call>{"name":"...","args":{...}}</tool_call>):
 - get_daily_logs(limit:int): Recent daily operations entries [manager+ only]
 - create_event(title:str, date:str YYYY-MM-DD, cat:str, description:str): Create a new event [manager+ only]
 - stage_inventory_save(month:int, year:int, items:list, notes:str): Stage month-level inventory edits into Source Control and open/link a PR [manager+ only]
-- stage_inventory_week_update(month:int, year:int, week:int, direction:str, items:list, notes:str): Stage weekly received/issued quantities into Source Control and open/link a PR [manager+ only]
+- stage_inventory_week_update(month:int, year:int, week:int, direction:str, items:list, notes:str): Stage W1-W3 received or pulled/issued quantities into Source Control and open/link a PR [manager+ only]
 - get_source_control_status(): Pending staging and open PR counts [manager+ only]
 - get_ai_usage(days:int): AI token/cost usage statistics [admin+ only]
 
