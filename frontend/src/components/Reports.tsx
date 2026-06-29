@@ -38,6 +38,14 @@ function Loading({ label = 'Loading…' }) {
   return <div className="load-wrap"><div className="spinner"></div><div>{label}</div></div>;
 }
 
+const num = (v: any) => Number.isFinite(Number(v)) ? Number(v) : 0;
+const itemDesc = (it: any) => String(it.desc || it.description || it.item_description || it.name || it.sku || '');
+const itemCat = (it: any) => String(it.category || it.cat || it.category_name || 'Uncategorized');
+const itemUnit = (it: any) => String(it.unit || it.uom || it.unit_of_measure || '-');
+const itemPar = (it: any) => num(it.par ?? it.par_level ?? it.parLevel);
+const itemPrice = (it: any) => num(it.price ?? it.unit_price);
+const fmtMoney = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 function ReportPeriodSelect({
   value,
   onChange,
@@ -111,8 +119,8 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
 
   // Sort by category then description — matches corporate report expectation
   const sorted = [...invItems].sort((a: any, b: any) =>
-    (a.category || '').localeCompare(b.category || '') ||
-    (a.desc || '').localeCompare(b.desc || '')
+    itemCat(a).localeCompare(itemCat(b)) ||
+    itemDesc(a).localeCompare(itemDesc(b))
   );
 
   const totalRcv = (it: any) => typeof it.totalReceived === 'number'
@@ -127,6 +135,11 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
 
   const moninvRows = sorted.map((it: any) => ({
     ...it,
+    category: itemCat(it),
+    desc: itemDesc(it),
+    unit: itemUnit(it),
+    price: itemPrice(it),
+    par: itemPar(it),
     opening: it.onHand || 0,
     totalRcv: totalRcv(it),
     totalIss: totalIss(it),
@@ -160,37 +173,36 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
       period: periodLbl,
       columns: [
         { key: 'category', label: 'Category' },
-        { key: 'sku', label: 'SKU' },
-        { key: 'desc', label: 'Description' },
-        { key: 'unit', label: 'Unit' },
-        { key: 'opening', label: 'Opening' },
+        { key: 'desc', label: 'Item Description' },
+        { key: 'unit', label: 'UOM' },
+        { key: 'price', label: 'Unit Price', get: (r: any) => fmtMoney(itemPrice(r)) },
+        { key: 'par', label: 'Par Level', get: (r: any) => itemPar(r) },
+        { key: 'opening', label: 'Beginning Inv.' },
         { key: 'w1r', label: 'W1 Rcv', get: (r: any) => r.w1r || 0 },
-        { key: 'w1i', label: 'W1 Iss', get: (r: any) => r.w1i || 0 },
         { key: 'w2r', label: 'W2 Rcv', get: (r: any) => r.w2r || 0 },
-        { key: 'w2i', label: 'W2 Iss', get: (r: any) => r.w2i || 0 },
         { key: 'w3r', label: 'W3 Rcv', get: (r: any) => r.w3r || 0 },
-        { key: 'w3i', label: 'W3 Iss', get: (r: any) => r.w3i || 0 },
         { key: 'w4r', label: 'W4 Rcv', get: (r: any) => r.w4r || 0 },
-        { key: 'w4i', label: 'W4 Iss', get: (r: any) => r.w4i || 0 },
-        { key: 'aggregateIssued', label: 'Month Pull', get: (r: any) => r.aggregateIssued || 0 },
         { key: 'totalRcv', label: 'Total Rcv' },
-        { key: 'totalIss', label: 'Total Iss' },
-        { key: 'closing', label: 'Closing' },
-        { key: 'price', label: 'Unit Price', get: (r: any) => '$' + (r.price || 0).toFixed(2) },
-        { key: 'value', label: 'Value', get: (r: any) => '$' + (r.value || 0).toFixed(2) },
+        { key: 'w1i', label: 'W1 Issued', get: (r: any) => r.w1i || 0 },
+        { key: 'w2i', label: 'W2 Issued', get: (r: any) => r.w2i || 0 },
+        { key: 'w3i', label: 'W3 Issued', get: (r: any) => r.w3i || 0 },
+        { key: 'w4i', label: 'W4 Issued', get: (r: any) => r.w4i || 0 },
+        { key: 'aggregateIssued', label: 'Month Pull', get: (r: any) => r.aggregateIssued || 0 },
+        { key: 'totalIss', label: 'Total Issued' },
+        { key: 'closing', label: 'Ending Inv.' },
+        { key: 'value', label: 'Ending Value', get: (r: any) => fmtMoney(r.value || 0) },
       ],
       build: () => moninvRows,
       summary: (rows: any[]) => {
-        const fmt = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         const startBal  = rows.reduce((s, r) => s + (r.opening  || 0) * (r.price || 0), 0);
         const rcvBal    = rows.reduce((s, r) => s + (r.totalRcv || 0) * (r.price || 0), 0);
         const pullBal   = rows.reduce((s, r) => s + (r.totalIss || 0) * (r.price || 0), 0);
         const endBal    = rows.reduce((s, r) => s + (r.closing  || 0) * (r.price || 0), 0);
         return [
-          { label: 'Starting Balance', value: fmt(startBal) },
-          { label: 'Total Received',   value: fmt(rcvBal) },
-          { label: 'Total Pulled',     value: fmt(pullBal) },
-          { label: 'Ending Balance',   value: fmt(endBal) },
+          { label: 'Starting Balance', value: fmtMoney(startBal) },
+          { label: 'Total Received',   value: fmtMoney(rcvBal) },
+          { label: 'Total Pulled',     value: fmtMoney(pullBal) },
+          { label: 'Ending Balance',   value: fmtMoney(endBal) },
         ];
       },
     },
@@ -422,6 +434,34 @@ export function Reports({
 
   const active = availableReports.find((r) => r.id === sel) || availableReports[0];
   const rows = active?.build() || [];
+  const showInventoryStats = rows.length > 0 && ['inventory', 'moninv'].includes(active?.id);
+  const reportStats = useMemo(() => {
+    const receivedUnits = rows.reduce((s: number, r: any) => {
+      if (r.totalRcv != null || r.totalReceived != null) return s + num(r.totalRcv ?? r.totalReceived);
+      return s + num(r.w1r) + num(r.w2r) + num(r.w3r) + num(r.w4r);
+    }, 0);
+    const issuedUnits = rows.reduce((s: number, r: any) => {
+      if (r.totalIss != null || r.totalIssued != null) return s + num(r.totalIss ?? r.totalIssued);
+      return s + num(r.w1i) + num(r.w2i) + num(r.w3i) + num(r.w4i) + num(r.aggregateIssued);
+    }, 0);
+    const endingValue = rows.reduce((s: number, r: any) => {
+      const closing = r.closing ?? r.closingQty ?? r.onHand ?? r.on_hand ?? 0;
+      return s + num(closing) * itemPrice(r);
+    }, 0);
+    const reorderNeeded = rows.filter((r: any) => {
+      const par = itemPar(r);
+      const closing = num(r.closing ?? r.closingQty ?? r.onHand ?? r.on_hand);
+      return par > 0 && closing <= par;
+    }).length;
+    return [
+      { label: 'Items', value: rows.length.toLocaleString(), icon: I.box },
+      { label: 'Categories', value: new Set(rows.map((r: any) => itemCat(r))).size.toLocaleString(), icon: I.archive },
+      { label: 'Received Units', value: receivedUnits.toLocaleString(), icon: I.trend },
+      { label: 'Issued Units', value: issuedUnits.toLocaleString(), icon: I.down },
+      { label: 'Ending Value', value: fmtMoney(endingValue), icon: I.dollar, tone: 'accent' },
+      { label: 'Reorder Needed', value: reorderNeeded.toLocaleString(), icon: I.alert, tone: reorderNeeded > 0 ? 'danger' : 'muted' },
+    ];
+  }, [rows]);
 
   const groups = canSeeAllReports ? ['Inventory', 'Compliance', 'Programs'] : ['Inventory'];
   const fileName = (rep: any) =>
@@ -649,6 +689,22 @@ export function Reports({
                 {rows.length} record{rows.length !== 1 ? 's' : ''}
               </span>
             </div>
+            {showInventoryStats && (
+              <div className="report-kpi-grid">
+                {reportStats.map((stat) => {
+                  const Icon = stat.icon;
+                  return (
+                    <div className="report-kpi-card" data-tone={stat.tone || 'default'} key={stat.label}>
+                      <div className="report-kpi-label">
+                        <Icon />
+                        <span>{stat.label}</span>
+                      </div>
+                      <div className="report-kpi-value">{stat.value}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             {rows.length === 0 ? (
               <div
                 style={{
@@ -675,7 +731,7 @@ export function Reports({
                 className="card-body flush tbl-wrap"
                 style={{ maxHeight: 520, overflowY: 'auto' }}
               >
-                <table className="data">
+                <table className={showInventoryStats ? 'data sheet report-sheet' : 'data'}>
                   <thead>
                     <tr>
                       {active.columns.map((c: any) => (

@@ -4,6 +4,18 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.21.3] - 2026-06-29 - Report and Pull Sheet production layout pass
+
+**Codex UI:** Upgraded the Reports preview from a plain item list into an inventory-report surface with KPI cards for Items, Categories, Received Units, Issued Units, Ending Value, and Reorder Needed. The Monthly Inventory Roll-up now uses spreadsheet-style columns: category, item description, UOM, unit price, par level, beginning inventory, weekly received/issued, totals, ending inventory, and ending value.
+
+**Codex Pull Sheet:** Added inventory-sheet style summary cards, week tabs, category divider rows, UOM/par/status columns, and the same custom dropdown family already used for period/category filtering. Pull entry staging behavior is unchanged.
+
+**Verification:** Frontend ESLint quiet passed, `npx tsc --noEmit` passed, and `npm run build` passed with the existing Vite dynamic-import/chunk-size warnings.
+
+**Push:** pending
+
+---
+
 ## [v4.21.2] - 2026-06-28 - Reports and Pull Sheet dropdown polish
 
 **Codex UI:** Replaced the Reports page month/year native selects with scoped custom period dropdowns so the report toolbar no longer shows square browser controls or system-colored option menus. The new controls match the MJCC shell, support outside-click/Escape close behavior, and stretch to mobile tap targets in narrow layouts.

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Fragment, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { I } from '../lib/icons';
 import { type User, ROLE_LEVEL, MONTHS } from '../lib/constants';
 import { api } from '../lib/api';
@@ -9,6 +9,12 @@ const t = (msg: string) => (window as any).toast?.(msg);
 function fmt(v: number) {
   return '$' + v.toFixed(2);
 }
+
+const pnum = (v: any) => Number.isFinite(Number(v)) ? Number(v) : 0;
+const pcat = (it: any) => String(it.category || it.cat || it.category_name || 'Uncategorized').trim() || 'Uncategorized';
+const pdesc = (it: any) => String(it.desc || it.description || it.name || it.sku || '');
+const punit = (it: any) => String(it.unit || it.uom || it.unit_of_measure || '-');
+const ppar = (it: any) => pnum(it.par ?? it.par_level ?? it.parLevel);
 
 function PullSheetSelect<T extends number | string>({
   value,
@@ -152,8 +158,8 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
 
   const categories = useMemo(() => {
     const names = items
-      .map(it => String(it.category || it.cat || it.category_name || '').trim())
-      .filter(Boolean);
+      .map(pcat)
+      .filter(name => name !== 'Uncategorized');
     return [...new Set(names)].sort((a, b) => a.localeCompare(b));
   }, [items]);
 
@@ -161,13 +167,13 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
   const filtered = useMemo(() => {
     const lq = q.toLowerCase();
     return items.filter(it => {
-      const itemCat = String(it.category || it.cat || it.category_name || '').trim();
+      const itemCat = pcat(it);
       if (cat && itemCat !== cat) return false;
       const hasDraft = (qtys[it.sku] || 0) > 0;
       if (!showAll && (it.on_hand ?? it.onHand ?? 0) <= 0 && !hasDraft) return false;
       if (lq) {
         const sku = String(it.sku || '').toLowerCase();
-        const desc = String(it.desc || it.description || '').toLowerCase();
+        const desc = pdesc(it).toLowerCase();
         const category = itemCat.toLowerCase();
         const price = `$${Number(it.price || 0).toFixed(2)}`.toLowerCase();
         if (!sku.includes(lq) && !desc.includes(lq) && !category.includes(lq) && !price.includes(lq)) return false;
@@ -182,7 +188,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
       .filter(it => (qtys[it.sku] || 0) > 0)
       .map(it => ({
         sku: String(it.sku),
-        desc: String(it.desc || it.description || it.sku),
+        desc: pdesc(it),
         qty: qtys[it.sku] || 0,
         price: Number(it.price || 0),
         value: (qtys[it.sku] || 0) * Number(it.price || 0),
@@ -192,6 +198,24 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
 
   const totalValue = pulledItems.reduce((s, i) => s + i.value, 0);
   const anyPulled = pulledItems.length > 0;
+  const filteredGroups = useMemo(() => {
+    const groups = new Map<string, any[]>();
+    filtered.forEach((it) => {
+      const name = pcat(it);
+      groups.set(name, [...(groups.get(name) || []), it]);
+    });
+    return [...groups.entries()].map(([name, rows]) => ({ name, rows }));
+  }, [filtered]);
+  const pullStats = useMemo(() => {
+    const availableUnits = filtered.reduce((s, it) => s + pnum(it.on_hand ?? it.onHand), 0);
+    return [
+      { label: 'Visible Items', value: filtered.length.toLocaleString(), icon: I.box },
+      { label: 'Categories', value: filteredGroups.length.toLocaleString(), icon: I.archive },
+      { label: 'On Hand Units', value: availableUnits.toLocaleString(), icon: I.database },
+      { label: `Week ${week} Pull`, value: pulledItems.reduce((s, it) => s + it.qty, 0).toLocaleString(), icon: I.down, tone: 'accent' },
+      { label: 'Value Pulled', value: fmt(totalValue), icon: I.dollar, tone: anyPulled ? 'accent' : 'muted' },
+    ];
+  }, [anyPulled, filtered, filteredGroups.length, pulledItems, totalValue, week]);
 
   function saveDraft() {
     localStorage.setItem(draftKey, JSON.stringify({ week, items: qtys }));
@@ -284,6 +308,35 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
         </label>
       </div>
 
+      <div className="pull-kpi-grid">
+        {pullStats.map((stat) => {
+          const Icon = stat.icon;
+          return (
+            <div className="pull-kpi-card" data-tone={stat.tone || 'default'} key={stat.label}>
+              <div className="pull-kpi-label">
+                <Icon />
+                <span>{stat.label}</span>
+              </div>
+              <div className="pull-kpi-value">{stat.value}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="pull-week-tabs">
+        {weekOpts.map((o) => (
+          <button
+            type="button"
+            className="pull-week-tab"
+            data-on={week === o.value}
+            key={o.value}
+            onClick={() => setWeek(o.value)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+
       {loading && (
         <div className="load-wrap">
           <div className="spinner" />
@@ -300,13 +353,16 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
       {!loading && !loadErr && (
         <div className="card" style={{ marginBottom: 0 }}>
           <div className="card-body flush tbl-wrap">
-            <table className="data">
+            <table className="data pull-sheet-table">
               <thead>
                 <tr>
+                  <th>Item</th>
                   <th>SKU</th>
-                  <th>Description</th>
+                  <th>UOM</th>
                   <th style={{ textAlign: 'right' }}>Unit Price</th>
                   <th style={{ textAlign: 'right' }}>On Hand</th>
+                  <th style={{ textAlign: 'right' }}>Par</th>
+                  <th>Status</th>
                   <th style={{ textAlign: 'center', width: 110 }}>Pull Qty</th>
                   <th style={{ textAlign: 'right' }}>Value Pulled</th>
                 </tr>
@@ -314,25 +370,38 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
               <tbody>
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={6} style={{ textAlign: 'center', padding: '28px 0', color: 'var(--faint)', fontSize: 13 }}>
+                    <td colSpan={9} style={{ textAlign: 'center', padding: '28px 0', color: 'var(--faint)', fontSize: 13 }}>
                       No items match — try "Show zero-on-hand items" or clear the search.
                     </td>
                   </tr>
                 )}
-                {filtered.map(it => {
-                  const sku = String(it.sku);
-                  const desc = String(it.desc || it.description || sku);
-                  const price = Number(it.price || 0);
-                  const onHand = Number(it.on_hand ?? it.onHand ?? 0);
-                  const qty = qtys[sku] || 0;
-                  const rowValue = qty * price;
-                  const isDirty = qty > 0;
+                {filteredGroups.map(group => (
+                  <Fragment key={group.name}>
+                    <tr className="pull-category-row">
+                      <td colSpan={9}>
+                        <span>{group.name}</span>
+                        <em>{group.rows.length} item{group.rows.length !== 1 ? 's' : ''}</em>
+                      </td>
+                    </tr>
+                    {group.rows.map(it => {
+                      const sku = String(it.sku);
+                      const desc = pdesc(it);
+                      const price = Number(it.price || 0);
+                      const onHand = Number(it.on_hand ?? it.onHand ?? 0);
+                      const par = ppar(it);
+                      const qty = qtys[sku] || 0;
+                      const rowValue = qty * price;
+                      const isDirty = qty > 0;
+                      const status = onHand <= 0 ? 'Out' : par > 0 && onHand <= par ? 'Low' : 'OK';
                   return (
-                    <tr key={sku} style={isDirty ? { background: 'var(--accent-soft)' } : undefined}>
-                      <td style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{sku}</td>
+                    <tr key={`${group.name}-${sku}`} style={isDirty ? { background: 'var(--accent-soft)' } : undefined}>
                       <td>{desc}</td>
+                      <td style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{sku}</td>
+                      <td>{punit(it)}</td>
                       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmt(price)}</td>
                       <td style={{ textAlign: 'right', color: onHand <= 0 ? 'var(--faint)' : undefined }}>{onHand}</td>
+                      <td style={{ textAlign: 'right' }}>{par || '-'}</td>
+                      <td><span className="pull-status" data-status={status.toLowerCase()}>{status}</span></td>
                       <td style={{ textAlign: 'center' }}>
                         <input
                           type="number"
@@ -359,7 +428,9 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
                       </td>
                     </tr>
                   );
-                })}
+                    })}
+                  </Fragment>
+                ))}
               </tbody>
             </table>
           </div>
