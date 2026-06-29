@@ -4,6 +4,26 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.21.0] — 2026-06-28 — Report grand totals + Impeccable UI compliance pass
+
+**Claude:** Three areas addressed in one pass.
+
+**Reports grand totals (Reports.tsx):** The Starting Balance / Received / Pulled / Ending Balance summary already existed in the printable output. Now it also appears: (1) as a styled `<tfoot>` bar below the on-screen preview table — navy text, surface-2 background, uppercase labels; (2) appended as extra rows at the bottom of the CSV download so exports are self-contained. Both paths use the same `rep.summary(rows)` function already on the `moninv` report.
+
+**Impeccable UI compliance (index.css):** Fresh detector scan found 5 warnings — all resolved.
+- `.ev-menu`: side-stripe `border-left` replaced with full `accent-soft` bg + `accent-chip` border.
+- `.sync-card.on/.off`: side-stripe `border-left` replaced with `border-color` + background tint.
+- `.agent-launch-icon svg`: `width/height` layout transition replaced with `transform: scale`.
+- `.prog-bar2`: `width` transition replaced with `transform: scaleX; transform-origin: left`.
+- `agentBounce`: Classified as intentional (AI typing-indicator translateY dots) and registered in `.impeccable/config.json` ignore list.
+
+**PRODUCT.md:** Created Impeccable product register — product register, professional/modern brand, five design principles, WCAG AA accessibility note.
+
+**Build:** tsc clean. Impeccable detector: 0 findings after fixes.
+**Push:** 1f38d87 — 2026-06-28
+
+---
+
 ## [v4.20.15] - 2026-06-28 - Staff monthly report templates
 
 **Codex UI:** Opened Reports access to staff-level users while restricting staff-visible report choices to the Monthly Inventory Roll-up. Managers and admins still see the full report catalogue. The printable monthly inventory report now includes Starting Balance, Total Received, Total Pulled, and Ending Balance in the live report summary.
