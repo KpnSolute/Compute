@@ -4,11 +4,11 @@ import {
     ROLE_LEVEL,
     MONTHS,
     MEAL_COLS,
+    MEAL_LOG_TYPES,
     INSPECTION_Q,
     FOODREQ_FIELDS,
 } from "../lib/constants";
 import { I } from "../lib/icons";
-import { DS } from "../lib/services";
 import { loadLog, saveLog, fetchLog } from "../lib/supabase";
 import { api } from "../lib/api";
 import { SaveBar } from "./ui/ActionBars";
@@ -731,10 +731,8 @@ export function MealLog({ user }: FormProps) {
         a[c] = rows.filter((r: any) => r[c[0]]).length;
         return a;
     }, {});
-    const mealTypes = DS.syncMealTypes();
-    const paidSet = new Set(
-        mealTypes.filter((t: any) => t.paid).map((t: any) => t.key),
-    );
+    const mealTypes = MEAL_LOG_TYPES;
+    const paidSet = new Set(mealTypes.filter((t) => t.paid).map((t) => t.key));
     const signedRows = rows.filter((r: any) => r.B || r.L || r.D);
     const paidCount = signedRows.filter((r: any) => paidSet.has(r.type)).length;
     const compCount = signedRows.length - paidCount;
@@ -742,10 +740,18 @@ export function MealLog({ user }: FormProps) {
     async function handleSave() {
         await save(user.display_name);
         try {
+            const payload = {
+                ...data,
+                date,
+                counts,
+                signedCount: signedRows.length,
+                paidCount,
+                compCount,
+            };
             await api.saveDailyLog({
                 entry_type: "meal_log",
-                title: "Meal Log",
-                data: JSON.stringify(data),
+                title: `Meal Log - ${date}`,
+                data: JSON.stringify(payload),
             });
         } catch {
             /* local save succeeded */

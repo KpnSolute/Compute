@@ -4,6 +4,17 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.24.2] — 2026-06-29 — Live API/report verification and meal-log calculations
+
+**Codex:** Verified production API inventory responses with an authenticated staff session against live Supabase totals. `/api/inventory?month=5&year=2026` returns 266 May rows with closing value $9,575.02; `/api/inventory?month=6&year=2026` returns 291 June rows with opening value $9,575.02 and closing value $40,319.59. Supabase audit remains clean for May and June.
+
+**Fix:** Corrected Meal Log data entry and reporting. The Meal Log form now uses explicit payer types (`Staff`, `Visitor`, `Monitor`, `Comp Guest`) instead of incorrectly reusing meal-period names as the row type. Backend log payloads now include the selected form date plus signed/paid/complimentary summary counts. The Reports page now loads live `meal_log` entries from `/api/logs/daily`, filters them by the selected report month/year, and calculates signed entries, meals served, paid meals, and complimentary meals from the stored rows.
+
+**Verification:** Production API staff login + inventory smoke passed; production meal-log create/read/delete smoke completed with 0 test rows left in `daily_operations_logs`. `python -m ruff check backend/` passed; targeted backend tests passed (25 passed / 1 skipped); `npx tsc --noEmit` passed; `npm run build` passed with existing Vite warnings; `npm run lint` passed with existing warnings only.
+**Push:** pending — Codex
+
+---
+
 ## [v4.24.1] — 2026-06-29 — Migration provenance check after DB calc bug hunt
 
 **Codex:** Re-synced after OpenCode's extended BUG HUNT and Claude's implementation. Verified the latest commits (`e0539a4`, `307ad38`) are present, the tracked source tree was clean, and the live Supabase schema uses only the current inventory columns: `opening_oh`, `w1-w3_pulled`, and audited value fields. No live `on_hand` or `w*_issued` columns remain in `monthly_inventory`.

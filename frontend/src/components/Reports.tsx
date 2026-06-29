@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { I } from '../lib/icons';
-import { type User, MONTHS, ROLE_LEVEL } from '../lib/constants';
+import { type User, MONTHS, ROLE_LEVEL, MEAL_LOG_TYPES } from '../lib/constants';
 import { api } from '../lib/api';
 import { TemplatesPanel } from './Templates';
 
@@ -49,6 +49,52 @@ const itemReceivedValue = (it: any) => num(it.receivedValue ?? it.received_value
 const itemPulledValue = (it: any) => num(it.pulledValue ?? it.pulled_value);
 const itemEndingValue = (it: any) => num(it.endingValue ?? it.ending_value ?? it.value);
 const fmtMoney = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const paidMealLogTypes = new Set(MEAL_LOG_TYPES.filter((type) => type.paid).map((type) => type.key));
+
+function parseLogData(log: any) {
+  if (!log?.data) return {};
+  if (typeof log.data === 'object') return log.data;
+  try {
+    return JSON.parse(log.data);
+  } catch {
+    return {};
+  }
+}
+
+function logDate(log: any, data: any) {
+  return String(data.date || log.date || log.created_at || '').slice(0, 10);
+}
+
+function buildMealLogRows(mealLogs: any[], period: [number, number]) {
+  const rows: any[] = [];
+  mealLogs.forEach((log) => {
+    const data = parseLogData(log);
+    const date = logDate(log, data);
+    if (date) {
+      const parsed = new Date(date + 'T12:00:00');
+      if (parsed.getFullYear() !== period[1] || parsed.getMonth() !== period[0]) return;
+    }
+    const entries = Array.isArray(data.rows) ? data.rows : [];
+    entries.forEach((entry: any) => {
+      const meals = ['B', 'L', 'D'].filter((key) => !!entry[key]);
+      if (!meals.length) return;
+      const type = String(entry.type || 'Staff');
+      const paid = paidMealLogTypes.has(type);
+      rows.push({
+        date,
+        name: entry.name || '',
+        type,
+        meals: meals.join(', '),
+        mealCount: meals.length,
+        paid: paid ? 'Yes' : 'No',
+        paidCount: paid ? meals.length : 0,
+        compCount: paid ? 0 : meals.length,
+        ticket: entry.ticket || '',
+      });
+    });
+  });
+  return rows.sort((a, b) => (a.date || '').localeCompare(b.date || '') || a.name.localeCompare(b.name));
+}
 
 function ReportPeriodSelect({
   value,
@@ -118,7 +164,7 @@ function ReportPeriodSelect({
   );
 }
 
-function buildReports(period: [number, number], invItems: any[], events: any[], commits: any[]) {
+function buildReports(period: [number, number], invItems: any[], events: any[], commits: any[], mealLogs: any[]) {
   const periodLbl = MONTHS[period[0]] + ' ' + period[1];
 
   // Sort by category then description — matches corporate report expectation
@@ -230,7 +276,7 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
       name: 'Meal Logs',
       group: 'Compliance',
       icon: 'users',
-      period: 'all dates',
+      period: periodLbl,
       columns: [
         { key: 'date', label: 'Date' },
         { key: 'name', label: 'Name' },
@@ -239,7 +285,13 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
         { key: 'paid', label: 'Paid' },
         { key: 'ticket', label: 'Ticket #' },
       ],
-      build: () => [],
+      build: () => buildMealLogRows(mealLogs, period),
+      summary: (rows: any[]) => [
+        { label: 'Signed Entries', value: rows.length.toLocaleString() },
+        { label: 'Meals Served', value: rows.reduce((s, r) => s + num(r.mealCount), 0).toLocaleString() },
+        { label: 'Paid Meals', value: rows.reduce((s, r) => s + num(r.paidCount), 0).toLocaleString() },
+        { label: 'Complimentary Meals', value: rows.reduce((s, r) => s + num(r.compCount), 0).toLocaleString() },
+      ],
     },
     {
       id: 'temp',
@@ -390,6 +442,7 @@ export function Reports({
   const [invItems, setInvItems] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
   const [commits, setCommits] = useState<any[]>([]);
+  const [mealLogs, setMealLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [liveTick, setLiveTick] = useState(0);
 
@@ -401,20 +454,23 @@ export function Reports({
     setLoading(true);
     async function load() {
       try {
-        const [invData, evData, cmData] = await Promise.all([
+        const [invData, evData, cmData, mealData] = await Promise.all([
           api.getInventory(period[0] + 1, period[1]).catch(() => null),
           api.getEvents().catch(() => []),
           api.getCommits().catch(() => []),
+          api.getDailyLogs(500, 'meal_log').catch(() => []),
         ]);
         if (!alive) return;
         setInvItems(invData?.items || []);
         setEvents(evData);
         setCommits(cmData);
+        setMealLogs(mealData);
       } catch {
         if (alive) {
           setInvItems([]);
           setEvents([]);
           setCommits([]);
+          setMealLogs([]);
         }
       }
       if (alive) setLoading(false);
@@ -433,7 +489,10 @@ export function Reports({
     };
   }, []);
 
-  const reports = useMemo(() => buildReports(period, invItems, events, commits), [period, invItems, events, commits]);
+  const reports = useMemo(
+    () => buildReports(period, invItems, events, commits, mealLogs),
+    [period, invItems, events, commits, mealLogs],
+  );
   const canSeeAllReports = ROLE_LEVEL[user.role] >= 30;
   const availableReports = useMemo(
     () => canSeeAllReports ? reports : reports.filter((r) => r.id === 'moninv'),

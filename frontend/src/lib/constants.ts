@@ -159,6 +159,13 @@ export const FOODREQ_FIELDS = [
 
 export const MEAL_COLS = ['Breakfast', 'Lunch', 'Dinner'];
 
+export const MEAL_LOG_TYPES = [
+  { key: 'Staff', label: 'Staff', paid: true },
+  { key: 'Visitor', label: 'Visitor', paid: true },
+  { key: 'Monitor', label: 'Monitor', paid: false },
+  { key: 'Comp Guest', label: 'Comp Guest', paid: false },
+];
+
 export const DOW_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 export const DOW_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 
