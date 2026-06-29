@@ -4,6 +4,17 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.24.1] — 2026-06-29 — Migration provenance check after DB calc bug hunt
+
+**Codex:** Re-synced after OpenCode's extended BUG HUNT and Claude's implementation. Verified the latest commits (`e0539a4`, `307ad38`) are present, the tracked source tree was clean, and the live Supabase schema uses only the current inventory columns: `opening_oh`, `w1-w3_pulled`, and audited value fields. No live `on_hand` or `w*_issued` columns remain in `monthly_inventory`.
+
+**DB verification:** Supabase CLI confirmed May 2026 = 266 rows / 213 ending qty / $9,575.02 ending value, June 2026 = 291 rows / 821 ending qty / $40,319.59 ending value, and June opening value is exactly May ending value ($9,575.02). `audit_inventory_period(4,2026)` and `(5,2026)` both returned 0.
+
+**Fix:** Added the already-applied carry-value SQL into the tracked migration chain as `backend/migrations/022_carry_inventory_values.sql` so the schema/value rollover restructure is reproducible from git. Cleaned one stale `on_hand` wording in dispatch comments.
+**Push:** Codex → db3f0b7 — 2026-06-29
+
+---
+
 ## [v4.24.0] — 2026-06-29 — Data verified against workbooks + OpenCode BUG HUNT fixes
 
 **Claude:** User reported a critical data error in pulls/item-mapping and asked me to (1) verify the DB matches the spreadsheets and fill in proper data, and (2) apply the OpenCode BUG HUNT suggestions.

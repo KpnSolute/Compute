@@ -545,7 +545,7 @@ def dispatch_inventory_week(payload: dict) -> dict:
       - The ledger is the source of truth; the column is a derived cache.
       - Replay is idempotent: prior ledger rows from the same staging entry are
         deleted before re-insert, so a retried commit never double-counts.
-    on_hand (opening) and the other weeks are never touched. Unrecognized SKUs
+    opening_oh and the other weeks are never touched. Unrecognized SKUs
     resolve into "New Items" for manager review (force_review).
     """
     # 1-indexed month; explicit None checks so a real value is never replaced (BUG #4).
