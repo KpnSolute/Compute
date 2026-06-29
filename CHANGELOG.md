@@ -4,6 +4,21 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.25.3] — 2026-06-29 — Typed inventory API contract + wiring/logging audit
+
+**Claude:** Hardened the API↔UI integration per request.
+
+**Typed contract (commit 5b6bbc2):** the inventory client methods returned `Promise<any>`, so FE/BE field drift (the w1i→w1p rename) bypassed the compiler. Added `InventoryItem` / `InventoryResponse` / `LowStockItem` / `InventoryCatalogItem` interfaces (mirroring the backend model) and typed getInventory/saveInventory/getInventoryHistory/getReorders/getInventoryItems. The types immediately caught two latent bugs: an untyped `metadata.weeks_in_period` read in Operations (coerced to Number) and a dead `conflict.desc` fallback in Portal (the /items endpoint returns `description`).
+
+**Wiring audit:** every inventory call in `lib/api.ts` maps to a real route (GET/POST `/api/inventory`, /items, /merge, /history, /reorders, PATCH /items/{sku}, /month-status, /period-status, /rollover, /week-status, /audit). Read path: API → fetchInventory → groupByCategory → components (value columns consumed with fallbacks). Write path: components stage inventory_save/inventory_week_update with onHand/w1r-w3r/w1p-w3p/direction → dispatch. No drift; the direct POST /api/inventory is intentionally 410 (writes go through staging).
+
+**Logging audit:** already comprehensive — `@app.middleware("http")` records every request (method/path/status/duration/user/ip); central HTTPException handler logs all 5xx (ERROR) + actionable 4xx (WARNING); catch-all logs unhandled tracebacks; `install_log_capture` routes Python logging into the in-app store. Added a business-level info log on successful month rollover.
+
+**Build:** ruff clean, frontend tsc + build clean.
+**Push:** 5b6bbc2 — 2026-06-29.
+
+---
+
 ## [v4.25.2] — 2026-06-29 — May+June wiped for parse test; template/API/gate audit
 
 **Claude:** Wiped May (db_month 4) and June (db_month 5) 2026 period data — monthly_inventory, inventory_transactions, monthly_snapshots, inventory_audit_log — for a clean parsing test. Catalog (327 items) + categories retained.
