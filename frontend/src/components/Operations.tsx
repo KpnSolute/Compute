@@ -294,7 +294,7 @@ export function MonthlyInventory({
     async function load() {
       try {
         const inv = await api.getInventory(m + 1, y);
-        const wip = inv.metadata?.weeks_in_period ?? 3;
+        const wip = Number(inv.metadata?.weeks_in_period ?? 3);
         const flat = (inv.items || []).map((it: any) => ({
           id: it.sku || String(Math.random()),
           cat: it.category || it.cat || '',
@@ -373,6 +373,21 @@ export function MonthlyInventory({
   const totalRcv = (r: any) => (r.w1r || 0) + (r.w2r || 0) + (r.w3r || 0);
   const totalIss = (r: any) => (r.w1p || 0) + (r.w2p || 0) + (r.w3p || 0);
   const closing = (r: any) => Math.max(0, (r.opening || 0) + totalRcv(r) - totalIss(r));
+  const rowChanged = (r: any) => {
+    const original = initRows.find((base: any) => base.id === r.id);
+    if (!original) return true;
+    return ['opening', 'price', 'w1r', 'w2r', 'w3r', 'w1p', 'w2p', 'w3p'].some(
+      (key) => Number(original[key] || 0) !== Number(r[key] || 0),
+    );
+  };
+  const openingValue = (r: any) =>
+    !rowChanged(r) && typeof r.openingValue === 'number' ? r.openingValue : (r.opening || 0) * r.price;
+  const receivedValue = (r: any) =>
+    !rowChanged(r) && typeof r.receivedValue === 'number' ? r.receivedValue : totalRcv(r) * r.price;
+  const pulledValue = (r: any) =>
+    !rowChanged(r) && typeof r.pulledValue === 'number' ? r.pulledValue : totalIss(r) * r.price;
+  const endingValue = (r: any) =>
+    !rowChanged(r) && typeof r.endingValue === 'number' ? r.endingValue : closing(r) * r.price;
 
   // Week-scoped accessors
   const wRcvF = week > 0 ? `w${week}r` : null;
@@ -382,10 +397,10 @@ export function MonthlyInventory({
 
   const sum = rows.reduce(
     (a: any, r: any) => ({
-      open: a.open + (typeof r.openingValue === 'number' ? r.openingValue : (r.opening || 0) * r.price),
-      recv: a.recv + (typeof r.receivedValue === 'number' ? r.receivedValue : totalRcv(r) * r.price),
-      iss: a.iss + (typeof r.pulledValue === 'number' ? r.pulledValue : totalIss(r) * r.price),
-      close: a.close + (typeof r.endingValue === 'number' ? r.endingValue : closing(r) * r.price),
+      open: a.open + openingValue(r),
+      recv: a.recv + receivedValue(r),
+      iss: a.iss + pulledValue(r),
+      close: a.close + endingValue(r),
     }),
     { open: 0, recv: 0, iss: 0, close: 0 },
   );
@@ -543,7 +558,7 @@ export function MonthlyInventory({
           }
         </td>
         <td className="r num" style={{ fontWeight: 800 }}>{closing(r)}</td>
-        <td className="r num" style={{ color: 'var(--muted)' }}>{fmtMoneyFull(closing(r) * r.price)}</td>
+        <td className="r num" style={{ color: 'var(--muted)' }}>{fmtMoneyFull(endingValue(r))}</td>
       </tr>
     );
   }
@@ -684,8 +699,8 @@ export function MonthlyInventory({
                       : grouped.flatMap(({ cat, items }) => {
                           const cs = items.reduce(
                             (a: any, r: any) => ({
-                              open: a.open + (r.opening || 0) * r.price,
-                              close: a.close + closing(r) * r.price,
+                              open: a.open + openingValue(r),
+                              close: a.close + endingValue(r),
                               rcv: a.rcv + wRcv(r),
                               iss: a.iss + wIss(r),
                             }),

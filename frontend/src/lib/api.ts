@@ -155,6 +155,71 @@ export interface AuditReport {
   findings: AuditFinding[];
 }
 
+/**
+ * Inventory contract — mirrors backend/routes/inventory.py InventoryItem.
+ * Keep these field names in lockstep with the Pydantic model: a rename on either
+ * side should now be a compile error here instead of a silent runtime mismatch.
+ * Monthly Inventory Template mapping: onHand=Opening OH, w{1..3}r=Received Wk{1..3},
+ * w{1..3}p=Pulled Wk{1..3}, totalReceived/totalPulled/closingQty are derived
+ * (=SUM / Opening+Received-Pulled), value=Ending value.
+ */
+export interface InventoryItem {
+  id?: string | null;
+  sku: string;
+  desc: string;
+  onHand?: number | null;
+  par?: number | null;
+  category: string;
+  price?: number | null;
+  unit?: string;
+  status?: string;
+  w1r?: number | null; w2r?: number | null; w3r?: number | null;
+  w1p?: number | null; w2p?: number | null; w3p?: number | null;
+  running_total?: number | null;
+  totalReceived?: number | null;
+  totalPulled?: number | null;
+  closingQty?: number | null;
+  value?: number | null;
+  openingUnitCost?: number | null;
+  openingValue?: number | null;
+  receivedValue?: number | null;
+  pulledValue?: number | null;
+  endingValue?: number | null;
+  sku_pending?: boolean | null;
+  needs_attention?: boolean | null;
+}
+
+export interface InventoryResponse {
+  id: string;
+  items: InventoryItem[];
+  metadata: Record<string, unknown>;
+  notes: string;
+  created_at: string;
+}
+
+export interface LowStockItem {
+  sku: string;
+  desc: string;
+  category: string;
+  onHand: number;
+  par: number;
+  short: number;
+}
+
+export interface InventoryCatalogItem {
+  id: string;
+  sku: string;
+  description: string;
+  category_id?: string | null;
+  category: string;
+  unit_price?: number | null;
+  par_level?: number | null;
+  unit?: string | null;
+  active?: boolean | null;
+  sku_pending?: boolean | null;
+  needs_attention?: boolean | null;
+}
+
 export type EntityType = 'inventory' | 'menu' | 'user' | 'compliance' | 'event' | 'ops';
 
 export interface SubmitStagingBody {
@@ -218,16 +283,16 @@ export const api = {
   },
 
   // Inventory
-  async getInventory(month?: number, year?: number): Promise<any> {
+  async getInventory(month?: number, year?: number): Promise<InventoryResponse> {
     const params = new URLSearchParams();
     if (month !== undefined) params.set('month', String(month));
     if (year !== undefined) params.set('year', String(year));
     const qs = params.toString();
-    return req(`/api/inventory${qs ? '?' + qs : ''}`);
+    return req<InventoryResponse>(`/api/inventory${qs ? '?' + qs : ''}`);
   },
 
-  async saveInventory(body: any): Promise<any> {
-    return req('/api/inventory', { method: 'POST', body: JSON.stringify(body) });
+  async saveInventory(body: { items: unknown; metadata?: Record<string, unknown> }): Promise<InventoryResponse> {
+    return req<InventoryResponse>('/api/inventory', { method: 'POST', body: JSON.stringify(body) });
   },
 
   async stageWeeklyPull(body: {
@@ -275,16 +340,16 @@ export const api = {
     return req(`/api/inventory/audit?month=${month}&year=${year}`, { method: 'POST' });
   },
 
-  async getInventoryHistory(limit?: number): Promise<any[]> {
+  async getInventoryHistory(limit?: number): Promise<InventoryResponse[]> {
     const q = limit ? `?limit=${limit}` : '';
-    return req(`/api/inventory/history${q}`);
+    return req<InventoryResponse[]>(`/api/inventory/history${q}`);
   },
 
-  async getReorders(): Promise<any[]> {
-    return req('/api/inventory/reorders');
+  async getReorders(): Promise<LowStockItem[]> {
+    return req<LowStockItem[]>('/api/inventory/reorders');
   },
 
-  async getInventoryItems(params?: { sku?: string; sku_pending?: boolean; needs_attention?: boolean; category_id?: string; limit?: number }): Promise<any[]> {
+  async getInventoryItems(params?: { sku?: string; sku_pending?: boolean; needs_attention?: boolean; category_id?: string; limit?: number }): Promise<InventoryCatalogItem[]> {
     const p = new URLSearchParams();
     if (params?.sku) p.set('sku', params.sku);
     if (params?.sku_pending !== undefined) p.set('sku_pending', String(params.sku_pending));
@@ -292,7 +357,7 @@ export const api = {
     if (params?.category_id) p.set('category_id', params.category_id);
     if (params?.limit !== undefined) p.set('limit', String(params.limit));
     const qs = p.toString();
-    return req(`/api/inventory/items${qs ? '?' + qs : ''}`);
+    return req<InventoryCatalogItem[]>(`/api/inventory/items${qs ? '?' + qs : ''}`);
   },
 
   async mergeInventoryItems(keepId: string, removeId: string): Promise<any> {

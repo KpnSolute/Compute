@@ -1055,6 +1055,13 @@ async def rollover_period(
                 "p_message": body.message,
             },
         ).execute()
+        logger.info(
+            "[INVENTORY] rollover %s -> %s by user=%s result=%s",
+            _label(from_month, from_year),
+            _label(next_month, next_year),
+            auth_user.get("id"),
+            result.data,
+        )
         return {"ok": True, "result": result.data}
     except Exception as e:
         logger.exception("Error in rollover_period")

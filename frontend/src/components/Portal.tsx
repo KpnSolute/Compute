@@ -734,13 +734,19 @@ function Dashboard({
             ? it.totalPulled
             : (it.w1p || 0) + (it.w2p || 0) + (it.w3p || 0),
         closing: typeof it.closingQty === "number" ? it.closingQty : undefined,
+        openingValue: it.openingValue,
+        receivedValue: it.receivedValue,
+        pulledValue: it.pulledValue,
+        endingValue: it.endingValue ?? it.value,
     }));
     const miSum = monRows.reduce(
         (a: any, r: any) => {
-            a.open += r.opening * r.price;
-            a.recv += r.received * r.price;
-            a.iss  += r.issued * r.price;
-            a.close += (typeof r.closing === "number" ? r.closing : Math.max(0, r.opening + r.received - r.issued)) * r.price;
+            a.open += typeof r.openingValue === "number" ? r.openingValue : r.opening * r.price;
+            a.recv += typeof r.receivedValue === "number" ? r.receivedValue : r.received * r.price;
+            a.iss  += typeof r.pulledValue === "number" ? r.pulledValue : r.issued * r.price;
+            a.close += typeof r.endingValue === "number"
+                ? r.endingValue
+                : (typeof r.closing === "number" ? r.closing : Math.max(0, r.opening + r.received - r.issued)) * r.price;
             return a;
         },
         { open: 0, recv: 0, iss: 0, close: 0 },
@@ -1427,6 +1433,10 @@ function InventoryView({
             totalReceived: it.totalReceived,
             totalPulled: it.totalPulled,
             closingQty: it.closingQty,
+            openingValue: it.openingValue,
+            receivedValue: it.receivedValue,
+            pulledValue: it.pulledValue,
+            endingValue: it.endingValue,
             value: typeof it.value === "number" ? it.value : iTotal(it),
             sku_pending: it.sku_pending ?? String(it.sku || "").startsWith("MJC-"),
             needs_attention: it.needs_attention ?? it.sku_pending ?? String(it.sku || "").startsWith("MJC-"),
@@ -1437,6 +1447,16 @@ function InventoryView({
         }))
         : [];
     const cats: string[] = live ? [...new Set(rows.map((r: any) => r.cat))] : [];
+    const rowDisplayValue = (r: any) => {
+        const sku = String(r.sku || "");
+        const hasDraft = Boolean(draft[sku] || stagedValues[sku] || wkDraft[sku]);
+        if (!hasDraft && typeof r.value === "number") return r.value;
+        const onHand = draft[sku]?.onHand ?? stagedValues[sku]?.onHand ?? r.onHand;
+        const price = draft[sku]?.price ?? r.price ?? 0;
+        const received = RECEIVED.reduce((sum, key) => sum + (wkDraft[sku]?.[key] ?? r[key] ?? 0), 0);
+        const pulled = PULLED.reduce((sum, key) => sum + (wkDraft[sku]?.[key] ?? r[key] ?? 0), 0);
+        return Math.max(0, onHand + received - pulled) * price;
+    };
 
     // Compact view: batch-stage all rows with unsaved weekly (received/issued)
     // and/or on-hand/par edits into ONE staging entry (mirrors the Monthly
@@ -1680,7 +1700,7 @@ function InventoryView({
                         removeId: conflict.id,
                         keepSku: sku,
                         removeSku: payload.new_sku,
-                        removeDesc: conflict.description || conflict.desc || payload.new_sku,
+                        removeDesc: conflict.description || payload.new_sku,
                     });
                     return;
                 }
@@ -2099,7 +2119,7 @@ function InventoryView({
                                     const onHand = staged?.onHand ?? stagedValues[sku]?.onHand ?? r.onHand;
                                     const par = staged?.par ?? stagedValues[sku]?.par ?? r.par;
                                     const isLow = onHand < par && par > 0;
-                                    const rowValue = onHand * (r.price || 0);
+                                    const rowValue = rowDisplayValue(r);
                                     return (
                                         <tr key={(r.sku || "") + i} className={"inv-row" + (selectedSkus.has(sku) ? " envo-selected" : "")} onClick={rowClick(r)}>
                                             <td
@@ -2242,12 +2262,7 @@ function InventoryView({
                                         (r: any) => r.cat === c,
                                     );
                                     const catVal = items.reduce(
-                                        (s: number, r: any) => {
-                                            const sku = String(r.sku || "");
-                                            const oh =
-                                                draft[sku]?.onHand ?? stagedValues[sku]?.onHand ?? r.onHand;
-                                            return s + oh * (r.price || 0);
-                                        },
+                                        (s: number, r: any) => s + rowDisplayValue(r),
                                         0,
                                     );
                                     const lowCount = items.filter((r: any) => {
@@ -2566,6 +2581,7 @@ function InventoryView({
                                         0;
                                     const rowTotal = (r: any) => {
                                         const sku = String(r.sku || "");
+                                        if (!draft[sku] && !stagedValues[sku] && !wkDraft[sku] && typeof r.value === "number") return r.value;
                                         const oh = draft[sku]?.onHand ?? stagedValues[sku]?.onHand ?? r.onHand;
                                         const price = draft[sku]?.price ?? r.price ?? 0;
                                         const rcv = RECEIVED.reduce(
