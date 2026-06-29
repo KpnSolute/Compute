@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "bounce-easing",
+        "value": "agentbounce",
+        "reason": "Intentional AI typing-indicator dot animation — translateY only, not spring/elastic easing",
+        "createdAt": "2026-06-29T02:45:39.195Z"
+      }
+    ]
+  }
+}

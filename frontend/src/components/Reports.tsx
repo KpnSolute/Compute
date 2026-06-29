@@ -361,7 +361,12 @@ export function Reports({
 
   function downloadOne(rep: any) {
     const data = rep.build();
-    downloadCSV(fileName(rep), toCSV(rep.columns, data));
+    let csv = toCSV(rep.columns, data);
+    if (rep.summary) {
+      const summary = rep.summary(data);
+      csv += '\n\n' + summary.map((s: { label: string; value: string }) => `${s.label},${s.value}`).join('\n');
+    }
+    downloadCSV(fileName(rep), csv);
   }
   function printOne(rep: any) {
     const data = rep.build();
@@ -628,6 +633,35 @@ export function Reports({
                       </tr>
                     ))}
                   </tbody>
+                  {active.summary && (() => {
+                    const summary = active.summary(rows);
+                    return (
+                      <tfoot>
+                        <tr>
+                          <td
+                            colSpan={active.columns.length}
+                            style={{ padding: 0, border: 'none' }}
+                          >
+                            <div style={{
+                              display: 'flex',
+                              gap: 24,
+                              padding: '12px 14px',
+                              borderTop: '2px solid var(--navy)',
+                              background: 'var(--surface-2)',
+                              flexWrap: 'wrap',
+                            }}>
+                              {summary.map((s: { label: string; value: string }) => (
+                                <div key={s.label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--muted)' }}>{s.label}</span>
+                                  <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--navy)' }}>{s.value}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      </tfoot>
+                    );
+                  })()}
                 </table>
               </div>
             )}
