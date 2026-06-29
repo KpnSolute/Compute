@@ -334,8 +334,8 @@ def test_no_total_pulled_raw_no_transaction():
     assert len(sup.txns) == 0
 
 
-def test_weekly_cells_write_week_1_to_4_ledger_rows():
-    """Full-month weekly cells create matching week 1-4 ledger rows."""
+def test_weekly_cells_write_week_1_to_3_ledger_rows():
+    """Full-month weekly cells create matching week 1-3 ledger rows."""
     from backend.staging.dispatch import dispatch_inventory_save
 
     sup = FakeSup()
@@ -351,8 +351,7 @@ def test_weekly_cells_write_week_1_to_4_ledger_rows():
                 "price": 1.5,
                 "w1r": 2,
                 "w2r": 3,
-                "w3i": 4,
-                "w4i": 0,
+                "w3p": 4,
             }
         ],
     }

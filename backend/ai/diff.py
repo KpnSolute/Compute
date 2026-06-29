@@ -138,7 +138,8 @@ def _diff_inventory_week(payload: dict) -> dict:
     """Preview a weekly-invoice posting: each item's qty → w{week}_{direction}."""
     week = payload.get("week")
     direction = payload.get("direction", "received")
-    col = f"w{week}_{direction}"
+    # txn/direction vocabulary is "issued"; the monthly_inventory column is "pulled".
+    col = f"w{week}_{'pulled' if direction == 'issued' else direction}"
     month = payload.get("month")
     year = payload.get("year")
     db_month = (month - 1) if month else None

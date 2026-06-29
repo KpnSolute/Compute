@@ -165,12 +165,12 @@ def build_inventory_context(categories: dict, vendors: dict) -> str:
     ven_list = ", ".join(f"{n} (id={i})" for n, i in vendors.items()) or "none"
     return f"""INVENTORY SCHEMA CONTEXT:
 inventory_items columns: sku (text, unique key), description (text), category (text — must match list), unit_price (float), par_level (int), unit (text, e.g. 'each','case','lb','oz','gal')
-monthly_inventory columns: item_id (fk), month (0-indexed int), year (int), on_hand (int — REAL source of current quantity, NOT inventory_items)
+monthly_inventory columns: item_id (fk), month (0-indexed int), year (int), opening_oh (int — prior month ending, the period's starting quantity), w1-w3 received, w1-w3 pulled, status
 
 VALID CATEGORIES (use exact name): {cat_list}
 VALID VENDORS: {ven_list}
 
-PAYLOAD FORMAT — inventory_save operation:
+PAYLOAD FORMAT — inventory_save operation (Monthly Inventory Template, 3 weeks):
 {{
   "month": <int 1-12>,
   "year": <int 4-digit>,
@@ -180,19 +180,20 @@ PAYLOAD FORMAT — inventory_save operation:
       "sku": "<string — generate 'CAT-NNN' if absent>",
       "desc": "<item description>",
       "category": "<exact category name from list>",
-      "price": <float>,
+      "price": <float — Unit Price>,
       "par": <int — minimum stock level, 0 if unknown>,
-      "onHand": <int — current quantity>,
-      "w1r": 0, "w2r": 0, "w3r": 0, "w4r": 0,
-      "w1i": 0, "w2i": 0, "w3i": 0, "w4i": 0
+      "onHand": <int — Opening OH (prior month ending)>,
+      "w1r": 0, "w2r": 0, "w3r": 0,
+      "w1p": 0, "w2p": 0, "w3p": 0
     }}
   ]
 }}
 
 Weekly cell rules:
-- received / receive / receivable / invoice quantities map to wNr columns.
-- issued / pull / pulled / pull sheet quantities map to wNi columns.
-- Week 5 exists only for months with days 29-31.
+- Received Wk1/Wk2/Wk3 (invoice receipts) map to w1r/w2r/w3r.
+- Pulled Wk1/Wk2/Wk3 (pull sheet quantities) map to w1p/w2p/w3p.
+- Opening OH maps to onHand. Total Received, Total Pulled, and Ending OH are DERIVED — never import Ending OH as onHand.
+- When per-week pulls are blank but a verified monthly Total Pulled exists, emit "total_pulled_raw" instead of guessing a weekly split.
 - Preserve SKU exactly except trimming spaces and uppercasing letters; do not merge two different SKUs by description alone.
 """
 

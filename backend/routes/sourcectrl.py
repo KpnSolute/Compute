@@ -1166,10 +1166,10 @@ async def submit_staging(
                         status_code=403,
                         detail="Only managers can stage issued (pullout) quantities.",
                     )
-                # Check for inventory_save payloads containing any issued field
+                # Check for inventory_save payloads containing any pulled field
                 if body.operation == "inventory_save":
                     for item in fp.get("items", []):
-                        if any(k in item for k in ("w1i", "w2i", "w3i", "w4i")):
+                        if any(k in item for k in ("w1p", "w2p", "w3p")):
                             raise HTTPException(
                                 status_code=403,
                                 detail="Only managers can stage issued (pullout) quantities.",

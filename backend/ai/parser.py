@@ -218,6 +218,9 @@ def _parse_mjcc_monthly_inventory(content: bytes) -> list[dict[str, Any]]:
                 idx = w_start + offset
                 return _clamp_nonneg(cells[idx]) if idx < len(cells) else None
 
+            # Legacy grid: cols 5-8 = W1-W4 pulled, cols 9-12 = W1-W4 received.
+            # New schema keeps 3 weeks; W4 is folded into W3 so historical W4
+            # activity is not silently dropped on import.
             parsed.append(
                 {
                     "sku": sku_val,
@@ -225,14 +228,12 @@ def _parse_mjcc_monthly_inventory(content: bytes) -> list[dict[str, Any]]:
                     "category": category,
                     "onHand": onhand_val or 0,
                     "price": price_val,
-                    "w1i": _wcol(0) or 0,
-                    "w2i": _wcol(1) or 0,
-                    "w3i": _wcol(2) or 0,
-                    "w4i": _wcol(3) or 0,
+                    "w1p": _wcol(0) or 0,
+                    "w2p": _wcol(1) or 0,
+                    "w3p": (_wcol(2) or 0) + (_wcol(3) or 0),
                     "w1r": _wcol(4) or 0,
                     "w2r": _wcol(5) or 0,
-                    "w3r": _wcol(6) or 0,
-                    "w4r": _wcol(7) or 0,
+                    "w3r": (_wcol(6) or 0) + (_wcol(7) or 0),
                     "unit": "each",
                     "__sheet": ws.title,
                 }
@@ -279,15 +280,13 @@ _FLAT_INV_HEADER_ALIASES: dict[str, str] = {
     "latestunitcost$": "price",
     "unitcost": "price",
     "price": "price",
-    # weekly received/issued — new standard workbook (Received Wk1 / Pulled Wk1 …)
+    # weekly received/pulled — Monthly Inventory Template (3 weeks)
     "receivedwk1": "w1r",
     "receivedwk2": "w2r",
     "receivedwk3": "w3r",
-    "receivedwk4": "w4r",
-    "pulledwk1": "w1i",
-    "pulledwk2": "w2i",
-    "pulledwk3": "w3i",
-    "pulledwk4": "w4i",
+    "pulledwk1": "w1p",
+    "pulledwk2": "w2p",
+    "pulledwk3": "w3p",
     # May case: weekly pull cols blank but verified monthly Total Pulled present.
     # Mapped to a passthrough field so dispatch can apply it without inventing
     # per-week distribution. Total Received and Ending OH are NOT mapped.
@@ -405,8 +404,8 @@ def _parse_mjcc_flat_inventory(content: bytes) -> list[dict[str, Any]]:
             # so map_rows_to_inventory sees the column even if the first row is blank.
             if "par" in col_map.values():
                 row_out["par"] = par if par is not None else 0
-            # Emit weekly received/issued when the sheet carries those columns.
-            for _wk in ("w1r", "w2r", "w3r", "w4r", "w1i", "w2i", "w3i", "w4i"):
+            # Emit weekly received/pulled when the sheet carries those columns.
+            for _wk in ("w1r", "w2r", "w3r", "w1p", "w2p", "w3p"):
                 if _wk in col_map.values():
                     _v = _clamp_nonneg(rec.get(_wk))
                     row_out[_wk] = _v if _v is not None else 0
@@ -414,7 +413,7 @@ def _parse_mjcc_flat_inventory(content: bytes) -> list[dict[str, Any]]:
             # figure. Preserve as total_pulled_raw so dispatch can apply it safely
             # without guessing per-week distribution.
             if "total_pulled_raw" in col_map.values():
-                _weekly_pulls = sum(row_out.get(k, 0) or 0 for k in ("w1i", "w2i", "w3i", "w4i"))
+                _weekly_pulls = sum(row_out.get(k, 0) or 0 for k in ("w1p", "w2p", "w3p"))
                 _tp = _clamp_nonneg(rec.get("total_pulled_raw"))
                 if _weekly_pulls == 0 and _tp:
                     row_out["total_pulled_raw"] = _tp

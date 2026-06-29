@@ -88,9 +88,9 @@ def test_weekly_pulled_mapped_when_present():
     ]))
     assert rows
     item = rows[0]
-    assert item.get("w1i") == 5
-    assert item.get("w2i") == 3
-    assert item.get("w3i") == 2
+    assert item.get("w1p") == 5
+    assert item.get("w2p") == 3
+    assert item.get("w3p") == 2
 
 
 # ── May case: blank weekly pulls, positive Total Pulled ────────────────────
@@ -103,9 +103,9 @@ def test_may_total_pulled_preserved_when_weekly_blank():
     ]))
     assert rows
     item = rows[0]
-    assert item.get("w1i", 0) == 0, "w1i invented from blank pull col"
-    assert item.get("w2i", 0) == 0
-    assert item.get("w3i", 0) == 0
+    assert item.get("w1p", 0) == 0, "w1p invented from blank pull col"
+    assert item.get("w2p", 0) == 0
+    assert item.get("w3p", 0) == 0
     assert item.get("total_pulled_raw") == 40, f"total_pulled_raw not preserved; got {item.get('total_pulled_raw')}"
 
 
@@ -153,9 +153,9 @@ def test_formula_totals_without_cached_values_are_derived_from_weekly_columns():
     assert item["w1r"] == 3
     assert item["w2r"] == 1
     assert item["w3r"] == 0
-    assert item["w1i"] == 0
-    assert item["w2i"] == 0
-    assert item["w3i"] == 0
+    assert item["w1p"] == 0
+    assert item["w2p"] == 0
+    assert item["w3p"] == 0
     assert "total_pulled_raw" not in item
 
 
@@ -235,10 +235,9 @@ def test_real_june_formula_pulls_do_not_create_raw_pulls():
     assert rows
     assert not [r for r in rows if r.get("total_pulled_raw")]
     assert sum(
-        (r.get("w1i") or 0)
-        + (r.get("w2i") or 0)
-        + (r.get("w3i") or 0)
-        + (r.get("w4i") or 0)
+        (r.get("w1p") or 0)
+        + (r.get("w2p") or 0)
+        + (r.get("w3p") or 0)
         for r in rows
     ) == 0
 
