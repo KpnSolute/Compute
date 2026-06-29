@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { I } from '../lib/icons';
 import { type User, ROLE_LEVEL, MONTHS } from '../lib/constants';
 import { api } from '../lib/api';
@@ -8,6 +8,74 @@ const t = (msg: string) => (window as any).toast?.(msg);
 
 function fmt(v: number) {
   return '$' + v.toFixed(2);
+}
+
+function PullSheetSelect<T extends number | string>({
+  value,
+  onChange,
+  options,
+  label,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string }[];
+  label: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = options.find((option) => option.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutside = (event: MouseEvent) => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', closeOnOutside);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutside);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div className="pull-select" ref={ref}>
+      <button
+        type="button"
+        className="pull-select-btn"
+        onClick={() => setOpen((current) => !current)}
+        aria-label={label}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+      >
+        <span>{selected?.label ?? String(value)}</span>
+        {I.down({ style: { width: 12, height: 12 } })}
+      </button>
+      {open && (
+        <div className="pull-select-menu" role="listbox" aria-label={label}>
+          {options.map((option) => (
+            <button
+              key={String(option.value)}
+              type="button"
+              role="option"
+              aria-selected={option.value === value}
+              className="pull-select-option"
+              data-active={option.value === value}
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface PullSheetProps {
@@ -39,6 +107,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
 
   const [showAll, setShowAll] = useState(false);
   const [q, setQ] = useState('');
+  const [cat, setCat] = useState('');
   const [staging, setStaging] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
@@ -81,20 +150,31 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
     setQtys(prev => ({ ...prev, [sku]: Math.max(0, val) }));
   };
 
+  const categories = useMemo(() => {
+    const names = items
+      .map(it => String(it.category || it.cat || it.category_name || '').trim())
+      .filter(Boolean);
+    return [...new Set(names)].sort((a, b) => a.localeCompare(b));
+  }, [items]);
+
   // Filtered rows
   const filtered = useMemo(() => {
     const lq = q.toLowerCase();
     return items.filter(it => {
+      const itemCat = String(it.category || it.cat || it.category_name || '').trim();
+      if (cat && itemCat !== cat) return false;
       const hasDraft = (qtys[it.sku] || 0) > 0;
       if (!showAll && (it.on_hand ?? it.onHand ?? 0) <= 0 && !hasDraft) return false;
       if (lq) {
         const sku = String(it.sku || '').toLowerCase();
         const desc = String(it.desc || it.description || '').toLowerCase();
-        if (!sku.includes(lq) && !desc.includes(lq)) return false;
+        const category = itemCat.toLowerCase();
+        const price = `$${Number(it.price || 0).toFixed(2)}`.toLowerCase();
+        if (!sku.includes(lq) && !desc.includes(lq) && !category.includes(lq) && !price.includes(lq)) return false;
       }
       return true;
     });
-  }, [items, qtys, showAll, q]);
+  }, [items, qtys, showAll, q, cat]);
 
   // Pulled items (qty > 0)
   const pulledItems = useMemo(() =>
@@ -158,48 +238,47 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
           <h2>Pull Sheet</h2>
           <div className="ph-sub">Record weekly inventory pulls (issued quantities)</div>
         </div>
-        <div className="ph-actions" style={{ gap: 8, display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="ph-actions pull-period-actions">
           {/* Period selectors */}
-          <select
-            className="field"
-            style={{ width: 'auto', padding: '5px 10px', fontSize: 13 }}
+          <PullSheetSelect
+            label="Pull sheet month"
             value={month}
-            onChange={e => setMonth(Number(e.target.value))}
-            aria-label="Month"
-          >
-            {monthOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <select
-            className="field"
-            style={{ width: 'auto', padding: '5px 10px', fontSize: 13 }}
+            onChange={setMonth}
+            options={monthOpts}
+          />
+          <PullSheetSelect
+            label="Pull sheet year"
             value={year}
-            onChange={e => setYear(Number(e.target.value))}
-            aria-label="Year"
-          >
-            {yearOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <select
-            className="field"
-            style={{ width: 'auto', padding: '5px 10px', fontSize: 13 }}
+            onChange={setYear}
+            options={yearOpts}
+          />
+          <PullSheetSelect
+            label="Pull sheet week"
             value={week}
-            onChange={e => setWeek(Number(e.target.value))}
-            aria-label="Week"
-          >
-            {weekOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
+            onChange={setWeek}
+            options={weekOpts}
+          />
         </div>
       </div>
 
       {/* Filter bar */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div className="pull-filter-bar">
         <input
           className="field"
-          style={{ maxWidth: 260, padding: '6px 10px', fontSize: 13 }}
           placeholder="Search SKU or description…"
           value={q}
           onChange={e => setQ(e.target.value)}
         />
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--muted)', cursor: 'pointer' }}>
+        <PullSheetSelect
+          label="Item category"
+          value={cat}
+          onChange={setCat}
+          options={[
+            { value: '', label: 'All categories' },
+            ...categories.map((name) => ({ value: name, label: name })),
+          ]}
+        />
+        <label className="pull-zero-toggle">
           <input type="checkbox" checked={showAll} onChange={e => setShowAll(e.target.checked)} />
           Show zero-on-hand items
         </label>

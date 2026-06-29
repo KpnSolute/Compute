@@ -4,6 +4,18 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.21.2] - 2026-06-28 - Reports and Pull Sheet dropdown polish
+
+**Codex UI:** Replaced the Reports page month/year native selects with scoped custom period dropdowns so the report toolbar no longer shows square browser controls or system-colored option menus. The new controls match the MJCC shell, support outside-click/Escape close behavior, and stretch to mobile tap targets in narrow layouts.
+
+**Codex Pull Sheet:** Added app-standard custom dropdowns for Pull Sheet month/year/week and item category filtering. Pull Sheet search now also checks item category and `$price`, while the filter row uses responsive 44px mobile tap targets and dark/light themed menus.
+
+**Verification:** Frontend ESLint quiet passed, `npx tsc --noEmit` passed, `npm run build` passed with the existing Vite dynamic-import/chunk-size warnings, and targeted source scans confirmed `Reports.tsx` and `PullSheet.tsx` no longer render native `<select>` elements.
+
+**Push:** pending
+
+---
+
 ## [v4.21.1] - 2026-06-28 - Native select UI polish
 
 **Codex UI:** Smoothed the native select/dropdown styling that was showing raw browser chrome in dark mode. Shared selects now use the app shell, themed option colors, custom chevrons, and consistent dark/light color-scheme handling across Data Entry, toolbar selects, Source Control filters, and form-grid modals.

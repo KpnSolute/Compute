@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { I } from '../lib/icons';
 import { type User, MONTHS, ROLE_LEVEL } from '../lib/constants';
 import { api } from '../lib/api';
@@ -36,6 +36,74 @@ function downloadCSV(filename: string, text: string) {
 
 function Loading({ label = 'Loading…' }) {
   return <div className="load-wrap"><div className="spinner"></div><div>{label}</div></div>;
+}
+
+function ReportPeriodSelect({
+  value,
+  onChange,
+  options,
+  label,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  options: { value: number; label: string }[];
+  label: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = options.find((option) => option.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutside = (event: MouseEvent) => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', closeOnOutside);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutside);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div className="report-period-select" ref={ref}>
+      <button
+        type="button"
+        className="report-period-btn"
+        onClick={() => setOpen((current) => !current)}
+        aria-label={label}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+      >
+        <span>{selected?.label ?? value}</span>
+        {I.down({ style: { width: 12, height: 12 } })}
+      </button>
+      {open && (
+        <div className="report-period-menu" role="listbox" aria-label={label}>
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="option"
+              aria-selected={option.value === value}
+              className="report-period-option"
+              data-active={option.value === value}
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function buildReports(period: [number, number], invItems: any[], events: any[], commits: any[]) {
@@ -454,26 +522,21 @@ export function Reports({
           </div>
         </div>
         <div className="ph-actions">
-          <select
-            className="field"
-            style={{ width: 'auto', padding: '5px 10px', fontSize: 13 }}
+          <ReportPeriodSelect
+            label="Report month"
             value={period[0]}
-            onChange={e => setPeriod([Number(e.target.value), period[1]])}
-            aria-label="Report month"
-          >
-            {MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
-          </select>
-          <select
-            className="field"
-            style={{ width: 'auto', padding: '5px 10px', fontSize: 13 }}
+            onChange={(v) => setPeriod([v, period[1]])}
+            options={MONTHS.map((m, i) => ({ value: i, label: m }))}
+          />
+          <ReportPeriodSelect
+            label="Report year"
             value={period[1]}
-            onChange={e => setPeriod([period[0], Number(e.target.value)])}
-            aria-label="Report year"
-          >
-            {[new Date().getFullYear() - 1, new Date().getFullYear()].map(y => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
+            onChange={(v) => setPeriod([period[0], v])}
+            options={[new Date().getFullYear() - 1, new Date().getFullYear()].map((y) => ({
+              value: y,
+              label: String(y),
+            }))}
+          />
           {tab === 'catalogue' && (
             <>
               <button className="btn" onClick={() => printOne(active)}>
