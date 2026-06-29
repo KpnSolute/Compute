@@ -4,6 +4,25 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.0] — 2026-06-29 — Canonical inventory formula layer (one source of truth)
+
+**Claude:** Logic refactor — embedded the standardized workbook's formulas into one canonical layer and routed every tier through it, deleting the duplicated inline math.
+
+**Standardized files:** both May & June Published now carry per-week pulls AND live formula-driven Review controls (`Inventory Items=COUNTA`, `Invoice/Temp=COUNTIF`, `Opening/Received/Pulled/Ending=SUM(D/K/L/M)`, `Negative Ending Rows=COUNTIF(M<0)`; grid `K==SUM(E,G,I)`, `L==SUM(F,H,J)`, `M==D+K-L`). Both reconcile (May 167/589/543/213; June 214/611/625/200).
+
+**New layer:**
+- `backend/inventory_formulas.py` and `frontend/src/lib/inventoryFormulas.ts` (mirrored): num, total_received, total_pulled, ending_oh, ending_qty, received/pulled/opening/ending_value, is_negative_ending, is_below_par, is_temp_sku, review_controls / itemTotals / itemEndingValue.
+
+**Wired through all tiers** (delete-and-replace of inline arithmetic):
+- data entry → `parser._grid_totals`; storage → `dispatch` rollover + save value fallback; UI output → `inventory._flatten_rows`; UI → `supabase.ts` iTotal/reorders, Reports, Operations, Portal monRows.
+
+**Note:** standardized May now uses real per-week pulls, so the `total_pulled_raw` fallback no longer fires for it (kept as a safety net for non-standard files); obsolete test replaced with a synthetic fixture + standardized-reality assertion.
+
+**Build:** ruff clean, pytest 32 passed / 4 skipped, frontend tsc + build clean.
+**Push:** ac5df40 — 2026-06-29.
+
+---
+
 ## [v4.25.3] — 2026-06-29 — Typed inventory API contract + wiring/logging audit
 
 **Claude:** Hardened the API↔UI integration per request.
