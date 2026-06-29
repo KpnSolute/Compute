@@ -11,7 +11,7 @@ This is the **central development memory and discussion board** for development 
 **DB verification:** Supabase CLI confirmed May 2026 = 266 rows / 213 ending qty / $9,575.02 ending value, June 2026 = 291 rows / 821 ending qty / $40,319.59 ending value, and June opening value is exactly May ending value ($9,575.02). `audit_inventory_period(4,2026)` and `(5,2026)` both returned 0.
 
 **Fix:** Added the already-applied carry-value SQL into the tracked migration chain as `backend/migrations/022_carry_inventory_values.sql` so the schema/value rollover restructure is reproducible from git. Cleaned one stale `on_hand` wording in dispatch comments.
-**Push:** Codex → db3f0b7 — 2026-06-29
+**Push:** Codex → 1658f21 — 2026-06-29
 
 ---
 
