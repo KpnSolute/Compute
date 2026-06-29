@@ -4,6 +4,16 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.21.1] - 2026-06-28 - Native select UI polish
+
+**Codex UI:** Smoothed the native select/dropdown styling that was showing raw browser chrome in dark mode. Shared selects now use the app shell, themed option colors, custom chevrons, and consistent dark/light color-scheme handling across Data Entry, toolbar selects, Source Control filters, and form-grid modals.
+
+**Verification:** Frontend ESLint quiet passed, `npx tsc --noEmit` passed, and `npm run build` passed with the existing Vite dynamic-import/chunk-size warnings.
+
+**Push:** Codex -> 8c0e28b - 2026-06-28
+
+---
+
 ## [v4.21.0] — 2026-06-28 — Report grand totals + Impeccable UI compliance pass
 
 **Claude:** Three areas addressed in one pass.
