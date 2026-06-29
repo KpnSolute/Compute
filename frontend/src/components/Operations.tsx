@@ -302,11 +302,10 @@ export function MonthlyInventory({
           par: it.par || 0,
           unit: it.unit || 'each',
           opening: it.onHand || 0,
-          w1r: it.w1r || 0, w2r: it.w2r || 0, w3r: it.w3r || 0, w4r: it.w4r || 0,
-          w1i: it.w1i || 0, w2i: it.w2i || 0, w3i: it.w3i || 0, w4i: it.w4i || 0,
-          aggregateIssued: it.aggregateIssued || 0,
+          w1r: it.w1r || 0, w2r: it.w2r || 0, w3r: it.w3r || 0,
+          w1p: it.w1p || 0, w2p: it.w2p || 0, w3p: it.w3p || 0,
           totalReceived: it.totalReceived,
-          totalIssued: it.totalIssued,
+          totalPulled: it.totalPulled,
           closingQty: it.closingQty,
         }));
         // Check for uncommitted draft
@@ -353,17 +352,15 @@ export function MonthlyInventory({
     setSaved(false);
   }
 
-  const totalRcv = (r: any) => (r.w1r || 0) + (r.w2r || 0) + (r.w3r || 0) + (r.w4r || 0);
-  const totalIss = (r: any) => (
-    (r.w1i || 0) + (r.w2i || 0) + (r.w3i || 0) + (r.w4i || 0) + (r.aggregateIssued || 0)
-  );
+  const totalRcv = (r: any) => (r.w1r || 0) + (r.w2r || 0) + (r.w3r || 0);
+  const totalIss = (r: any) => (r.w1p || 0) + (r.w2p || 0) + (r.w3p || 0);
   const closing = (r: any) => Math.max(0, (r.opening || 0) + totalRcv(r) - totalIss(r));
 
   // Week-scoped accessors
   const wRcvF = week > 0 ? `w${week}r` : null;
-  const wIssF = week > 0 ? `w${week}i` : null;
+  const wIssF = week > 0 ? `w${week}p` : null;
   const wRcv = (r: any) => week > 0 ? (r[`w${week}r`] || 0) : totalRcv(r);
-  const wIss = (r: any) => week > 0 ? (r[`w${week}i`] || 0) : totalIss(r);
+  const wIss = (r: any) => week > 0 ? (r[`w${week}p`] || 0) : totalIss(r);
 
   const sum = rows.reduce(
     (a: any, r: any) => ({
@@ -443,8 +440,8 @@ export function MonthlyInventory({
         sku: r.id, desc: r.item,
         onHand: r.opening || 0,
         par: r.par, price: r.price, category: r.cat, unit: r.unit,
-        w1r: r.w1r, w2r: r.w2r, w3r: r.w3r, w4r: r.w4r,
-        w1i: r.w1i, w2i: r.w2i, w3i: r.w3i, w4i: r.w4i,
+        w1r: r.w1r, w2r: r.w2r, w3r: r.w3r,
+        w1p: r.w1p, w2p: r.w2p, w3p: r.w3p,
       }));
 
       const stagingIds: string[] = [];

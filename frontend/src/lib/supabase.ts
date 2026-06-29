@@ -519,13 +519,13 @@ export function iTotal(it: any) {
   if (typeof it.value === 'number') return it.value;
   const rcv = typeof it.totalReceived === 'number'
     ? it.totalReceived
-    : (it.w1r || 0) + (it.w2r || 0) + (it.w3r || 0) + (it.w4r || 0);
-  const iss = typeof it.totalIssued === 'number'
-    ? it.totalIssued
-    : (it.w1i || 0) + (it.w2i || 0) + (it.w3i || 0) + (it.w4i || 0) + (it.aggregateIssued || 0);
+    : (it.w1r || 0) + (it.w2r || 0) + (it.w3r || 0);
+  const pulled = typeof it.totalPulled === 'number'
+    ? it.totalPulled
+    : (it.w1p || 0) + (it.w2p || 0) + (it.w3p || 0);
   const closing = typeof it.closingQty === 'number'
     ? it.closingQty
-    : Math.max(0, (it.onHand || 0) + rcv - iss);
+    : Math.max(0, (it.onHand || 0) + rcv - pulled);
   return closing * (it.price || 0);
 }
 export function invToList(inv: any) {
@@ -552,18 +552,16 @@ export function catTotals(inv: any) {
     .sort((a, b) => b.val - a.val);
 }
 export function reorders(inv: any) {
-  // Ending/running stock = onHand(opening) + received - issued, matching iTotal
-  // and the backend. Reorder off ending, not the opening balance.
   return invToList(inv).filter((i) => {
     const rcv = typeof i.totalReceived === 'number'
       ? i.totalReceived
-      : (i.w1r || 0) + (i.w2r || 0) + (i.w3r || 0) + (i.w4r || 0);
-    const iss = typeof i.totalIssued === 'number'
-      ? i.totalIssued
-      : (i.w1i || 0) + (i.w2i || 0) + (i.w3i || 0) + (i.w4i || 0) + (i.aggregateIssued || 0);
+      : (i.w1r || 0) + (i.w2r || 0) + (i.w3r || 0);
+    const pulled = typeof i.totalPulled === 'number'
+      ? i.totalPulled
+      : (i.w1p || 0) + (i.w2p || 0) + (i.w3p || 0);
     const ending = typeof i.closingQty === 'number'
       ? i.closingQty
-      : Math.max(0, (i.onHand || 0) + rcv - iss);
+      : Math.max(0, (i.onHand || 0) + rcv - pulled);
     return ending < (i.par || 0) && (i.par || 0) > 0;
   });
 }

@@ -76,8 +76,8 @@ def _rollover_opening_balances(
     prev_r = (
         sup.table("monthly_inventory")
         .select(
-            "item_id,on_hand,w1_received,w2_received,w3_received,w4_received,"
-            "w5_received,w1_issued,w2_issued,w3_issued,w4_issued,w5_issued,unit_price"
+            "item_id,opening_oh,w1_received,w2_received,w3_received,"
+            "w1_pulled,w2_pulled,w3_pulled,unit_price"
         )
         .eq("month", prev_db_month)
         .eq("year", prev_year)
@@ -107,13 +107,13 @@ def _rollover_opening_balances(
     # that explicitly sent Opening OH are also preserved, even when the value is 0.
     curr_r = (
         sup.table("monthly_inventory")
-        .select("item_id,on_hand")
+        .select("item_id,opening_oh")
         .in_("item_id", prev_ids)
         .eq("month", db_month)
         .eq("year", year)
         .execute()
     )
-    curr_map = {r["item_id"]: r.get("on_hand") or 0 for r in curr_r.data or []}
+    curr_map = {r["item_id"]: r.get("opening_oh") or 0 for r in curr_r.data or []}
 
     updated = 0
     for prev in prev_r.data:
@@ -123,17 +123,13 @@ def _rollover_opening_balances(
         closing = max(
             0,
             (
-                (prev.get("on_hand") or 0)
+                (prev.get("opening_oh") or 0)
                 + (prev.get("w1_received") or 0)
                 + (prev.get("w2_received") or 0)
                 + (prev.get("w3_received") or 0)
-                + (prev.get("w4_received") or 0)
-                + (prev.get("w5_received") or 0)
-                - (prev.get("w1_issued") or 0)
-                - (prev.get("w2_issued") or 0)
-                - (prev.get("w3_issued") or 0)
-                - (prev.get("w4_issued") or 0)
-                - (prev.get("w5_issued") or 0)
+                - (prev.get("w1_pulled") or 0)
+                - (prev.get("w2_pulled") or 0)
+                - (prev.get("w3_pulled") or 0)
                 - agg_pulls.get(iid, 0)
             ),
         )
@@ -143,7 +139,7 @@ def _rollover_opening_balances(
                     "item_id": iid,
                     "month": db_month,
                     "year": year,
-                    "on_hand": closing,
+                    "opening_oh": closing,
                     "unit_price": prev.get("unit_price") or 0,
                 },
                 on_conflict="item_id,month,year",
@@ -168,11 +164,9 @@ def dispatch_inventory_save(payload: dict) -> dict:
                 "w1r",
                 "w2r",
                 "w3r",
-                "w4r",
-                "w1i",
-                "w2i",
-                "w3i",
-                "w4i",
+                "w1p",
+                "w2p",
+                "w3p",
                 "total_pulled_raw",
             ),
         )
@@ -249,26 +243,22 @@ def dispatch_inventory_save(payload: dict) -> dict:
             "month": db_month,
             "year": year,
         }
-        # Only write on_hand when explicitly in the payload — a missing key must
-        # not zero an existing balance. Default 0 only for new rows (DB default).
         on_hand = item.get("onHand")
         if on_hand is not None:
-            monthly_fields["on_hand"] = int(
+            monthly_fields["opening_oh"] = int(
                 _non_negative(on_hand, "onHand", item.get("sku"))
             )
         if item.get("price") is not None:
             monthly_fields["unit_price"] = item["price"]
-        # Only write weekly columns when explicitly present in the payload — omitting
-        # them preserves existing W1-W4 data instead of zeroing it on every save.
+        if item.get("status") is not None:
+            monthly_fields["status"] = item["status"]
         for src, col, week_number, txn_type in [
             ("w1r", "w1_received", 1, "received"),
             ("w2r", "w2_received", 2, "received"),
             ("w3r", "w3_received", 3, "received"),
-            ("w4r", "w4_received", 4, "received"),
-            ("w1i", "w1_issued", 1, "issued"),
-            ("w2i", "w2_issued", 2, "issued"),
-            ("w3i", "w3_issued", 3, "issued"),
-            ("w4i", "w4_issued", 4, "issued"),
+            ("w1p", "w1_pulled", 1, "issued"),
+            ("w2p", "w2_pulled", 2, "issued"),
+            ("w3p", "w3_pulled", 3, "issued"),
         ]:
             if src in item:
                 qty = _non_negative(item[src], src, item.get("sku"))
@@ -914,11 +904,9 @@ def validate_payload(operation: str, full_payload: dict) -> str | None:
                     "w1r",
                     "w2r",
                     "w3r",
-                    "w4r",
-                    "w1i",
-                    "w2i",
-                    "w3i",
-                    "w4i",
+                    "w1p",
+                    "w2p",
+                    "w3p",
                     "total_pulled_raw",
                 ),
             )

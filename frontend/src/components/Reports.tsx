@@ -125,10 +125,10 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
 
   const totalRcv = (it: any) => typeof it.totalReceived === 'number'
     ? it.totalReceived
-    : (it.w1r||0)+(it.w2r||0)+(it.w3r||0)+(it.w4r||0);
-  const totalIss = (it: any) => typeof it.totalIssued === 'number'
-    ? it.totalIssued
-    : (it.w1i||0)+(it.w2i||0)+(it.w3i||0)+(it.w4i||0)+(it.aggregateIssued||0);
+    : (it.w1r||0)+(it.w2r||0)+(it.w3r||0);
+  const totalIss = (it: any) => typeof it.totalPulled === 'number'
+    ? it.totalPulled
+    : (it.w1p||0)+(it.w2p||0)+(it.w3p||0);
   const closingQty = (it: any) => typeof it.closingQty === 'number'
     ? it.closingQty
     : Math.max(0, (it.onHand||0) + totalRcv(it) - totalIss(it));
@@ -181,14 +181,11 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
         { key: 'w1r', label: 'W1 Rcv', get: (r: any) => r.w1r || 0 },
         { key: 'w2r', label: 'W2 Rcv', get: (r: any) => r.w2r || 0 },
         { key: 'w3r', label: 'W3 Rcv', get: (r: any) => r.w3r || 0 },
-        { key: 'w4r', label: 'W4 Rcv', get: (r: any) => r.w4r || 0 },
         { key: 'totalRcv', label: 'Total Rcv' },
-        { key: 'w1i', label: 'W1 Issued', get: (r: any) => r.w1i || 0 },
-        { key: 'w2i', label: 'W2 Issued', get: (r: any) => r.w2i || 0 },
-        { key: 'w3i', label: 'W3 Issued', get: (r: any) => r.w3i || 0 },
-        { key: 'w4i', label: 'W4 Issued', get: (r: any) => r.w4i || 0 },
-        { key: 'aggregateIssued', label: 'Month Pull', get: (r: any) => r.aggregateIssued || 0 },
-        { key: 'totalIss', label: 'Total Issued' },
+        { key: 'w1p', label: 'Pulled W1', get: (r: any) => r.w1p || 0 },
+        { key: 'w2p', label: 'Pulled W2', get: (r: any) => r.w2p || 0 },
+        { key: 'w3p', label: 'Pulled W3', get: (r: any) => r.w3p || 0 },
+        { key: 'totalIss', label: 'Total Pulled' },
         { key: 'closing', label: 'Ending Inv.' },
         { key: 'value', label: 'Ending Value', get: (r: any) => fmtMoney(r.value || 0) },
       ],
@@ -438,11 +435,11 @@ export function Reports({
   const reportStats = useMemo(() => {
     const receivedUnits = rows.reduce((s: number, r: any) => {
       if (r.totalRcv != null || r.totalReceived != null) return s + num(r.totalRcv ?? r.totalReceived);
-      return s + num(r.w1r) + num(r.w2r) + num(r.w3r) + num(r.w4r);
+      return s + num(r.w1r) + num(r.w2r) + num(r.w3r);
     }, 0);
     const issuedUnits = rows.reduce((s: number, r: any) => {
-      if (r.totalIss != null || r.totalIssued != null) return s + num(r.totalIss ?? r.totalIssued);
-      return s + num(r.w1i) + num(r.w2i) + num(r.w3i) + num(r.w4i) + num(r.aggregateIssued);
+      if (r.totalIss != null || r.totalPulled != null) return s + num(r.totalIss ?? r.totalPulled);
+      return s + num(r.w1p) + num(r.w2p) + num(r.w3p);
     }, 0);
     const endingValue = rows.reduce((s: number, r: any) => {
       const closing = r.closing ?? r.closingQty ?? r.onHand ?? r.on_hand ?? 0;

@@ -40,25 +40,21 @@ class InventoryItem(BaseModel):
     sku: str
     desc: str
     onHand: Optional[int] = Field(None, ge=0)
-    # Optional so a save that does not include par does NOT zero the shared
-    # inventory_items.par_level (which would corrupt par across every period).
     par: Optional[int] = Field(None, ge=0)
     category: str
     price: Optional[float] = Field(None, ge=0)
     unit: str = "each"
+    status: str = 'active'
     w1r: Optional[int] = None
     w2r: Optional[int] = None
     w3r: Optional[int] = None
-    w4r: Optional[int] = None
-    w1i: Optional[int] = None
-    w2i: Optional[int] = None
-    w3i: Optional[int] = None
-    w4i: Optional[int] = None
-    # Computed: on_hand (opening) + received - issued = actual ending stock.
+    w1p: Optional[int] = None
+    w2p: Optional[int] = None
+    w3p: Optional[int] = None
+    # Computed: opening_oh + received - pulled = ending stock
     running_total: Optional[int] = None
     totalReceived: Optional[int] = None
-    totalIssued: Optional[int] = None
-    aggregateIssued: Optional[int] = None
+    totalPulled: Optional[int] = None
     closingQty: Optional[int] = None
     value: Optional[float] = None
     sku_pending: Optional[bool] = None
@@ -98,66 +94,23 @@ def _to_float(v, default=0.0) -> float:
         return default
 
 
-def _week0_issued_by_item(
-    db_month: int, year: int, item_ids: list[str]
-) -> dict[str, int]:
-    """Return month-level pull totals stored as week_number=0 ledger rows.
-
-    May-style published workbooks can carry a verified Total Pulled value without
-    per-week pull columns. Those pulls are intentionally stored in
-    inventory_transactions week 0 so we do not invent a fake week placement, but
-    API totals still need to count them for closing/value calculations.
-    """
-    if not item_ids:
-        return {}
-    totals: dict[str, int] = {}
-    try:
-        for idx in range(0, len(item_ids), 100):
-            chunk = item_ids[idx : idx + 100]
-            result = (
-                supabase_service.table("inventory_transactions")
-                .select("item_id,quantity")
-                .eq("month", db_month)
-                .eq("year", year)
-                .eq("week_number", 0)
-                .in_("txn_type", ["issued", "adjustment_decrease"])
-                .in_("item_id", chunk)
-                .execute()
-            )
-            for row in result.data or []:
-                item_id = row.get("item_id")
-                if item_id:
-                    totals[item_id] = totals.get(item_id, 0) + int(
-                        _to_float(row.get("quantity"))
-                    )
-    except Exception:
-        logger.exception("Error loading week-0 issued ledger totals")
-    return totals
-
-
-def _flatten_rows(
-    rows: list[dict], aggregate_issued: Optional[dict[str, int]] = None
-) -> list[InventoryItem]:
+def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
     """Flatten nested Supabase join result into InventoryItem list."""
     items = []
-    aggregate_issued = aggregate_issued or {}
     for row in rows:
         inv_item = row.get("inventory_items") or {}
         cat = inv_item.get("inventory_categories") or {}
         item_id = inv_item.get("id") or row.get("item_id")
-        oh = max(0, int(_to_float(row.get("on_hand"))))
+        oh = max(0, int(_to_float(row.get("opening_oh"))))
         w1r = int(_to_float(row.get("w1_received")))
         w2r = int(_to_float(row.get("w2_received")))
         w3r = int(_to_float(row.get("w3_received")))
-        w4r = int(_to_float(row.get("w4_received")))
-        w1i = int(_to_float(row.get("w1_issued")))
-        w2i = int(_to_float(row.get("w2_issued")))
-        w3i = int(_to_float(row.get("w3_issued")))
-        w4i = int(_to_float(row.get("w4_issued")))
-        total_received = w1r + w2r + w3r + w4r
-        aggregate_issued_qty = int(_to_float(aggregate_issued.get(item_id or "", 0)))
-        total_issued = w1i + w2i + w3i + w4i + aggregate_issued_qty
-        running_total = max(0, oh + total_received - total_issued)
+        w1p = int(_to_float(row.get("w1_pulled")))
+        w2p = int(_to_float(row.get("w2_pulled")))
+        w3p = int(_to_float(row.get("w3_pulled")))
+        total_received = w1r + w2r + w3r
+        total_pulled = w1p + w2p + w3p
+        running_total = max(0, oh + total_received - total_pulled)
         price = _to_float(row.get("unit_price"))
         items.append(
             InventoryItem(
@@ -169,18 +122,12 @@ def _flatten_rows(
                 category=cat.get("name") or "",
                 price=price,
                 unit=inv_item.get("unit") or "each",
-                w1r=w1r,
-                w2r=w2r,
-                w3r=w3r,
-                w4r=w4r,
-                w1i=w1i,
-                w2i=w2i,
-                w3i=w3i,
-                w4i=w4i,
+                status=row.get("status") or "active",
+                w1r=w1r, w2r=w2r, w3r=w3r,
+                w1p=w1p, w2p=w2p, w3p=w3p,
                 running_total=running_total,
                 totalReceived=total_received,
-                totalIssued=total_issued,
-                aggregateIssued=aggregate_issued_qty,
+                totalPulled=total_pulled,
                 closingQty=running_total,
                 value=running_total * price,
                 sku_pending=bool(inv_item.get("sku_pending")),
@@ -199,9 +146,9 @@ def _serialize_dt(dt) -> str:
 
 
 _JOIN_SELECT = (
-    "id, item_id, month, year, on_hand, "
-    "w1_received, w2_received, w3_received, w4_received, "
-    "w1_issued, w2_issued, w3_issued, w4_issued, "
+    "id, item_id, month, year, opening_oh, status, "
+    "w1_received, w2_received, w3_received, "
+    "w1_pulled, w2_pulled, w3_pulled, "
     "unit_price, created_at, "
     "inventory_items!inner(id, sku, description, par_level, unit, sku_pending, needs_attention, "
     "  inventory_categories!inner(name)"
@@ -265,20 +212,17 @@ async def get_inventory(
         if not result.data:
             raise HTTPException(status_code=404, detail="Inventory not found")
 
-        item_ids = [row.get("item_id") for row in result.data if row.get("item_id")]
-        aggregate_issued = _week0_issued_by_item(db_month, year, item_ids)
-        items = _flatten_rows(result.data, aggregate_issued)
+        items = _flatten_rows(result.data)
         period_id = f"{year}-{month:02d}"
         created_at = _serialize_dt(result.data[0].get("created_at"))
 
-        over_issued_count = sum(
+        over_pulled_count = sum(
             1
             for item in items
-            if (item.onHand or 0) + (item.totalReceived or 0) < (item.totalIssued or 0)
+            if (item.onHand or 0) + (item.totalReceived or 0) < (item.totalPulled or 0)
         )
         total_received = sum(item.totalReceived or 0 for item in items)
-        total_issued = sum(item.totalIssued or 0 for item in items)
-        aggregate_issued_total = sum(item.aggregateIssued or 0 for item in items)
+        total_pulled = sum(item.totalPulled or 0 for item in items)
         closing_value = sum(item.value or 0 for item in items)
 
         return InventoryResponse(
@@ -289,10 +233,9 @@ async def get_inventory(
                 "year": year,
                 "period": period_id,
                 "weeks_in_period": weeks_in_month(month, year),
-                "over_issued_count": over_issued_count,
+                "over_pulled_count": over_pulled_count,
                 "total_received": total_received,
-                "total_issued": total_issued,
-                "aggregate_issued": aggregate_issued_total,
+                "total_pulled": total_pulled,
                 "closing_value": closing_value,
             },
             notes="",
@@ -511,20 +454,19 @@ async def _save_inventory_retired(payload: "InventorySnapshot", auth_user: dict)
                 "month": db_month,
                 "year": year,
             }
-            # Only write on_hand when explicitly provided in the payload.
             if item.onHand is not None:
-                monthly_fields["on_hand"] = item.onHand
+                monthly_fields["opening_oh"] = item.onHand
             if item.price is not None:
                 monthly_fields["unit_price"] = item.price
+            if item.status:
+                monthly_fields["status"] = item.status
             for src, col in [
                 ("w1r", "w1_received"),
                 ("w2r", "w2_received"),
                 ("w3r", "w3_received"),
-                ("w4r", "w4_received"),
-                ("w1i", "w1_issued"),
-                ("w2i", "w2_issued"),
-                ("w3i", "w3_issued"),
-                ("w4i", "w4_issued"),
+                ("w1p", "w1_pulled"),
+                ("w2p", "w2_pulled"),
+                ("w3p", "w3_pulled"),
             ]:
                 val = getattr(item, src)
                 if val is not None:
@@ -624,9 +566,7 @@ async def get_inventory_history(
             if not result.data:
                 continue
 
-            item_ids = [row.get("item_id") for row in result.data if row.get("item_id")]
-            aggregate_issued = _week0_issued_by_item(db_m, y, item_ids)
-            items = _flatten_rows(result.data, aggregate_issued)
+            items = _flatten_rows(result.data)
             m = db_m + 1  # 1-indexed for display
             period_id = f"{y}-{m:02d}"
             created_at = _serialize_dt(result.data[0].get("created_at"))

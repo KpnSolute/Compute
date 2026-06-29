@@ -729,10 +729,10 @@ function Dashboard({
         opening: it.onHand || 0,
         received: typeof it.totalReceived === "number"
             ? it.totalReceived
-            : (it.w1r || 0) + (it.w2r || 0) + (it.w3r || 0) + (it.w4r || 0),
-        issued: typeof it.totalIssued === "number"
-            ? it.totalIssued
-            : (it.w1i || 0) + (it.w2i || 0) + (it.w3i || 0) + (it.w4i || 0) + (it.aggregateIssued || 0),
+            : (it.w1r || 0) + (it.w2r || 0) + (it.w3r || 0),
+        issued: typeof it.totalPulled === "number"
+            ? it.totalPulled
+            : (it.w1p || 0) + (it.w2p || 0) + (it.w3p || 0),
         closing: typeof it.closingQty === "number" ? it.closingQty : undefined,
     }));
     const miSum = monRows.reduce(
@@ -1273,9 +1273,9 @@ function InventoryView({
     // template's compact sheet. Edits live in local `wkDraft` and are persisted
     // via the "Stage weekly changes" batch action (stageCompactChanges), which
     // routes through Source Control like the Monthly Inventory view.
-    const ISSUED = ["w1i", "w2i", "w3i", "w4i"] as const; // pulled ↓
-    const RECEIVED = ["w1r", "w2r", "w3r", "w4r"] as const; // delivered ↑
-    type WeeklyField = (typeof ISSUED)[number] | (typeof RECEIVED)[number];
+    const PULLED = ["w1p", "w2p", "w3p"] as const; // pulled ↓
+    const RECEIVED = ["w1r", "w2r", "w3r"] as const; // delivered ↑
+    type WeeklyField = (typeof PULLED)[number] | (typeof RECEIVED)[number];
     const [wkDraft, setWkDraft] = useState<
         Record<string, Partial<Record<WeeklyField, number>>>
     >({});
@@ -1283,9 +1283,9 @@ function InventoryView({
     // Invoice mode selectors: which week (1-4) and direction this staging batch
     // represents. 0 = whole-month save (inventory_save). When week>0, the batch
     // is routed as inventory_week_update for that specific column only.
-    const maxWeeks = (invState.metadata?.weeks_in_period as number) ?? 4;
-    const [compactWeek, setCompactWeek] = useState<0 | 1 | 2 | 3 | 4>(
-        () => Math.min(4, Math.ceil(new Date().getDate() / 7)) as 1 | 2 | 3 | 4
+    const maxWeeks = (invState.metadata?.weeks_in_period as number) ?? 3;
+    const [compactWeek, setCompactWeek] = useState<0 | 1 | 2 | 3>(
+        () => Math.min(3, Math.ceil(new Date().getDate() / 7)) as 1 | 2 | 3
     );
     // compactDir removed — both issued AND received are staged when they have edits.
     const setWeeklyField = (sku: string, field: WeeklyField, value: string) => {
@@ -1418,17 +1418,14 @@ function InventoryView({
             par: it.par || 0,
             unit: it.unit || "",
             active: it.active !== false,
-            w1i: it.w1i || 0,
-            w2i: it.w2i || 0,
-            w3i: it.w3i || 0,
-            w4i: it.w4i || 0,
+            w1p: it.w1p || 0,
+            w2p: it.w2p || 0,
+            w3p: it.w3p || 0,
             w1r: it.w1r || 0,
             w2r: it.w2r || 0,
             w3r: it.w3r || 0,
-            w4r: it.w4r || 0,
-            aggregateIssued: it.aggregateIssued || 0,
             totalReceived: it.totalReceived,
-            totalIssued: it.totalIssued,
+            totalPulled: it.totalPulled,
             closingQty: it.closingQty,
             value: typeof it.value === "number" ? it.value : iTotal(it),
             sku_pending: it.sku_pending ?? String(it.sku || "").startsWith("MJC-"),
@@ -1538,7 +1535,7 @@ function InventoryView({
                         par: d?.par ?? r.par,
                     };
                     // Spread only explicitly-edited weekly fields
-                    for (const k of ["w1r","w2r","w3r","w4r","w1i","w2i","w3i","w4i"] as WeeklyField[]) {
+                    for (const k of ["w1r","w2r","w3r","w1p","w2p","w3p"] as WeeklyField[]) {
                         if (k in w) base[k] = w[k];
                     }
                     return base;
@@ -2023,9 +2020,9 @@ function InventoryView({
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                     <div className="tab-bar" style={{ marginBottom: 0, flex: 1 }}>
                                         {[
-                                            { val: 0 as 0|1|2|3|4, label: "All weeks" },
+                                            { val: 0 as 0|1|2|3, label: "All weeks" },
                                             ...visibleWeeks.map((w) => ({
-                                                val: w as 0|1|2|3|4,
+                                                val: w as 0|1|2|3,
                                                 label: `Week ${w}${lockIcon(w)}`,
                                             })),
                                         ].map(({ val, label }) => (
@@ -2575,7 +2572,7 @@ function InventoryView({
                                             (a, k) => a + wk(r, k),
                                             0,
                                         );
-                                        const iss = ISSUED.reduce(
+                                        const iss = PULLED.reduce(
                                             (a, k) => a + wk(r, k),
                                             0,
                                         );
@@ -2831,7 +2828,7 @@ function InventoryView({
                                                                             </td>
                                                                             {compactWeek === 0 ? (
                                                                                 <>
-                                                                                    {ISSUED.map((k) => {
+                                                                                    {PULLED.map((k) => {
                                                                                         const wNum = parseInt(k[1]);
                                                                                         const locked = (weekLockStatus[wNum] || 'open') !== 'open';
                                                                                         const canEditIssued = canStage && lvl >= 30 && !locked;
@@ -2879,13 +2876,13 @@ function InventoryView({
                                                                                                 <td className="r num" data-label={`W${compactWeek}↓ Issued`}>
                                                                                                     {canEditIssued ? (
                                                                                                         <input className="cinp" type="number" min={0}
-                                                                                                            value={wk(r, ISSUED[compactWeek - 1])}
+                                                                                                            value={wk(r, PULLED[compactWeek - 1])}
                                                                                                             onFocus={cinpFocus}
                                                                                                             onKeyDown={cinpKeyDown}
-                                                                                                            onChange={(e) => setWeeklyField(sku, ISSUED[compactWeek - 1], e.target.value)} />
+                                                                                                            onChange={(e) => setWeeklyField(sku, PULLED[compactWeek - 1], e.target.value)} />
                                                                                                     ) : (
                                                                                                         <span title={lvl < 30 ? 'Manager only' : weekLocked ? 'Week locked' : undefined}>
-                                                                                                            {wk(r, ISSUED[compactWeek - 1])}
+                                                                                                            {wk(r, PULLED[compactWeek - 1])}
                                                                                                         </span>
                                                                                                     )}
                                                                                                 </td>
@@ -4165,11 +4162,11 @@ function ArchivesView(_props: { period: [number, number] }) {
                 const totalReceived = (i: any) =>
                     typeof i.totalReceived === "number"
                         ? i.totalReceived
-                        : (i.w1r || 0) + (i.w2r || 0) + (i.w3r || 0) + (i.w4r || 0);
+                        : (i.w1r || 0) + (i.w2r || 0) + (i.w3r || 0);
                 const totalPulled = (i: any) =>
-                    typeof i.totalIssued === "number"
-                        ? i.totalIssued
-                        : (i.w1i || 0) + (i.w2i || 0) + (i.w3i || 0) + (i.w4i || 0) + (i.aggregateIssued || 0);
+                    typeof i.totalPulled === "number"
+                        ? i.totalPulled
+                        : (i.w1p || 0) + (i.w2p || 0) + (i.w3p || 0);
                 const endingQty = (i: any) =>
                     typeof i.closingQty === "number"
                         ? i.closingQty

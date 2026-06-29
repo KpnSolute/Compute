@@ -15,11 +15,10 @@ export interface InspectRow {
     unit?: string;
     active?: boolean;
     needs_attention?: boolean;
-    w1i: number; w2i: number; w3i: number; w4i: number;
-    w1r: number; w2r: number; w3r: number; w4r: number;
-    aggregateIssued?: number;
+    w1p: number; w2p: number; w3p: number;
+    w1r: number; w2r: number; w3r: number;
     totalReceived?: number;
-    totalIssued?: number;
+    totalPulled?: number;
     closingQty?: number;
     value?: number;
 }
@@ -101,7 +100,7 @@ export function ItemInspector({
     }, [busy, onClose]);
 
     const baseRcv = (row as any)[`w${week}r`] || 0;
-    const baseIss = (row as any)[`w${week}i`] || 0;
+    const baseIss = (row as any)[`w${week}p`] || 0;
 
     const rcvDirty = canRcv && rcv !== baseRcv;
     const issDirty = canIss && iss !== baseIss;
@@ -113,14 +112,13 @@ export function ItemInspector({
 
     // Projected closing balance using the working week overrides.
     const projection = useMemo(() => {
-        let totalRcv = 0, totalIss = 0;
-        for (let w = 1; w <= 4; w++) {
+        let totalRcv = 0, totalPulled = 0;
+        for (let w = 1; w <= 3; w++) {
             totalRcv += w === week ? rcv : (row as any)[`w${w}r`] || 0;
-            totalIss += w === week ? iss : (row as any)[`w${w}i`] || 0;
+            totalPulled += w === week ? iss : (row as any)[`w${w}p`] || 0;
         }
-        totalIss += row.aggregateIssued || 0;
-        const closing = Math.max(0, onHand + totalRcv - totalIss);
-        return { totalRcv, totalIss, closing, value: closing * price };
+        const closing = Math.max(0, onHand + totalRcv - totalPulled);
+        return { totalRcv, totalIss: totalPulled, closing, value: closing * price };
     }, [row, week, rcv, iss, onHand, price]);
 
     const isLow = projection.closing < par && par > 0;
