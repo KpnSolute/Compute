@@ -4,6 +4,23 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.24] - 2026-06-30 - Fixed inventory_transactions ledger duplication + cleaned live June data
+
+**Claude:** While auditing live Supabase for the broader production-readiness pass (user request: "make sure data is persistent and structured ... able to be used in the production field"), found that `inventory_transactions` for June 2026 was 75% stale duplicate rows (2127 of 2836). Root cause: `dispatch_inventory_save`'s ledger idempotency only cleared prior rows matching the SAME `staging_entry_id`. Today's repeated stale-row repair passes (v4.26.15/17/18/20) each called `dispatch_inventory_save` with a freshly generated `staging_entry_id`, so every pass's ledger rows piled up next to the previous pass's instead of replacing them — even though `monthly_inventory`'s w1-w3 columns were correctly overwritten each time (so manager-facing totals were never wrong, this was audit-ledger-only pollution).
+
+**Fix:** `backend/staging/dispatch.py::dispatch_inventory_save` now ALSO clears by `(item_id, week_number, txn_type)` for the exact cells in the current save, scoped to the current `(month, year)`, before inserting — independent of `staging_entry_id`. This is safe for partial saves: it only clears the specific week/type keys present in this payload, never a whole item/month, so weeks a save doesn't touch are untouched. `dispatch_inventory_week` was deliberately left alone — it intentionally accumulates multiple invoices in the same week via the ledger (its `staging_entry_id`-only clear is correct for that). Regression test `test_resave_with_different_staging_id_replaces_not_accumulates_ledger` proves three re-saves with three different staging IDs leave exactly one row per (week, type), not three.
+
+**Database repair:** Verified (dry-run, 0 row changes) that keeping only the most-recent ledger row per `(item_id, week_number, txn_type)` for June 2026 reconciles **exactly** with `monthly_inventory`'s w1-w3 columns — 0 mismatches across all 291 items. With explicit user confirmation, deleted the 2127 stale rows from production `inventory_transactions` (June 2026 only; May 2026's 504 rows were already clean — 2.05 rows/staging-id vs June's 10.4). Re-verified after: June now has exactly 709 ledger rows = 709 distinct (item, week, type) groups (zero dupes), and `monthly_inventory` June aggregates are unchanged (opening `$9,575.02`, received `$30,744.57`, pulled `$30,814.01`, ending `$9,505.58`, 291 items) — the repair touched only the audit ledger, never the figures managers see.
+
+**Also checked (clean, no action needed):** No duplicate `(item_id, month, year)` rows in `monthly_inventory`. No orphan `monthly_inventory` rows pointing at deleted items. No items with missing/dangling `category_id` (327/327 clean). No duplicate SKUs. `monthly_snapshots` aggregates reconcile exactly with `monthly_inventory` sums for both May and June. All 2547 `staging_entries` are `merged` (no stuck pending backlog). `audit_log` is empty (the per-item ledger-reconciliation trigger from migration 021 hasn't logged anything — worth re-checking after this cleanup since the prior 4x ledger pollution would have been flagged by that trigger had it run).
+
+**Flagged, not yet fixed — production-readiness gap:** `month_status` has exactly ONE row total (June 2026, `status='open'`). May 2026 has no `month_status` row at all, and nothing has ever been marked `'published'`. `_is_month_published()` treats "no row" as open/writable, so there is currently no enforced lock on a closed month — a manager (or another import) could still silently edit May's already-reconciled figures. This needs either a real "close month" workflow (UI action that inserts/updates `month_status` to `published`) or a decision that month-locking is out of scope for v1. Surfacing this per AGENTS.md §8 rule 5 rather than guessing the intended workflow.
+
+**Verification:** `python -m ruff check backend/staging/dispatch.py backend/tests` passed. `python -m pytest backend/tests -q` passed (45 passed / 4 skipped). Live Supabase re-queried post-delete to confirm row counts and reconciliation.
+**Push:** pending — not yet pushed.
+
+---
+
 ## [v4.26.23] - 2026-06-30 - Closed the three P1/P2 production-officer findings from v4.26.21
 
 **Claude:** Fixed the two P1 backend correctness findings and the one P2 finding flagged by the Claude Opus review (v4.26.21), so unattended manager month-end close no longer risks silent data loss. All three fixes are general — they gate behavior on "does the target period already have rows" / "did every item resolve", not on any specific month — so they hold for July and every month after.

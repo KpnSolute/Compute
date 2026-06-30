@@ -518,9 +518,20 @@ def dispatch_inventory_save(payload: dict) -> dict:
             ).execute()
 
     # Write ledger rows for spreadsheet weekly cells and week_number=0 aggregate
-    # pulls. Idempotent: clear prior rows for ALL staging_entry_ids in this batch
-    # before re-inserting. Use in_() so a 266-entry batch is one DELETE instead of
-    # 266 separate deletes.
+    # pulls. Idempotent two ways:
+    #  1. Clear prior rows for ALL staging_entry_ids in this batch (handles a
+    #     retried commit replaying the SAME staging entry — in_() so a 266-entry
+    #     batch is one DELETE instead of 266 separate deletes).
+    #  2. ALSO clear by (item_id, week_number, txn_type) for the exact cells this
+    #     save is about to write, regardless of staging_entry_id. dispatch_inventory_save
+    #     always OVERWRITES monthly_inventory's weekly columns (never sums), so its
+    #     ledger mirror must replace, not accumulate, on every save — a manual
+    #     re-save with a fresh staging_entry_id (e.g. a one-off correction) would
+    #     otherwise leave the prior pass's rows behind instead of replacing them.
+    #     (Live June ledger had accumulated 4x duplicate rows this way before this
+    #     fix — see CHANGELOG v4.26.23.) This is safe for partial saves because it
+    #     only clears the specific (week, type) keys present in THIS payload, never
+    #     a whole item/month — weeks this save doesn't touch are left alone.
     if txn_rows:
         ids_to_clear = list(
             {r["staging_entry_id"] for r in txn_rows if r.get("staging_entry_id")}
@@ -530,6 +541,17 @@ def dispatch_inventory_save(payload: dict) -> dict:
         if ids_to_clear:
             sup.table("inventory_transactions").delete().in_(
                 "staging_entry_id", ids_to_clear
+            ).execute()
+        cell_groups: dict[tuple, set[str]] = {}
+        for r in txn_rows:
+            cell_groups.setdefault(
+                (r["week_number"], r["txn_type"]), set()
+            ).add(r["item_id"])
+        for (wk, ttype), item_ids in cell_groups.items():
+            sup.table("inventory_transactions").delete().eq("month", db_month).eq(
+                "year", year
+            ).eq("week_number", wk).eq("txn_type", ttype).in_(
+                "item_id", list(item_ids)
             ).execute()
         sup.table("inventory_transactions").insert(txn_rows).execute()
 

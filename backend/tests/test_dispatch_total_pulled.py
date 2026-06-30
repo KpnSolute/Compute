@@ -241,6 +241,48 @@ def test_total_pulled_raw_writes_week3_transaction_and_column():
     assert mi and mi[0].get("w3_pulled") == 40.0, f"w3_pulled not set; got {mi}"
 
 
+def test_resave_with_different_staging_id_replaces_not_accumulates_ledger():
+    """A re-save of the SAME item/week/cell with a FRESH staging_entry_id (e.g. a
+    manual correction pass) must REPLACE the prior ledger row, not pile up a
+    duplicate next to it. dispatch_inventory_save always overwrites
+    monthly_inventory's weekly columns, so its ledger mirror must match — this
+    is the live bug found in the June ledger (4x duplicate rows from repeated
+    correction passes, each using a different staging_entry_id).
+    """
+    from backend.staging.dispatch import dispatch_inventory_save
+
+    sup = FakeSup()
+    base_payload = {
+        "month": 5,
+        "year": 2026,
+        "items": [
+            {
+                "sku": "DRY-001",
+                "desc": "Rice",
+                "category": "Dry Goods",
+                "price": 1.5,
+                "w1r": 2,
+                "w1p": 1,
+                "w2p": 1,
+            }
+        ],
+    }
+
+    with patch("backend.staging.dispatch._client", return_value=sup):
+        dispatch_inventory_save({**base_payload, "_staging_entry_id": "pass-1"})
+        dispatch_inventory_save({**base_payload, "_staging_entry_id": "pass-2"})
+        dispatch_inventory_save({**base_payload, "_staging_entry_id": "pass-3"})
+
+    txns = sorted(
+        (t["week_number"], t["txn_type"], t["quantity"]) for t in sup.txns
+    )
+    assert txns == [
+        (1, "issued", 1),
+        (1, "received", 2),
+        (2, "issued", 1),
+    ], f"expected exactly one row per (week, type) after 3 re-saves, got {sup.txns}"
+
+
 def test_total_pulled_raw_retry_is_idempotent():
     """Replaying the same staging entry replaces the prior week0 row."""
     from backend.staging.dispatch import dispatch_inventory_save
