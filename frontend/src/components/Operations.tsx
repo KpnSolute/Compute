@@ -52,6 +52,20 @@ function cellT(val: string, onChange: (v: string) => void, canEdit: boolean) {
   );
 }
 
+function weeklyInvoiceSchedule(metadata: any) {
+  const totals = metadata?.weekly_invoice_totals;
+  const weeks = totals?.weeks && typeof totals.weeks === 'object' ? totals.weeks : null;
+  if (!weeks) return null;
+  const rows = [1, 2, 3, 4, 5]
+    .map((wk) => ({ wk, total: Number(weeks[String(wk)] ?? weeks[wk] ?? 0) || 0 }))
+    .filter((row) => row.total > 0);
+  if (!rows.length) return null;
+  return {
+    weeks: rows,
+    total: Number(totals.total) || rows.reduce((sum, row) => sum + row.total, 0),
+  };
+}
+
 export function SnackBar({ user }: { user: User }) {
   const lvl = ROLE_LEVEL[user.role] || 0;
   const canEdit = lvl >= 10;
@@ -259,6 +273,7 @@ export function MonthlyInventory({
 
   const [rows, setRows] = useState<any[]>([]);
   const [initRows, setInitRows] = useState<any[]>([]);
+  const [inventoryMeta, setInventoryMeta] = useState<any>({});
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -328,16 +343,16 @@ export function MonthlyInventory({
           for (const dr of draft) {
             if (!merged.find((r: any) => r.id === dr.id)) merged.push(dr);
           }
-          if (alive) { setRows(merged); setInitRows(flat); setMaxWeeks(wip); }
+          if (alive) { setRows(merged); setInitRows(flat); setMaxWeeks(wip); setInventoryMeta(inv.metadata || {}); }
         } else {
-          if (alive) { setRows(flat); setInitRows(flat); setMaxWeeks(wip); }
+          if (alive) { setRows(flat); setInitRows(flat); setMaxWeeks(wip); setInventoryMeta(inv.metadata || {}); }
         }
         try {
           const ivs = await api.getInvoices(m + 1, y);
           if (alive) setInvoices(ivs || []);
         } catch { if (alive) setInvoices([]); }
       } catch {
-        if (alive) { setRows([]); setInvoices([]); }
+        if (alive) { setRows([]); setInventoryMeta({}); setInvoices([]); }
       }
       if (alive) setLoading(false);
     }
@@ -409,6 +424,8 @@ export function MonthlyInventory({
     }),
     { open: 0, recv: 0, iss: 0, close: 0 },
   );
+  const invoiceSchedule = useMemo(() => weeklyInvoiceSchedule(inventoryMeta), [inventoryMeta]);
+  const displayedReceivedValue = invoiceSchedule?.total ?? sum.recv;
 
   const searchQuery = useMemo(() => parseInventoryQuery(q), [q]);
   const filtered = q.trim()
@@ -423,7 +440,7 @@ export function MonthlyInventory({
 
   const SUM_CARDS = [
     { lbl: 'Opening value', val: sum.open, tint: '#1B3A6B', bg: '#EEF2F8' },
-    { lbl: 'Total received', val: sum.recv, tint: '#059669', bg: '#F0FDF4' },
+    { lbl: invoiceSchedule ? 'Invoice received' : 'Total received', val: displayedReceivedValue, tint: '#059669', bg: '#F0FDF4' },
     { lbl: 'Total issued', val: sum.iss, tint: '#D97706', bg: '#FEF3C7' },
     { lbl: 'Closing value', val: sum.close, tint: '#1E73E8', bg: '#EFF5FE' },
   ];
@@ -432,13 +449,14 @@ export function MonthlyInventory({
   const rcvColLabel = week === 0 ? 'Rcvd (total)' : `W${week} Received`;
   const issColLabel = week === 0 ? 'Issued (total)' : `W${week} Issued`;
 
-  // Per-week received dollar totals (qty × price) — used for the week tile strip.
-  const weekTotals = useMemo(() =>
-    Array.from({ length: maxWeeks }, (_, i) => i + 1).map((wk) => ({
+  // Week tiles use workbook invoice totals when present; qty x price is only a fallback.
+  const weekTotals = useMemo(() => {
+    if (invoiceSchedule) return invoiceSchedule.weeks;
+    return Array.from({ length: maxWeeks }, (_, i) => i + 1).map((wk) => ({
       wk,
       total: rows.reduce((s, r) => s + (r[`w${wk}r`] || 0) * r.price, 0),
-    })).filter((wt) => wt.total > 0),
-  [rows, maxWeeks]);
+    })).filter((wt) => wt.total > 0);
+  }, [rows, maxWeeks, invoiceSchedule]);
 
   // Per-week issued qty totals — determines which weeks have pull sheets recorded.
   const pullTotals = useMemo(() =>

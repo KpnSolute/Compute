@@ -4,6 +4,15 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.12] - 2026-06-30 - Monthly Inventory invoice totals display
+
+**Codex:** Fixed the Monthly Inventory editor cards/week tiles to consume `/api/inventory.metadata.weekly_invoice_totals`. When workbook-provided invoice totals exist, the received spend card now shows `Invoice received` and the week tiles use the real W1/W2/W3 invoice totals instead of falling back to received quantity x unit price.
+
+**Verification:** `npx tsc --noEmit` passed. `npm run build` passed with existing dynamic-import and large-chunk warnings.
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.11] - 2026-06-30 - Authoritative weekly invoice totals from workbooks
 
 **Codex:** Updated the workbook parser to read the new Review-tab `WEEKLY INVOICE TOTALS (PRODUCT VALUE, EXCL. TAX)` block from May/June standardized spreadsheets, including W1-W3 product totals and source notes. Tightened Review formula parsing so blank/stale Excel caches no longer break audited financial controls: the parser now resolves direct cell references, `SUM`, `COUNTIF`, simple arithmetic, and Review detail formulas needed by the current workbooks.
