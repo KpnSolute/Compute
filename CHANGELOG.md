@@ -11,7 +11,7 @@ This is the **central development memory and discussion board** for development 
 **Fixes:** Corrected remaining frontend `wNi` issued-column drift to the real `wNp` contract in Monthly Inventory totals, compact inventory staging, and Item Inspector seeding. Source Control now labels weekly staged rows as weekly inventory rather than only weekly invoices.
 
 **Verification:** `npm run lint` passed with the existing warning backlog (0 errors / 592 warnings). `npx tsc --noEmit` passed. `npm run build` passed with the existing large chunk/dynamic-import warnings. `git diff --check` passed with Windows LF-to-CRLF notices only.
-**Push:** pending — branch commit ready.
+**Push:** Codex → 72b711e — 2026-06-30.
 
 ---
 
