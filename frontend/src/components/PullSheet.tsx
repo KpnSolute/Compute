@@ -428,7 +428,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
               <tbody>
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={9} style={{ textAlign: 'center', padding: '28px 0', color: 'var(--faint)', fontSize: 13 }}>
+                    <td colSpan={9} style={{ textAlign: 'center', padding: '28px 0', color: 'var(--muted)', fontSize: 13 }}>
                       No items match — try "Show zero-on-hand items" or clear the search.
                     </td>
                   </tr>
@@ -458,7 +458,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
                       <td style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{sku}</td>
                       <td>{punit(it)}</td>
                       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmt(price)}</td>
-                      <td style={{ textAlign: 'right', color: onHand <= 0 ? 'var(--faint)' : undefined }}>{onHand}</td>
+                      <td style={{ textAlign: 'right', color: onHand <= 0 ? 'var(--muted)' : undefined }}>{onHand}</td>
                       <td style={{ textAlign: 'right' }}>{par || '-'}</td>
                       <td><span className="pull-status" data-status={status.toLowerCase()}>{status}</span></td>
                       <td style={{ textAlign: 'center' }}>
@@ -482,7 +482,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
                           }}
                         />
                       </td>
-                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: isDirty ? 'var(--green)' : 'var(--faint)' }}>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: isDirty ? 'var(--green)' : 'var(--muted)' }}>
                         {isDirty ? fmt(rowValue) : '—'}
                       </td>
                     </tr>

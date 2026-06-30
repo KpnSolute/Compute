@@ -786,11 +786,11 @@ export function MonthlyInventory({
                 <tbody>
                   {viewMode === 'flat' ? (
                     filtered.length === 0
-                      ? <tr><td colSpan={10} style={{ textAlign: 'center', padding: 26, color: 'var(--faint)' }}>No items match.</td></tr>
+                      ? <tr><td colSpan={10} style={{ textAlign: 'center', padding: 26, color: 'var(--muted)' }}>No items match.</td></tr>
                       : filtered.map((r: any) => renderRow(r))
                   ) : (
                     grouped.length === 0
-                      ? <tr><td colSpan={10} style={{ textAlign: 'center', padding: 26, color: 'var(--faint)' }}>No items match.</td></tr>
+                      ? <tr><td colSpan={10} style={{ textAlign: 'center', padding: 26, color: 'var(--muted)' }}>No items match.</td></tr>
                       : grouped.flatMap(({ cat, items }) => {
                           const cs = items.reduce(
                             (a: any, r: any) => ({

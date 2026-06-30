@@ -986,7 +986,7 @@ table.data.logtbl td{padding:6px 10px}
 .report-row.on .rr-ic{background:#fff;color:var(--accent);border-color:var(--accent)}
 .rr-body{flex:1;min-width:0}
 .rr-name{font-size:12.5px;font-weight:700}
-.rr-meta{font-size:11px;color:var(--faint);margin-top:2px}
+.rr-meta{font-size:11px;color:var(--muted);margin-top:2px}
 .rr-actions{display:flex;gap:6px;flex-shrink:0}
 .reports-workspace{display:grid;grid-template-columns:minmax(260px,340px) minmax(0,1fr);gap:16px;margin-bottom:16px;align-items:start}
 .reports-workspace>*{min-width:0}

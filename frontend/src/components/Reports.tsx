@@ -1111,7 +1111,7 @@ export function Reports({
                 style={{
                   padding: '40px 17px',
                   textAlign: 'center',
-                  color: 'var(--faint)',
+                  color: 'var(--muted)',
                   fontSize: 12.5,
                 }}
               >

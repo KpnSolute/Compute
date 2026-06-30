@@ -976,9 +976,9 @@ function Dashboard({
                     >
                         <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
                             {menuLoading ? (
-                                <div style={{ fontSize: 12, color: "var(--faint)" }}>Loading menu…</div>
+                                <div style={{ fontSize: 12, color: "var(--muted)" }}>Loading menu…</div>
                             ) : menuMeals.length === 0 ? (
-                                <div style={{ fontSize: 12, color: "var(--faint)" }}>No menu for today.</div>
+                                <div style={{ fontSize: 12, color: "var(--muted)" }}>No menu for today.</div>
                             ) : (
                                 menuMeals.map((meal) => (
                                     <div key={meal} className="dash-meal">
@@ -1016,7 +1016,7 @@ function Dashboard({
                             </span>
                         </div>
                         {reorderList.length === 0 ? (
-                            <div style={{ fontSize: 12, color: "var(--faint)" }}>All items at or above par level.</div>
+                            <div style={{ fontSize: 12, color: "var(--muted)" }}>All items at or above par level.</div>
                         ) : (
                             <div className="alert-chips">
                                 {reorderList.slice(0, 12).map((r: any, i: number) => (
@@ -1076,9 +1076,9 @@ function Dashboard({
                     <WinCard title="Upcoming events" link="Calendar →" onLink={() => go("events")}>
                         <div className="card-body flush" style={{ margin: "-16px -17px" }}>
                             {eventsLoading ? (
-                                <div style={{ padding: 12, fontSize: 12, color: "var(--faint)" }}>Loading events…</div>
+                                <div style={{ padding: 12, fontSize: 12, color: "var(--muted)" }}>Loading events…</div>
                             ) : upcoming.slice(0, 4).length === 0 ? (
-                                <div style={{ padding: 12, fontSize: 12, color: "var(--faint)" }}>No upcoming events.</div>
+                                <div style={{ padding: 12, fontSize: 12, color: "var(--muted)" }}>No upcoming events.</div>
                             ) : (
                                 upcoming.slice(0, 4).map((e: any) => (
                                     <div className="up-ev" key={e.id} onClick={() => go("events")}>
@@ -1989,7 +1989,7 @@ function InventoryView({
                                     position: "absolute",
                                     left: 11,
                                     top: 8,
-                                    color: "var(--faint)",
+                                    color: "var(--muted)",
                                 }}
                             >
                                 {I.search({ style: { width: 16, height: 16 } })}
@@ -2203,7 +2203,7 @@ function InventoryView({
                                             <td
                                                 className="r num"
                                                 style={{
-                                                    color: "var(--faint)",
+                                                    color: "var(--muted)",
                                                 }}
                                             >
                                                 {canEditPar ? (
@@ -2255,7 +2255,7 @@ function InventoryView({
                                             style={{
                                                 textAlign: "center",
                                                 padding: 30,
-                                                color: "var(--faint)",
+                                                color: "var(--muted)",
                                             }}
                                         >
                                             No items match your filters.
@@ -2458,7 +2458,7 @@ function InventoryView({
                                                                             <td
                                                                                 className="r num"
                                                                                 style={{
-                                                                                    color: "var(--faint)",
+                                                                                    color: "var(--muted)",
                                                                                 }}
                                                                             >
                                                                                 {canEditPar ? (
@@ -2541,7 +2541,7 @@ function InventoryView({
                                     style={{
                                         textAlign: "center",
                                         padding: 30,
-                                        color: "var(--faint)",
+                                        color: "var(--muted)",
                                     }}
                                 >
                                     No items match your filters.
@@ -2567,7 +2567,7 @@ function InventoryView({
                                                 marginBottom: 8,
                                             }}
                                         >
-                                            <span style={{ fontSize: 12, color: "var(--faint)" }}>
+                                            <span style={{ fontSize: 12, color: "var(--muted)" }}>
                                                 {dirtyCount
                                                     ? `${dirtyCount} item${dirtyCount === 1 ? "" : "s"} edited`
                                                     : compactWeek > 0
@@ -2996,7 +2996,7 @@ function InventoryView({
                                     style={{
                                         textAlign: "center",
                                         padding: 30,
-                                        color: "var(--faint)",
+                                        color: "var(--muted)",
                                     }}
                                 >
                                     No items match your filters.
@@ -3850,7 +3850,7 @@ function UsersView({ user: currentUser }: { user: User }) {
                                                     <div
                                                         style={{
                                                             fontSize: 11,
-                                                            color: "var(--faint)",
+                                                            color: "var(--muted)",
                                                         }}
                                                     >
                                                         {u.username}
@@ -4260,7 +4260,7 @@ function ArchivesView(_props: { period: [number, number] }) {
                         style={{
                             textAlign: "center",
                             padding: 40,
-                            color: "var(--faint)",
+                            color: "var(--muted)",
                         }}
                     >
                         {I.archive({
