@@ -4,6 +4,17 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.13] - 2026-06-30 - Route inventory dashboards through API totals
+
+**Codex:** Continued the logic-layer cleanup after the Monthly Inventory screenshot showed stale frontend calculations. `/api/inventory` and inventory history now return backend-owned metadata for item count, reorder count, opening/received/pulled/closing values, and category totals. The main dashboard now uses those API metadata totals for KPI cards and category bars instead of recomputing totals in React. Archives now use history metadata totals, and Reports now use inventory metadata for official money summaries instead of local price math fallbacks.
+
+**Note:** June 2026 live snapshot already has structured `weekly_invoice_totals`, so the corrected frontend should show the workbook invoice totals after deploy. May 2026 still has old `wk*_total` values without structured metadata and will need a re-upload or metadata-only backfill to show the new invoice-total source cleanly.
+
+**Verification:** `python -m ruff check backend\routes\inventory.py` passed. `python -m pytest backend\tests -q` passed (41 passed / 1 skipped). `npm run lint` passed with existing warning backlog (0 errors / 593 warnings). `npx tsc --noEmit` passed. `npm run build` passed with existing dynamic-import and large-chunk warnings. `git diff --check` passed with Windows LF-to-CRLF notices only.
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.12] - 2026-06-30 - Monthly Inventory invoice totals display
 
 **Codex:** Fixed the Monthly Inventory editor cards/week tiles to consume `/api/inventory.metadata.weekly_invoice_totals`. When workbook-provided invoice totals exist, the received spend card now shows `Invoice received` and the week tiles use the real W1/W2/W3 invoice totals instead of falling back to received quantity x unit price.

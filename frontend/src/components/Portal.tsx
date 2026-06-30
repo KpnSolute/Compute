@@ -35,16 +35,12 @@ import {
     loadLog,
     fetchInventory,
     invToList,
-    catTotals,
     reorders,
-    iTotal,
-    grandTotal,
     fmtMoney,
     fmtMoneyFull,
     catColor,
     getBackendToken,
 } from "../lib/supabase";
-import { itemTotals } from "../lib/inventoryFormulas";
 import { api } from "../lib/api";
 import { ComplianceHub } from "./ComplianceHub";
 import { DataEntry } from "./DataEntry";
@@ -86,6 +82,44 @@ const initials = (u: User) =>
     (u.username || "?").slice(0, 2).toUpperCase();
 
 const AUTO_REFRESH_MS = 60_000; // re-fetch from DB every 60 s
+
+function num(v: any): number {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+}
+
+function invoiceTotalFromMeta(metadata: any): number | null {
+    const totals = metadata?.weekly_invoice_totals;
+    if (!totals) return null;
+    const explicit = Number(totals.total);
+    if (Number.isFinite(explicit) && explicit > 0) return explicit;
+    const weeks = totals.weeks && typeof totals.weeks === "object" ? totals.weeks : {};
+    const value = Object.values(weeks).reduce((sum: number, wk: any) => sum + num(wk), 0);
+    return value > 0 ? value : null;
+}
+
+function moneyTotalsFromMeta(metadata: any) {
+    const invoiceReceived = invoiceTotalFromMeta(metadata);
+    return {
+        open: num(metadata?.opening_value),
+        recv: invoiceReceived ?? num(metadata?.received_value),
+        iss: num(metadata?.pulled_value),
+        close: num(metadata?.closing_value),
+    };
+}
+
+function categoryRowsFromMeta(metadata: any) {
+    const raw = metadata?.category_totals;
+    if (!raw || typeof raw !== "object") return [];
+    return Object.entries(raw)
+        .map(([name, value]) => ({
+            name,
+            color: catColor(name),
+            val: num(value),
+            count: 0,
+        }))
+        .sort((a, b) => b.val - a.val);
+}
 
 function useInventory(period: [number, number]): [any, () => Promise<void>] {
     const [state, setState] = useState({
@@ -651,6 +685,7 @@ function Dashboard({
 }) {
     const lvl = ROLE_LEVEL[user.role];
     const live = invState.inv;
+    const invMeta = invState.metadata || {};
     const todayISO = new Date().toISOString().slice(0, 10);
 
     const [menuData, setMenuData] = useState<any>({});
@@ -712,11 +747,13 @@ function Dashboard({
         catRows: any[] = [],
         itemCount = 0;
     if (live) {
-        gt = grandTotal(live);
-        reorderList = reorders(live);
-        const ct = catTotals(live);
+        const metaTotals = moneyTotalsFromMeta(invMeta);
+        gt = metaTotals.close;
+        reorderList = Array.from({ length: Math.max(0, Math.round(num(invMeta.reorder_count))) });
+        if (!reorderList.length) reorderList = reorders(live);
+        const ct = categoryRowsFromMeta(invMeta);
         const maxCat = ct.length ? ct[0].val : 1;
-        itemCount = invToList(live).length;
+        itemCount = Math.round(num(invMeta.item_count)) || invToList(live).length;
         catRows = ct.slice(0, 7).map((c: any) => ({
             name: c.name,
             color: c.color,
@@ -725,32 +762,7 @@ function Dashboard({
         }));
     }
 
-    const monRows = invToList(live || {}).map((it: any) => {
-        const t = itemTotals(it);
-        return {
-            price: it.price || 0,
-            opening: it.onHand || 0,
-            received: t.received,
-            issued: t.pulled,
-            closing: typeof it.closingQty === "number" ? it.closingQty : undefined,
-            openingValue: it.openingValue,
-            receivedValue: it.receivedValue,
-            pulledValue: it.pulledValue,
-            endingValue: it.endingValue ?? it.value,
-        };
-    });
-    const miSum = monRows.reduce(
-        (a: any, r: any) => {
-            a.open += typeof r.openingValue === "number" ? r.openingValue : r.opening * r.price;
-            a.recv += typeof r.receivedValue === "number" ? r.receivedValue : r.received * r.price;
-            a.iss  += typeof r.pulledValue === "number" ? r.pulledValue : r.issued * r.price;
-            a.close += typeof r.endingValue === "number"
-                ? r.endingValue
-                : (typeof r.closing === "number" ? r.closing : Math.max(0, r.opening + r.received - r.issued)) * r.price;
-            return a;
-        },
-        { open: 0, recv: 0, iss: 0, close: 0 },
-    );
+    const miSum = moneyTotalsFromMeta(invMeta);
 
     const menuMeals = [
         "Breakfast",
@@ -1438,7 +1450,7 @@ function InventoryView({
             receivedValue: it.receivedValue,
             pulledValue: it.pulledValue,
             endingValue: it.endingValue,
-            value: typeof it.value === "number" ? it.value : iTotal(it),
+            value: typeof it.value === "number" ? it.value : (typeof it.endingValue === "number" ? it.endingValue : 0),
             sku_pending: it.sku_pending ?? String(it.sku || "").startsWith("MJC-"),
             needs_attention: it.needs_attention ?? it.sku_pending ?? String(it.sku || "").startsWith("MJC-"),
             status:
@@ -4177,46 +4189,8 @@ function ArchivesView(_props: { period: [number, number] }) {
             if (!alive) return;
             const arch = (data || []).map((s: any) => {
                 const items = s.items || [];
-                const totalReceived = (i: any) =>
-                    typeof i.totalReceived === "number"
-                        ? i.totalReceived
-                        : (i.w1r || 0) + (i.w2r || 0) + (i.w3r || 0);
-                const totalPulled = (i: any) =>
-                    typeof i.totalPulled === "number"
-                        ? i.totalPulled
-                        : (i.w1p || 0) + (i.w2p || 0) + (i.w3p || 0);
-                const endingQty = (i: any) =>
-                    typeof i.closingQty === "number"
-                        ? i.closingQty
-                        : Math.max(0, (i.onHand || 0) + totalReceived(i) - totalPulled(i));
-                const low = items.filter((i: any) => endingQty(i) < (i.par || 0));
-                const startingBalance = items.reduce(
-                    (sum: number, i: any) =>
-                        sum + (typeof i.openingValue === "number" ? i.openingValue : (i.onHand || 0) * (i.price || 0)),
-                    0,
-                );
-                const totalReceivedValue = items.reduce(
-                    (sum: number, i: any) =>
-                        sum + (typeof i.receivedValue === "number" ? i.receivedValue : totalReceived(i) * (i.price || 0)),
-                    0,
-                );
-                const totalPulledValue = items.reduce(
-                    (sum: number, i: any) =>
-                        sum + (typeof i.pulledValue === "number" ? i.pulledValue : totalPulled(i) * (i.price || 0)),
-                    0,
-                );
-                const endingBalance = items.reduce(
-                    (sum: number, i: any) =>
-                        sum + (
-                            typeof i.endingValue === "number"
-                                ? i.endingValue
-                                : typeof i.value === "number"
-                                  ? i.value
-                                  : endingQty(i) * (i.price || 0)
-                        ),
-                    0,
-                );
                 const meta = s.metadata || {};
+                const totals = moneyTotalsFromMeta(meta);
                 const dt = s.created_at ? new Date(s.created_at) : new Date();
                 // Label by the snapshot's ACTUAL period (month/year), not its
                 // save date — created_at clusters on the bulk-write date, which
@@ -4232,13 +4206,13 @@ function ArchivesView(_props: { period: [number, number] }) {
                 return {
                     period: s.id || dt.toISOString().slice(0, 7),
                     label,
-                    value: endingBalance,
-                    startingBalance,
-                    totalReceived: totalReceivedValue,
-                    totalPulled: totalPulledValue,
-                    endingBalance,
-                    items: items.length,
-                    low: low.length,
+                    value: totals.close,
+                    startingBalance: totals.open,
+                    totalReceived: totals.recv,
+                    totalPulled: totals.iss,
+                    endingBalance: totals.close,
+                    items: Math.round(num(meta.item_count)) || items.length,
+                    low: Math.round(num(meta.reorder_count)),
                     status: "archived",
                 };
             });

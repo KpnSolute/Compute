@@ -257,6 +257,13 @@ async def get_inventory(
         received_value = sum(item.receivedValue or 0 for item in items)
         pulled_value = sum(item.pulledValue or 0 for item in items)
         closing_value = sum(item.value or 0 for item in items)
+        category_totals: dict[str, float] = {}
+        for item in items:
+            category = item.category or "Uncategorized"
+            category_totals[category] = round(
+                category_totals.get(category, 0) + (item.value or 0),
+                2,
+            )
         weekly_invoice_totals = None
         try:
             snap = (
@@ -299,6 +306,12 @@ async def get_inventory(
                 "year": year,
                 "period": period_id,
                 "weeks_in_period": weeks_in_month(month, year),
+                "item_count": len(items),
+                "reorder_count": sum(
+                    1
+                    for item in items
+                    if (item.closingQty or 0) < (item.par or 0) and (item.par or 0) > 0
+                ),
                 "over_pulled_count": over_pulled_count,
                 "total_received": total_received,
                 "total_pulled": total_pulled,
@@ -306,6 +319,7 @@ async def get_inventory(
                 "received_value": received_value,
                 "pulled_value": pulled_value,
                 "closing_value": closing_value,
+                "category_totals": category_totals,
                 "weekly_invoice_totals": weekly_invoice_totals,
             },
             notes="",
@@ -650,6 +664,17 @@ async def get_inventory_history(
             m = db_m + 1  # 1-indexed for display
             period_id = f"{y}-{m:02d}"
             created_at = _serialize_dt(result.data[0].get("created_at"))
+            opening_value = sum(item.openingValue or 0 for item in items)
+            received_value = sum(item.receivedValue or 0 for item in items)
+            pulled_value = sum(item.pulledValue or 0 for item in items)
+            closing_value = sum(item.value or 0 for item in items)
+            category_totals: dict[str, float] = {}
+            for item in items:
+                category = item.category or "Uncategorized"
+                category_totals[category] = round(
+                    category_totals.get(category, 0) + (item.value or 0),
+                    2,
+                )
 
             snapshots.append(
                 InventoryResponse(
@@ -660,6 +685,17 @@ async def get_inventory_history(
                         "year": y,
                         "period": period_id,
                         "weeks_in_period": weeks_in_month(m, y),
+                        "item_count": len(items),
+                        "reorder_count": sum(
+                            1
+                            for item in items
+                            if (item.closingQty or 0) < (item.par or 0) and (item.par or 0) > 0
+                        ),
+                        "opening_value": opening_value,
+                        "received_value": received_value,
+                        "pulled_value": pulled_value,
+                        "closing_value": closing_value,
+                        "category_totals": category_totals,
                     },
                     notes="",
                     created_at=created_at or "",

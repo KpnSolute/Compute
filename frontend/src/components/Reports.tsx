@@ -54,7 +54,7 @@ const itemCat = (it: any) => String(it.category || it.cat || it.category_name ||
 const itemUnit = (it: any) => String(it.unit || it.uom || it.unit_of_measure || '-');
 const itemPar = (it: any) => num(it.par ?? it.par_level ?? it.parLevel);
 const itemPrice = (it: any) => num(it.price ?? it.unit_price);
-const itemOpeningValue = (it: any) => num(it.openingValue ?? it.opening_value ?? ((it.onHand || 0) * itemPrice(it)));
+const itemOpeningValue = (it: any) => num(it.openingValue ?? it.opening_value);
 const itemReceivedValue = (it: any) => num(it.receivedValue ?? it.received_value);
 const itemPulledValue = (it: any) => num(it.pulledValue ?? it.pulled_value);
 const itemEndingValue = (it: any) => num(it.endingValue ?? it.ending_value ?? it.value);
@@ -73,6 +73,16 @@ function weeklyInvoiceSchedule(metadata: any) {
     weeks: normalized,
     total: num(totals.total) || normalized.reduce((sum, row) => sum + row.value, 0),
     source: totals.source || 'monthly_snapshots',
+  };
+}
+
+function metadataMoneyTotals(metadata: any) {
+  const invoiceSchedule = weeklyInvoiceSchedule(metadata);
+  return {
+    opening: num(metadata?.opening_value),
+    received: invoiceSchedule?.total ?? num(metadata?.received_value),
+    pulled: num(metadata?.pulled_value),
+    closing: num(metadata?.closing_value),
   };
 }
 
@@ -218,7 +228,7 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
       totalRcv: totals.received,
       totalIss: totals.pulled,
       closing: totals.ending,
-      value: itemEndingValue(it) || totals.ending * price,
+      value: itemEndingValue(it),
     };
   });
 
@@ -235,9 +245,9 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
     totalIss: totalIss(it),
     closing: closingQty(it),
     openingValue: itemOpeningValue(it),
-    receivedValue: itemReceivedValue(it) || totalRcv(it) * itemPrice(it),
-    pulledValue: itemPulledValue(it) || totalIss(it) * itemPrice(it),
-    value: itemEndingValue(it) || closingQty(it) * itemPrice(it),
+    receivedValue: itemReceivedValue(it),
+    pulledValue: itemPulledValue(it),
+    value: itemEndingValue(it),
   }));
 
   return [
@@ -254,7 +264,7 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
         { key: 'price', label: 'Unit Price', get: (r: any) => '$' + (r.price || 0).toFixed(2) },
         { key: 'onHand', label: 'On Hand' },
         { key: 'par', label: 'Par' },
-        { key: 'value', label: 'Value', get: (r: any) => fmtMoney(itemEndingValue(r) || closingQty(r) * itemPrice(r)) },
+        { key: 'value', label: 'Value', get: (r: any) => fmtMoney(itemEndingValue(r)) },
       ],
       build: () => inventoryRows,
     },
@@ -283,16 +293,13 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
         { key: 'value', label: 'Ending Value', get: (r: any) => fmtMoney(r.value || 0) },
       ],
       build: () => moninvRows,
-      summary: (rows: any[]) => {
-        const startBal  = rows.reduce((s, r) => s + (r.openingValue ?? (r.opening || 0) * itemPrice(r)), 0);
-        const rcvBal    = rows.reduce((s, r) => s + (r.receivedValue ?? (r.totalRcv || 0) * itemPrice(r)), 0);
-        const pullBal   = rows.reduce((s, r) => s + (r.pulledValue ?? (r.totalIss || 0) * itemPrice(r)), 0);
-        const endBal    = rows.reduce((s, r) => s + (itemEndingValue(r) || (r.closing || 0) * itemPrice(r)), 0);
+      summary: (_rows: any[]) => {
+        const metaTotals = metadataMoneyTotals(inventoryMeta);
         const summary = [
-          { label: 'Starting Balance', value: fmtMoney(startBal) },
-          { label: 'Total Received',   value: fmtMoney(rcvBal) },
-          { label: 'Total Pulled',     value: fmtMoney(pullBal) },
-          { label: 'Ending Balance',   value: fmtMoney(endBal) },
+          { label: 'Starting Balance', value: fmtMoney(metaTotals.opening) },
+          { label: invoiceSchedule ? 'Invoice Received' : 'Total Received', value: fmtMoney(metaTotals.received) },
+          { label: 'Total Pulled',     value: fmtMoney(metaTotals.pulled) },
+          { label: 'Ending Balance',   value: fmtMoney(metaTotals.closing) },
         ];
         if (invoiceSchedule) {
           invoiceSchedule.weeks.forEach((week) => {
@@ -571,15 +578,9 @@ export function Reports({
       if (r.totalIss != null || r.totalPulled != null) return s + num(r.totalIss ?? r.totalPulled);
       return s + num(r.w1p) + num(r.w2p) + num(r.w3p);
     }, 0);
-    const endingValue = rows.reduce((s: number, r: any) => {
-      const closing = r.closing ?? r.closingQty ?? r.onHand ?? r.on_hand ?? 0;
-      return s + (itemEndingValue(r) || num(closing) * itemPrice(r));
-    }, 0);
-    const reorderNeeded = rows.filter((r: any) => {
-      const par = itemPar(r);
-      const closing = num(r.closing ?? r.closingQty ?? r.onHand ?? r.on_hand);
-      return par > 0 && closing <= par;
-    }).length;
+    const metaTotals = metadataMoneyTotals(inventoryMeta);
+    const endingValue = metaTotals.closing;
+    const reorderNeeded = num(inventoryMeta?.reorder_count);
     return [
       { label: 'Items', value: rows.length.toLocaleString(), icon: I.box },
       { label: 'Categories', value: new Set(rows.map((r: any) => itemCat(r))).size.toLocaleString(), icon: I.archive },
@@ -588,7 +589,7 @@ export function Reports({
       { label: 'Ending Value', value: fmtMoney(endingValue), icon: I.dollar, tone: 'accent' },
       { label: 'Reorder Needed', value: reorderNeeded.toLocaleString(), icon: I.alert, tone: reorderNeeded > 0 ? 'danger' : 'muted' },
     ];
-  }, [rows]);
+  }, [rows, inventoryMeta]);
 
   const groups = canSeeAllReports ? ['Inventory', 'Compliance', 'Programs'] : ['Inventory'];
   const fileName = (rep: any) => {
