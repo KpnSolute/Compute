@@ -185,6 +185,23 @@ def _data_entry_period_settings() -> dict:
     return defaults
 
 
+def _validate_week(week: int, month: int, year: int) -> None:
+    """Reject weeks the merge path can't accept.
+
+    ponytail: schema reserves w4_* columns but dispatch_inventory_week only
+    accepts 1-3 (see staging/dispatch.py, routes/inventory.py, ai/tools.py) —
+    match that here instead of accepting a week the merge path will reject
+    anyway. Raise to 4 when full W4 support lands across
+    parser/staging/dispatch/UI.
+    """
+    valid_weeks = 3
+    if week and (week < 1 or week > valid_weeks):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{calendar.month_name[month]} {year} has weeks W1-W{valid_weeks}; W{week} is not valid.",
+        )
+
+
 def _validate_period(month: int, year: int, settings: dict) -> None:
     floor_year = int(settings.get("floor_year", 2026))
     floor_month = int(settings.get("floor_month", 4))
@@ -1086,12 +1103,7 @@ async def upload_file(
             status_code=422,
             detail="Direction 'both' is only available for full-month uploads. Choose Received or Pulled / Issued for weekly uploads.",
         )
-    valid_weeks = 4
-    if week and (week < 1 or week > valid_weeks):
-        raise HTTPException(
-            status_code=422,
-            detail=f"{calendar.month_name[month]} {year} has weeks W1-W{valid_weeks}; W{week} is not valid.",
-        )
+    _validate_week(week, month, year)
     if await request.is_disconnected():
         log.warning("[DATA-ENTRY] Client disconnected before file read")
         raise HTTPException(status_code=499, detail="Client disconnected")

@@ -171,16 +171,29 @@ def _save_weekly_invoice_totals(
 def _rollover_opening_balances(
     sup, db_month: int, year: int, explicit_on_hand_item_ids: set[str] | None = None
 ) -> int:
-    """Carry previous-month closing balances into a newly detected next month.
+    """Carry previous-month closing balances into a genuinely empty next month.
 
-    If the target period already has inventory rows, only update rows that are
-    already present. Do not create missing prior-month SKUs during convenience
-    rollover, because a workbook-defined month may intentionally omit/rename an
-    old SKU.
+    Convenience rollover only fires for month CREATION. Once the target period
+    has any monthly_inventory rows at all, it returns immediately — it must
+    never overwrite an established month's opening balances (e.g. a manager
+    correction setting opening_oh=0), even for rows it didn't touch yet.
     """
     explicit_on_hand_item_ids = explicit_on_hand_item_ids or set()
     prev_db_month = db_month - 1 if db_month > 0 else 11
     prev_year = year if db_month > 0 else year - 1
+
+    any_current_rows = bool(
+        (
+            sup.table("monthly_inventory")
+            .select("item_id")
+            .eq("month", db_month)
+            .eq("year", year)
+            .limit(1)
+            .execute()
+        ).data
+    )
+    if any_current_rows:
+        return 0
 
     prev_r = (
         sup.table("monthly_inventory")
@@ -196,36 +209,10 @@ def _rollover_opening_balances(
     if not prev_r.data:
         return 0
 
-    prev_ids = [r["item_id"] for r in prev_r.data]
-    any_current_rows = bool(
-        (
-            sup.table("monthly_inventory")
-            .select("item_id")
-            .eq("month", db_month)
-            .eq("year", year)
-            .limit(1)
-            .execute()
-        ).data
-    )
-
-    # Existing current rows with nonzero openings are preserved. Full-month sheets
-    # that explicitly sent Opening OH are also preserved, even when the value is 0.
-    curr_r = (
-        sup.table("monthly_inventory")
-        .select("item_id,opening_oh")
-        .in_("item_id", prev_ids)
-        .eq("month", db_month)
-        .eq("year", year)
-        .execute()
-    )
-    curr_map = {r["item_id"]: r.get("opening_oh") or 0 for r in curr_r.data or []}
-
     updated = 0
     for prev in prev_r.data:
         iid = prev["item_id"]
-        if any_current_rows and iid not in curr_map:
-            continue
-        if iid in explicit_on_hand_item_ids or curr_map.get(iid, 0) != 0:
+        if iid in explicit_on_hand_item_ids:
             continue
         # Ending = opening + received - pulled, via the canonical template formula
         # (total_pulled_raw now lands in w3_pulled, so no week-0 ledger lookup).
@@ -489,6 +476,24 @@ def dispatch_inventory_save(payload: dict) -> dict:
                     }
                 )
 
+    # Reject the WHOLE batch before any monthly_inventory/ledger write if any item
+    # could not be resolved. A merged commit batches many staging entries into one
+    # call (see sourcectrl._apply_entries), so writing the resolvable rows here
+    # while reporting an error left live data ahead of the aborted commit/staging
+    # state — partial writes with no matching audit record.
+    if dropped:
+        return {
+            "applied": 0,
+            "dropped": dropped,
+            "month": month,
+            "year": year,
+            "notes": notes,
+            "error": (
+                f"{dropped} item(s) unresolved (unknown SKU); batch rejected before "
+                "any write. Nothing was applied."
+            ),
+        }
+
     # Batched, atomic write. Rows are grouped by their exact column signature so a
     # batched upsert never introduces NULLs for columns a row omitted (which would
     # wipe existing weekly data). Each group is a single statement -> one snapshot
@@ -535,13 +540,6 @@ def dispatch_inventory_save(payload: dict) -> dict:
         "year": year,
         "notes": notes,
     }
-    # Do not let a lossy save be recorded as a clean merge. If any item was
-    # dropped (unresolvable SKU), surface it as an error so _apply_entries leaves
-    # the staging entry pending for review instead of marking it merged.
-    if dropped:
-        result["error"] = (
-            f"{dropped} item(s) dropped (unresolved SKU); {count} applied. Entry left pending for review."
-        )
     # Auto-rollover: carry previous month closing balances forward as opening on_hand
     try:
         overwrite_scope = payload.get("overwrite_scope") or {}
@@ -819,6 +817,22 @@ def dispatch_inventory_week(payload: dict) -> dict:
         affected_items.add(item_id)
         count += 1
 
+    # Reject the whole batch before any ledger write if any item was unresolved —
+    # same partial-write hazard as dispatch_inventory_save (see comment there).
+    if dropped:
+        return {
+            "applied": 0,
+            "dropped": dropped,
+            "month": month,
+            "year": year,
+            "week": week,
+            "direction": direction,
+            "error": (
+                f"{dropped} item(s) unresolved (unknown SKU); batch rejected before "
+                "any write. Nothing was applied."
+            ),
+        }
+
     # Idempotent append: clear any prior ledger rows from this exact staging entry
     # (a retried commit), then insert. The unique index on staging_entry_id is the
     # backstop. Then recompute the derived weekly columns from the full ledger so
@@ -844,10 +858,6 @@ def dispatch_inventory_week(payload: dict) -> dict:
         "direction": direction,
         "ledger": True,
     }
-    if dropped:
-        result["error"] = (
-            f"{dropped} item(s) dropped (unresolved SKU); {count} applied. Entry left pending for review."
-        )
     try:
         rolled = _rollover_opening_balances(sup, db_month, year)
         if rolled:

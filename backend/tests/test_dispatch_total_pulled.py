@@ -504,6 +504,146 @@ def test_dashboard_save_does_not_reinsert_missing_prior_skus_when_month_exists()
     assert "rolled_over" not in result
 
 
+def test_established_month_save_does_not_overwrite_other_items_zero_opening():
+    """Once a target month has ANY rows, convenience rollover must not run at
+    all — not even for a different item with a real prior-month closing
+    balance. An unrelated save (here, for DRY-001) must not silently restore
+    DRY-002's opening_oh from last month's closing.
+    """
+    from backend.staging.dispatch import dispatch_inventory_save
+
+    other_item_id = "item-other"
+    sup = FakeSup(
+        items=[
+            {
+                "id": ITEM_ID,
+                "sku": "DRY-001",
+                "description": "Rice",
+                "category_id": DRY_CAT_ID,
+            },
+            {
+                "id": other_item_id,
+                "sku": "DRY-002",
+                "description": "Beans",
+                "category_id": DRY_CAT_ID,
+            },
+        ]
+    )
+    sup.table("monthly_inventory")._rows.extend(
+        [
+            # Prior month: DRY-002 has a real closing balance.
+            {
+                "item_id": other_item_id,
+                "month": 4,
+                "year": 2026,
+                "opening_oh": 10,
+                "w1_received": 0,
+                "w2_received": 0,
+                "w3_received": 0,
+                "w1_pulled": 0,
+                "w2_pulled": 0,
+                "w3_pulled": 0,
+                "unit_price": 2.0,
+            },
+            # Target month already established; a manager corrected DRY-002's
+            # opening to 0 there.
+            {
+                "item_id": other_item_id,
+                "month": 5,
+                "year": 2026,
+                "opening_oh": 0,
+                "w1_received": 0,
+                "w2_received": 0,
+                "w3_received": 0,
+                "w1_pulled": 0,
+                "w2_pulled": 0,
+                "w3_pulled": 0,
+                "unit_price": 2.0,
+            },
+        ]
+    )
+    payload = {
+        "month": 6,
+        "year": 2026,
+        "items": [
+            {
+                "sku": "DRY-001",
+                "desc": "Rice",
+                "category": "Dry Goods",
+                "onHand": 50,
+                "price": 1.5,
+            }
+        ],
+    }
+
+    with patch("backend.staging.dispatch._client", return_value=sup):
+        result = dispatch_inventory_save(payload)
+
+    assert result["applied"] == 1, result
+    assert "rolled_over" not in result
+    other_rows = [
+        row
+        for row in sup.table("monthly_inventory")._rows
+        if row["item_id"] == other_item_id and row["month"] == 5
+    ]
+    assert len(other_rows) == 1, other_rows
+    assert other_rows[0]["opening_oh"] == 0, other_rows
+
+
+def test_inventory_save_unresolved_sku_blocks_whole_batch_before_write():
+    """A batch with one valid SKU and one unresolved SKU must write ZERO
+    monthly_inventory rows — not write the resolvable rows and only then
+    report an error (which left live data ahead of an aborted commit).
+    """
+    from backend.staging import dispatch as dispatch_mod
+
+    sup = FakeSup()
+    payload = {
+        "month": 5,
+        "year": 2026,
+        "items": [
+            {
+                "sku": "DRY-001",
+                "desc": "Rice",
+                "category": "Dry Goods",
+                "onHand": 10,
+                "price": 1.5,
+            },
+            {
+                "sku": "UNRESOLVED-001",
+                "desc": "Mystery Item",
+                "category": "Dry Goods",
+                "onHand": 5,
+                "price": 2.0,
+            },
+        ],
+    }
+
+    real_resolve = dispatch_mod.resolve_and_write_item
+
+    def _fake_resolve(sup_arg, *, sku, **kwargs):
+        if sku == "UNRESOLVED-001":
+            return None, sku, False
+        return real_resolve(sup_arg, sku=sku, **kwargs)
+
+    with (
+        patch("backend.staging.dispatch._client", return_value=sup),
+        patch(
+            "backend.staging.dispatch.resolve_and_write_item",
+            side_effect=_fake_resolve,
+        ),
+    ):
+        result = dispatch_mod.dispatch_inventory_save(payload)
+
+    assert result["applied"] == 0, result
+    assert result.get("dropped") == 1, result
+    assert "error" in result
+    assert sup.table("monthly_inventory")._rows == [], (
+        "no monthly_inventory rows should be written when any SKU is unresolved"
+    )
+    assert sup.txns == []
+
+
 def test_weekly_cells_write_week_1_to_3_ledger_rows():
     """Full-month weekly cells create matching week 1-3 ledger rows."""
     from backend.staging.dispatch import dispatch_inventory_save
