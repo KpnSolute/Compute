@@ -3,11 +3,14 @@ Deterministic column mapper + AI fallback extractor.
 Maps parsed file rows → dispatch payload shapes.
 """
 
+import logging
 import re
 import hashlib
 from typing import Any
 from backend.ai import engine, context
 from backend.inventory_identity import canonical_sku
+
+log = logging.getLogger("mjcc.mapper")
 
 # ── fuzzy column key normaliser ───────────────────────────────────────────────
 
@@ -309,6 +312,25 @@ def map_rows_to_inventory(
 
     if not items:
         return None
+
+    # dispatch_inventory_save dedups by (item_id, month, year) and keeps the LAST
+    # row for a repeated SKU, silently dropping earlier rows' quantities/prices.
+    # Surface that in the logs so a manager support request ("why is my count
+    # off") is traceable instead of invisible.
+    seen_skus: dict[str, int] = {}
+    dupes: set[str] = set()
+    for item in items:
+        sku = item["sku"]
+        seen_skus[sku] = seen_skus.get(sku, 0) + 1
+        if seen_skus[sku] > 1:
+            dupes.add(sku)
+    if dupes:
+        log.warning(
+            "[MAPPER] %d duplicate SKU(s) in one upload — last row wins, earlier "
+            "row(s) dropped: %s",
+            len(dupes),
+            sorted(dupes),
+        )
 
     return {"month": month, "year": year, "notes": notes, "items": items}
 
