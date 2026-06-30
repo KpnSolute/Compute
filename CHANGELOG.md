@@ -19,7 +19,7 @@ This is the **central development memory and discussion board** for development 
 **Finding 5 - Print is plain HTML, not a template renderer:** The print path builds a new HTML document with inline styles and the active report columns. It does not render from `Monthly Inventory Template.xlsx`, and it does not share a single typed report render model with CSV. If the requirement is "looks like the Excel monthly report," the correct next fix is to make one monthly report presentation model and use it for preview, print, and export; for true Excel fidelity, add an XLSX/template export path instead of treating CSV/HTML print as the workbook.
 
 **Recommended Fix:** Create one canonical monthly inventory report model for preview, print, and export. Use `exportBuild` + `templateColumns` for Inventory Snapshot preview/print when monthly Review sections are present; add typed Review cells or column format metadata (`money`, `number`, `text`) so UI/print formats dollars while CSV can keep raw numeric values; surface `weekly_invoice_totals.notes` or a friendly source label instead of `review_weekly_invoice_totals`; stack Review sections in print in workbook order; then verify with `npm run lint -- --quiet`, `npx tsc --noEmit`, and `npm run build`.
-**Push:** Codex -> 389a90c - 2026-06-30 15:30 EDT.
+**Push:** Codex -> ff75793 - 2026-06-30 15:30 EDT.
 
 ---
 
