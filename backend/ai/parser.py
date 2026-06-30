@@ -1,5 +1,6 @@
 """File parser — converts uploaded files to structured rows, plain text, or invoice items."""
 
+import ast
 import csv
 import io
 import re
@@ -328,7 +329,175 @@ def _norm_header(value: Any) -> str:
     return re.sub(r"[^a-z0-9]", "", str(value or "").strip().lower())
 
 
-def _parse_review_value_rows(wb) -> dict[str, dict[str, Any]]:
+def _safe_arithmetic(expr: str) -> float | None:
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError:
+        return None
+
+    def _eval(node):
+        if isinstance(node, ast.Expression):
+            return _eval(node.body)
+        if isinstance(node, ast.Constant) and isinstance(node.value, int | float):
+            return float(node.value)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            value = _eval(node.operand)
+            return value if isinstance(node.op, ast.UAdd) else -value
+        if isinstance(node, ast.BinOp) and isinstance(
+            node.op, (ast.Add, ast.Sub, ast.Mult, ast.Div)
+        ):
+            left = _eval(node.left)
+            right = _eval(node.right)
+            if isinstance(node.op, ast.Add):
+                return left + right
+            if isinstance(node.op, ast.Sub):
+                return left - right
+            if isinstance(node.op, ast.Mult):
+                return left * right
+            if right == 0:
+                return None
+            return left / right
+        raise ValueError("unsupported formula")
+
+    try:
+        return _eval(tree)
+    except Exception:
+        return None
+
+
+def _formula_value(
+    wb,
+    formula_wb,
+    formula: Any,
+    current_sheet: str | None = None,
+    depth: int = 0,
+    cache: dict[tuple[str, int, int], Any] | None = None,
+) -> Any:
+    if not isinstance(formula, str) or not formula.startswith("=") or depth > 4:
+        return None
+    try:
+        from openpyxl.utils.cell import column_index_from_string
+    except ImportError:
+        return None
+
+    cache = cache if cache is not None else {}
+
+    def _resolve_ref(token: str) -> Any:
+        if "!" in token:
+            sheet_part, cell_ref = token.split("!", 1)
+            sheet = sheet_part.strip("'")
+        else:
+            sheet = current_sheet
+            cell_ref = token
+        if not sheet or sheet not in wb.sheetnames:
+            return 0
+        cell_match = re.fullmatch(r"\$?(?P<col>[A-Z]+)\$?(?P<row>\d+)", cell_ref, re.I)
+        if not cell_match:
+            return 0
+        row = int(cell_match.group("row"))
+        col = column_index_from_string(cell_match.group("col").upper())
+        cache_key = (sheet, row, col)
+        if cache_key in cache:
+            return cache[cache_key]
+        value = wb[sheet].cell(row=row, column=col).value
+        formula = (
+            formula_wb[sheet].cell(row=row, column=col).value
+            if formula_wb is not None and sheet in formula_wb.sheetnames
+            else None
+        )
+        if isinstance(formula, str) and formula.startswith("="):
+            value = _formula_value(
+                wb,
+                formula_wb,
+                formula,
+                sheet,
+                depth + 1,
+                cache,
+            )
+        value = value if value is not None else 0
+        cache[cache_key] = value
+        return value
+
+    expression = formula.strip()[1:].replace("$", "")
+    direct_ref = re.fullmatch(
+        r"(?:'[^']+'|[A-Z][A-Z0-9 _]*)![A-Z]+\d+|[A-Z]+\d+",
+        expression,
+        flags=re.IGNORECASE,
+    )
+    if direct_ref:
+        return _resolve_ref(expression)
+
+    def _range_values(token: str) -> list[Any]:
+        if ":" not in token:
+            return [_resolve_ref(token)]
+        start_ref, end_ref = token.split(":", 1)
+        sheet_prefix = ""
+        if "!" in start_ref and "!" not in end_ref:
+            sheet_prefix, start_ref = start_ref.split("!", 1)
+            sheet_prefix += "!"
+        start_match = re.fullmatch(r"([A-Z]+)(\d+)", start_ref, re.I)
+        end_match = re.fullmatch(r"([A-Z]+)(\d+)", end_ref, re.I)
+        if not start_match or not end_match:
+            return []
+        if start_match.group(1).upper() != end_match.group(1).upper():
+            return []
+        col = start_match.group(1).upper()
+        sheet_name = sheet_prefix[:-1] if sheet_prefix else current_sheet
+        if sheet_name and sheet_name.startswith("'") and sheet_name.endswith("'"):
+            sheet_name = sheet_name[1:-1]
+        start_row = int(start_match.group(2))
+        end_row = int(end_match.group(2))
+        values = []
+        for row_idx in range(min(start_row, end_row), max(start_row, end_row) + 1):
+            token_ref = f"{sheet_prefix}{col}{row_idx}"
+            if sheet_name and formula_wb is not None and sheet_name in formula_wb.sheetnames:
+                col_idx = column_index_from_string(col)
+                formula = formula_wb[sheet_name].cell(row=row_idx, column=col_idx).value
+                if isinstance(formula, str) and formula.startswith("="):
+                    values.append(_formula_value(wb, formula_wb, formula, sheet_name, cache={}))
+                    continue
+            values.append(_resolve_ref(token_ref))
+        return values
+
+    countif_match = re.fullmatch(
+        r'COUNTIF\((?P<range>[^,]+),(?P<criteria>"[^"]+"|[^)]+)\)',
+        expression,
+        flags=re.IGNORECASE,
+    )
+    if countif_match:
+        criteria = countif_match.group("criteria").strip().strip('"')
+        values = _range_values(countif_match.group("range").strip())
+        if criteria == "TEMP*":
+            return sum(1 for value in values if str(value or "").startswith("TEMP"))
+        if criteria == "<>TEMP*":
+            return sum(1 for value in values if not str(value or "").startswith("TEMP"))
+        if criteria == "<0":
+            return sum(1 for value in values if fi.num(value) < 0)
+        return 0
+
+    sum_match = re.fullmatch(r"SUM\((?P<args>[^)]+)\)", expression, flags=re.IGNORECASE)
+    if sum_match:
+        total = 0.0
+        for token in sum_match.group("args").split(","):
+            token = token.strip()
+            if ":" in token:
+                total += sum(fi.num(value) for value in _range_values(token))
+                continue
+            value = _resolve_ref(token) if re.search(r"[A-Z]", token, re.I) else _num(token)
+            total += fi.num(value)
+        return total
+    if not re.fullmatch(r"[A-Z0-9_ '!+\-*/().]+", expression, flags=re.IGNORECASE):
+        return None
+
+    ref_re = re.compile(
+        r"(?:'[^']+'|[A-Z][A-Z0-9 _]*)![A-Z]+\d+|[A-Z]+\d+",
+        flags=re.IGNORECASE,
+    )
+    numeric_expr = ref_re.sub(lambda m: str(fi.num(_resolve_ref(m.group(0)))), expression)
+    return _safe_arithmetic(numeric_expr)
+
+
+def _parse_review_value_rows(wb, formula_wb=None) -> dict[str, dict[str, Any]]:
     """Extract audited financial values from the workbook Review sheet.
 
     The flat Inventory sheet has quantities and a current unit price. The Review
@@ -341,7 +510,11 @@ def _parse_review_value_rows(wb) -> dict[str, dict[str, Any]]:
     for ws in wb.worksheets:
         if "review" not in str(ws.title or "").lower():
             continue
+        formula_cache: dict[tuple[str, int, int], Any] = {}
         rows = list(ws.iter_rows(values_only=True))
+        formula_rows = []
+        if formula_wb is not None and ws.title in formula_wb.sheetnames:
+            formula_rows = list(formula_wb[ws.title].iter_rows(values_only=True))
         header_idx: int | None = None
         col_map: dict[int, str] = {}
         for r_idx, row in enumerate(rows):
@@ -363,13 +536,23 @@ def _parse_review_value_rows(wb) -> dict[str, dict[str, Any]]:
                 break
         if header_idx is None:
             continue
-        for row in rows[header_idx + 1 :]:
+        for offset, row in enumerate(rows[header_idx + 1 :], start=header_idx + 1):
             if all(v is None for v in row):
                 continue
+            formula_row = formula_rows[offset] if offset < len(formula_rows) else ()
             rec: dict[str, Any] = {}
             for c_idx, canonical in col_map.items():
                 if c_idx < len(row):
-                    rec[canonical] = row[c_idx]
+                    value = row[c_idx]
+                    if value is None and formula_wb is not None and c_idx < len(formula_row):
+                        value = _formula_value(
+                            wb,
+                            formula_wb,
+                            formula_row[c_idx],
+                            ws.title,
+                            cache=formula_cache,
+                        )
+                    rec[canonical] = value
             sku = _inventory_sku(rec.get("sku"))
             desc = str(rec.get("desc") or "").strip()
             if not sku or not desc or "total" in desc.lower():
@@ -437,8 +620,9 @@ def _parse_mjcc_flat_inventory(content: bytes) -> list[dict[str, Any]]:
     except ImportError:
         return []
 
-    wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
-    review_values = _parse_review_value_rows(wb)
+    wb = openpyxl.load_workbook(io.BytesIO(content), read_only=False, data_only=True)
+    formula_wb = openpyxl.load_workbook(io.BytesIO(content), read_only=False, data_only=False)
+    review_values = _parse_review_value_rows(wb, formula_wb)
     for ws in wb.worksheets:
         rows = list(ws.iter_rows(values_only=True))
         if not rows:
@@ -631,26 +815,32 @@ def _review_controls(content: bytes) -> dict[str, float] | None:
     except ImportError:
         return None
     try:
-        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=False, data_only=True)
+        formula_wb = openpyxl.load_workbook(io.BytesIO(content), read_only=False, data_only=False)
     except Exception:
         return None
     for ws in wb.worksheets:
         if "review" not in str(ws.title or "").lower():
             continue
+        formula_ws = formula_wb[ws.title] if ws.title in formula_wb.sheetnames else None
         controls: dict[str, float] = {}
-        for row in ws.iter_rows(values_only=True):
+        for row_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
             if not row:
                 continue
             label = _norm_header(row[0])
             metric = _REVIEW_CONTROL_LABELS.get(label)
             if not metric or metric in controls:
                 continue
-            # verified total is the first numeric cell to the right of the label
-            for cell in row[1:]:
+            # Quantity Control verified total is column B.
+            cell = row[1] if len(row) > 1 else None
+            formula = formula_ws.cell(row=row_idx, column=2).value if formula_ws is not None else None
+            val = None
+            if isinstance(formula, str) and formula.startswith("="):
+                val = _num(_formula_value(wb, formula_wb, formula, ws.title))
+            if val is None:
                 val = _num(cell)
-                if val is not None:
-                    controls[metric] = val
-                    break
+            if val is not None:
+                controls[metric] = val
         if controls:
             return controls
     return None
@@ -663,25 +853,89 @@ def _review_financial_controls(content: bytes) -> dict[str, float] | None:
     except ImportError:
         return None
     try:
-        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=False, data_only=True)
+        formula_wb = openpyxl.load_workbook(io.BytesIO(content), read_only=False, data_only=False)
     except Exception:
         return None
     for ws in wb.worksheets:
         if "review" not in str(ws.title or "").lower():
             continue
+        formula_ws = formula_wb[ws.title] if ws.title in formula_wb.sheetnames else None
         controls: dict[str, float] = {}
-        for row in ws.iter_rows(values_only=True):
+        for row_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
             for idx, cell in enumerate(row):
                 metric = _REVIEW_FINANCIAL_LABELS.get(_norm_header(cell))
                 if not metric or metric in controls:
                     continue
-                for value in row[idx + 1 :]:
+                value_idx = idx + 1
+                value = row[value_idx] if value_idx < len(row) else None
+                formula = (
+                    formula_ws.cell(row=row_idx, column=value_idx + 1).value
+                    if formula_ws is not None
+                    else None
+                )
+                val = None
+                if isinstance(formula, str) and formula.startswith("="):
+                    val = _num(_formula_value(wb, formula_wb, formula, ws.title))
+                if val is None:
                     val = _num(value)
-                    if val is not None:
-                        controls[metric] = val
-                        break
+                if val is not None:
+                    controls[metric] = val
         if controls:
             return controls
+    return None
+
+
+def _review_weekly_invoice_totals(content: bytes) -> dict[str, Any] | None:
+    """Read manager-entered weekly invoice totals from the Review tab.
+
+    These are authoritative invoice product values. They are intentionally not
+    derived from inventory quantities because invoices include real vendor
+    product totals that can differ from quantity * catalog/unit price math.
+    """
+    try:
+        import openpyxl
+    except ImportError:
+        return None
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    except Exception:
+        return None
+
+    week_label_re = re.compile(r"^week([1-5])invoicetotal$")
+    for ws in wb.worksheets:
+        if "review" not in str(ws.title or "").lower():
+            continue
+        weeks: dict[str, float] = {}
+        notes: dict[str, str] = {}
+        for row in ws.iter_rows(values_only=True):
+            if not row:
+                continue
+            match = week_label_re.match(_norm_header(row[0]))
+            if not match:
+                continue
+            week = match.group(1)
+            value = None
+            for cell in row[1:6]:
+                value = _num(cell)
+                if value is not None:
+                    break
+            if value is None:
+                continue
+            weeks[week] = round(float(value), 2)
+            for cell in row[2:]:
+                note = str(cell or "").strip()
+                if note and _num(note) is None:
+                    notes[week] = note
+                    break
+        if weeks:
+            total = round(sum(weeks.values()), 2)
+            return {
+                "source": "review_weekly_invoice_totals",
+                "weeks": weeks,
+                "total": total,
+                "notes": notes,
+            }
     return None
 
 
@@ -863,6 +1117,9 @@ def extract_workbook_reconciliation(content: bytes) -> dict[str, Any] | None:
     }
     if financial is not None:
         result["financial"] = financial
+    weekly_invoice_totals = _review_weekly_invoice_totals(content)
+    if weekly_invoice_totals is not None:
+        result["weekly_invoice_totals"] = weekly_invoice_totals
     return result
 
 

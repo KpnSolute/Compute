@@ -32,6 +32,7 @@ _BEFORE_ALIAS = {
 _OP_ENTITY = {
     "inventory_save": "inventory",
     "inventory_week_update": "inventory",
+    "monthly_invoice_totals_update": "inventory",
     "item_update": "inventory",
     "item_delete": "inventory",
     "item_create": "inventory",
@@ -1151,7 +1152,11 @@ async def submit_staging(
             )
         caller_role = (auth_user.get("role") or "").lower()
         if (
-            body.operation in ("inventory_save", "inventory_week_update")
+            body.operation in (
+                "inventory_save",
+                "inventory_week_update",
+                "monthly_invoice_totals_update",
+            )
             and body.full_payload
         ):
             fp = body.full_payload or {}
@@ -1176,7 +1181,11 @@ async def submit_staging(
                     )
         if caller_role not in ("admin", "manager", "sudo"):
             if (
-                body.operation in ("inventory_save", "inventory_week_update")
+                body.operation in (
+                    "inventory_save",
+                    "inventory_week_update",
+                    "monthly_invoice_totals_update",
+                )
                 and body.full_payload
             ):
                 fp = body.full_payload or {}

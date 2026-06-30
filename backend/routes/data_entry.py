@@ -1271,6 +1271,16 @@ async def upload_file(
                     fname,
                     wb_recon.get("mismatches", []),
                 )
+            weekly_invoice_totals = wb_recon.get("weekly_invoice_totals")
+            if weekly_invoice_totals:
+                for op in ops:
+                    if op.get("operation") in (
+                        "inventory_save",
+                        "inventory_week_update",
+                    ):
+                        op.setdefault("payload", {})[
+                            "weekly_invoice_totals"
+                        ] = weekly_invoice_totals
 
         try:
             item_count_r = (

@@ -334,6 +334,37 @@ export const api = {
     });
   },
 
+  async stageMonthlyInvoiceTotals(body: {
+    month: number;
+    year: number;
+    weeks: Record<string, number>;
+    notes?: Record<string, string>;
+  }): Promise<any> {
+    const total = Object.values(body.weeks).reduce((sum, value) => sum + Number(value || 0), 0);
+    return req('/api/staging', {
+      method: 'POST',
+      body: JSON.stringify({
+        entity_type: 'inventory',
+        entity_id: `invoice-totals/${body.year}/${body.month}`,
+        field_name: 'monthly_invoice_totals',
+        change_type: 'update',
+        operation: 'monthly_invoice_totals_update',
+        summary: `Invoice totals ${body.month}/${body.year}`,
+        new_value: `$${total.toFixed(2)}`,
+        full_payload: {
+          month: body.month,
+          year: body.year,
+          weekly_invoice_totals: {
+            source: 'manager_entered',
+            weeks: body.weeks,
+            total,
+            notes: body.notes || {},
+          },
+        },
+      }),
+    });
+  },
+
   async updateInventoryItem(sku: string, body: { par?: number; unit?: string }): Promise<any> {
     return req(`/api/inventory/items/${encodeURIComponent(sku)}`, {
       method: 'PATCH',

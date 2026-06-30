@@ -501,6 +501,30 @@ def test_june_review_financial_controls_are_preserved():
     assert round(sum(r.get("ending_value") or 0 for r in rows), 2) == 9505.58
 
 
+@pytest.mark.skipif(not _MAY_PATH.exists(), reason="May workbook not present")
+def test_may_weekly_invoice_totals_are_read_from_review_tab():
+    from backend.ai.parser import extract_workbook_reconciliation
+
+    recon = extract_workbook_reconciliation(_MAY_PATH.read_bytes())
+    assert recon is not None
+    totals = recon["weekly_invoice_totals"]
+    assert totals["weeks"] == {"1": 21846.93, "2": 5512.92, "3": 2259.87}
+    assert totals["total"] == 29619.72
+    assert "US Foods Inv #2312098" in totals["notes"]["1"]
+
+
+@pytest.mark.skipif(not _JUNE_PATH.exists(), reason="June workbook not present")
+def test_june_weekly_invoice_totals_are_read_from_review_tab():
+    from backend.ai.parser import extract_workbook_reconciliation
+
+    recon = extract_workbook_reconciliation(_JUNE_PATH.read_bytes())
+    assert recon is not None
+    totals = recon["weekly_invoice_totals"]
+    assert totals["weeks"] == {"1": 19735.19, "2": 6647.03, "3": 2097.05}
+    assert totals["total"] == 28479.27
+    assert "US Foods Inv #578613" in totals["notes"]["1"]
+
+
 @pytest.mark.skipif(not _JUNE_PATH.exists(), reason="June workbook not present")
 def test_june_signed_inventory_flow_values_are_preserved():
     from backend.ai.parser import parse_excel

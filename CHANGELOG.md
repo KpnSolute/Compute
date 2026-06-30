@@ -4,6 +4,29 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.11] - 2026-06-30 - Authoritative weekly invoice totals from workbooks
+
+**Codex:** Updated the workbook parser to read the new Review-tab `WEEKLY INVOICE TOTALS (PRODUCT VALUE, EXCL. TAX)` block from May/June standardized spreadsheets, including W1-W3 product totals and source notes. Tightened Review formula parsing so blank/stale Excel caches no longer break audited financial controls: the parser now resolves direct cell references, `SUM`, `COUNTIF`, simple arithmetic, and Review detail formulas needed by the current workbooks.
+
+**Codex:** Threaded parsed weekly invoice totals through Data Entry staging into `inventory_save`, added a source-control-safe `monthly_invoice_totals_update` dispatcher for live manager edits, and exposed `metadata.weekly_invoice_totals` from `/api/inventory`. Reports now show Invoice W1/W2/W3 and Invoice Total only when the API has authoritative monthly invoice totals.
+
+**Database:** Added and applied Supabase migration `authoritative_weekly_invoice_totals`. `refresh_monthly_snapshot(month, year)` no longer invents `wk*_total` from received quantity x unit price; it preserves manager-entered totals stored at `monthly_snapshots.data.weekly_invoice_totals` and mirrors those values into `wk1_total..wk5_total`.
+
+**Verification:** `python -m pytest backend\tests\test_parser_standard.py -q` passed (28 passed). `python -m pytest backend\tests -q` passed (41 passed / 1 skipped). Targeted Ruff passed on changed backend files. `npm run lint` passed with the existing warning backlog (0 errors / 598 warnings). `npx tsc --noEmit` passed. `npm run build` passed with existing dynamic-import and large-chunk warnings. `git diff --check` passed with Windows LF-to-CRLF notices only. `python -c "import backend.main"` could not run on system Python because FastAPI is not installed locally and no `.venv` exists.
+**Push:** pending - not yet pushed.
+
+---
+
+## [v4.26.10] - 2026-06-30 - Report period/export consistency pass
+
+**Codex:** Tightened the frontend reports and pull sheet flow. Reports now initialize from the selected portal period, reload when that selected period changes, surface production inventory API load failures with a retry action, normalize inventory snapshot rows through the same derived totals used by the monthly roll-up, and name CSV exports with the selected `YYYY-MM` period. Monthly report CSV summaries now use proper CSV escaping, and print rendering escapes report data and uses a denser landscape grid so inventory print/PDF output reads more like a spreadsheet.
+
+**Codex:** Adjusted PullSheet staging events so staging a weekly pull opens Source Control and refreshes staging badges without broadcasting `mjcc:committed` before the staged pull is actually merged.
+
+**Verification:** `npm run lint` passed with the existing warning backlog (0 errors / 594 warnings). `npx tsc --noEmit` passed. `npm run build` passed with existing dynamic-import and large-chunk warnings.
+**Push:** pending - not yet pushed.
+
+---
 ## [v4.26.9] — 2026-06-30 — Manager pull sheet UI route + source-control staging
 
 **Codex:** Implemented the frontend path for the manager weekly pull sheet. Added Pull Sheet as a manager-only route/quick action, kept the Inventory shortcut manager-only, and wired the page to the selected inventory period through the production-backed API client. PullSheet now displays existing W1-W3 pulled quantities from live inventory, uses derived closing availability, stages richer item context, and marks the staged issued week as a Source Control overwrite/replacement scope so merge applies the sheet as the weekly source of truth instead of appending duplicate pulls.

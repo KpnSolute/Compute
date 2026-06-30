@@ -296,8 +296,8 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
       setQtys({});
       setShowConfirm(false);
       t(`Pull sheet staged - ${stagedItems.length} item${stagedItems.length !== 1 ? 's' : ''}, ${fmt(totalValue)} total.`);
-      window.dispatchEvent(new CustomEvent('mjcc:committed'));
       window.dispatchEvent(new CustomEvent('mjcc:staging-changed'));
+      window.dispatchEvent(new CustomEvent('mjcc:open-sc'));
       onStagingDone?.();
     } catch (e: any) {
       t(`Stage failed: ${e?.message || 'Unknown error'}`);

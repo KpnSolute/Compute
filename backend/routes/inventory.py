@@ -257,6 +257,39 @@ async def get_inventory(
         received_value = sum(item.receivedValue or 0 for item in items)
         pulled_value = sum(item.pulledValue or 0 for item in items)
         closing_value = sum(item.value or 0 for item in items)
+        weekly_invoice_totals = None
+        try:
+            snap = (
+                supabase_service.table("monthly_snapshots")
+                .select("wk1_total,wk2_total,wk3_total,wk4_total,wk5_total,data")
+                .eq("month", db_month)
+                .eq("year", year)
+                .limit(1)
+                .execute()
+            )
+            snap_row = (snap.data or [None])[0]
+            if snap_row:
+                snap_data = snap_row.get("data") or {}
+                weekly_invoice_totals = (
+                    snap_data.get("weekly_invoice_totals")
+                    if isinstance(snap_data, dict)
+                    else None
+                )
+                if not weekly_invoice_totals:
+                    weeks = {
+                        str(idx): _to_float(snap_row.get(f"wk{idx}_total"))
+                        for idx in range(1, 6)
+                        if snap_row.get(f"wk{idx}_total") is not None
+                    }
+                    if weeks:
+                        weekly_invoice_totals = {
+                            "source": "monthly_snapshots",
+                            "weeks": weeks,
+                            "total": round(sum(weeks.values()), 2),
+                            "notes": {},
+                        }
+        except Exception:
+            weekly_invoice_totals = None
 
         return InventoryResponse(
             id=period_id,
@@ -273,6 +306,7 @@ async def get_inventory(
                 "received_value": received_value,
                 "pulled_value": pulled_value,
                 "closing_value": closing_value,
+                "weekly_invoice_totals": weekly_invoice_totals,
             },
             notes="",
             created_at=created_at or datetime.now(timezone.utc).isoformat(),

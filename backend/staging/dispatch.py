@@ -78,6 +78,98 @@ def _validate_inventory_item_numbers(
                     _non_negative(item.get(field), field, sku)
 
 
+def _weekly_invoice_amount(raw: dict, week: int):
+    for key in (
+        str(week),
+        f"week_{week}",
+        f"week{week}",
+        f"w{week}",
+        f"wk{week}",
+        f"wk{week}_total",
+    ):
+        if key in raw:
+            return _non_negative(raw.get(key), f"week_{week}_invoice_total")
+    return None
+
+
+def _normalize_weekly_invoice_totals(raw: dict | None) -> dict | None:
+    if not isinstance(raw, dict):
+        return None
+    source_weeks = raw.get("weeks") if isinstance(raw.get("weeks"), dict) else raw
+    weeks: dict[str, float] = {}
+    for week in range(1, 6):
+        amount = _weekly_invoice_amount(source_weeks, week)
+        if amount is not None:
+            weeks[str(week)] = round(float(amount), 2)
+    if not weeks:
+        return None
+
+    raw_notes = raw.get("notes") if isinstance(raw.get("notes"), dict) else {}
+    notes = {
+        str(k): str(v).strip()
+        for k, v in raw_notes.items()
+        if str(v or "").strip()
+    }
+    return {
+        "source": raw.get("source") or "manager_entered",
+        "weeks": weeks,
+        "total": round(sum(weeks.values()), 2),
+        "notes": notes,
+    }
+
+
+def _save_weekly_invoice_totals(
+    sup,
+    db_month: int,
+    year: int,
+    raw_totals: dict | None,
+    *,
+    source_file: str | None = None,
+    source_hash: str | None = None,
+    updated_by: str | None = None,
+) -> dict | None:
+    totals = _normalize_weekly_invoice_totals(raw_totals)
+    if not totals:
+        return None
+
+    existing = (
+        sup.table("monthly_snapshots")
+        .select("data")
+        .eq("month", db_month)
+        .eq("year", year)
+        .limit(1)
+        .execute()
+    )
+    existing_data = ((existing.data or [{}])[0] or {}).get("data") or {}
+    if not isinstance(existing_data, dict):
+        existing_data = {}
+
+    totals = {
+        **totals,
+        "source_file": source_file,
+        "source_hash": source_hash,
+        "updated_by": updated_by,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    data = {**existing_data, "weekly_invoice_totals": totals}
+    fields = {
+        "month": db_month,
+        "year": year,
+        "data": data,
+        "wk1_total": totals["weeks"].get("1"),
+        "wk2_total": totals["weeks"].get("2"),
+        "wk3_total": totals["weeks"].get("3"),
+        "wk4_total": totals["weeks"].get("4"),
+        "wk5_total": totals["weeks"].get("5"),
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+    }
+    sup.table("monthly_snapshots").upsert(
+        fields,
+        on_conflict="month,year",
+    ).execute()
+    return totals
+
+
 def _rollover_opening_balances(
     sup, db_month: int, year: int, explicit_on_hand_item_ids: set[str] | None = None
 ) -> int:
@@ -446,7 +538,55 @@ def dispatch_inventory_save(payload: dict) -> dict:
                 result["rolled_over"] = rolled
     except Exception as exc:
         log.warning("[dispatch] rollover failed (non-blocking): %s", exc)
+    try:
+        saved_invoice_totals = _save_weekly_invoice_totals(
+            sup,
+            db_month,
+            year,
+            payload.get("weekly_invoice_totals"),
+            source_file=source_file,
+            source_hash=source_hash,
+            updated_by=created_by,
+        )
+        if saved_invoice_totals:
+            result["weekly_invoice_totals"] = saved_invoice_totals
+    except Exception as exc:
+        result["error"] = f"Weekly invoice totals could not be saved: {exc}"
     return result
+
+
+def dispatch_monthly_invoice_totals_update(payload: dict) -> dict:
+    month = payload.get("month")
+    year = payload.get("year")
+    if month is None or year is None:
+        return {"applied": 0, "error": "month and year are required"}
+    db_month = max(0, int(month) - 1)
+    sup = _client()
+    if _is_month_published(sup, db_month, int(year)):
+        return {
+            "applied": 0,
+            "error": f"Period {month}/{year} is published and cannot be modified",
+        }
+    try:
+        saved = _save_weekly_invoice_totals(
+            sup,
+            db_month,
+            int(year),
+            payload.get("weekly_invoice_totals") or payload,
+            source_file=payload.get("source_file"),
+            source_hash=payload.get("source_hash"),
+            updated_by=payload.get("_author_id") or payload.get("updated_by"),
+        )
+    except ValueError as exc:
+        return {"applied": 0, "error": str(exc)}
+    if not saved:
+        return {"applied": 0, "error": "No weekly invoice totals supplied"}
+    return {
+        "applied": 1,
+        "month": int(month),
+        "year": int(year),
+        "weekly_invoice_totals": saved,
+    }
 
 
 def dispatch_item_update(payload: dict) -> dict:
@@ -942,6 +1082,7 @@ def dispatch_item_create(payload: dict) -> dict:
 REGISTRY = {
     "inventory_save": dispatch_inventory_save,
     "inventory_week_update": dispatch_inventory_week,
+    "monthly_invoice_totals_update": dispatch_monthly_invoice_totals_update,
     "item_create": dispatch_item_create,
     "item_update": dispatch_item_update,
     "item_delete": dispatch_item_delete,
@@ -990,6 +1131,11 @@ def validate_payload(operation: str, full_payload: dict) -> str | None:
             _validate_inventory_item_numbers(
                 full_payload.get("items", []), ("qty", "onHand", "price")
             )
+        elif operation == "monthly_invoice_totals_update":
+            if not _normalize_weekly_invoice_totals(
+                full_payload.get("weekly_invoice_totals") or full_payload
+            ):
+                return "No weekly invoice totals supplied"
     except ValueError as exc:
         return str(exc)
     return None

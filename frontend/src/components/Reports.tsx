@@ -17,6 +17,15 @@ function toCSV(columns: { label: string; key?: string; get?: (r: any) => any }[]
   return head + '\n' + body;
 }
 
+function htmlEscape(v: any) {
+  return String(v ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function downloadCSV(filename: string, text: string) {
   try {
     const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
@@ -51,6 +60,21 @@ const itemPulledValue = (it: any) => num(it.pulledValue ?? it.pulled_value);
 const itemEndingValue = (it: any) => num(it.endingValue ?? it.ending_value ?? it.value);
 const fmtMoney = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const paidMealLogTypes = new Set(MEAL_LOG_TYPES.filter((type) => type.paid).map((type) => type.key));
+
+function weeklyInvoiceSchedule(metadata: any) {
+  const totals = metadata?.weekly_invoice_totals;
+  const weeks = totals?.weeks && typeof totals.weeks === 'object' ? totals.weeks : null;
+  if (!weeks) return null;
+  const normalized = [1, 2, 3, 4, 5]
+    .map((week) => ({ week, value: num(weeks[String(week)] ?? weeks[week]) }))
+    .filter((row) => row.value > 0);
+  if (!normalized.length) return null;
+  return {
+    weeks: normalized,
+    total: num(totals.total) || normalized.reduce((sum, row) => sum + row.value, 0),
+    source: totals.source || 'monthly_snapshots',
+  };
+}
 
 function parseLogData(log: any) {
   if (!log?.data) return {};
@@ -165,8 +189,9 @@ function ReportPeriodSelect({
   );
 }
 
-function buildReports(period: [number, number], invItems: any[], events: any[], commits: any[], mealLogs: any[]) {
+function buildReports(period: [number, number], invItems: any[], events: any[], commits: any[], mealLogs: any[], inventoryMeta: any) {
   const periodLbl = MONTHS[period[0]] + ' ' + period[1];
+  const invoiceSchedule = weeklyInvoiceSchedule(inventoryMeta);
 
   // Sort by category then description — matches corporate report expectation
   const sorted = [...invItems].sort((a: any, b: any) =>
@@ -178,9 +203,29 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
   const totalIss = (it: any) => itemTotals(it).pulled;
   const closingQty = (it: any) => itemTotals(it).ending;
 
+  const inventoryRows = sorted.map((it: any) => {
+    const totals = itemTotals(it);
+    const price = itemPrice(it);
+    return {
+      ...it,
+      category: itemCat(it),
+      sku: it.sku || it.id || '',
+      desc: itemDesc(it),
+      unit: itemUnit(it),
+      price,
+      par: itemPar(it),
+      onHand: totals.ending,
+      totalRcv: totals.received,
+      totalIss: totals.pulled,
+      closing: totals.ending,
+      value: itemEndingValue(it) || totals.ending * price,
+    };
+  });
+
   const moninvRows = sorted.map((it: any) => ({
     ...it,
     category: itemCat(it),
+    sku: it.sku || it.id || '',
     desc: itemDesc(it),
     unit: itemUnit(it),
     price: itemPrice(it),
@@ -211,7 +256,7 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
         { key: 'par', label: 'Par' },
         { key: 'value', label: 'Value', get: (r: any) => fmtMoney(itemEndingValue(r) || closingQty(r) * itemPrice(r)) },
       ],
-      build: () => sorted,
+      build: () => inventoryRows,
     },
     {
       id: 'moninv',
@@ -243,12 +288,19 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
         const rcvBal    = rows.reduce((s, r) => s + (r.receivedValue ?? (r.totalRcv || 0) * itemPrice(r)), 0);
         const pullBal   = rows.reduce((s, r) => s + (r.pulledValue ?? (r.totalIss || 0) * itemPrice(r)), 0);
         const endBal    = rows.reduce((s, r) => s + (itemEndingValue(r) || (r.closing || 0) * itemPrice(r)), 0);
-        return [
+        const summary = [
           { label: 'Starting Balance', value: fmtMoney(startBal) },
           { label: 'Total Received',   value: fmtMoney(rcvBal) },
           { label: 'Total Pulled',     value: fmtMoney(pullBal) },
           { label: 'Ending Balance',   value: fmtMoney(endBal) },
         ];
+        if (invoiceSchedule) {
+          invoiceSchedule.weeks.forEach((week) => {
+            summary.push({ label: `Invoice W${week.week}`, value: fmtMoney(week.value) });
+          });
+          summary.push({ label: 'Invoice Total', value: fmtMoney(invoiceSchedule.total) });
+        }
+        return summary;
       },
     },
     {
@@ -423,49 +475,55 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
 
 export function Reports({
   user,
-  period: _period,
+  period: selectedPeriod,
 }: {
   user: User;
   period: [number, number];
 }) {
-  // Default to previous month — reports typically cover the completed period
-  const _now = new Date();
-  const prevMonth0 = _now.getMonth() === 0 ? 11 : _now.getMonth() - 1; // 0-indexed
-  const prevYear = _now.getMonth() === 0 ? _now.getFullYear() - 1 : _now.getFullYear();
-  const [period, setPeriod] = useState<[number, number]>([prevMonth0, prevYear]);
+  const [period, setPeriod] = useState<[number, number]>(selectedPeriod);
 
   const [invItems, setInvItems] = useState<any[]>([]);
+  const [inventoryMeta, setInventoryMeta] = useState<any>({});
   const [events, setEvents] = useState<any[]>([]);
   const [commits, setCommits] = useState<any[]>([]);
   const [mealLogs, setMealLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
   const [liveTick, setLiveTick] = useState(0);
 
   const [tab, setTab] = useState('catalogue');
   const [sel, setSel] = useState('');
 
   useEffect(() => {
+    setPeriod(selectedPeriod);
+  }, [selectedPeriod]);
+
+  useEffect(() => {
     let alive = true;
     setLoading(true);
+    setLoadErr(null);
     async function load() {
       try {
         const [invData, evData, cmData, mealData] = await Promise.all([
-          api.getInventory(period[0] + 1, period[1]).catch(() => null),
+          api.getInventory(period[0] + 1, period[1]),
           api.getEvents().catch(() => []),
           api.getCommits().catch(() => []),
           api.getDailyLogs(500, 'meal_log').catch(() => []),
         ]);
         if (!alive) return;
         setInvItems(invData?.items || []);
+        setInventoryMeta(invData?.metadata || {});
         setEvents(evData);
         setCommits(cmData);
         setMealLogs(mealData);
       } catch {
         if (alive) {
           setInvItems([]);
+          setInventoryMeta({});
           setEvents([]);
           setCommits([]);
           setMealLogs([]);
+          setLoadErr('Report data could not be loaded from the production API.');
         }
       }
       if (alive) setLoading(false);
@@ -485,8 +543,8 @@ export function Reports({
   }, []);
 
   const reports = useMemo(
-    () => buildReports(period, invItems, events, commits, mealLogs),
-    [period, invItems, events, commits, mealLogs],
+    () => buildReports(period, invItems, events, commits, mealLogs, inventoryMeta),
+    [period, invItems, events, commits, mealLogs, inventoryMeta],
   );
   const canSeeAllReports = ROLE_LEVEL[user.role] >= 30;
   const availableReports = useMemo(
@@ -533,22 +591,30 @@ export function Reports({
   }, [rows]);
 
   const groups = canSeeAllReports ? ['Inventory', 'Compliance', 'Programs'] : ['Inventory'];
-  const fileName = (rep: any) =>
-    'MJCC_' + rep.id + '_' + new Date().toISOString().slice(0, 10) + '.csv';
+  const fileName = (rep: any) => {
+    const periodSlug = `${period[1]}-${String(period[0] + 1).padStart(2, '0')}`;
+    return `MJCC_${rep.id}_${periodSlug}_${new Date().toISOString().slice(0, 10)}.csv`;
+  };
 
   function downloadOne(rep: any) {
     const data = rep.build();
     let csv = toCSV(rep.columns, data);
     if (rep.summary) {
       const summary = rep.summary(data);
-      csv += '\n\n' + summary.map((s: { label: string; value: string }) => `${s.label},${s.value}`).join('\n');
+      csv += '\n\n' + toCSV(
+        [
+          { label: 'Metric', key: 'label' },
+          { label: 'Value', key: 'value' },
+        ],
+        summary,
+      );
     }
     downloadCSV(fileName(rep), csv);
   }
   function printOne(rep: any) {
     const data = rep.build();
     const th = rep.columns
-      .map((c: any) => '<th>' + c.label + '</th>')
+      .map((c: any) => '<th>' + htmlEscape(c.label) + '</th>')
       .join('');
     const tr = data
       .map(
@@ -558,7 +624,7 @@ export function Reports({
             .map(
               (c: any) =>
                 '<td>' +
-                ((typeof c.get === 'function' ? c.get(r) : r[c.key]) ?? '') +
+                htmlEscape((typeof c.get === 'function' ? c.get(r) : r[c.key]) ?? '') +
                 '</td>',
             )
             .join('') +
@@ -574,8 +640,8 @@ export function Reports({
           '<tr>' +
           summary.map((s: { label: string; value: string }) =>
             '<td style="padding:6px 20px 6px 0;font-weight:700;color:#0E2148;white-space:nowrap">' +
-            s.label + '</td><td style="padding:6px 20px 6px 0;font-size:14px;font-weight:700">' +
-            s.value + '</td>'
+            htmlEscape(s.label) + '</td><td style="padding:6px 20px 6px 0;font-size:14px;font-weight:700">' +
+            htmlEscape(s.value) + '</td>'
           ).join('</tr><tr>') +
           '</tr></table></div>'
       : '';
@@ -584,15 +650,15 @@ export function Reports({
     if (!w) return;
     w.document.write(
       '<html><head><title>' +
-        rep.name +
-        '</title><style>body{font-family:Segoe UI,Arial,sans-serif;color:#1E293B;padding:28px}h1{font-size:18px;margin:0 0 2px}.sub{color:#64748B;font-size:12px;margin-bottom:16px}table{width:100%;border-collapse:collapse;font-size:11px}th{background:#0E2148;color:#fff;text-align:left;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.4px}td{padding:5px 8px;border-bottom:.5px solid #E2E8F0}tr:nth-child(even) td{background:#F8FAFC}</style></head><body><h1>' +
-        rep.name +
+        htmlEscape(rep.name) +
+        '</title><style>@page{size:landscape;margin:14mm}body{font-family:Segoe UI,Arial,sans-serif;color:#1E293B;padding:0}h1{font-size:18px;margin:0 0 2px}.sub{color:#64748B;font-size:12px;margin-bottom:16px}table{width:100%;border-collapse:collapse;font-size:10.5px}th{background:#0E2148;color:#fff;text-align:left;padding:6px 7px;font-size:9px;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap}td{padding:4px 7px;border:.5px solid #CBD5E1;vertical-align:top}td:nth-child(n+4){text-align:right;font-variant-numeric:tabular-nums}tr:nth-child(even) td{background:#F8FAFC}</style></head><body><h1>' +
+        htmlEscape(rep.name) +
         '</h1><div class="sub">Miami Job Corps Cafeteria · ' +
-        rep.period +
+        htmlEscape(rep.period) +
         ' · ' +
         data.length +
         ' records · generated ' +
-        new Date().toLocaleString() +
+        htmlEscape(new Date().toLocaleString()) +
         '</div><table><thead><tr>' +
         th +
         '</tr></thead><tbody>' +
@@ -658,6 +724,14 @@ export function Reports({
           )}
         </div>
       </div>
+
+      {loadErr && (
+        <div className="banner warn">
+          {I.alert()}
+          <span>{loadErr}</span>
+          <span className="bx" onClick={() => setLiveTick((tick) => tick + 1)}>Retry</span>
+        </div>
+      )}
 
       <div className="subtabs">
         <button
