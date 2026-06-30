@@ -4,6 +4,25 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.22] - 2026-06-30 - Report preview/print formatting investigation
+
+**Codex:** Investigated why the Inventory Snapshot report preview/print looks unlike the monthly workbook/template and exposes values such as `19735.19`, `review_weekly_invoice_totals`, and the wrong detail columns. Finding: this is a frontend report-rendering issue, not a live DB math issue. The June values shown in the screenshot line up with the corrected live June metadata and rows: 291 records, W1 `$19,735.19`, W2 `$8,912.33`, W3 `$2,097.05`, total received value `$30,744.57`.
+
+**Finding 1 - Preview/print do not use the same report model as CSV export:** `frontend/src/components/Reports.tsx::downloadOne` correctly uses `exportBuild` and `templateColumns` when a report has Review/template sections, so the CSV path is closer to `Monthly Inventory Template.xlsx`. But `printOne` still starts from `rep.build()` and `rep.columns`, then prints the regular Inventory Snapshot columns (`Unit Price`, `On Hand`, `Par`, `Value`). The on-screen preview does the same: `rows = active.build()` and the visible table maps `active.columns`. That is why the preview/print table underneath the Review blocks is the dashboard snapshot shape instead of the monthly report/template shape.
+
+**Finding 2 - Review section cells are raw data, not display-formatted data:** `buildMonthlyReviewSections` returns plain numbers for money cells via `csvValue(..., true)`, and the preview renderer only runs `fmtNumber` on numeric cells. `fmtNumber` adds commas but no currency symbol, while print output runs `htmlEscape(cell)` directly. That is why Review money appears as raw `19735.19` / `8912.33` instead of `$19,735.19` / `$8,912.33`.
+
+**Finding 3 - Source column is leaking an internal source key:** Weekly invoice rows in `buildMonthlyReviewSections` use `invoiceSchedule?.source || ''`. For June metadata that source is the internal key `review_weekly_invoice_totals`, so the report shows that implementation label instead of a manager-readable source note such as the workbook Review note / invoice description.
+
+**Finding 4 - The layout is report-builder shaped, not workbook shaped:** `.report-review-preview` forces a two-column grid and each Review table has `min-width:520px`; `printOne` repeats a two-column inline grid for print. The Review control table and Weekly Invoice table are both wide, so the print page looks like debug tables packed side-by-side instead of the stacked workbook-style Review, Category Summary, and Inventory sections.
+
+**Finding 5 - Print is plain HTML, not a template renderer:** The print path builds a new HTML document with inline styles and the active report columns. It does not render from `Monthly Inventory Template.xlsx`, and it does not share a single typed report render model with CSV. If the requirement is "looks like the Excel monthly report," the correct next fix is to make one monthly report presentation model and use it for preview, print, and export; for true Excel fidelity, add an XLSX/template export path instead of treating CSV/HTML print as the workbook.
+
+**Recommended Fix:** Create one canonical monthly inventory report model for preview, print, and export. Use `exportBuild` + `templateColumns` for Inventory Snapshot preview/print when monthly Review sections are present; add typed Review cells or column format metadata (`money`, `number`, `text`) so UI/print formats dollars while CSV can keep raw numeric values; surface `weekly_invoice_totals.notes` or a friendly source label instead of `review_weekly_invoice_totals`; stack Review sections in print in workbook order; then verify with `npm run lint -- --quiet`, `npx tsc --noEmit`, and `npm run build`.
+**Push:** Codex -> 389a90c - 2026-06-30 15:30 EDT.
+
+---
+
 ## [v4.26.21] - 2026-06-30 - Claude Opus backend production-readiness review
 
 **Claude Opus:** Completed an independent review-only production check of the backend/API inventory logic from a food-service manager month-end-close perspective. Verdict: **conditional, not yet safe for unattended manager month-end close**. Clean full-month workbook upload and June reconciliation are correct today, but normal editing after a month is loaded still has backend risks that can undermine trust in closed figures.
