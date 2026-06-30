@@ -4,6 +4,15 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.17] - 2026-06-30 - June workbook Week 2 beverage invoice attached
+
+**Codex:** Updated local workbook `C:\Users\ogdev\JobCorp\June 2026\June Published Inventory.xlsx` after checking the photo of Multi-Flow invoice `#883581` dated `06/15/2026`. The beverage item quantities were already present in `Inventory!Received Wk2`, so no item quantities were duplicated. Updated `Review!B15` from `$6,647.03` to `$8,912.33` by adding the Multi-Flow beverage product lines `$2,265.30`; the `$5.00` fuel surcharge remains excluded per the product-value invoice reporting rule. Updated `Review!G15` with the combined US Foods + Multi-Flow source note.
+
+**Verification:** Reopened the workbook and confirmed all 14 beverage SKUs have exactly one matching Week 2 received quantity, with 0 quantity mismatches. Parser now reads weekly invoice totals W1 `$19,735.19`, W2 `$8,912.33`, W3 `$2,097.05`, total `$30,744.57`, matching June workbook received value. Created local backup `C:\Users\ogdev\JobCorp\June 2026\June Published Inventory.before_multiflow_w2.xlsx`.
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.16] - 2026-06-30 - Monthly report CSV exports include Review totals
 
 **Codex:** Updated Reports so Inventory Snapshot and Monthly Inventory Roll-up exports follow the standardized `Monthly Inventory Template.xlsx` structure more closely. CSV downloads now include Review-style sections for quantity controls, financial controls, workbook weekly invoice totals, category summary, review detail, and the template-shaped Inventory table before the line-item data. The report preview and print output now show the Review totals before download/print so managers can verify the monthly controls first.
