@@ -416,6 +416,94 @@ def test_full_month_upload_does_not_auto_rollover_missing_prior_skus():
     assert "rolled_over" not in result
 
 
+def test_dashboard_save_does_not_reinsert_missing_prior_skus_when_month_exists():
+    """Dashboard saves must not resurrect prior-month SKUs omitted from the month.
+
+    This guards the June cranberry SKU case: May had an old SKU with ending stock,
+    while June intentionally used a different SKU. A later dashboard save should
+    not run convenience rollover as if June were still an empty month.
+    """
+    from backend.staging.dispatch import dispatch_inventory_save
+
+    stale_item_id = "item-stale"
+    sup = FakeSup(
+        items=[
+            {
+                "id": ITEM_ID,
+                "sku": "DRY-001",
+                "description": "Rice",
+                "category_id": DRY_CAT_ID,
+            },
+            {
+                "id": stale_item_id,
+                "sku": "OLD-001",
+                "description": "Old carried item",
+                "category_id": DRY_CAT_ID,
+            },
+        ]
+    )
+    sup.table("monthly_inventory")._rows.extend(
+        [
+            {
+                "item_id": stale_item_id,
+                "month": 4,
+                "year": 2026,
+                "opening_oh": 2,
+                "w1_received": 0,
+                "w2_received": 0,
+                "w3_received": 0,
+                "w1_pulled": 0,
+                "w2_pulled": 0,
+                "w3_pulled": 0,
+                "unit_price": 55.70,
+                "opening_value": 111.40,
+                "received_value": 0,
+                "pulled_value": 0,
+                "ending_value": 111.40,
+            },
+            {
+                "item_id": ITEM_ID,
+                "month": 5,
+                "year": 2026,
+                "opening_oh": 0,
+                "w1_received": 1,
+                "w2_received": 0,
+                "w3_received": 0,
+                "w1_pulled": 0,
+                "w2_pulled": 0,
+                "w3_pulled": 0,
+                "unit_price": 1.5,
+            },
+        ]
+    )
+    payload = {
+        "month": 6,
+        "year": 2026,
+        "items": [
+            {
+                "sku": "DRY-001",
+                "desc": "Rice",
+                "category": "Dry Goods",
+                "onHand": 0,
+                "price": 1.5,
+                "w1r": 1,
+            }
+        ],
+    }
+
+    with patch("backend.staging.dispatch._client", return_value=sup):
+        result = dispatch_inventory_save(payload)
+
+    assert result["applied"] == 1, result
+    june_rows = [
+        row
+        for row in sup.table("monthly_inventory")._rows
+        if row.get("month") == 5 and row.get("year") == 2026
+    ]
+    assert {row["item_id"] for row in june_rows} == {ITEM_ID}
+    assert "rolled_over" not in result
+
+
 def test_weekly_cells_write_week_1_to_3_ledger_rows():
     """Full-month weekly cells create matching week 1-3 ledger rows."""
     from backend.staging.dispatch import dispatch_inventory_save

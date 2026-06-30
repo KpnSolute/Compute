@@ -4,6 +4,19 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.20] - 2026-06-30 - June rollover stale-row guard and live repair
+
+**Codex:** Compared local `May Published Inventory.xlsx` and updated `June Published Inventory.xlsx` against live Supabase after the user reported monthly rollover sync was lost. Local May/Junes totals are correct: May ending `$9,575.02`; June opening `$9,575.02`, received `$30,744.57`, pulled `$30,814.01`, ending `$9,505.58`. Local rollover has 230 shared SKUs, with only one zero-value shared mismatch (`6358832` opening qty 1 vs May ending qty 0) plus the known cranberry SKU change from May `F00480038` to June `F00408038`.
+
+**Database:** Live June had drifted back to 292 rows and `$9,616.98` ending because stale May SKU `F00480038` was reinserted at `2026-06-30 13:58 UTC` by a dashboard `inventory_save` merge. Deleted the stale June `F00480038` row again and refreshed June; live June now matches the local workbook: 291 rows, opening qty 214, received qty 611, pulled qty 625, ending qty 200, opening value `$9,575.02`, received value `$30,744.57`, pulled value `$30,814.01`, ending value `$9,505.58`, and Week 2 invoice total `$8,912.33`.
+
+**Fix:** Hardened `_rollover_opening_balances` so convenience rollover will not create missing prior-month SKUs when the target month already has inventory rows. It can still roll an empty new month and still update existing current-month rows with missing/zero opening values, but it will not resurrect omitted/renamed SKUs after a workbook-defined month exists. Added a regression test for the dashboard-save stale-row case and updated the June parser test to expect the corrected Week 2 Multi-Flow invoice total.
+
+**Verification:** `python -m ruff check backend\staging\dispatch.py backend\tests\test_dispatch_total_pulled.py backend\tests\test_parser_standard.py` passed. `python -m pytest backend\tests -q` passed (42 passed / 1 skipped). `git diff --check` passed.
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.19] - 2026-06-30 - Verified June beverage invoice item-backed totals
 
 **Codex:** Verified the live June 2026 Multi-Flow beverage invoice total is backed by item-level `monthly_inventory` rows, not only snapshot metadata. Checked all 14 invoice SKUs against Week 2 received quantities and line values; every SKU matched the invoice quantity and product value with zero quantity/value delta.

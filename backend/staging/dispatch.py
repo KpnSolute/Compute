@@ -106,9 +106,7 @@ def _normalize_weekly_invoice_totals(raw: dict | None) -> dict | None:
 
     raw_notes = raw.get("notes") if isinstance(raw.get("notes"), dict) else {}
     notes = {
-        str(k): str(v).strip()
-        for k, v in raw_notes.items()
-        if str(v or "").strip()
+        str(k): str(v).strip() for k, v in raw_notes.items() if str(v or "").strip()
     }
     return {
         "source": raw.get("source") or "manager_entered",
@@ -173,7 +171,13 @@ def _save_weekly_invoice_totals(
 def _rollover_opening_balances(
     sup, db_month: int, year: int, explicit_on_hand_item_ids: set[str] | None = None
 ) -> int:
-    """Carry previous-month closing balances into a newly detected next month."""
+    """Carry previous-month closing balances into a newly detected next month.
+
+    If the target period already has inventory rows, only update rows that are
+    already present. Do not create missing prior-month SKUs during convenience
+    rollover, because a workbook-defined month may intentionally omit/rename an
+    old SKU.
+    """
     explicit_on_hand_item_ids = explicit_on_hand_item_ids or set()
     prev_db_month = db_month - 1 if db_month > 0 else 11
     prev_year = year if db_month > 0 else year - 1
@@ -193,6 +197,16 @@ def _rollover_opening_balances(
         return 0
 
     prev_ids = [r["item_id"] for r in prev_r.data]
+    any_current_rows = bool(
+        (
+            sup.table("monthly_inventory")
+            .select("item_id")
+            .eq("month", db_month)
+            .eq("year", year)
+            .limit(1)
+            .execute()
+        ).data
+    )
 
     # Existing current rows with nonzero openings are preserved. Full-month sheets
     # that explicitly sent Opening OH are also preserved, even when the value is 0.
@@ -209,6 +223,8 @@ def _rollover_opening_balances(
     updated = 0
     for prev in prev_r.data:
         iid = prev["item_id"]
+        if any_current_rows and iid not in curr_map:
+            continue
         if iid in explicit_on_hand_item_ids or curr_map.get(iid, 0) != 0:
             continue
         # Ending = opening + received - pulled, via the canonical template formula

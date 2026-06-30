@@ -520,9 +520,10 @@ def test_june_weekly_invoice_totals_are_read_from_review_tab():
     recon = extract_workbook_reconciliation(_JUNE_PATH.read_bytes())
     assert recon is not None
     totals = recon["weekly_invoice_totals"]
-    assert totals["weeks"] == {"1": 19735.19, "2": 6647.03, "3": 2097.05}
-    assert totals["total"] == 28479.27
+    assert totals["weeks"] == {"1": 19735.19, "2": 8912.33, "3": 2097.05}
+    assert totals["total"] == 30744.57
     assert "US Foods Inv #578613" in totals["notes"]["1"]
+    assert "Multi-Flow Inv #883581" in totals["notes"]["2"]
 
 
 @pytest.mark.skipif(not _JUNE_PATH.exists(), reason="June workbook not present")
