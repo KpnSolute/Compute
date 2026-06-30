@@ -6,7 +6,25 @@ import { itemTotals } from '../lib/inventoryFormulas';
 import { TemplatesPanel } from './Templates';
 
 type ReportColumn = { label: string; key?: string; get?: (r: any) => any };
-type ReviewSection = { title: string; columns: string[]; rows: any[][] };
+type ReviewCellType = 'text' | 'number' | 'money';
+type ReviewSection = { title: string; columns: string[]; columnTypes: ReviewCellType[]; rows: any[][] };
+
+// Internal metadata keys the backend stores for weekly_invoice_totals.source —
+// a manager should never see the raw key, only a readable label.
+const SOURCE_LABELS: Record<string, string> = {
+  review_weekly_invoice_totals: 'Workbook Review tab',
+  manager_entered: 'Manager entered',
+  monthly_snapshots: 'Monthly snapshot (legacy)',
+};
+function friendlySourceLabel(source: string | undefined | null): string {
+  if (!source) return '';
+  return SOURCE_LABELS[source] || source;
+}
+function reviewCell(value: any, type: ReviewCellType): string {
+  if (type === 'money') return fmtMoney(num(value));
+  if (type === 'number') return typeof value === 'number' ? fmtNumber(value) : String(value ?? '');
+  return String(value ?? '');
+}
 
 function csvEscape(v: any) {
   v = v == null ? '' : String(v);
@@ -78,10 +96,12 @@ function weeklyInvoiceSchedule(metadata: any) {
     .map((week) => ({ week, value: num(weeks[String(week)] ?? weeks[week]) }))
     .filter((row) => row.value > 0);
   if (!normalized.length) return null;
+  const notes = totals.notes && typeof totals.notes === 'object' ? totals.notes : {};
   return {
     weeks: normalized,
     total: num(totals.total) || normalized.reduce((sum, row) => sum + row.value, 0),
     source: totals.source || 'monthly_snapshots',
+    noteFor: (week: number) => String(notes[String(week)] ?? notes[week] ?? '').trim(),
   };
 }
 
@@ -151,10 +171,14 @@ function buildMonthlyReviewSections(periodLabel: string, rows: any[], metadata: 
     csvValue(categoryRows.reduce((s, r) => s + num(r[9]), 0), true),
   ];
 
+  const weekSource = (week: number) =>
+    invoiceSchedule?.noteFor(week) || friendlySourceLabel(invoiceSchedule?.source);
+
   return [
     {
       title: `${periodLabel} Inventory Review`,
       columns: ['Quantity Control', 'Verified Total', '', 'Financial Control', 'Verified Amount'],
+      columnTypes: ['text', 'number', 'text', 'text', 'money'],
       rows: [
         ['Inventory Items', rows.length, '', 'Opening Inventory Value', csvValue(metaTotals.opening, true)],
         ['Invoice SKUs', rows.length - tempItems, '', 'Product Receipt Value', csvValue(num(metadata?.received_value), true)],
@@ -169,10 +193,11 @@ function buildMonthlyReviewSections(periodLabel: string, rows: any[], metadata: 
     {
       title: 'Weekly Invoice Totals (Product Value, Excl. Tax)',
       columns: ['Metric', 'Verified Amount', 'Source'],
+      columnTypes: ['text', 'money', 'text'],
       rows: [
-        ['Week 1 Invoice Total', csvValue(invoiceSchedule?.weeks.find((w) => w.week === 1)?.value ?? 0, true), invoiceSchedule?.source || ''],
-        ['Week 2 Invoice Total', csvValue(invoiceSchedule?.weeks.find((w) => w.week === 2)?.value ?? 0, true), invoiceSchedule?.source || ''],
-        ['Week 3 Invoice Total', csvValue(invoiceSchedule?.weeks.find((w) => w.week === 3)?.value ?? 0, true), invoiceSchedule?.source || ''],
+        ['Week 1 Invoice Total', csvValue(invoiceSchedule?.weeks.find((w) => w.week === 1)?.value ?? 0, true), weekSource(1)],
+        ['Week 2 Invoice Total', csvValue(invoiceSchedule?.weeks.find((w) => w.week === 2)?.value ?? 0, true), weekSource(2)],
+        ['Week 3 Invoice Total', csvValue(invoiceSchedule?.weeks.find((w) => w.week === 3)?.value ?? 0, true), weekSource(3)],
         ['Total Invoice Value (Wk1+Wk2+Wk3)', csvValue(invoiceTotal, true), ''],
         ['Variance vs. Catalog-Priced Receipt Value', csvValue(num(metadata?.received_value) - invoiceTotal, true), 'Product Receipt Value minus invoice total'],
       ],
@@ -180,11 +205,13 @@ function buildMonthlyReviewSections(periodLabel: string, rows: any[], metadata: 
     {
       title: 'Category Summary',
       columns: ['Category', 'Items', 'Opening OH', 'Received', 'Pulled', 'Ending OH', 'Opening Value', 'Received Value', 'Inventory Flow Value', 'Ending Value'],
+      columnTypes: ['text', 'number', 'number', 'number', 'number', 'number', 'money', 'money', 'money', 'money'],
       rows: [...categoryRows, categoryTotal],
     },
     {
       title: 'Review Detail',
       columns: ['Category', 'SKU', 'Description', 'Opening OH', 'Opening Unit Cost', 'Opening Value', 'Total Received', 'Received Value', 'Total Pulled', 'Ending OH', 'Ending Value', 'Inventory Flow Value', 'Status'],
+      columnTypes: ['text', 'text', 'text', 'number', 'money', 'money', 'number', 'money', 'number', 'number', 'money', 'money', 'text'],
       rows: rows.map((r) => [
         itemCat(r),
         r.sku || '',
@@ -731,6 +758,14 @@ export function Reports({
   const activeReviewSections = active?.reviewSections
     ? active.reviewSections(active.exportBuild ? active.exportBuild() : rows)
     : null;
+  // When a report carries Review sections (workbook-shaped monthly reports), the
+  // line-item table below them must use the same template shape the CSV export
+  // uses -- not the simpler dashboard-snapshot columns -- so preview, print, and
+  // download all show one consistent report instead of three different ones.
+  const displayColumns: ReportColumn[] = active?.templateColumns || active?.columns || [];
+  const displayRows = active?.templateColumns
+    ? (active.exportBuild ? active.exportBuild() : rows)
+    : rows;
   const showInventoryStats = rows.length > 0 && ['inventory', 'moninv'].includes(active?.id);
   const reportStats = (() => {
     const receivedUnits = rows.reduce((s: number, r: any) => {
@@ -780,15 +815,20 @@ export function Reports({
     downloadCSV(fileName(rep), csv);
   }
   function printOne(rep: any) {
-    const data = rep.build();
-    const th = rep.columns
+    const built = rep.build();
+    // Same model the CSV export uses: workbook-shaped template columns + the
+    // exportBuild dataset when present, instead of the simpler dashboard
+    // snapshot columns (fixes the v4.26.22 preview/print mismatch).
+    const columns = rep.templateColumns || rep.columns;
+    const data = rep.templateColumns ? (rep.exportBuild ? rep.exportBuild() : built) : built;
+    const th = columns
       .map((c: any) => '<th>' + htmlEscape(c.label) + '</th>')
       .join('');
     const tr = data
       .map(
         (r: any) =>
           '<tr>' +
-          rep.columns
+          columns
             .map(
               (c: any) =>
                 '<td>' +
@@ -801,7 +841,7 @@ export function Reports({
       .join('');
 
     // Summary block for inventory reports with opening/received/issued/closing values
-    const summary = rep.summary ? rep.summary(data) : null;
+    const summary = rep.summary ? rep.summary(built) : null;
     const summaryHtml = summary
       ? '<div style="margin-top:20px;border-top:2px solid #0E2148;padding-top:14px">' +
           '<table style="width:auto;border-collapse:collapse;font-size:12px">' +
@@ -813,15 +853,22 @@ export function Reports({
           ).join('</tr><tr>') +
           '</tr></table></div>'
       : '';
-    const reviewSections = rep.reviewSections ? rep.reviewSections(rep.exportBuild ? rep.exportBuild() : data) : null;
+    const reviewSections = rep.reviewSections ? rep.reviewSections(rep.exportBuild ? rep.exportBuild() : built) : null;
+    // Stack sections in workbook order (Inventory Review, Weekly Invoice
+    // Totals, Category Summary, Review Detail) — one column, not a 2-up grid
+    // that squeezes wide tables side by side like debug output.
     const reviewHtml = reviewSections
-      ? '<div style="margin:14px 0 18px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">' +
+      ? '<div style="margin:14px 0 18px;display:flex;flex-direction:column;gap:10px">' +
           reviewSections.slice(0, 3).map((section: ReviewSection) => {
             const head = section.columns
               .map((label) => '<th style="background:#E2E8F0;color:#0E2148">' + htmlEscape(label) + '</th>')
               .join('');
             const body = section.rows
-              .map((row) => '<tr>' + row.map((cell) => '<td>' + htmlEscape(cell) + '</td>').join('') + '</tr>')
+              .map((row) => '<tr>' + row.map((cell, idx) => {
+                const type = section.columnTypes[idx] || 'text';
+                const align = type === 'money' || type === 'number' ? ' style="text-align:right"' : '';
+                return '<td' + align + '>' + htmlEscape(reviewCell(cell, type)) + '</td>';
+              }).join('') + '</tr>')
               .join('');
             return '<div style="break-inside:avoid"><h2 style="font-size:12px;margin:0 0 4px;color:#0E2148">' +
               htmlEscape(section.title) +
@@ -1044,9 +1091,12 @@ export function Reports({
                         <tbody>
                           {section.rows.map((row, idx) => (
                             <tr key={idx}>
-                              {row.map((cell, cellIdx) => (
-                                <td key={cellIdx}>{typeof cell === 'number' && cellIdx > 0 ? fmtNumber(cell) : cell}</td>
-                              ))}
+                              {row.map((cell, cellIdx) => {
+                                const type = section.columnTypes[cellIdx] || 'text';
+                                return (
+                                  <td key={cellIdx} data-type={type}>{reviewCell(cell, type)}</td>
+                                );
+                              })}
                             </tr>
                           ))}
                         </tbody>
@@ -1056,7 +1106,7 @@ export function Reports({
                 ))}
               </div>
             )}
-            {rows.length === 0 ? (
+            {displayRows.length === 0 ? (
               <div
                 style={{
                   padding: '40px 17px',
@@ -1084,15 +1134,15 @@ export function Reports({
                 <table className={showInventoryStats ? 'data sheet report-sheet' : 'data'}>
                   <thead>
                     <tr>
-                      {active.columns.map((c: any) => (
+                      {displayColumns.map((c: any) => (
                         <th key={c.key}>{c.label}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((r: any, i: number) => (
+                    {displayRows.map((r: any, i: number) => (
                       <tr key={i}>
-                        {active.columns.map((c: any) => (
+                        {displayColumns.map((c: any) => (
                           <td key={c.key}>
                             {(typeof c.get === 'function'
                               ? c.get(r)
@@ -1108,7 +1158,7 @@ export function Reports({
                       <tfoot>
                         <tr>
                           <td
-                            colSpan={active.columns.length}
+                            colSpan={displayColumns.length}
                             style={{ padding: 0, border: 'none' }}
                           >
                             <div style={{

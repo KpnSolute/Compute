@@ -284,6 +284,9 @@ export function MonthlyInventory({
   const [week, setWeek] = useState(0); // 0 = All, 1-3 = W1-W3
   const [maxWeeks, setMaxWeeks] = useState(3); // from API metadata.weeks_in_period
   const [liveTick, setLiveTick] = useState(0);
+  const [monthPublished, setMonthPublished] = useState<boolean | null>(null);
+  const [showRollover, setShowRollover] = useState(false);
+  const [rolloverBusy, setRolloverBusy] = useState(false);
 
   // Local cache key for this period
   const draftKey = `mjcc_ops_draft_${m + 1}_${y}`;
@@ -372,6 +375,32 @@ export function MonthlyInventory({
       window.removeEventListener('focus', refresh);
     };
   }, [saved]);
+
+  useEffect(() => {
+    let alive = true;
+    api.getMonthStatus(m + 1, y)
+      .then((s) => { if (alive) setMonthPublished(!!s.published); })
+      .catch(() => { if (alive) setMonthPublished(null); });
+    return () => { alive = false; };
+  }, [m, y, liveTick]);
+
+  const canPublish = lvl >= 30; // manager+, matches the rollover endpoint's own role gate
+  const nextLabel = `${MONTHS[(m + 1) % 12]} ${m === 11 ? y + 1 : y}`;
+
+  async function doRollover() {
+    setRolloverBusy(true);
+    try {
+      await api.performRollover(`Rollover ${MONTHS[m]} ${y} -> ${nextLabel}`);
+      (window as any).toast?.(`${MONTHS[m]} ${y} published. ${nextLabel} is open.`);
+      setShowRollover(false);
+      setMonthPublished(true);
+      setLiveTick((tick) => tick + 1);
+    } catch (e: any) {
+      (window as any).toast?.(e?.message || 'Publish failed — please try again.');
+    } finally {
+      setRolloverBusy(false);
+    }
+  }
 
   function setR(id: string, f: string, v: string) {
     setRows((prev) => {
@@ -591,8 +620,14 @@ export function MonthlyInventory({
       <div className="page-head">
         <div>
           <h2>Monthly Inventory</h2>
-          <div className="ph-sub">
-            {MONTHS[m]} {y} · {rows.length} items · master month editor
+          <div className="ph-sub" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>{MONTHS[m]} {y} · {rows.length} items · master month editor</span>
+            {monthPublished !== null && (
+              <span className={`period-status-pill${monthPublished ? ' published' : ' open'}`}>
+                <span className="psp-dot" />
+                {monthPublished ? 'Published' : 'Open'}
+              </span>
+            )}
           </div>
         </div>
         <div className="ph-actions">
@@ -602,8 +637,45 @@ export function MonthlyInventory({
               {I.plus()} Add item
             </button>
           )}
+          {canPublish && !monthPublished && (
+            <button
+              className="btn"
+              onClick={() => setShowRollover(true)}
+              title={`Publish ${MONTHS[m]} ${y} and open ${nextLabel}`}
+            >
+              {I.check()} Publish Month
+            </button>
+          )}
         </div>
       </div>
+
+      {showRollover && (
+        <div className="overlay" onClick={() => !rolloverBusy && setShowRollover(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <div className="modal-head">
+              <h3>{I.archive()} Publish Month &amp; Roll Forward</h3>
+              <div className="sub">Cannot be undone. Weekly data will be locked.</div>
+              <button className="modal-x" onClick={() => setShowRollover(false)} disabled={rolloverBusy} aria-label="Close">
+                {I.x()}
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: '16px 20px' }}>
+              <p style={{ margin: '0 0 12px', lineHeight: 1.5 }}>
+                This will <strong>publish {MONTHS[m]} {y}</strong> and create the opening balance for {nextLabel}.
+              </p>
+              <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12 }}>
+                This cannot be undone. All weekly data for this period will be locked permanently.
+              </p>
+            </div>
+            <div className="modal-foot" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 20px' }}>
+              <button className="btn" onClick={() => setShowRollover(false)} disabled={rolloverBusy}>Cancel</button>
+              <button className="btn primary" onClick={doRollover} disabled={rolloverBusy}>
+                {rolloverBusy ? 'Publishing…' : 'Confirm Publish'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="card mobile-compact"><Loading label="Loading inventory…" /></div>
