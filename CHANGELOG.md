@@ -4,6 +4,15 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.19] - 2026-06-30 - Verified June beverage invoice item-backed totals
+
+**Codex:** Verified the live June 2026 Multi-Flow beverage invoice total is backed by item-level `monthly_inventory` rows, not only snapshot metadata. Checked all 14 invoice SKUs against Week 2 received quantities and line values; every SKU matched the invoice quantity and product value with zero quantity/value delta.
+
+**Verification:** Live Supabase matched 14/14 SKUs, Week 2 received quantity total `39`, item-backed Week 2 line total `$2,265.30`, and month received value for those SKUs `$2,265.30`. June period remains 611 received units and `$30,744.57` received value; snapshot Week 2 invoice total is `$8,912.33` and total invoice value is `$30,744.57`.
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.18] - 2026-06-30 - Live June Week 2 invoice metadata backfill
 
 **Codex:** Backfilled live Supabase `monthly_snapshots` for June 2026 after the local workbook was updated with the Multi-Flow beverage invoice. Updated Week 2 invoice total from `$6,647.03` to `$8,912.33` and total invoice value to `$30,744.57`; added the Week 2 source note for Multi-Flow invoice `#883581` dated `06/15/2026`, product lines `$2,265.30`, with `$5.00` fuel surcharge excluded.
