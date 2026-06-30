@@ -2031,7 +2031,7 @@ function InventoryView({
                                             onClick={() => setTriageFilter(!triageFilter)}
                                             title="Show items needing attention — placeholder SKU or no real category"
                                         >
-                                            Uncategorized
+                                            Needs Attention
                                             {!triageFilter && attnCount > 0 && (
                                                 <span className="sc-badge-count">{attnCount}</span>
                                             )}

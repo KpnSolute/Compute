@@ -204,6 +204,14 @@ class CategoryBody(BaseModel):
     sort_order: int | None = None
 
 
+# inventory_identity.py / dispatch.py resolve these two categories BY NAME as
+# fallback targets for new/unresolvable items (NEW_ITEMS_CATEGORY,
+# _UNCATEGORIZED_ID_FALLBACK). Renaming or deleting either silently breaks
+# that routing with no error -- items would land in the wrong bucket or fail
+# the fallback entirely.
+_PROTECTED_CATEGORY_NAMES = {"New Items", "Uncategorized"}
+
+
 @router.post("/inventory-categories", status_code=201)
 async def create_category(
     body: CategoryBody, auth_user: dict = Depends(_require_manager)
@@ -232,6 +240,19 @@ async def create_category(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _protected_category_name(cat_id: str) -> str | None:
+    """Return the category's current name if it's a protected routing target."""
+    row = (
+        supabase_service.table("inventory_categories")
+        .select("name")
+        .eq("id", cat_id)
+        .limit(1)
+        .execute()
+    )
+    name = (row.data or [{}])[0].get("name")
+    return name if name in _PROTECTED_CATEGORY_NAMES else None
+
+
 @router.patch("/inventory-categories/{cat_id}")
 async def update_category(
     cat_id: str, body: CategoryBody, auth_user: dict = Depends(_require_manager)
@@ -239,6 +260,13 @@ async def update_category(
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="Category name is required")
+    protected = _protected_category_name(cat_id)
+    if protected and name != protected:
+        raise HTTPException(
+            status_code=409,
+            detail=f'"{protected}" is a system category used to route new/unresolved '
+            "items and cannot be renamed.",
+        )
     update: dict = {"name": name}
     if body.sort_order is not None:
         update["sort_order"] = body.sort_order
@@ -256,6 +284,13 @@ async def update_category(
 
 @router.delete("/inventory-categories/{cat_id}", status_code=204)
 async def delete_category(cat_id: str, auth_user: dict = Depends(_require_manager)):
+    protected = _protected_category_name(cat_id)
+    if protected:
+        raise HTTPException(
+            status_code=409,
+            detail=f'"{protected}" is a system category used to route new/unresolved '
+            "items and cannot be deleted.",
+        )
     # Block deletion if any inventory items are assigned to this category
     try:
         items = (

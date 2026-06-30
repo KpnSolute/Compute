@@ -4,6 +4,37 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.27] - 2026-06-30 - Data-layer audit: month-locking Q1/Q2, category-management completeness
+
+**mjcc-data:** Parallel domain audit pass (no schema changes made — read-only).
+
+**Q1 — Month-locking recommendation:** Keep publish as a mandatory manager action (button), not auto-enforced by the DB. Rationale below.
+
+**Q2 — Schema changes needed:** None required for optional publish; one recommended guard (FK from inventory_categories to a protected-names list, or a NOT IN check constraint) if category rename/delete of 'New Items'/'Uncategorized' becomes a risk.
+
+**Findings — live DB verified:**
+
+1. inventory_categories structure (public schema): id (uuid NOT NULL), name (text NOT NULL UNIQUE), color (text nullable), icon (text nullable), sort_order (int nullable). No created_at column. RLS is enabled; two policies: authenticated_read (SELECT, qual=true) and service_role_all (ALL, qual=true). No write policy for the authenticated role — category CRUD from a JWT-authed frontend call is blocked at RLS; only the service-role key (backend) can write. This is correct for Option-A architecture.
+
+2. 'New Items' row: id=d440a51d-1793-4fbf-9c46-a94f04f554e7, sort_order=99. 'Uncategorized' row: id=448c13cf-e5c0-404f-bf32-f299d411c944, sort_order=10. The hardcoded _UNCATEGORIZED_ID_FALLBACK in dispatch.py (line 1043) MATCHES the live row exactly — fallback is safe.
+
+3. inventory_identity.py resolves 'New Items' dynamically by name query (get_new_items_category_id), not by hardcoded UUID — correct and resilient to a row recreation. The Uncategorized fallback in dispatch.py uses UUID as a last resort after a dynamic name query, also correct.
+
+4. 327/327 inventory_items have a non-null category_id that resolves to a real inventory_categories row — zero orphans.
+
+5. Zero duplicate category names.
+
+6. bak_20260619 schema: a full backup schema exists in the same Postgres instance with a copy of inventory_categories (all-nullable columns, no constraints). Harmless but worth knowing — information_schema queries without schema filter return double rows from this schema.
+
+7. Indexes on hot paths: inventory_items has idx_inventory_items_sku (unique), idx_inventory_items_category, idx_invitems_fts (GIN full-text), idx_monthly_inventory_item_month composite, idx_monthly_yr_mo. No missing indexes found on hot query paths.
+
+8. month_status live state: exactly one row — month=5 (June, 0-indexed), year=2026, status='open'. Confirmed: May 2026 has no row, meaning _is_month_published() treats it as open/writable. No auto-publish enforcement exists.
+
+9. migrations/ directory: only 2 migration files under supabase/migrations/ (20260629 carry + audited live inventory values). The bulk of schema history appears applied directly via MCP rather than tracked as migration files — no structural risk, but means supabase db diff will show a large gap.
+
+**Push:** N/A — audit only, no changes applied.
+---
+
 ## [v4.26.25] - 2026-06-30 - Production-readiness sweep: RLS hardening, audit findings, mapper warning
 
 **Claude:** Completed the broader production-officer sweep (rollover correctness, mid-month analytics, parser/staging/dispatch/API/UI total consistency, data-entry input validation) requested after v4.26.23/v4.26.24. Summary by area:
@@ -41,6 +72,24 @@ This is the **central development memory and discussion board** for development 
 **Flagged, not yet fixed — production-readiness gap:** `month_status` has exactly ONE row total (June 2026, `status='open'`). May 2026 has no `month_status` row at all, and nothing has ever been marked `'published'`. `_is_month_published()` treats "no row" as open/writable, so there is currently no enforced lock on a closed month — a manager (or another import) could still silently edit May's already-reconciled figures. This needs either a real "close month" workflow (UI action that inserts/updates `month_status` to `published`) or a decision that month-locking is out of scope for v1. Surfacing this per AGENTS.md §8 rule 5 rather than guessing the intended workflow.
 
 **Verification:** `python -m ruff check backend/staging/dispatch.py backend/tests` passed. `python -m pytest backend/tests -q` passed (45 passed / 4 skipped). Live Supabase re-queried post-delete to confirm row counts and reconciliation.
+**Push:** pending — not yet pushed.
+
+---
+
+## [v4.26.27] - 2026-06-30 - Three-agent decision on month-lock/color + category management fixes
+
+**Claude:** Dispatched three parallel domain reviews (mjcc-data, mjcc-api, mjcc-ui) to independently analyze the two open questions from v4.26.26 (mandatory month-locking? darken `--amber`?) and audit category-management completeness in their respective layers. Synthesized their reports and executed.
+
+**Decision 1 — month-locking stays manager-triggered, not automatic.** All three agents independently reached the same conclusion: auto-publishing (on a timer, row-count, or new-month-data condition) risks locking a month mid-correction — a late vendor invoice, a re-entered count — and removes the deliberate audit sign-off a real close requires. The actual problem isn't the absence of enforcement, it's that the unpublished state was too easy to never notice. **Fix:** added a persistent (non-dismissible — no `X`/close affordance) warning banner to `Operations.tsx`'s Monthly Inventory editor that appears specifically when viewing a period that is *before* the latest period with data AND unpublished (so it correctly stays silent on the current, normally-still-open month — verified live for June 2026 silent, May 2026 showing "May 2026 has not been published — figures for this period are still provisional and remain editable."). The mjcc-api review also found upload requests had no guard against staging data into an already-published period (only commit-time was blocked) — added `_assert_not_published()` to `backend/routes/data_entry.py`, called right after `_validate_period()`, so a stale-month upload fails fast (422) before a multi-minute AI parse instead of after.
+
+**Decision 2 — darken `--amber` to `#B45309`.** Verified independently (not just trusting the agent): `#D97706` measures 3.19:1 on white (fails WCAG AA's 4.5:1), `#B45309` measures ~5.02:1 (computed by hand, confirmed). Checked every `var(--amber)` usage across the codebase per the ui-agent's inventory — all are either text-on-white (the failing case, now fixed) or amber-as-background-with-white-text (already passing, improves further). Changed only the light-mode `:root` token; the separate `[data-theme="dark"]` override (`#d29922`) is untouched. Verified live: an "Issued" financial cell now computes `rgb(180, 83, 9)`.
+
+**Category management audit — one real gap found and fixed, two false positives caught before acting on them.** The mjcc-api/mjcc-data reviews flagged "New Items" and "Uncategorized" as resolved by NAME in `inventory_identity.py`/`dispatch.py`, with no protection against a manager renaming or deleting them via `Portal.tsx`'s `CategoryManager` (which only blocks deleting "New Items", nothing else) — a rename would silently misroute every future new/unresolved item. **Fixed:** `backend/routes/data.py`'s `update_category`/`delete_category` now reject renaming or deleting either protected category (409, named in the error). Separately, mjcc-ui found `SourceControl.tsx`'s SKU Review "new item" form had a free-text Category input — a typo (`"Dairy "` vs `"Dairy"`) would create an invisible phantom category outside the managed list. **Fixed:** replaced it with a `<select>` populated from `GET /api/data/inventory-categories`. Also fixed a button label/tooltip mismatch in `Portal.tsx` ("Uncategorized" labeled a filter that actually means "needs attention: placeholder SKU OR no category" — relabeled to "Needs Attention" to match its tooltip and actual scope).
+
+**Two flagged findings verified to be NON-issues before any code was touched** (catching agent false positives rather than blindly executing them): (1) mjcc-api worried `PATCH /api/inventory/items/{sku}` doesn't clear `sku_pending`/`needs_attention` after a manual fix — queried the live schema and confirmed both are PostgreSQL `GENERATED ALWAYS` columns computed directly from `sku`/`category_id`, so they update themselves the instant those fields change; no app-layer write was ever needed. (2) mjcc-api also flagged `CategoryBody` (category create/update) as missing a `color` field that the schema has — read `Portal.tsx`'s actual `CategoryManager` UI and confirmed it has no color picker at all (name + sort order only), so nothing is being silently dropped; adding color handling for a UI control that doesn't exist would have been speculative work.
+
+**Verification:** `npx tsc --noEmit`, `npm run lint -- --quiet`, `npm run build` all passed. `python -m ruff check backend/routes/data.py backend/routes/data_entry.py backend/tests` and `python -m pytest backend/tests -q` passed (46 passed / 4 skipped). All UI changes (banner silent on June / visible on May, amber computed color, category dropdown, button relabel) verified live via the dev-server browser preview against production data.
+
 **Push:** pending — not yet pushed.
 
 ---

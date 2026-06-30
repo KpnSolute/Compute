@@ -40,6 +40,7 @@ from backend.ai import parser as file_parser
 from backend.inventory_identity import canonical_sku
 from backend.routes import jwt_validator
 from backend.routes._deps import ensure_pr_for_entries
+from backend.staging.dispatch import _is_month_published
 from supabase import create_client
 
 # Thread pool dedicated to blocking parse work so FastAPI's event loop stays free
@@ -221,6 +222,23 @@ def _validate_period(month: int, year: int, settings: dict) -> None:
         raise HTTPException(
             status_code=422,
             detail=f"Data Entry is open through {calendar.month_name[max_month + 1]} {max_year}.",
+        )
+
+
+def _assert_not_published(month: int, year: int) -> None:
+    """Reject an upload aimed at a period that's already been published.
+
+    dispatch_inventory_save/_week already block this at commit time, but a
+    stale-month upload staged before that point parses, AI-extracts, and
+    sits in Source Control for nothing — only to fail when someone tries to
+    merge it. Catching it at upload time gives the manager the error while
+    they still have the month picker open, not after a multi-minute parse.
+    """
+    if _is_month_published(_client(), month - 1, year):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{calendar.month_name[month]} {year} is published and closed. "
+            "Upload to the current open period instead.",
         )
 
 
@@ -1093,6 +1111,7 @@ async def upload_file(
         year = now.year
     period_settings = _data_entry_period_settings()
     _validate_period(month, year, period_settings)
+    _assert_not_published(month, year)
     direction = direction.lower().strip()
     if direction not in ("received", "issued", "both"):
         raise HTTPException(

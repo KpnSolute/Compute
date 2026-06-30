@@ -445,6 +445,15 @@ function SCChangesView({
     useEscapeClose(showSKUReview, () => setShowSKUReview(false), skuLoading || skuBusy);
     const [allItems, setAllItems] = useState<any[]>([]);
     const [allItemsLoaded, setAllItemsLoaded] = useState(false);
+    const [categories, setCategories] = useState<any[]>([]);
+
+    // Real category list for the SKU Review "new item" form -- a free-text
+    // field let a typo create a phantom category that never appears in the
+    // managed list (e.g. "Dairy " vs "Dairy"), silently fragmenting the
+    // catalog instead of landing in the existing "Dairy" bucket.
+    useEffect(() => {
+        api.getInventoryCategories().then(setCategories).catch(() => setCategories([]));
+    }, []);
 
     // receive draft state from InventoryView via custom event
     useEffect(() => {
@@ -1072,7 +1081,12 @@ function SCChangesView({
                                                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                                                     <input className="ipt" placeholder="SKU" value={skuNewSku} onChange={(e) => setSkuNewSku(e.target.value)} style={{ fontSize: 12 }} />
                                                     <input className="ipt" placeholder="Description" value={skuNewDesc} onChange={(e) => setSkuNewDesc(e.target.value)} style={{ fontSize: 12 }} />
-                                                    <input className="ipt" placeholder="Category (leave blank → Uncategorized)" value={skuNewCategory} onChange={(e) => setSkuNewCategory(e.target.value)} style={{ fontSize: 12 }} />
+                                                    <select className="ipt" value={skuNewCategory} onChange={(e) => setSkuNewCategory(e.target.value)} style={{ fontSize: 12 }}>
+                                                        <option value="">Category (leave blank → Uncategorized)</option>
+                                                        {categories.map((c: any) => (
+                                                            <option key={c.id} value={c.name}>{c.name}</option>
+                                                        ))}
+                                                    </select>
                                                     <button
                                                         className="btn primary"
                                                         style={{ fontSize: 11, padding: "4px 10px", alignSelf: "flex-start" }}

@@ -384,6 +384,27 @@ export function MonthlyInventory({
     return () => { alive = false; };
   }, [m, y, liveTick]);
 
+  // Latest period with data -- used to tell "this IS the current open month,
+  // unpublished is normal" apart from "a PRIOR month was never closed out".
+  // All three reviewers (data/api/ui) agreed: don't block on this, but the
+  // current button + dismissible banner left it too easy to never notice.
+  const [latestPeriod, setLatestPeriod] = useState<{ month: number; year: number } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.getPeriodStatus()
+      .then((s) => {
+        if (alive && s.latest_month != null && s.latest_year != null) {
+          setLatestPeriod({ month: s.latest_month, year: s.latest_year });
+        }
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [liveTick]);
+  const isStaleUnpublished =
+    monthPublished === false &&
+    !!latestPeriod &&
+    (y < latestPeriod.year || (y === latestPeriod.year && m < latestPeriod.month));
+
   const canPublish = lvl >= 30; // manager+, matches the rollover endpoint's own role gate
   const nextLabel = `${MONTHS[(m + 1) % 12]} ${m === 11 ? y + 1 : y}`;
 
@@ -617,6 +638,15 @@ export function MonthlyInventory({
 
   return (
     <div className="fade-in">
+      {isStaleUnpublished && (
+        <div className="banner warn" style={{ marginBottom: 12 }}>
+          {I.alert()}
+          <span>
+            <strong>{MONTHS[m]} {y}</strong> has not been published — figures for this period are still provisional and remain editable.
+            {canPublish ? ' Publish it once the month is reconciled.' : ' Ask a manager to publish it once reconciled.'}
+          </span>
+        </div>
+      )}
       <div className="page-head">
         <div>
           <h2>Monthly Inventory</h2>
