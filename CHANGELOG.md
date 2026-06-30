@@ -94,6 +94,26 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.29] - 2026-06-30 - Fixed the redundant double-staging finding from the production test session
+
+**Claude (forum hygiene note):** v4.26.27 appears twice above (mine — "Three-agent decision..." — and a background mjcc-data agent's "Data-layer audit..." entry, both timestamped today). Not rewriting either per the append-only rule; numbering this entry v4.26.29 to avoid a third collision.
+
+**Claude:** Acted on the architectural finding flagged during the production manual-data-entry test: a single field edit on the Monthly Inventory editor was submitting two staging operations for the same change.
+
+**Root cause (confirmed, not assumed) and fix:** `Operations.tsx::handleSave` staged Par edits twice — once inside the bulk `inventory_save` payload (which sends `par` for every item), and again as a separate `item_update` per changed item. Read `backend/inventory_identity.py::resolve_and_write_item` (called by `dispatch_inventory_save` for every item in the bulk payload) and confirmed it already writes `par_level` to `inventory_items` whenever `par is not None` — which is always true, since the frontend never sends `null`. The second `item_update` stage was writing the exact same value through a second code path. Removed it; the bulk save alone now fully covers par persistence.
+
+**A second, more impactful bug found while tracing this:** the redundant staging only explained "2 staging entries instead of 1" — it didn't explain why the resulting commit produced **1167** `commit_changes` audit rows for a single real edit. Traced into `backend/ai/diff.py::_diff_inventory_item`: it compared `opening_value`/`received_value`/`pulled_value`/`ending_value`/`opening_unit_cost` unconditionally against the live DB, but the dashboard payload never includes those fields (they're backend-computed, not sent by `Operations.tsx`). "Field absent from payload" was being treated as "field becomes null," so *every* item that already had a real value for any of those 5 fields got falsely flagged as changed — on a 291-item fully-reconciled month, that alone produced over a thousand bogus `commit_changes` rows masquerading as real edits in the Source Control audit trail. Fixed: those 5 fields are now only compared when present in the payload, matching the guard pattern the weekly columns (`w1_received` etc.) already used a few lines below. `_granular_commit_changes` (`backend/routes/sourcectrl.py`) emits exactly one row per entry in `changes`, so this fix directly collapses the audit-log bloat at the source.
+
+**Regression test:** `backend/tests/test_diff_inventory_save.py` — feeds `_diff_inventory_item` a live DB row with real value fields and a payload that omits them (matching the actual dashboard payload shape), asserts only `par_level` is flagged as changed.
+
+**Live verification:** Tested against production (local dev frontend, prod API) — a Par-only edit now produces exactly one `POST /api/staging` call, confirmed via network panel. Confirmed via direct query that the single `inventory_save` operation alone correctly persists `par_level`. Restored the test item to its original values afterward (verified via SQL) and reconfirmed June 2026 totals are exactly unchanged: opening `$9,575.02`, received `$30,744.57`, pulled `$30,814.01`, ending `$9,505.58`, 291 items. The backend diff fix could not be live-tested (requires a deploy) but is covered by the new unit test.
+
+**Verification:** `npx tsc --noEmit`, `npm run lint -- --quiet`, `python -m ruff check backend/ai/diff.py`, `python -m pytest backend/tests -q` (47 passed / 4 skipped) all passed.
+
+**Push:** pending — not yet pushed.
+
+---
+
 ## [v4.26.26] - 2026-06-30 - Close-month UI, report formatting fix, contrast pass
 
 **Claude:** Continued the UI side of the production-readiness pass.

@@ -143,20 +143,25 @@ def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dic
 
     changed_fields = [
         k
-        for k in (
-            "description",
-            "unit_price",
-            "par_level",
-            "on_hand",
-            "category",
-            "opening_unit_cost",
-            "opening_value",
-            "received_value",
-            "pulled_value",
-            "ending_value",
-        )
+        for k in ("description", "unit_price", "par_level", "on_hand", "category")
         if before.get(k) != after.get(k)
     ]
+    # Value fields (opening/received/pulled/ending) are backend-computed and absent
+    # from most save payloads (e.g. a dashboard Par-only edit never sends them).
+    # Comparing unconditionally treated "field omitted from payload" as "value
+    # should become null", flagging every item that already had a real value as
+    # "changed" — on a 291-item month that alone produced 1000+ bogus
+    # commit_changes rows for a single real edit. Only flag when the payload
+    # actually carries the field, mirroring the weekly-column guard below.
+    for k in (
+        "opening_unit_cost",
+        "opening_value",
+        "received_value",
+        "pulled_value",
+        "ending_value",
+    ):
+        if k in after and before.get(k) != after.get(k):
+            changed_fields.append(k)
     # Weekly movement changes — only flag columns actually present in the payload,
     # so a value-only save doesn't spuriously diff blank weekly fields (BUG #1).
     for _src, col in _WEEK_FIELD_MAP:

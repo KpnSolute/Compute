@@ -552,7 +552,12 @@ export function MonthlyInventory({
 
       const stagingIds: string[] = [];
 
-      // 1. Stage bulk inventory data via Source Control (the ONLY write path)
+      // Stage bulk inventory data via Source Control (the ONLY write path).
+      // par is sent for every item here too, and dispatch_inventory_save's
+      // resolve_and_write_item() already persists it to inventory_items for
+      // every row it touches -- a separate item_update stage for par changes
+      // was fully redundant (same write, twice, via two different operations)
+      // and doubled the staging/commit-changes audit volume for every edit.
       const bulkEntry = await api.stageChange(
         'inventory_save', 'inventory', `batch-moninv-${m + 1}-${y}`,
         { items, month: m + 1, year: y, notes },
@@ -560,22 +565,7 @@ export function MonthlyInventory({
       );
       stagingIds.push(bulkEntry.entry_id);
 
-      // 2. Stage par changes as item_update (par is item-level, not period-level)
-      const initMap = Object.fromEntries(initRows.map((r: any) => [r.id, r]));
-      const parChanged = rows.filter((r: any) => {
-        const init = initMap[r.id];
-        return init && r.par !== init.par;
-      });
-      for (const r of parChanged) {
-        const parEntry = await api.stageChange(
-          'item_update', 'inventory', r.id,
-          { sku: r.id, desc: r.item, par: r.par },
-          `PAR update · ${r.item} → ${r.par}`,
-        );
-        stagingIds.push(parEntry.entry_id);
-      }
-
-      // 3. Auto-commit for managers (stage + commit = single action)
+      // Auto-commit for managers (stage + commit = single action)
       if (lvl >= 30 && stagingIds.length) {
         await api.approveCommit({
           staging_ids: stagingIds,
