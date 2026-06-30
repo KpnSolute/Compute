@@ -436,11 +436,16 @@ def dispatch_inventory_save(payload: dict) -> dict:
         )
     # Auto-rollover: carry previous month closing balances forward as opening on_hand
     try:
-        rolled = _rollover_opening_balances(
-            sup, db_month, year, explicit_on_hand_item_ids
+        overwrite_scope = payload.get("overwrite_scope") or {}
+        full_month_overwrite = (
+            bool(payload.get("overwrite")) and overwrite_scope.get("kind") == "month"
         )
-        if rolled:
-            result["rolled_over"] = rolled
+        if not full_month_overwrite:
+            rolled = _rollover_opening_balances(
+                sup, db_month, year, explicit_on_hand_item_ids
+            )
+            if rolled:
+                result["rolled_over"] = rolled
     except Exception as exc:
         log.warning("[dispatch] rollover failed (non-blocking): %s", exc)
     return result

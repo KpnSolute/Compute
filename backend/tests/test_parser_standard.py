@@ -513,6 +513,41 @@ def test_june_signed_inventory_flow_values_are_preserved():
 
 
 @pytest.mark.skipif(not _JUNE_PATH.exists(), reason="June workbook not present")
+def test_june_signed_inventory_flow_values_survive_mapper():
+    from backend.ai.mapper import map_rows_to_inventory
+    from backend.ai.parser import parse_excel
+
+    rows = parse_excel(_JUNE_PATH.read_bytes())
+    payload = map_rows_to_inventory(
+        rows,
+        {
+            "Dairy": 1,
+            "Cereal": 2,
+            "Beverages": 3,
+            "Snacks": 4,
+            "Meats": 5,
+            "Frozen Food": 6,
+            "Dry Goods": 7,
+            "Produce": 8,
+            "Disposables": 9,
+        },
+        month=6,
+        year=2026,
+    )
+    assert payload is not None
+    signed = {
+        item["sku"]: item.get("pulled_value")
+        for item in payload["items"]
+        if item.get("pulled_value", 0) < 0
+    }
+    assert signed == {"3330099": -1.9000000000000057, "6358832": -33.08}
+    assert (
+        round(sum(item.get("pulled_value") or 0 for item in payload["items"]), 2)
+        == 30814.01
+    )
+
+
+@pytest.mark.skipif(not _JUNE_PATH.exists(), reason="June workbook not present")
 def test_june_review_controls_include_standardized_counts_and_financials():
     from backend.ai.parser import extract_workbook_reconciliation
 

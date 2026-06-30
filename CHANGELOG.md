@@ -4,12 +4,25 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.6] — 2026-06-29 — June reupload parser/rollover root cause fixed
+
+**Codex:** Rechecked live June after the user's reupload and confirmed the bad totals came back from the latest dashboard import: 292 rows, stale `F00480038`, and `3330099`/`6358832` staged with `pulled_value=0`. Production was already deployed at `f6e5ba7`, so this was not a stale Render build.
+
+**Root cause:** The parser preserved signed June Review flow values, but `backend/ai/mapper.py` clamped all mapped financial values with `max(0.0, ...)`, turning `3330099=-1.90` and `6358832=-33.08` back into zero before staging. Separately, `dispatch_inventory_save` auto-ran rollover after a confirmed full-month workbook overwrite, so May-only SKUs absent from the workbook could be reinserted after Source Control cleared the period.
+
+**Fix:** Mapper now allows signed `pulled_value` while keeping the other financial value fields non-negative. Dispatch now treats confirmed full-month overwrites as authoritative and skips convenience auto-rollover for that replay, preventing stale prior-month SKUs from coming back after a workbook replacement.
+
+**Verification:** `python -m ruff check backend/` passed. `python -m pytest backend/tests -q` passed (39 passed / 1 skipped). Added regression tests for June signed flow values surviving parser→mapper and full-month overwrite not re-rolling missing prior SKUs.
+**Push:** pending — not yet pushed.
+
+---
+
 ## [v4.26.5] — 2026-06-29 — June period wiped for clean re-upload test
 
 **Codex:** Per user request, wiped live June 2026 period data so the fixed parser/dispatch logic can be tested by re-uploading `June Published Inventory.xlsx` through Data Entry. Deleted only June period artifacts: `monthly_inventory` rows (`month=5`, `year=2026`), `inventory_transactions`, `monthly_snapshots`, and `inventory_audit_log`. Catalog/items/categories and May data were left untouched.
 
 **Verification:** Before wipe: June had 291 monthly rows, 709 transaction rows, 1 snapshot, 0 audit rows. After wipe: June has 0 monthly rows, 0 transaction rows, 0 snapshots, 0 audit rows. May remains intact with 266 monthly rows and 1 snapshot.
-**Push:** pending — not yet pushed.
+**Push:** Codex → f6e5ba7 — 2026-06-29.
 
 ---
 

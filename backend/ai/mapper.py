@@ -297,7 +297,10 @@ def map_rows_to_inventory(
             "ending_value",
         ):
             if value_key in mapped:
-                item[value_key] = max(0.0, _safe_float(mapped.get(value_key)))
+                value = _safe_float(mapped.get(value_key))
+                item[value_key] = (
+                    value if value_key == "pulled_value" else max(0.0, value)
+                )
         # May case: monthly Total Pulled present but weekly pulls were blank.
         # Pass through so dispatch can apply without inventing weekly distribution.
         if row.get("total_pulled_raw") is not None:
