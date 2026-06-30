@@ -4,6 +4,17 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.15] - 2026-06-30 - June report DB repair against workbook
+
+**Codex:** Compared live June 2026 Reports data against `C:\Users\ogdev\JobCorp\June 2026\June Published Inventory.xlsx`. The workbook parsed to 291 rows, opening value `$9,575.02`, received value `$30,744.57`, pulled/flow value `$30,814.01`, and ending value `$9,505.58`. Live Supabase still had 292 rows and ending value `$9,616.98` because stale SKU `F00480038` remained in June `monthly_inventory`; the signed flow rows `3330099` and `6358832` were already correct.
+
+**Database:** Deleted the single stale June 2026 `monthly_inventory` row for `F00480038` and refreshed the June monthly snapshot. Snapshot metadata now reports `item_count=291`, `starting_total=$9,575.02`, `grand_total=$9,505.58`, and workbook invoice weekly totals W1 `$19,735.19`, W2 `$6,647.03`, W3 `$2,097.05`.
+
+**Verification:** Re-ran live Supabase aggregate for June 2026: 291 rows, opening qty 214, received qty 611, pulled qty 625, ending qty 200, opening value `$9,575.02`, received value `$30,744.57`, pulled value `$30,814.01`, ending value `$9,505.58`. Confirmed `F00480038` has 0 June rows while `F00408038`, `3330099`, and `6358832` each have 1.
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.14] - 2026-06-30 - Reports preview-first UI cleanup
 
 **Codex:** Updated the Reports catalogue UI so report rows now select/preview the report instead of offering immediate per-row exports. Moved Print and Download into the selected report preview panel, labeled that area explicitly as the selected report preview, and widened the catalogue/preview layout so large reports such as Monthly Inventory get the broad pane with a readable horizontally scrollable table instead of being squeezed in the narrow column.
