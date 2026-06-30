@@ -4,6 +4,15 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.7] — 2026-06-29 — Full-month workbook uploads skip convenience rollover
+
+**Codex:** Tightened the June stale-row prevention after deployment review. A clean reupload after wiping June may not require `overwrite=true`, so dispatch must treat any Data Entry full-month workbook upload (`overwrite_scope.kind='month'`) as authoritative and skip the convenience rollover pass. This prevents May-only SKUs like `F00480038` from returning even when June has no existing monthly rows at upload time.
+
+**Verification:** Updated the dispatch regression test to cover a full-month upload with `overwrite=false`. `python -m ruff check backend/` passed. `python -m pytest backend/tests -q` passed.
+**Push:** pending — not yet pushed.
+
+---
+
 ## [v4.26.6] — 2026-06-29 — June reupload parser/rollover root cause fixed
 
 **Codex:** Rechecked live June after the user's reupload and confirmed the bad totals came back from the latest dashboard import: 292 rows, stale `F00480038`, and `3330099`/`6358832` staged with `pulled_value=0`. Production was already deployed at `f6e5ba7`, so this was not a stale Render build.

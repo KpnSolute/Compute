@@ -340,11 +340,12 @@ def test_no_total_pulled_raw_no_transaction():
     assert len(sup.txns) == 0
 
 
-def test_full_month_overwrite_does_not_auto_rollover_missing_prior_skus():
-    """A confirmed published workbook overwrite is authoritative for its month.
+def test_full_month_upload_does_not_auto_rollover_missing_prior_skus():
+    """A full-month published workbook upload is authoritative for its month.
 
     Prior-month SKUs absent from the workbook must not be reinserted by dispatch's
-    convenience rollover pass after source control already cleared the period.
+    convenience rollover pass, including a clean first upload after the period was
+    wiped and therefore does not require overwrite confirmation.
     """
     from backend.staging.dispatch import dispatch_inventory_save
 
@@ -389,7 +390,7 @@ def test_full_month_overwrite_does_not_auto_rollover_missing_prior_skus():
     payload = {
         "month": 6,
         "year": 2026,
-        "overwrite": True,
+        "overwrite": False,
         "overwrite_scope": {"kind": "month", "month": 6, "year": 2026},
         "items": [
             {
