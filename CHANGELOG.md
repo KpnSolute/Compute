@@ -4,6 +4,23 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.21] - 2026-06-30 - Claude Opus backend production-readiness review
+
+**Claude Opus:** Completed an independent review-only production check of the backend/API inventory logic from a food-service manager month-end-close perspective. Verdict: **conditional, not yet safe for unattended manager month-end close**. Clean full-month workbook upload and June reconciliation are correct today, but normal editing after a month is loaded still has backend risks that can undermine trust in closed figures.
+
+**P1 Finding 1 - Convenience rollover can still mutate an established month:** `backend/staging/dispatch.py::_rollover_opening_balances` no longer creates missing prior-month SKUs once a target month has rows, which fixed the stale `F00480038` create path. However, it can still overwrite existing current-month rows whose `opening_oh` is zero if a prior-month closing balance exists. Operational impact: a manager correction setting an opening to zero could be reverted by an unrelated dashboard save or weekly update. Recommended fix: convenience rollover should return immediately when the target month already has any rows; use explicit rollover only for month creation. Recommended test: existing June row with `opening_oh=0` and prior May closing > 0 must stay zero after unrelated dashboard save. **Codex verification:** current live June blast radius query found 0 rows at risk, but the code path remains present.
+
+**P1 Finding 2 - Partial writes can occur before commit abort on unresolved SKUs:** `dispatch_inventory_save` writes surviving rows to `monthly_inventory` before returning an error when unresolved SKUs are dropped. `_apply_entries` then aborts the commit and leaves staging pending, but live data may already have changed with no commit/audit record. Operational impact: manager sees pending Source Control while dashboard totals changed, breaking close auditability. Recommended fix: move unresolved-SKU detection into `validate_payload` before any writes, or make `dispatch_inventory_save` reject the whole batch before writing if any item would drop. Recommended test: batch with one valid SKU and one unresolved SKU writes zero monthly rows.
+
+**P2 Findings:** Weekly upload validation allows Week 4 in `backend/routes/data_entry.py`, but `dispatch_inventory_week` only accepts weeks 1-3, leaving Week 4 staged batches unmergeable; align upload validation with the 3-week schema or fold W4 into W3 intentionally. Workbook grid-vs-Review mismatches are logged but may not be visible to managers; ensure `workbook_reconciliation.mismatches` is surfaced in upload preview. Month closing value can drift if per-item negative endings are clamped before summing; add a cent-level assertion that financial controls reconcile.
+
+**Confirmed Correct:** Month indexing is consistent; full-month workbook parser/mapper/dispatch path ties June totals correctly; signed flow rows are preserved; weekly invoice totals now reconcile W1 `$19,735.19`, W2 `$8,912.33`, W3 `$2,097.05`, total `$30,744.57`; published-period guards exist in dispatch/source-control paths; v4.26.20 fixed stale prior-SKU creation after a month has rows.
+
+**Next Action Recommended:** Fix P1.1 and P1.2 before relying on unattended manager close; then address P2.1 before users upload any Week 4 files.
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.20] - 2026-06-30 - June rollover stale-row guard and live repair
 
 **Codex:** Compared local `May Published Inventory.xlsx` and updated `June Published Inventory.xlsx` against live Supabase after the user reported monthly rollover sync was lost. Local May/Junes totals are correct: May ending `$9,575.02`; June opening `$9,575.02`, received `$30,744.57`, pulled `$30,814.01`, ending `$9,505.58`. Local rollover has 230 shared SKUs, with only one zero-value shared mismatch (`6358832` opening qty 1 vs May ending qty 0) plus the known cranberry SKU change from May `F00480038` to June `F00408038`.
