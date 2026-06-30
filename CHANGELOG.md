@@ -4,6 +4,15 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.14] - 2026-06-30 - Reports preview-first UI cleanup
+
+**Codex:** Updated the Reports catalogue UI so report rows now select/preview the report instead of offering immediate per-row exports. Moved Print and Download into the selected report preview panel, labeled that area explicitly as the selected report preview, and widened the catalogue/preview layout so large reports such as Monthly Inventory get the broad pane with a readable horizontally scrollable table instead of being squeezed in the narrow column.
+
+**Verification:** `npx tsc --noEmit` passed. `npm run build` passed with existing dynamic-import and large-chunk warnings.
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.13] - 2026-06-30 - Route inventory dashboards through API totals
 
 **Codex:** Continued the logic-layer cleanup after the Monthly Inventory screenshot showed stale frontend calculations. `/api/inventory` and inventory history now return backend-owned metadata for item count, reorder count, opening/received/pulled/closing values, and category totals. The main dashboard now uses those API metadata totals for KPI cards and category bars instead of recomputing totals in React. Archives now use history metadata totals, and Reports now use inventory metadata for official money summaries instead of local price math fallbacks.

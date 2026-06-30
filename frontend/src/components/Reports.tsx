@@ -713,16 +713,6 @@ export function Reports({
               label: String(y),
             }))}
           />
-          {tab === 'catalogue' && (
-            <>
-              <button className="btn" onClick={() => printOne(active)}>
-                {I.printer()} Print
-              </button>
-              <button className="btn primary" onClick={() => downloadOne(active)}>
-                {I.download()} Download CSV
-              </button>
-            </>
-          )}
         </div>
       </div>
 
@@ -756,7 +746,7 @@ export function Reports({
       {tab === 'templates' ? (
         <TemplatesPanel />
       ) : (
-        <div className="grid-2">
+        <div className="reports-workspace">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {groups.map((g) => {
               const items = availableReports.filter((r) => r.group === g);
@@ -793,28 +783,16 @@ export function Reports({
                             <button
                               className="btn"
                               style={{ padding: '5px 9px' }}
-                              title="Print"
+                              title={sel === rep.id ? 'Previewing' : 'Preview report'}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                printOne(rep);
+                                setSel(rep.id);
                               }}
                             >
-                              {I.printer({
+                              {I.eye({
                                 style: { width: 14, height: 14 },
                               })}
-                            </button>
-                            <button
-                              className="btn"
-                              style={{ padding: '5px 9px' }}
-                              title="Download CSV"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                downloadOne(rep);
-                              }}
-                            >
-                              {I.download({
-                                style: { width: 14, height: 14 },
-                              })}
+                              <span>{sel === rep.id ? 'Previewing' : 'Preview'}</span>
                             </button>
                           </div>
                         </div>
@@ -826,12 +804,23 @@ export function Reports({
             })}
           </div>
 
-          <div className="card" style={{ height: 'fit-content' }}>
-            <div className="card-head">
-              <h3>{active.name}</h3>
-              <span className="ch-link">
-                {rows.length} record{rows.length !== 1 ? 's' : ''}
-              </span>
+          <div className="card report-preview-card">
+            <div className="card-head report-preview-head">
+              <div className="report-preview-title">
+                <span className="tpl-tag">Selected report preview</span>
+                <h3>{active.name}</h3>
+                <div className="rr-meta">
+                  {active.period} · {rows.length} record{rows.length !== 1 ? 's' : ''}
+                </div>
+              </div>
+              <div className="report-preview-actions">
+                <button className="btn" onClick={() => printOne(active)}>
+                  {I.printer()} Print
+                </button>
+                <button className="btn primary" onClick={() => downloadOne(active)}>
+                  {I.download()} Download current CSV
+                </button>
+              </div>
             </div>
             {showInventoryStats && (
               <div className="report-kpi-grid">
@@ -872,8 +861,7 @@ export function Reports({
               </div>
             ) : (
               <div
-                className="card-body flush tbl-wrap"
-                style={{ maxHeight: 520, overflowY: 'auto' }}
+                className="card-body flush tbl-wrap report-preview-table"
               >
                 <table className={showInventoryStats ? 'data sheet report-sheet' : 'data'}>
                   <thead>

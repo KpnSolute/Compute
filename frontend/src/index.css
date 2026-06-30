@@ -988,6 +988,15 @@ table.data.logtbl td{padding:6px 10px}
 .rr-name{font-size:12.5px;font-weight:700}
 .rr-meta{font-size:11px;color:var(--faint);margin-top:2px}
 .rr-actions{display:flex;gap:6px;flex-shrink:0}
+.reports-workspace{display:grid;grid-template-columns:minmax(260px,340px) minmax(0,1fr);gap:16px;margin-bottom:16px;align-items:start}
+.reports-workspace>*{min-width:0}
+.report-preview-card{height:fit-content;min-width:0}
+.report-preview-head{align-items:flex-start}
+.report-preview-title{display:flex;flex-direction:column;gap:4px;min-width:0}
+.report-preview-title h3{margin:0;white-space:normal}
+.report-preview-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.report-preview-table{max-height:640px;overflow:auto}
+.report-preview-table table.data th,.report-preview-table table.data td{white-space:nowrap}
 .report-period-select{position:relative;flex:0 0 auto}
 .report-period-btn{
   height:32px;min-width:90px;display:inline-flex;align-items:center;justify-content:space-between;gap:10px;
@@ -1024,6 +1033,14 @@ table.data.logtbl td{padding:6px 10px}
 .pull-kpi-card[data-tone="accent"] .pull-kpi-value{color:var(--accent)}
 .report-kpi-card[data-tone="danger"] .report-kpi-value{color:var(--red)}
 .report-sheet{min-width:1180px}
+@media(max-width:1180px){
+  .reports-workspace{grid-template-columns:1fr}
+}
+@media(max-width:640px){
+  .report-preview-head{flex-direction:column!important;align-items:stretch!important}
+  .report-preview-actions{justify-content:stretch}
+  .report-preview-actions .btn{flex:1;justify-content:center}
+}
 .pull-period-actions{gap:8px;display:flex;align-items:center;flex-wrap:wrap}
 .pull-filter-bar{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
 .pull-filter-bar .field{max-width:300px;padding:7px 10px;font-size:13px}
