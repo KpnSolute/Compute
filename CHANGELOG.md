@@ -4,6 +4,15 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.18] - 2026-06-30 - Live June Week 2 invoice metadata backfill
+
+**Codex:** Backfilled live Supabase `monthly_snapshots` for June 2026 after the local workbook was updated with the Multi-Flow beverage invoice. Updated Week 2 invoice total from `$6,647.03` to `$8,912.33` and total invoice value to `$30,744.57`; added the Week 2 source note for Multi-Flow invoice `#883581` dated `06/15/2026`, product lines `$2,265.30`, with `$5.00` fuel surcharge excluded.
+
+**Verification:** Confirmed June snapshot now reports W1 `$19,735.19`, W2 `$8,912.33`, W3 `$2,097.05`, invoice total `$30,744.57`. Confirmed `monthly_inventory` stayed unchanged at 291 rows and received value `$30,744.57`.
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.17] - 2026-06-30 - June workbook Week 2 beverage invoice attached
 
 **Codex:** Updated local workbook `C:\Users\ogdev\JobCorp\June 2026\June Published Inventory.xlsx` after checking the photo of Multi-Flow invoice `#883581` dated `06/15/2026`. The beverage item quantities were already present in `Inventory!Received Wk2`, so no item quantities were duplicated. Updated `Review!B15` from `$6,647.03` to `$8,912.33` by adding the Multi-Flow beverage product lines `$2,265.30`; the `$5.00` fuel surcharge remains excluded per the product-value invoice reporting rule. Updated `Review!G15` with the combined US Foods + Multi-Flow source note.
