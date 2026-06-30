@@ -4,6 +4,17 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.9] — 2026-06-30 — Manager pull sheet UI route + source-control staging
+
+**Codex:** Implemented the frontend path for the manager weekly pull sheet. Added Pull Sheet as a manager-only route/quick action, kept the Inventory shortcut manager-only, and wired the page to the selected inventory period through the production-backed API client. PullSheet now displays existing W1-W3 pulled quantities from live inventory, uses derived closing availability, stages richer item context, and marks the staged issued week as a Source Control overwrite/replacement scope so merge applies the sheet as the weekly source of truth instead of appending duplicate pulls.
+
+**Fixes:** Corrected remaining frontend `wNi` issued-column drift to the real `wNp` contract in Monthly Inventory totals, compact inventory staging, and Item Inspector seeding. Source Control now labels weekly staged rows as weekly inventory rather than only weekly invoices.
+
+**Verification:** `npm run lint` passed with the existing warning backlog (0 errors / 592 warnings). `npx tsc --noEmit` passed. `npm run build` passed with the existing large chunk/dynamic-import warnings. `git diff --check` passed with Windows LF-to-CRLF notices only.
+**Push:** pending — branch commit ready.
+
+---
+
 ## [v4.26.8] — 2026-06-29 — June reset after deployed parser/rollover fix
 
 **Codex:** Confirmed Render backend is live on `a43ee65`, then reset live June 2026 again for a clean user reupload test. Deleted June `monthly_inventory`, `inventory_transactions`, `monthly_snapshots`, and `inventory_audit_log` rows after the corrected parser/mapper/dispatch logic deployed. Left May data, catalog data, merged source-control history, and the open June `month_status` row intact.

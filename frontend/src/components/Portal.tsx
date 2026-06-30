@@ -443,7 +443,7 @@ function ActivityBar({
                     {I.grid({})}
                 </button>
                 <button
-                    className={"ab-btn" + (inGroup(["inventory", "moninv"]) ? " active" : "")}
+                    className={"ab-btn" + (inGroup(["inventory", "moninv", "pullsheet"]) ? " active" : "")}
                     onClick={() => goTo("inventory")}
                     title="Inventory"
                 >
@@ -855,6 +855,7 @@ function Dashboard({
             min: 20,
         },
         { label: "Monthly inventory", icon: "fileText", to: "moninv", min: 20 },
+        { label: "Pull sheet", icon: "clipboard", to: "pullsheet", min: 30 },
     ].filter((q) => lvl >= q.min);
 
     return (
@@ -1484,7 +1485,7 @@ function InventoryView({
                 // Invoice mode: stage BOTH directions independently when they have edits.
                 // Each direction that has any edits gets its own inventory_week_update op.
                 const rcvKey = `w${compactWeek}r` as WeeklyField;
-                const issKey = `w${compactWeek}i` as WeeklyField;
+                const issKey = `w${compactWeek}p` as WeeklyField;
 
                 const rcvItems = dirty
                     .filter((r: any) => wkDraft[String(r.sku || "")]?.[rcvKey] !== undefined)
@@ -1856,7 +1857,7 @@ function InventoryView({
                     <button className="btn no-print" onClick={onSync}>
                         {I.refresh()} Refresh
                     </button>
-                    {lvl >= 20 && onPullSheet && (
+                    {lvl >= 30 && onPullSheet && (
                         <button className="btn" onClick={onPullSheet}>
                             {I.clipboard()} Pull Sheet
                         </button>
@@ -4656,6 +4657,18 @@ export function Portal({
         if (active === "snackbar") return <SnackBar user={user} />;
         if (active === "moninv")
             return <MonthlyInventory user={user} period={period} openSC={() => setScPanelOpen(true)} go={goTo} />;
+        if (active === "pullsheet")
+            return (
+                <PullSheet
+                    user={user}
+                    initialMonth={period[0] + 1}
+                    initialYear={period[1]}
+                    onStagingDone={() => {
+                        setScPanelOpen(true);
+                        goTo('sourcectrl');
+                    }}
+                />
+            );
         if (active === "reports")
             return <Reports user={user} period={period} />;
         if (active === "dataentry") return <DataEntry user={user} onNavigate={goTo} />;

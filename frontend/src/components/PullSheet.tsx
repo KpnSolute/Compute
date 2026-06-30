@@ -3,6 +3,7 @@ import { I } from '../lib/icons';
 import { type User, ROLE_LEVEL, MONTHS } from '../lib/constants';
 import { api } from '../lib/api';
 import { useEscapeClose } from '../lib/useEscapeClose';
+import { itemTotals } from '../lib/inventoryFormulas';
 
 const t = (msg: string) => (window as any).toast?.(msg);
 
@@ -15,6 +16,10 @@ const pcat = (it: any) => String(it.category || it.cat || it.category_name || 'U
 const pdesc = (it: any) => String(it.desc || it.description || it.name || it.sku || '');
 const punit = (it: any) => String(it.unit || it.uom || it.unit_of_measure || '-');
 const ppar = (it: any) => pnum(it.par ?? it.par_level ?? it.parLevel);
+const pprice = (it: any) => pnum(it.price ?? it.unit_price ?? it.unitPrice);
+const pavailable = (it: any) => typeof it.closingQty === 'number'
+  ? it.closingQty
+  : itemTotals(it).ending;
 
 function PullSheetSelect<T extends number | string>({
   value,
@@ -98,7 +103,7 @@ const DEFAULT_WEEK = Math.min(Math.ceil(now.getDate() / 7), 3);
 
 export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: PullSheetProps) {
   const lvl = ROLE_LEVEL[user.role];
-  const canStage = lvl >= 10;
+  const canStage = lvl >= 30;
 
   const [month, setMonth] = useState(initialMonth ?? DEFAULT_MONTH);
   const [year, setYear] = useState(initialYear ?? DEFAULT_YEAR);
@@ -119,6 +124,14 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
 
   // Draft key based on period+week
   const draftKey = `mjcc_pull_${year}_${month}_w${week}`;
+
+  useEffect(() => {
+    if (initialMonth) setMonth(initialMonth);
+  }, [initialMonth]);
+
+  useEffect(() => {
+    if (initialYear) setYear(initialYear);
+  }, [initialYear]);
 
   // Load inventory for selected month/year
   const load = useCallback(async () => {
@@ -166,6 +179,12 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
     setQtys(prev => ({ ...prev, [sku]: Math.max(0, val) }));
   };
 
+  const existingWeekQty = useCallback((it: any) => pnum(it[`w${week}p`]), [week]);
+  const pullQtyFor = useCallback((it: any) => {
+    const sku = String(it.sku || '');
+    return Object.prototype.hasOwnProperty.call(qtys, sku) ? qtys[sku] || 0 : existingWeekQty(it);
+  }, [existingWeekQty, qtys]);
+
   const categories = useMemo(() => {
     const names = items
       .map(pcat)
@@ -179,8 +198,8 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
     return items.filter(it => {
       const itemCat = pcat(it);
       if (cat && itemCat !== cat) return false;
-      const hasDraft = (qtys[it.sku] || 0) > 0;
-      if (!showAll && (it.on_hand ?? it.onHand ?? 0) <= 0 && !hasDraft) return false;
+      const hasPull = pullQtyFor(it) > 0;
+      if (!showAll && pavailable(it) <= 0 && !hasPull) return false;
       if (lq) {
         const sku = String(it.sku || '').toLowerCase();
         const desc = pdesc(it).toLowerCase();
@@ -190,24 +209,45 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
       }
       return true;
     });
-  }, [items, qtys, showAll, q, cat]);
+  }, [items, pullQtyFor, showAll, q, cat]);
 
   // Pulled items (qty > 0)
   const pulledItems = useMemo(() =>
     items
-      .filter(it => (qtys[it.sku] || 0) > 0)
+      .filter(it => pullQtyFor(it) > 0)
       .map(it => ({
         sku: String(it.sku),
         desc: pdesc(it),
-        qty: qtys[it.sku] || 0,
-        price: Number(it.price || 0),
-        value: (qtys[it.sku] || 0) * Number(it.price || 0),
+        qty: pullQtyFor(it),
+        price: pprice(it),
+        category: pcat(it),
+        unit: punit(it),
+        value: pullQtyFor(it) * pprice(it),
       })),
-    [items, qtys]
+    [items, pullQtyFor]
+  );
+
+  const stagedItems = useMemo(() =>
+    items
+      .filter(it => {
+        const sku = String(it.sku || '');
+        return pullQtyFor(it) > 0 || Object.prototype.hasOwnProperty.call(qtys, sku);
+      })
+      .map(it => ({
+        sku: String(it.sku),
+        desc: pdesc(it),
+        qty: pullQtyFor(it),
+        price: pprice(it),
+        category: pcat(it),
+        unit: punit(it),
+        value: pullQtyFor(it) * pprice(it),
+      })),
+    [items, pullQtyFor, qtys]
   );
 
   const totalValue = pulledItems.reduce((s, i) => s + i.value, 0);
   const anyPulled = pulledItems.length > 0;
+  const anyStaged = stagedItems.length > 0;
   const filteredGroups = useMemo(() => {
     const groups = new Map<string, any[]>();
     filtered.forEach((it) => {
@@ -217,7 +257,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
     return [...groups.entries()].map(([name, rows]) => ({ name, rows }));
   }, [filtered]);
   const pullStats = useMemo(() => {
-    const availableUnits = filtered.reduce((s, it) => s + pnum(it.on_hand ?? it.onHand), 0);
+    const availableUnits = filtered.reduce((s, it) => s + pavailable(it), 0);
     return [
       { label: 'Visible Items', value: filtered.length.toLocaleString(), icon: I.box },
       { label: 'Categories', value: filteredGroups.length.toLocaleString(), icon: I.archive },
@@ -234,20 +274,28 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
 
   async function confirmPull() {
     if (!canStage) { t('Insufficient permissions'); return; }
+    if (!stagedItems.length) { t('Enter or clear at least one pull quantity before staging.'); return; }
     setStaging(true);
     try {
       await api.stageWeeklyPull({
         month,
         year,
         week,
-        items: pulledItems.map(i => ({ sku: i.sku, desc: i.desc, qty: i.qty, price: i.price })),
+        items: stagedItems.map(i => ({
+          sku: i.sku,
+          desc: i.desc,
+          qty: i.qty,
+          price: i.price,
+          category: i.category,
+          unit: i.unit,
+        })),
         note: `Pull sheet W${week} · ${MONTHS[month - 1]} ${year}`,
       });
       // Clear draft
       localStorage.removeItem(draftKey);
       setQtys({});
       setShowConfirm(false);
-      t(`Pull sheet staged — ${pulledItems.length} item${pulledItems.length !== 1 ? 's' : ''}, ${fmt(totalValue)} total.`);
+      t(`Pull sheet staged - ${stagedItems.length} item${stagedItems.length !== 1 ? 's' : ''}, ${fmt(totalValue)} total.`);
       window.dispatchEvent(new CustomEvent('mjcc:committed'));
       window.dispatchEvent(new CustomEvent('mjcc:staging-changed'));
       onStagingDone?.();
@@ -265,12 +313,12 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
   const weekOpts = [1, 2, 3].map(w => ({ value: w, label: `Week ${w}` }));
 
   return (
-    <div className="fade-in" style={{ paddingBottom: anyPulled ? 72 : 0 }}>
+    <div className="fade-in" style={{ paddingBottom: anyStaged ? 72 : 0 }}>
       {/* Page head */}
       <div className="page-head">
         <div>
           <h2>Pull Sheet</h2>
-          <div className="ph-sub">Record weekly inventory pulls (issued quantities)</div>
+          <div className="ph-sub">Manager weekly pulls · stages to Source Control before live inventory changes</div>
         </div>
         <div className="ph-actions pull-period-actions">
           {/* Period selectors */}
@@ -396,12 +444,13 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
                     {group.rows.map(it => {
                       const sku = String(it.sku);
                       const desc = pdesc(it);
-                      const price = Number(it.price || 0);
-                      const onHand = Number(it.on_hand ?? it.onHand ?? 0);
+                      const price = pprice(it);
+                      const onHand = pavailable(it);
                       const par = ppar(it);
-                      const qty = qtys[sku] || 0;
+                      const qty = pullQtyFor(it);
                       const rowValue = qty * price;
-                      const isDirty = qty > 0;
+                      const isEdited = Object.prototype.hasOwnProperty.call(qtys, sku);
+                      const isDirty = qty > 0 || isEdited;
                       const status = onHand <= 0 ? 'Out' : par > 0 && onHand <= par ? 'Low' : 'OK';
                   return (
                     <tr key={`${group.name}-${sku}`} style={isDirty ? { background: 'var(--accent-soft)' } : undefined}>
@@ -447,8 +496,8 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
         </div>
       )}
 
-      {/* Fixed bottom toolbar — appears when any qty > 0 */}
-      {anyPulled && (
+      {/* Fixed bottom toolbar - appears when any pull quantity is staged or cleared */}
+      {anyStaged && (
         <div style={{
           position: 'fixed',
           bottom: 0,
@@ -464,7 +513,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
           boxShadow: '0 -2px 12px rgba(15,27,51,.08)',
         }}>
           <span style={{ fontSize: 13, color: 'var(--muted)', marginRight: 'auto' }}>
-            {pulledItems.length} item{pulledItems.length !== 1 ? 's' : ''} · {fmt(totalValue)} total value
+            {stagedItems.length} item{stagedItems.length !== 1 ? 's' : ''} · {fmt(totalValue)} total value · replaces W{week} issued on merge
           </span>
           <button className="btn" onClick={saveDraft}>
             {I.check({ style: { width: 14, height: 14 } })} Save Draft
@@ -487,10 +536,10 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
             </div>
             <div className="modal-body" style={{ padding: '16px 20px' }}>
               <div style={{ marginBottom: 14, fontSize: 13, color: 'var(--muted)' }}>
-                The following items will be staged as issued for Week {week}:
+                The following items will replace Week {week} issued quantities when Source Control merges:
               </div>
               <div style={{ maxHeight: 260, overflowY: 'auto', marginBottom: 14 }}>
-                {pulledItems.map(it => (
+                {stagedItems.map(it => (
                   <div key={it.sku} style={{
                     display: 'flex',
                     justifyContent: 'space-between',

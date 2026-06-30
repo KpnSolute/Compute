@@ -59,6 +59,7 @@ export const NAV = [
     items: [
       { key: 'inventory', label: 'Inventory', icon: 'box', min: 10 },
       { key: 'moninv', label: 'Monthly Inventory', icon: 'fileText', min: 20 },
+      { key: 'pullsheet', label: 'Pull Sheet', icon: 'clipboard', min: 30 },
       { key: 'mballot', label: 'Meal Log', icon: 'users', min: 10 },
       { key: 'foodreq', label: 'Food Request', icon: 'inbox', min: 10 },
       { key: 'dataentry', label: 'Data Entry', icon: 'inbox', min: 20 },

@@ -51,7 +51,7 @@ function SCPushButton() {
 
 const OP_LABEL: Record<string, string> = {
     inventory_save: "Inventory",
-    inventory_week_update: "Weekly invoice",
+    inventory_week_update: "Weekly inventory",
     item_create: "New item",
     item_update: "Item edit",
     item_delete: "Item delete",

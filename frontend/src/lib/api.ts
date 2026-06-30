@@ -299,7 +299,7 @@ export const api = {
     month: number;
     year: number;
     week: number;
-    items: Array<{ sku: string; desc: string; qty: number; price: number }>;
+    items: Array<{ sku: string; desc: string; qty: number; price: number; category?: string; unit?: string }>;
     note?: string;
   }): Promise<any> {
     const itemCount = body.items.length;
@@ -317,6 +317,16 @@ export const api = {
           year: body.year,
           week: body.week,
           direction: 'issued',
+          overwrite: true,
+          overwrite_scope: {
+            kind: 'week',
+            label: `W${body.week} issued`,
+            month: body.month,
+            year: body.year,
+            week: body.week,
+            direction: 'issued',
+          },
+          review_new: true,
           items: body.items,
           notes: body.note || '',
         },

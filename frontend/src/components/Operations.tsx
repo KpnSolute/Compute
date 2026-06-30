@@ -444,7 +444,7 @@ export function MonthlyInventory({
   const pullTotals = useMemo(() =>
     Array.from({ length: maxWeeks }, (_, i) => i + 1).map((wk) => ({
       wk,
-      qty: rows.reduce((s, r) => s + (r[`w${wk}i`] || 0), 0),
+      qty: rows.reduce((s, r) => s + (r[`w${wk}p`] || 0), 0),
     })).filter((pt) => pt.qty > 0),
   [rows, maxWeeks]);
 

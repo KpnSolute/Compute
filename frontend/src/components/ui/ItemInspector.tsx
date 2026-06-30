@@ -84,7 +84,7 @@ export function ItemInspector({
 
     const seed = useCallback(() => {
         setRcv((row as any)[`w${week}r`] || 0);
-        setIss((row as any)[`w${week}i`] || 0);
+        setIss((row as any)[`w${week}p`] || 0);
         setOnHand(row.onHand || 0);
         setPar(row.par || 0);
         setPrice(row.price || 0);
