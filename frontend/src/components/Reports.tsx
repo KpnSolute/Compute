@@ -5,14 +5,22 @@ import { api } from '../lib/api';
 import { itemTotals } from '../lib/inventoryFormulas';
 import { TemplatesPanel } from './Templates';
 
-function toCSV(columns: { label: string; key?: string; get?: (r: any) => any }[], rows: any[]) {
-  const esc = (v: any) => {
-    v = v == null ? '' : String(v);
-    return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
-  };
-  const head = columns.map((c) => esc(c.label)).join(',');
+type ReportColumn = { label: string; key?: string; get?: (r: any) => any };
+type ReviewSection = { title: string; columns: string[]; rows: any[][] };
+
+function csvEscape(v: any) {
+  v = v == null ? '' : String(v);
+  return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+}
+
+function rowsToCSV(rows: any[][]) {
+  return rows.map((row) => row.map(csvEscape).join(',')).join('\n');
+}
+
+function toCSV(columns: ReportColumn[], rows: any[]) {
+  const head = columns.map((c) => csvEscape(c.label)).join(',');
   const body = rows
-    .map((r) => columns.map((c) => esc(typeof c.get === 'function' ? c.get(r) : r[c.key!])).join(','))
+    .map((r) => columns.map((c) => csvEscape(typeof c.get === 'function' ? c.get(r) : r[c.key!])).join(','))
     .join('\n');
   return head + '\n' + body;
 }
@@ -59,6 +67,7 @@ const itemReceivedValue = (it: any) => num(it.receivedValue ?? it.received_value
 const itemPulledValue = (it: any) => num(it.pulledValue ?? it.pulled_value);
 const itemEndingValue = (it: any) => num(it.endingValue ?? it.ending_value ?? it.value);
 const fmtMoney = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtNumber = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 2 });
 const paidMealLogTypes = new Set(MEAL_LOG_TYPES.filter((type) => type.paid).map((type) => type.key));
 
 function weeklyInvoiceSchedule(metadata: any) {
@@ -84,6 +93,151 @@ function metadataMoneyTotals(metadata: any) {
     pulled: num(metadata?.pulled_value),
     closing: num(metadata?.closing_value),
   };
+}
+
+function csvValue(v: number, money = false) {
+  return money ? Number(v.toFixed(2)) : Number.isInteger(v) ? v : Number(v.toFixed(2));
+}
+
+function categorySummaryRows(rows: any[]) {
+  const order = ['Dairy', 'Cereal', 'Beverages', 'Snacks', 'Meats', 'Frozen Food', 'Dry Goods', 'Produce', 'Disposables'];
+  const seen = new Set(order);
+  rows.forEach((row) => {
+    const cat = itemCat(row);
+    if (!seen.has(cat)) {
+      seen.add(cat);
+      order.push(cat);
+    }
+  });
+  return order
+    .map((cat) => {
+      const catRows = rows.filter((row) => itemCat(row) === cat);
+      return [
+        cat,
+        catRows.length,
+        catRows.reduce((s, r) => s + num(r.opening), 0),
+        catRows.reduce((s, r) => s + num(r.totalRcv), 0),
+        catRows.reduce((s, r) => s + num(r.totalIss), 0),
+        catRows.reduce((s, r) => s + num(r.closing), 0),
+        csvValue(catRows.reduce((s, r) => s + itemOpeningValue(r), 0), true),
+        csvValue(catRows.reduce((s, r) => s + itemReceivedValue(r), 0), true),
+        csvValue(catRows.reduce((s, r) => s + itemPulledValue(r), 0), true),
+        csvValue(catRows.reduce((s, r) => s + itemEndingValue(r), 0), true),
+      ];
+    })
+    .filter((row) => Number(row[1]) > 0);
+}
+
+function buildMonthlyReviewSections(periodLabel: string, rows: any[], metadata: any): ReviewSection[] {
+  const metaTotals = metadataMoneyTotals(metadata);
+  const invoiceSchedule = weeklyInvoiceSchedule(metadata);
+  const openingQty = rows.reduce((s, r) => s + num(r.opening), 0);
+  const receivedQty = rows.reduce((s, r) => s + num(r.totalRcv), 0);
+  const pulledQty = rows.reduce((s, r) => s + num(r.totalIss), 0);
+  const endingQty = rows.reduce((s, r) => s + num(r.closing), 0);
+  const tempItems = rows.filter((r) => String(r.sku || '').toUpperCase().startsWith('TEMP')).length;
+  const invoiceTotal = invoiceSchedule?.total ?? 0;
+  const categoryRows = categorySummaryRows(rows);
+  const categoryTotal = [
+    'TOTAL',
+    categoryRows.reduce((s, r) => s + num(r[1]), 0),
+    categoryRows.reduce((s, r) => s + num(r[2]), 0),
+    categoryRows.reduce((s, r) => s + num(r[3]), 0),
+    categoryRows.reduce((s, r) => s + num(r[4]), 0),
+    categoryRows.reduce((s, r) => s + num(r[5]), 0),
+    csvValue(categoryRows.reduce((s, r) => s + num(r[6]), 0), true),
+    csvValue(categoryRows.reduce((s, r) => s + num(r[7]), 0), true),
+    csvValue(categoryRows.reduce((s, r) => s + num(r[8]), 0), true),
+    csvValue(categoryRows.reduce((s, r) => s + num(r[9]), 0), true),
+  ];
+
+  return [
+    {
+      title: `${periodLabel} Inventory Review`,
+      columns: ['Quantity Control', 'Verified Total', '', 'Financial Control', 'Verified Amount'],
+      rows: [
+        ['Inventory Items', rows.length, '', 'Opening Inventory Value', csvValue(metaTotals.opening, true)],
+        ['Invoice SKUs', rows.length - tempItems, '', 'Product Receipt Value', csvValue(num(metadata?.received_value), true)],
+        ['Opening/Temp Items', tempItems, '', 'Net Invoice / Receipt Value', csvValue(num(metadata?.received_value), true)],
+        ['Opening OH', openingQty, '', 'Credits & Surcharge Net', 0],
+        ['Total Received', receivedQty, '', 'Ending Inventory Value', csvValue(metaTotals.closing, true)],
+        ['Total Pulled', pulledQty, '', 'Inventory Flow Value', csvValue(metaTotals.pulled, true)],
+        ['Ending OH', endingQty, '', 'Ending Difference Check', csvValue(metaTotals.opening + num(metadata?.received_value) - metaTotals.closing - metaTotals.pulled, true)],
+        ['Negative Ending Rows', rows.filter((r) => num(r.closing) < 0).length, '', '', ''],
+      ],
+    },
+    {
+      title: 'Weekly Invoice Totals (Product Value, Excl. Tax)',
+      columns: ['Metric', 'Verified Amount', 'Source'],
+      rows: [
+        ['Week 1 Invoice Total', csvValue(invoiceSchedule?.weeks.find((w) => w.week === 1)?.value ?? 0, true), invoiceSchedule?.source || ''],
+        ['Week 2 Invoice Total', csvValue(invoiceSchedule?.weeks.find((w) => w.week === 2)?.value ?? 0, true), invoiceSchedule?.source || ''],
+        ['Week 3 Invoice Total', csvValue(invoiceSchedule?.weeks.find((w) => w.week === 3)?.value ?? 0, true), invoiceSchedule?.source || ''],
+        ['Total Invoice Value (Wk1+Wk2+Wk3)', csvValue(invoiceTotal, true), ''],
+        ['Variance vs. Catalog-Priced Receipt Value', csvValue(num(metadata?.received_value) - invoiceTotal, true), 'Product Receipt Value minus invoice total'],
+      ],
+    },
+    {
+      title: 'Category Summary',
+      columns: ['Category', 'Items', 'Opening OH', 'Received', 'Pulled', 'Ending OH', 'Opening Value', 'Received Value', 'Inventory Flow Value', 'Ending Value'],
+      rows: [...categoryRows, categoryTotal],
+    },
+    {
+      title: 'Review Detail',
+      columns: ['Category', 'SKU', 'Description', 'Opening OH', 'Opening Unit Cost', 'Opening Value', 'Total Received', 'Received Value', 'Total Pulled', 'Ending OH', 'Ending Value', 'Inventory Flow Value', 'Status'],
+      rows: rows.map((r) => [
+        itemCat(r),
+        r.sku || '',
+        itemDesc(r),
+        num(r.opening),
+        csvValue(num(r.openingUnitCost ?? r.opening_unit_cost ?? itemPrice(r)), true),
+        csvValue(itemOpeningValue(r), true),
+        num(r.totalRcv),
+        csvValue(itemReceivedValue(r), true),
+        num(r.totalIss),
+        num(r.closing),
+        csvValue(itemEndingValue(r), true),
+        csvValue(itemPulledValue(r), true),
+        num(r.closing) < 0 ? 'NEGATIVE ENDING' : 'OK',
+      ]),
+    },
+  ];
+}
+
+function monthlyTemplateColumns(): ReportColumn[] {
+  return [
+    { key: 'category', label: 'Category' },
+    { key: 'sku', label: 'SKU' },
+    { key: 'desc', label: 'Description' },
+    { key: 'opening', label: 'Opening OH' },
+    { key: 'w1r', label: 'Received Wk1', get: (r: any) => r.w1r || 0 },
+    { key: 'w1p', label: 'Pulled Wk1', get: (r: any) => r.w1p || 0 },
+    { key: 'w2r', label: 'Received Wk2', get: (r: any) => r.w2r || 0 },
+    { key: 'w2p', label: 'Pulled Wk2', get: (r: any) => r.w2p || 0 },
+    { key: 'w3r', label: 'Received Wk3', get: (r: any) => r.w3r || 0 },
+    { key: 'w3p', label: 'Pulled Wk3', get: (r: any) => r.w3p || 0 },
+    { key: 'totalRcv', label: 'Total Received' },
+    { key: 'totalIss', label: 'Total Pulled' },
+    { key: 'closing', label: 'Ending OH' },
+    { key: 'price', label: 'Unit Price', get: (r: any) => csvValue(itemPrice(r), true) },
+  ];
+}
+
+function buildMonthlyTemplateCSV(rep: any, rows: any[]) {
+  const sections = rep.reviewSections ? rep.reviewSections(rows) : [];
+  const parts = sections.map((section: ReviewSection) =>
+    rowsToCSV([[section.title], section.columns, ...section.rows]),
+  );
+  const inventoryColumns = rep.templateColumns || rep.columns;
+  parts.push(rowsToCSV([['Inventory'], inventoryColumns.map((c: ReportColumn) => c.label)]));
+  parts.push(toCSV(inventoryColumns, rows).split('\n').slice(1).join('\n'));
+  parts.push(rowsToCSV([
+    ['Template Notes'],
+    ['Use this export as the monthly report view of the live data.'],
+    ['The Review sections above mirror Monthly Inventory Template.xlsx controls.'],
+    ['Weekly invoice totals come from workbook Review metadata when present, not unit-price guesses.'],
+  ]));
+  return parts.filter(Boolean).join('\n\n');
 }
 
 function parseLogData(log: any) {
@@ -267,6 +421,9 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
         { key: 'value', label: 'Value', get: (r: any) => fmtMoney(itemEndingValue(r)) },
       ],
       build: () => inventoryRows,
+      exportBuild: () => moninvRows,
+      templateColumns: monthlyTemplateColumns(),
+      reviewSections: (_rows?: any[]) => buildMonthlyReviewSections(periodLbl, moninvRows, inventoryMeta),
     },
     {
       id: 'moninv',
@@ -293,6 +450,9 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
         { key: 'value', label: 'Ending Value', get: (r: any) => fmtMoney(r.value || 0) },
       ],
       build: () => moninvRows,
+      exportBuild: () => moninvRows,
+      templateColumns: monthlyTemplateColumns(),
+      reviewSections: (_rows?: any[]) => buildMonthlyReviewSections(periodLbl, moninvRows, inventoryMeta),
       summary: (_rows: any[]) => {
         const metaTotals = metadataMoneyTotals(inventoryMeta);
         const summary = [
@@ -568,8 +728,11 @@ export function Reports({
 
   const active = availableReports.find((r) => r.id === sel) || availableReports[0];
   const rows = active?.build() || [];
+  const activeReviewSections = active?.reviewSections
+    ? active.reviewSections(active.exportBuild ? active.exportBuild() : rows)
+    : null;
   const showInventoryStats = rows.length > 0 && ['inventory', 'moninv'].includes(active?.id);
-  const reportStats = useMemo(() => {
+  const reportStats = (() => {
     const receivedUnits = rows.reduce((s: number, r: any) => {
       if (r.totalRcv != null || r.totalReceived != null) return s + num(r.totalRcv ?? r.totalReceived);
       return s + num(r.w1r) + num(r.w2r) + num(r.w3r);
@@ -589,7 +752,7 @@ export function Reports({
       { label: 'Ending Value', value: fmtMoney(endingValue), icon: I.dollar, tone: 'accent' },
       { label: 'Reorder Needed', value: reorderNeeded.toLocaleString(), icon: I.alert, tone: reorderNeeded > 0 ? 'danger' : 'muted' },
     ];
-  }, [rows, inventoryMeta]);
+  })();
 
   const groups = canSeeAllReports ? ['Inventory', 'Compliance', 'Programs'] : ['Inventory'];
   const fileName = (rep: any) => {
@@ -598,7 +761,11 @@ export function Reports({
   };
 
   function downloadOne(rep: any) {
-    const data = rep.build();
+    const data = rep.exportBuild ? rep.exportBuild() : rep.build();
+    if (rep.reviewSections || rep.templateColumns) {
+      downloadCSV(fileName(rep), buildMonthlyTemplateCSV(rep, data));
+      return;
+    }
     let csv = toCSV(rep.columns, data);
     if (rep.summary) {
       const summary = rep.summary(data);
@@ -646,6 +813,26 @@ export function Reports({
           ).join('</tr><tr>') +
           '</tr></table></div>'
       : '';
+    const reviewSections = rep.reviewSections ? rep.reviewSections(rep.exportBuild ? rep.exportBuild() : data) : null;
+    const reviewHtml = reviewSections
+      ? '<div style="margin:14px 0 18px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">' +
+          reviewSections.slice(0, 3).map((section: ReviewSection) => {
+            const head = section.columns
+              .map((label) => '<th style="background:#E2E8F0;color:#0E2148">' + htmlEscape(label) + '</th>')
+              .join('');
+            const body = section.rows
+              .map((row) => '<tr>' + row.map((cell) => '<td>' + htmlEscape(cell) + '</td>').join('') + '</tr>')
+              .join('');
+            return '<div style="break-inside:avoid"><h2 style="font-size:12px;margin:0 0 4px;color:#0E2148">' +
+              htmlEscape(section.title) +
+              '</h2><table><thead><tr>' +
+              head +
+              '</tr></thead><tbody>' +
+              body +
+              '</tbody></table></div>';
+          }).join('') +
+          '</div>'
+      : '';
 
     const w = window.open('', '_blank');
     if (!w) return;
@@ -660,7 +847,9 @@ export function Reports({
         data.length +
         ' records · generated ' +
         htmlEscape(new Date().toLocaleString()) +
-        '</div><table><thead><tr>' +
+        '</div>' +
+        reviewHtml +
+        '<table><thead><tr>' +
         th +
         '</tr></thead><tbody>' +
         tr +
@@ -836,6 +1025,35 @@ export function Reports({
                     </div>
                   );
                 })}
+              </div>
+            )}
+            {activeReviewSections && (
+              <div className="report-review-preview">
+                {activeReviewSections.slice(0, 3).map((section: ReviewSection) => (
+                  <div className="report-review-section" key={section.title}>
+                    <div className="report-review-title">{section.title}</div>
+                    <div className="tbl-wrap">
+                      <table className="data mini">
+                        <thead>
+                          <tr>
+                            {section.columns.map((column, idx) => (
+                              <th key={`${column}-${idx}`}>{column}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {section.rows.map((row, idx) => (
+                            <tr key={idx}>
+                              {row.map((cell, cellIdx) => (
+                                <td key={cellIdx}>{typeof cell === 'number' && cellIdx > 0 ? fmtNumber(cell) : cell}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
             {rows.length === 0 ? (

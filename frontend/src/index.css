@@ -997,6 +997,13 @@ table.data.logtbl td{padding:6px 10px}
 .report-preview-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 .report-preview-table{max-height:640px;overflow:auto}
 .report-preview-table table.data th,.report-preview-table table.data td{white-space:nowrap}
+.report-review-preview{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:0 14px 14px}
+.report-review-section{min-width:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface-2)}
+.report-review-section:last-child:nth-child(odd){grid-column:1/-1}
+.report-review-title{padding:9px 10px;font-size:11px;font-weight:800;color:var(--text);text-transform:uppercase;letter-spacing:.35px;border-bottom:1px solid var(--line)}
+.report-review-section table.data{font-size:11px;min-width:520px}
+.report-review-section table.data th{font-size:9px}
+.report-review-section table.data td{padding:5px 8px}
 .report-period-select{position:relative;flex:0 0 auto}
 .report-period-btn{
   height:32px;min-width:90px;display:inline-flex;align-items:center;justify-content:space-between;gap:10px;
@@ -1035,6 +1042,7 @@ table.data.logtbl td{padding:6px 10px}
 .report-sheet{min-width:1180px}
 @media(max-width:1180px){
   .reports-workspace{grid-template-columns:1fr}
+  .report-review-preview{grid-template-columns:1fr}
 }
 @media(max-width:640px){
   .report-preview-head{flex-direction:column!important;align-items:stretch!important}

@@ -4,6 +4,15 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.16] - 2026-06-30 - Monthly report CSV exports include Review totals
+
+**Codex:** Updated Reports so Inventory Snapshot and Monthly Inventory Roll-up exports follow the standardized `Monthly Inventory Template.xlsx` structure more closely. CSV downloads now include Review-style sections for quantity controls, financial controls, workbook weekly invoice totals, category summary, review detail, and the template-shaped Inventory table before the line-item data. The report preview and print output now show the Review totals before download/print so managers can verify the monthly controls first.
+
+**Verification:** Inspected `C:\Users\ogdev\JobCorp\Monthly Inventory Template.xlsx` and matched its `Inventory` / `Review` section structure. `npm run lint -- --quiet` passed. `npx tsc --noEmit` passed. `npm run build` passed with existing dynamic-import and large-chunk warnings. `git diff --check` passed with Windows LF-to-CRLF notices only.
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.15] - 2026-06-30 - June report DB repair against workbook
 
 **Codex:** Compared live June 2026 Reports data against `C:\Users\ogdev\JobCorp\June 2026\June Published Inventory.xlsx`. The workbook parsed to 291 rows, opening value `$9,575.02`, received value `$30,744.57`, pulled/flow value `$30,814.01`, and ending value `$9,505.58`. Live Supabase still had 292 rows and ending value `$9,616.98` because stale SKU `F00480038` remained in June `monthly_inventory`; the signed flow rows `3330099` and `6358832` were already correct.
