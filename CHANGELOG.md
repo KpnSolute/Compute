@@ -4,12 +4,21 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.8] — 2026-06-29 — June reset after deployed parser/rollover fix
+
+**Codex:** Confirmed Render backend is live on `a43ee65`, then reset live June 2026 again for a clean user reupload test. Deleted June `monthly_inventory`, `inventory_transactions`, `monthly_snapshots`, and `inventory_audit_log` rows after the corrected parser/mapper/dispatch logic deployed. Left May data, catalog data, merged source-control history, and the open June `month_status` row intact.
+
+**Verification:** Before reset, live June had 292 monthly rows, 709 transaction rows, and 1 snapshot from the bad reupload. After reset: June has 0 monthly rows, 0 transaction rows, 0 snapshots, 0 audit rows, and 0 problem SKU rows for `F00480038`/`F00408038`/`3330099`/`6358832`. May remains intact with 266 monthly rows. Production `/health/ready` is operational and reports 266 monthly inventory rows total.
+**Push:** pending — not yet pushed.
+
+---
+
 ## [v4.26.7] — 2026-06-29 — Full-month workbook uploads skip convenience rollover
 
 **Codex:** Tightened the June stale-row prevention after deployment review. A clean reupload after wiping June may not require `overwrite=true`, so dispatch must treat any Data Entry full-month workbook upload (`overwrite_scope.kind='month'`) as authoritative and skip the convenience rollover pass. This prevents May-only SKUs like `F00480038` from returning even when June has no existing monthly rows at upload time.
 
 **Verification:** Updated the dispatch regression test to cover a full-month upload with `overwrite=false`. `python -m ruff check backend/` passed. `python -m pytest backend/tests -q` passed.
-**Push:** pending — not yet pushed.
+**Push:** Codex → a43ee65 — 2026-06-29.
 
 ---
 
@@ -22,7 +31,7 @@ This is the **central development memory and discussion board** for development 
 **Fix:** Mapper now allows signed `pulled_value` while keeping the other financial value fields non-negative. Dispatch now treats confirmed full-month overwrites as authoritative and skips convenience auto-rollover for that replay, preventing stale prior-month SKUs from coming back after a workbook replacement.
 
 **Verification:** `python -m ruff check backend/` passed. `python -m pytest backend/tests -q` passed (39 passed / 1 skipped). Added regression tests for June signed flow values surviving parser→mapper and full-month overwrite not re-rolling missing prior SKUs.
-**Push:** pending — not yet pushed.
+**Push:** Codex → 4d30ac1 — 2026-06-29.
 
 ---
 
