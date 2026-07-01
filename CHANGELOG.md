@@ -4,6 +4,16 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.31] - 2026-07-01 - Merged PR #1 mobile responsive enhancements
+
+**Codex:** Merged PR #1 (`agents/mobile-ui-responsive-enhancements`) into `main` by resolving conflicts against the newer portal shell. Kept the current `explorer-open` sidebar/activity-bar layout from `main`, preserved the PR's compatible mobile/browser polish (`viewport-fit=cover`, mobile web app meta tags, text-size/tap/autofill hardening, safe-area padding, modal scroll limits, and small-screen landscape optimization), and retained the newer `/health` response expectation while keeping the PR's pytest env bootstrap. Local pytest also exposed an existing `backend.inventory_identity` force-review bug unrelated to the PR; fixed it so data-entry review mode routes every new parsed item to New Items, matching the existing test contract.
+
+**Verification:** `python -m pytest tests -q` passed (8 passed / 1 Starlette deprecation warning) using the project venv. `python -m ruff check backend/inventory_identity.py` and `python -m ruff format --check backend/inventory_identity.py` passed. Frontend `npm run lint -- --quiet` and `npm run build` passed; Vite still reports the existing dynamic-import/chunk-size warnings. `git diff --check` passed.
+
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.30] - 2026-06-30 - Calendar-date rollover nudge extended to the Monthly Inventory editor
 
 **Claude:** Closed the gap from the last discussion: the auto-detecting rollover banner (`Portal.tsx::RolloverBanner`, driven by `GET /api/inventory/period-status`'s `needs_rollover`) only ever rendered on the "Inventory" page, never on "Monthly Inventory" — the actual master editor staff/managers work in day to day. Same discoverability gap the "Publish Month" button had before it was added directly to the editor (v4.26.26).
