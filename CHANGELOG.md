@@ -4,6 +4,18 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.36] - 2026-07-01 - Staff self-profile edit scope tightened
+
+**Codex:** Updated the self-service profile logic so staff can view their own profile and update only phone through `PUT /api/users/me`; staff profile-photo changes still go through the controlled `POST /api/users/me/avatar` upload endpoint. Staff can no longer self-edit identity fields such as first name, last name, job title, bio, username, email, role, or active status. Assistant/manager/admin/sudo users keep the broader self-profile detail edits, while sudo-only user management remains the path for username/login identity changes. The Settings profile panel now renders staff identity details read-only, keeps phone editable, and still allows profile-photo upload.
+
+**Tests:** Added focused backend coverage for staff phone updates, staff direct avatar URL rejection, staff identity-field rejection, and elevated self-profile edits. Extended the backend test stubs enough for the users route and existing data-entry tests to import cleanly.
+
+**Verification:** `backend/.venv/Scripts/python.exe -m pytest backend/tests -q` passed (57 passed). `backend/.venv/Scripts/python.exe -m ruff check backend/routes/users.py backend/tests/conftest.py backend/tests/test_users_self_profile.py` passed. `backend/.venv/Scripts/python.exe -m ruff format --check backend/routes/users.py backend/tests/conftest.py backend/tests/test_users_self_profile.py` passed. Frontend `npx tsc --noEmit`, `npm run lint -- --quiet`, and `npm run build` passed; build still reports the existing Vite dynamic-import/chunk-size warnings. `git diff --check` passed.
+
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.35] - 2026-07-01 - Supabase CLI verification
 
 **Codex:** Switched the Supabase follow-up to the initialized Supabase CLI per user direction. Confirmed `supabase` CLI v2.108.0 is installed and linked to `MJCCv1` (`mgvyylvmkxhhataavqjz`). Used `supabase db query --linked` to re-check the live auth hardening: `user_profiles` now has only service-role-all plus authenticated self-read policies, `app_settings` now has only service-role-all plus authenticated self-preferences-read policy, the two previously public SECURITY DEFINER functions deny `anon`/`authenticated` execute and allow `service_role`, and the `profile-avatars` bucket exists as public with 2 MB image-only limits.

@@ -265,6 +265,7 @@ function ProfileEditPanel({ user }: { user: any }) {
     const [uploadingAvatar, setUploadingAvatar] = useState(false);
     const [saved, setSaved] = useState(false);
     const [err, setErr] = useState<string | null>(null);
+    const isStaff = user.role === 'staff';
 
     useEffect(() => {
         setForm({
@@ -284,17 +285,21 @@ function ProfileEditPanel({ user }: { user: any }) {
     };
 
     const save = async () => {
-        if (!form.display_name.trim()) { setErr('Display name is required'); return; }
+        if (!isStaff && !form.display_name.trim()) { setErr('Display name is required'); return; }
         setSaving(true); setErr(null); setSaved(false);
         try {
-            const updated = await api.updateMyProfile({
-                display_name: form.display_name.trim(),
-                last_name: form.last_name.trim(),
-                phone: form.phone.trim(),
-                job_title: form.job_title.trim(),
-                bio: form.bio.trim(),
-                avatar_url: form.avatar_url.trim(),
-            });
+            const updated = await api.updateMyProfile(
+                isStaff
+                    ? { phone: form.phone.trim() }
+                    : {
+                        display_name: form.display_name.trim(),
+                        last_name: form.last_name.trim(),
+                        phone: form.phone.trim(),
+                        job_title: form.job_title.trim(),
+                        bio: form.bio.trim(),
+                        avatar_url: form.avatar_url.trim(),
+                    }
+            );
             emitProfileUpdated(updated);
             setSaved(true);
             setTimeout(() => setSaved(false), 2500);
@@ -367,40 +372,54 @@ function ProfileEditPanel({ user }: { user: any }) {
                 {err && <div className="banner warn" style={{ marginBottom: 12 }}>{I.alert()} <span>{err}</span></div>}
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    <div>
-                        <label style={LBL}>First Name *</label>
-                        <input className="sheet-inp txt" value={form.display_name} style={{ width: '100%' }} onChange={e => setForm(f => ({ ...f, display_name: e.target.value }))} />
-                    </div>
-                    <div>
-                        <label style={LBL}>Last Name</label>
-                        <input className="sheet-inp txt" value={form.last_name} style={{ width: '100%' }} onChange={e => setForm(f => ({ ...f, last_name: e.target.value }))} />
-                    </div>
-                    <div>
-                        <label style={LBL}>Job Title</label>
-                        <input className="sheet-inp txt" value={form.job_title} style={{ width: '100%' }} placeholder="e.g. Cafeteria Manager" onChange={e => setForm(f => ({ ...f, job_title: e.target.value }))} />
-                    </div>
+                    {isStaff ? (
+                        <>
+                            <AccountField label="First Name" value={user.display_name || '—'} />
+                            <AccountField label="Last Name" value={user.last_name || '—'} />
+                            <AccountField label="Job Title" value={user.job_title || '—'} />
+                        </>
+                    ) : (
+                        <>
+                            <div>
+                                <label style={LBL}>First Name *</label>
+                                <input className="sheet-inp txt" value={form.display_name} style={{ width: '100%' }} onChange={e => setForm(f => ({ ...f, display_name: e.target.value }))} />
+                            </div>
+                            <div>
+                                <label style={LBL}>Last Name</label>
+                                <input className="sheet-inp txt" value={form.last_name} style={{ width: '100%' }} onChange={e => setForm(f => ({ ...f, last_name: e.target.value }))} />
+                            </div>
+                            <div>
+                                <label style={LBL}>Job Title</label>
+                                <input className="sheet-inp txt" value={form.job_title} style={{ width: '100%' }} placeholder="e.g. Cafeteria Manager" onChange={e => setForm(f => ({ ...f, job_title: e.target.value }))} />
+                            </div>
+                        </>
+                    )}
                     <div>
                         <label style={LBL}>Phone</label>
                         <input className="sheet-inp txt" value={form.phone} style={{ width: '100%' }} placeholder="e.g. 305-555-0100" onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
                     </div>
-                    <div style={{ gridColumn: '1 / -1' }}>
-                        <label style={LBL}>Avatar URL</label>
-                        <input className="sheet-inp txt" value={form.avatar_url} style={{ width: '100%' }} placeholder="https://…" onChange={e => setForm(f => ({ ...f, avatar_url: e.target.value }))} />
-                    </div>
-                    <div style={{ gridColumn: '1 / -1' }}>
-                        <label style={{ ...LBL, display: 'flex', justifyContent: 'space-between' }}>
-                            <span>Bio</span>
-                            <span style={{ fontWeight: 400, color: form.bio.length > 450 ? 'var(--red)' : 'var(--faint)' }}>{form.bio.length}/500</span>
-                        </label>
-                        <textarea
-                            className="sheet-inp txt"
-                            value={form.bio}
-                            maxLength={500}
-                            rows={3}
-                            style={{ width: '100%', resize: 'vertical' }}
-                            onChange={e => setForm(f => ({ ...f, bio: e.target.value }))}
-                        />
-                    </div>
+                    {!isStaff && (
+                        <>
+                            <div style={{ gridColumn: '1 / -1' }}>
+                                <label style={LBL}>Avatar URL</label>
+                                <input className="sheet-inp txt" value={form.avatar_url} style={{ width: '100%' }} placeholder="https://…" onChange={e => setForm(f => ({ ...f, avatar_url: e.target.value }))} />
+                            </div>
+                            <div style={{ gridColumn: '1 / -1' }}>
+                                <label style={{ ...LBL, display: 'flex', justifyContent: 'space-between' }}>
+                                    <span>Bio</span>
+                                    <span style={{ fontWeight: 400, color: form.bio.length > 450 ? 'var(--red)' : 'var(--faint)' }}>{form.bio.length}/500</span>
+                                </label>
+                                <textarea
+                                    className="sheet-inp txt"
+                                    value={form.bio}
+                                    maxLength={500}
+                                    rows={3}
+                                    style={{ width: '100%', resize: 'vertical' }}
+                                    onChange={e => setForm(f => ({ ...f, bio: e.target.value }))}
+                                />
+                            </div>
+                        </>
+                    )}
                 </div>
 
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 14 }}>

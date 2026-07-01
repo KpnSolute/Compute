@@ -114,6 +114,44 @@ class UsersListResponse(BaseModel):
     users: list[UserResponse]
 
 
+SELF_PROFILE_FIELDS = {
+    "display_name",
+    "last_name",
+    "phone",
+    "job_title",
+    "bio",
+    "avatar_url",
+}
+STAFF_SELF_PROFILE_FIELDS = {"phone"}
+
+
+def _provided_request_fields(req: BaseModel) -> set[str]:
+    fields = getattr(req, "model_fields_set", None)
+    if fields is None:
+        fields = getattr(req, "__fields_set__", set())
+    return set(fields or set())
+
+
+def _self_profile_update_data(req: UserSelfUpdateRequest, current_user: dict) -> dict:
+    provided_fields = _provided_request_fields(req)
+    allowed_fields = SELF_PROFILE_FIELDS
+    if current_user.get("role") == "staff":
+        disallowed = sorted(provided_fields - STAFF_SELF_PROFILE_FIELDS)
+        if disallowed:
+            raise HTTPException(
+                status_code=403,
+                detail=("Staff self-service profile updates are limited to phone"),
+            )
+        allowed_fields = STAFF_SELF_PROFILE_FIELDS
+
+    update_data: dict = {}
+    for field in allowed_fields:
+        value = getattr(req, field, None)
+        if value is not None:
+            update_data[field] = value
+    return update_data
+
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -287,20 +325,8 @@ async def get_my_profile(current_user: dict = Depends(_require_any_auth)):
 async def update_my_profile(
     req: UserSelfUpdateRequest, current_user: dict = Depends(_require_any_auth)
 ):
-    """Self-service profile update — cannot change role, username, email, or active status."""
-    update_data: dict = {}
-    if req.display_name is not None:
-        update_data["display_name"] = req.display_name
-    if req.last_name is not None:
-        update_data["last_name"] = req.last_name
-    if req.phone is not None:
-        update_data["phone"] = req.phone
-    if req.job_title is not None:
-        update_data["job_title"] = req.job_title
-    if req.bio is not None:
-        update_data["bio"] = req.bio
-    if req.avatar_url is not None:
-        update_data["avatar_url"] = req.avatar_url
+    """Self-service profile update — staff can only change contact/photo fields."""
+    update_data = _self_profile_update_data(req, current_user)
 
     if not update_data:
         return UserResponse(**current_user)

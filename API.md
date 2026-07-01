@@ -208,7 +208,8 @@ Returns the current caller's full profile. Any valid active token.
 ### `PUT /api/users/me`
 Self-service profile update for any active user. Cannot change role, username, email, or active status.
 
-**Body:** `{ "display_name", "last_name", "phone", "job_title", "bio", "avatar_url" }`
+Staff users may update only contact fields through self-service: `{ "phone" }`. Staff profile photos use `POST /api/users/me/avatar`.
+Assistant/manager/admin/sudo users may also update `{ "display_name", "last_name", "job_title", "bio" }`.
 
 ### `POST /api/users/me/avatar`
 Uploads the current caller's profile image and saves `avatar_url`.
