@@ -4,7 +4,93 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
-## [v4.26.31] - 2026-07-01 - Merged PR #1 mobile responsive enhancements
+## [v4.26.37] - 2026-07-01 - Auth/user controls pushed directly to main
+
+**Codex:** Per user direction, stopped PR flow for this work and merged `origin/codex/auth-user-controls-hardening` directly into `main` from a clean worktree. Resolved the changelog conflict by preserving the auth/user-control entries and the existing PR #1 mobile merge entry. No unrelated dirty workspace files were included.
+
+**Verification:** `backend/.venv/Scripts/python.exe -m pytest backend/tests -q` passed (55 passed) in the clean main merge worktree. Ruff check/format-check passed for touched backend user/test files. Frontend `npx tsc --noEmit`, `npm run lint -- --quiet`, and `npm run build` passed; build still reports the existing Vite dynamic-import/chunk-size warnings. `git diff --check` passed.
+
+**Push:** pending - not yet pushed.
+
+---
+
+## [v4.26.36] - 2026-07-01 - Staff self-profile edit scope tightened
+
+**Codex:** Updated the self-service profile logic so staff can view their own profile and update only phone through `PUT /api/users/me`; staff profile-photo changes still go through the controlled `POST /api/users/me/avatar` upload endpoint. Staff can no longer self-edit identity fields such as first name, last name, job title, bio, username, email, role, or active status. Assistant/manager/admin/sudo users keep the broader self-profile detail edits, while sudo-only user management remains the path for username/login identity changes. The Settings profile panel now renders staff identity details read-only, keeps phone editable, and still allows profile-photo upload.
+
+**Tests:** Added focused backend coverage for staff phone updates, staff direct avatar URL rejection, staff identity-field rejection, and elevated self-profile edits. Extended the backend test stubs enough for the users route and existing data-entry tests to import cleanly.
+
+**Verification:** `backend/.venv/Scripts/python.exe -m pytest backend/tests -q` passed (57 passed). `backend/.venv/Scripts/python.exe -m ruff check backend/routes/users.py backend/tests/conftest.py backend/tests/test_users_self_profile.py` passed. `backend/.venv/Scripts/python.exe -m ruff format --check backend/routes/users.py backend/tests/conftest.py backend/tests/test_users_self_profile.py` passed. Frontend `npx tsc --noEmit`, `npm run lint -- --quiet`, and `npm run build` passed; build still reports the existing Vite dynamic-import/chunk-size warnings. `git diff --check` passed.
+
+**Push:** Codex -> 608d092 - 2026-07-01 16:07 EDT.
+
+---
+
+## [v4.26.35] - 2026-07-01 - Supabase CLI verification
+
+**Codex:** Switched the Supabase follow-up to the initialized Supabase CLI per user direction. Confirmed `supabase` CLI v2.108.0 is installed and linked to `MJCCv1` (`mgvyylvmkxhhataavqjz`). Used `supabase db query --linked` to re-check the live auth hardening: `user_profiles` now has only service-role-all plus authenticated self-read policies, `app_settings` now has only service-role-all plus authenticated self-preferences-read policy, the two previously public SECURITY DEFINER functions deny `anon`/`authenticated` execute and allow `service_role`, and the `profile-avatars` bucket exists as public with 2 MB image-only limits.
+
+**CLI migration state:** `supabase migration list --linked` works, but this checkout's `supabase/migrations` directory is incomplete relative to remote history. A dry-run `supabase db push --linked --dry-run` refused to run because many remote migration versions are missing locally; it also shows two local CLI migrations (`20260629060433`, `20260629120817`) not recorded remotely. Did not run `db push`, `migration repair`, `migration fetch`, or `db pull`; reconciling CLI migration history should be a separate deliberate pass.
+
+**Verification:** `supabase db advisors --linked --type security --level warn` now reports only Supabase Auth leaked-password protection disabled; the prior function-execute warnings are gone.
+
+**Push:** Codex -> 07b5ae1 - 2026-07-01 12:02 EDT.
+
+---
+
+## [v4.26.34] - 2026-07-01 - Local verification pass and push prep
+
+**Codex:** Set up verification to use the actual project venv at `backend/.venv` (the root `.venv` does not exist). Confirmed backend runtime dependencies are installed there (`fastapi`, `supabase`, `PyJWT`, `pydantic`, `httpx` imported successfully) and frontend `node_modules` is present. Corrected the staff-password flow from v4.26.33: password login now accepts any active `user_profiles` row with a matching Supabase Auth user, so sudo-created staff passwords are usable; PIN login remains available for staff. Updated login tab copy from "Admin / Manager" to "Password" to match that behavior, and corrected comments/API docs accordingly.
+
+**Verification:** `backend/.venv/Scripts/python.exe -m ruff check backend` passed. Focused format check for touched backend auth/user files passed. `backend/.venv/Scripts/python.exe -m pytest backend/tests -q` passed (49 passed / 4 skipped). Frontend `npm run lint -- --quiet`, `npx tsc --noEmit`, and `npm run build` passed; build still emits the existing Vite dynamic-import/chunk-size warnings. `git diff --check` passed. `python -c "import backend.main"` using the project venv is blocked because neither root `.env` nor backend `.env` exists and the shell has no `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY`, or `SUPABASE_JWT_SECRET`; no secret file was created or modified.
+
+**Push:** Codex -> 54ec584 - 2026-07-01 11:29 EDT.
+
+---
+
+## [v4.26.33] - 2026-07-01 - User controls, active access, staff profile avatar/contact updates
+
+**Codex:** Tightened the live user-control flow after the auth scoping pass. Staff can now reach the self-service Settings/Profile page through the existing "My profile" menu even though the main Settings nav item remains admin-oriented. `App.tsx` now listens for `mjcc:user-profile-updated` and refreshes the active stored session immediately, so profile/contact/avatar changes do not wait for the next account refresh.
+
+**Profile pictures/contact:** Added backend-mediated avatar upload at `POST /api/users/me/avatar`. The endpoint accepts JPEG/PNG/WebP/GIF up to 2 MB, writes to a new public Supabase Storage bucket (`profile-avatars`) using the backend service role, and saves the public URL to `user_profiles.avatar_url`. Added migration `backend/migrations/026_create_profile_avatars_bucket.sql` and applied it live to `MJCCv1` (bucket verified: public=true, 2 MB limit, allowed image MIME types). Settings now lets any active user upload a photo file, edit avatar URL/contact/job title/bio, and immediately updates the visible session. Portal avatars now render uploaded images in the topbar, activity bar, and Users list.
+
+**Sudo user management cleanup:** Create-user now accepts/stores phone, job title, bio, and avatar URL. Staff users can be created with both a PIN and an optional Supabase Auth password. User updates already exposed username/password controls in the UI; fixed the backend so username changes also update Supabase Auth email and profile email using the same login convention (`username@mjc-cafeteria.com`, `sudo@mjc.local`). This prevents a renamed password user from losing login access. Create-user now also uses that username-derived auth email so the displayed login email and password login flow match.
+
+**Docs:** Updated `API.md` for five-role auth, sudo-only user writes, derived login email behavior, profile fields, `new_username`, and the new self-service avatar upload endpoint.
+
+**Verification:** Live Supabase bucket query confirmed `profile-avatars`. `python -m ruff format backend/routes/users.py backend/routes/auth.py`, `python -m ruff check backend/routes/users.py backend/routes/auth.py`, and `python -m ruff format --check backend/routes/users.py backend/routes/auth.py` passed. Frontend `npm run lint -- --quiet`, `npx tsc --noEmit`, and `npm run build` passed; build still emits the existing Vite dynamic-import/chunk-size warnings. `git diff --check` passed. Local `python -c "import backend.main"` remains blocked by the missing local FastAPI dependency, unchanged from v4.26.32.
+
+**Push:** pending - not yet pushed.
+
+---
+
+## [v4.26.32] - 2026-07-01 - Auth/API/DB scope hardening applied
+
+**Codex:** Closed the auth scoping gaps found in v4.26.31. Frontend no longer directly selects `user_profiles`: `realLogin()` now uses Supabase Auth only to obtain a JWT, then FastAPI performs the profile/role/active check during `backendLogin()`; legacy `fetchProfiles()` now calls `api.getUsers()` instead of Supabase Data API. Removed the localStorage Supabase URL/key override from `getSupaClient()` so auth uses the built `VITE_SUPABASE_*` config, matching the backend-mediated architecture. `Login.tsx` now calls `realLogout()` if Supabase password auth succeeds but the backend token exchange fails, so rejected elevated-login attempts do not leave a Supabase session behind.
+
+**Backend/API:** `backend/routes/auth.py` now rejects JWT/password login for non-elevated roles (`assistant|manager|admin|sudo` only), keeping staff PIN-only. Updated `API.md` to document the five-role hierarchy, signed staff-token behavior, sudo-only user writes, and the fact that user-management `password` is sent to Supabase Auth only, never stored in `user_profiles`.
+
+**Live Supabase hardening:** Added tracked migration `backend/migrations/025_harden_auth_scope.sql` and applied it to live `MJCCv1`. Replaced broad `authenticated_read` policies on `user_profiles`/`app_settings` with row-scoped policies (`auth.uid() = id` for profiles; own `user_prefs_*` key for app settings). Revoked public/anon/authenticated execute on `public.sc_attach_to_open_pr(uuid, uuid[])` and `public.trg_refresh_snapshot_stmt()`, explicitly preserving `service_role` execute.
+
+**Verification:** Direct SQL confirmed the new policies and confirmed both SECURITY DEFINER functions now return `anon_can_execute=false`, `authenticated_can_execute=false`, `service_role_can_execute=true`. Security advisor no longer reports those two function warnings; remaining advisor items are unrelated backup tables with RLS/no-policy plus Supabase Auth leaked-password protection disabled. `rg 'user_profiles' frontend/src` returns no matches. `python -m ruff check backend/routes/auth.py` passed; `python -m ruff format --check backend/routes/auth.py` passed. Frontend `npm run lint -- --quiet`, `npx tsc --noEmit`, and `npm run build` passed; build still emits the existing Vite dynamic-import/chunk-size warnings. `python -c "import backend.main"` is still blocked locally because this Python environment lacks FastAPI.
+
+**Push:** pending - not yet pushed.
+
+---
+
+## [v4.26.31] - 2026-07-01 - Credential system and role hierarchy inventory
+
+**Codex:** Read-only trace of the current credential system and user levels. Confirmed the implemented auth model is backend-mediated through `POST /api/auth/login`: elevated users sign in with Supabase Auth and the frontend forwards the Supabase JWT to FastAPI; staff sign in with username + PIN against `user_profiles.pin`. Confirmed the implemented role hierarchy is five levels, not the older three-role wording still present in parts of `API.md`: `staff` (10), `assistant` (20), `manager` (30), `admin` (40), `sudo` (50). User management reads are admin+; user creation/update/disable/password reset are sudo-only. Flagged documentation drift: `API.md` still says staff PIN tokens are always `pin_<user_id>`, but `backend/routes/auth.py` now mints a signed 12-hour HS256 staff JWT when `SUPABASE_JWT_SECRET` is present and only falls back to `pin_` if absent.
+
+**Scope audit follow-up:** Live Supabase check says the system is not fully scoped end-to-end yet. `user_profiles` has no `password` column and currently has 13 users: staff 6/6 active, manager 2/2 active, admin 3 total/2 active, sudo 2/2 active; no assistant users live. `user_profiles` and `app_settings` both have RLS enabled, but both expose `authenticated_read` with `qual=true`, so any Supabase-authenticated browser session can select all profile/settings rows through the Data API despite FastAPI enforcing admin/sudo on `/api/users`. Direct privilege check also confirmed `public.sc_attach_to_open_pr(p_author uuid, p_entry_ids uuid[])` and `public.trg_refresh_snapshot_stmt()` are still `SECURITY DEFINER` functions executable by `anon` and `authenticated`, matching current Supabase security advisor warnings and contradicting the older v4.26.25 note that those grants were revoked. Frontend is mostly API-scoped, but `frontend/src/lib/supabase.ts` still directly queries `user_profiles` for login bootstrap and `fetchProfiles()`, so the broad DB SELECT policy is reachable from the browser.
+
+**Verification:** Read `backend/routes/auth.py`, `backend/routes/users.py`, `backend/routes/_deps.py`, `frontend/src/lib/supabase.ts`, `frontend/src/components/Login.tsx`, `frontend/src/lib/constants.ts`, and `API.md`; queried live Supabase metadata/policies/advisors for `MJCCv1`. No code changes or production writes.
+
+**Push:** pending - not yet pushed.
+
+---
+
+## [v4.26.31-main] - 2026-07-01 - Merged PR #1 mobile responsive enhancements
 
 **Codex:** Merged PR #1 (`agents/mobile-ui-responsive-enhancements`) into `main` by resolving conflicts against the newer portal shell. Kept the current `explorer-open` sidebar/activity-bar layout from `main`, preserved the PR's compatible mobile/browser polish (`viewport-fit=cover`, mobile web app meta tags, text-size/tap/autofill hardening, safe-area padding, modal scroll limits, and small-screen landscape optimization), and retained the newer `/health` response expectation while keeping the PR's pytest env bootstrap. Local pytest also exposed an existing `backend.inventory_identity` force-review bug unrelated to the PR; fixed it so data-entry review mode routes every new parsed item to New Items, matching the existing test contract.
 

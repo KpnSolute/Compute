@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { I, KpnMark } from '../lib/icons';
-import { backendLogin, backendPinLogin, realLogin } from '../lib/supabase';
+import { backendLogin, backendPinLogin, realLogin, realLogout } from '../lib/supabase';
 import type { User } from '../lib/constants';
 
 interface LoginProps {
@@ -62,6 +62,7 @@ export function Login({ onLogin, layout = 'split' }: LoginProps) {
 
     setBusy(false);
     if (!res.ok) {
+      if (type === 'admin') await realLogout();
       setErr(res.error || 'Login failed');
       if (type === 'staff') {
         setPinErr(true);
@@ -146,7 +147,7 @@ export function Login({ onLogin, layout = 'split' }: LoginProps) {
               role="tab"
               aria-selected={mode === 'admin'}
             >
-              {I.lock({ className: 'si' })} Admin / Manager
+              {I.lock({ className: 'si' })} Password
             </button>
             <button
               data-on={mode === 'staff'}

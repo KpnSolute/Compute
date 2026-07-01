@@ -51,7 +51,7 @@
 ### `POST /api/auth/login`
 Two login modes. No auth header required.
 
-**JWT mode (admin/manager):**
+**JWT/password mode (any active Supabase Auth user):**
 ```json
 { "access_token": "<supabase_jwt>" }
 ```
@@ -70,14 +70,15 @@ Two login modes. No auth header required.
     "username": "string",
     "display_name": "string",
     "last_name": "string",
-    "role": "admin | manager | staff",
+    "role": "staff | assistant | manager | admin | sudo",
     "active": true,
     "email": "string (JWT mode only — absent in PIN response)"
   }
 }
 ```
-- PIN mode token is `pin_<user_id>` (a pseudo-token, not a signed JWT).
-- PIN login is restricted to `role = staff`; attempting PIN login as admin/manager returns `401`.
+- PIN mode returns a signed 12-hour staff JWT when `SUPABASE_JWT_SECRET` is configured; otherwise it falls back to legacy `pin_<user_id>`.
+- PIN login is restricted to `role = staff`; attempting PIN login as a higher role returns `401`.
+- JWT/password login accepts any active profile with a matching Supabase Auth user; returned role controls UI/API authorization after login.
 
 **Errors:**
 - `400` — neither `access_token` nor `username+pin` provided.
@@ -95,7 +96,7 @@ Returns current user from the bearer token. Accepts both JWT and `pin_` tokens.
   "username": "string",
   "display_name": "string",
   "last_name": "string",
-  "role": "admin | manager | staff",
+  "role": "staff | assistant | manager | admin | sudo",
   "active": true
 }
 ```
@@ -112,7 +113,7 @@ Signals session end. Requires `Authorization: Bearer <token>` header. Frontend m
 ---
 
 ## Users — `/api/users`
-> All endpoints require **admin** role JWT token.
+> User-management read endpoints require **admin or sudo**. User create/update/disable/password reset endpoints require **sudo**.
 
 ### `GET /api/users`
 | Query Param | Type | Default | Description |
@@ -130,7 +131,7 @@ Signals session end. Requires `Authorization: Bearer <token>` header. Frontend m
       "email": "string",
       "display_name": "string",
       "last_name": "string",
-      "role": "admin | manager | staff",
+      "role": "staff | assistant | manager | admin | sudo",
       "active": true,
       "created_at": "ISO 8601",
       "updated_at": "ISO 8601"
@@ -152,14 +153,19 @@ Signals session end. Requires `Authorization: Bearer <token>` header. Frontend m
 ```json
 {
   "username": "string (3–50 chars, required)",
-  "email": "valid email (required)",
+  "email": "valid email (required for request validation; login email is derived from username)",
   "display_name": "string (required)",
   "last_name": "string (optional)",
-  "role": "admin | manager | staff (default: staff)",
-  "pin": "numeric string (optional, staff login)"
+  "role": "staff | assistant | manager | admin | sudo (default: staff)",
+  "pin": "numeric string (optional, staff login)",
+  "password": "string, 8+ chars (optional; sets Supabase Auth password)",
+  "phone": "string",
+  "job_title": "string",
+  "bio": "string",
+  "avatar_url": "string"
 }
 ```
-> `user_profiles` has **no `password` column**. Auth is Supabase Auth (JWT) for admin/manager; PIN for staff. Never send `password` to this endpoint.
+> `user_profiles` has **no `password` column**. `password` on this endpoint is sent only to Supabase Auth; profile rows store roles/profile fields plus staff PIN. Supabase Auth login email is derived from username (`username@mjc-cafeteria.com`, except `sudo@mjc.local`).
 
 **Response `201`:** Created user object.  
 **`400`** if username or email already exists.
@@ -174,9 +180,15 @@ All fields optional. Only provided fields are updated.
 {
   "display_name": "string",
   "last_name": "string",
-  "role": "admin | manager | staff",
+  "role": "staff | assistant | manager | admin | sudo",
   "pin": "numeric string",
-  "active": true
+  "active": true,
+  "new_password": "string, 8+ chars (optional; resets Supabase Auth password)",
+  "new_username": "string (optional; updates Supabase Auth login email too)",
+  "phone": "string",
+  "job_title": "string",
+  "bio": "string",
+  "avatar_url": "string"
 }
 ```
 **Response `200`:** Updated user object.
@@ -187,6 +199,24 @@ All fields optional. Only provided fields are updated.
 Soft-delete — sets `active = false`. Does not remove the record.  
 **Response `204`** No content.  
 **`400`** if trying to disable your own account.
+
+---
+
+### `GET /api/users/me`
+Returns the current caller's full profile. Any valid active token.
+
+### `PUT /api/users/me`
+Self-service profile update for any active user. Cannot change role, username, email, or active status.
+
+Staff users may update only contact fields through self-service: `{ "phone" }`. Staff profile photos use `POST /api/users/me/avatar`.
+Assistant/manager/admin/sudo users may also update `{ "display_name", "last_name", "job_title", "bio" }`.
+
+### `POST /api/users/me/avatar`
+Uploads the current caller's profile image and saves `avatar_url`.
+
+**Request:** `multipart/form-data` with `file`. Accepted types: JPEG, PNG, WebP, GIF. Max size: 2 MB.
+
+**Response `200`:** Updated user object.
 
 ---
 

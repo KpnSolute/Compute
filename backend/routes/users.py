@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from urllib import request
 from urllib.error import HTTPError
 
-from fastapi import APIRouter, HTTPException, Header, Depends
+from fastapi import APIRouter, HTTPException, Header, Depends, File, UploadFile
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from backend.routes import (
     SUPABASE_SERVICE_KEY,
@@ -35,6 +35,14 @@ from backend.routes import (
 router = APIRouter(prefix="/api/users", tags=["users"])
 
 ROLE_LEVEL = {"staff": 10, "assistant": 20, "manager": 30, "admin": 40, "sudo": 50}
+AVATAR_BUCKET = "profile-avatars"
+AVATAR_MAX_BYTES = 2 * 1024 * 1024
+AVATAR_EXT_BY_MIME = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
 
 
 # ── request / response models ─────────────────────────────────────────────────
@@ -48,6 +56,10 @@ class UserCreateRequest(BaseModel):
     role: str = Field("staff", pattern="^(admin|manager|assistant|staff|sudo)$")
     pin: str = Field(default="", max_length=10)
     password: str | None = Field(None, min_length=8, max_length=128)
+    phone: str | None = Field(None, max_length=20)
+    job_title: str | None = Field(None, max_length=100)
+    bio: str | None = Field(None, max_length=500)
+    avatar_url: str | None = Field(None, max_length=500)
 
 
 class UserUpdateRequest(BaseModel):
@@ -100,6 +112,44 @@ class UserResponse(BaseModel):
 class UsersListResponse(BaseModel):
     count: int
     users: list[UserResponse]
+
+
+SELF_PROFILE_FIELDS = {
+    "display_name",
+    "last_name",
+    "phone",
+    "job_title",
+    "bio",
+    "avatar_url",
+}
+STAFF_SELF_PROFILE_FIELDS = {"phone"}
+
+
+def _provided_request_fields(req: BaseModel) -> set[str]:
+    fields = getattr(req, "model_fields_set", None)
+    if fields is None:
+        fields = getattr(req, "__fields_set__", set())
+    return set(fields or set())
+
+
+def _self_profile_update_data(req: UserSelfUpdateRequest, current_user: dict) -> dict:
+    provided_fields = _provided_request_fields(req)
+    allowed_fields = SELF_PROFILE_FIELDS
+    if current_user.get("role") == "staff":
+        disallowed = sorted(provided_fields - STAFF_SELF_PROFILE_FIELDS)
+        if disallowed:
+            raise HTTPException(
+                status_code=403,
+                detail=("Staff self-service profile updates are limited to phone"),
+            )
+        allowed_fields = STAFF_SELF_PROFILE_FIELDS
+
+    update_data: dict = {}
+    for field in allowed_fields:
+        value = getattr(req, field, None)
+        if value is not None:
+            update_data[field] = value
+    return update_data
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -169,6 +219,13 @@ def _create_auth_user(email: str, password: str, metadata: dict) -> str:
             status_code=500, detail="Auth user create failed: missing id"
         )
     return user_id
+
+
+def _auth_email_for_username(username: str) -> str:
+    username = (username or "").strip().lower()
+    if username == "sudo":
+        return "sudo@mjc.local"
+    return f"{username}@mjc-cafeteria.com"
 
 
 # ── auth dependencies ─────────────────────────────────────────────────────────
@@ -268,20 +325,8 @@ async def get_my_profile(current_user: dict = Depends(_require_any_auth)):
 async def update_my_profile(
     req: UserSelfUpdateRequest, current_user: dict = Depends(_require_any_auth)
 ):
-    """Self-service profile update — cannot change role, username, email, or active status."""
-    update_data: dict = {}
-    if req.display_name is not None:
-        update_data["display_name"] = req.display_name
-    if req.last_name is not None:
-        update_data["last_name"] = req.last_name
-    if req.phone is not None:
-        update_data["phone"] = req.phone
-    if req.job_title is not None:
-        update_data["job_title"] = req.job_title
-    if req.bio is not None:
-        update_data["bio"] = req.bio
-    if req.avatar_url is not None:
-        update_data["avatar_url"] = req.avatar_url
+    """Self-service profile update — staff can only change contact/photo fields."""
+    update_data = _self_profile_update_data(req, current_user)
 
     if not update_data:
         return UserResponse(**current_user)
@@ -302,6 +347,72 @@ async def update_my_profile(
         if isinstance(e, HTTPException):
             raise
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@router.post("/me/avatar", response_model=UserResponse)
+async def upload_my_avatar(
+    file: UploadFile = File(...), current_user: dict = Depends(_require_any_auth)
+):
+    """Upload the caller's profile image to Supabase Storage and save its public URL."""
+    content_type = (file.content_type or "").lower()
+    ext = AVATAR_EXT_BY_MIME.get(content_type)
+    if not ext:
+        raise HTTPException(
+            status_code=400,
+            detail="Avatar must be a JPEG, PNG, WebP, or GIF image",
+        )
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Avatar file is empty")
+    if len(data) > AVATAR_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Avatar must be 2 MB or smaller")
+
+    stamp = int(datetime.now(timezone.utc).timestamp())
+    object_path = f"{current_user['id']}/avatar-{stamp}{ext}"
+    upload_url = f"{SUPABASE_URL}/storage/v1/object/{AVATAR_BUCKET}/{object_path}"
+    public_url = (
+        f"{SUPABASE_URL}/storage/v1/object/public/{AVATAR_BUCKET}/{object_path}"
+    )
+
+    try:
+        import httpx
+
+        resp = httpx.put(
+            upload_url,
+            headers={
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                "Content-Type": content_type,
+                "x-upsert": "true",
+            },
+            content=data,
+            timeout=20,
+        )
+        if resp.status_code not in (200, 201):
+            raise HTTPException(
+                status_code=502, detail=f"Avatar upload failed: {resp.text}"
+            )
+
+        updated = (
+            supabase_service.table("user_profiles")
+            .update(
+                {
+                    "avatar_url": public_url,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            .eq("id", current_user["id"])
+            .execute()
+        )
+        user = updated.data[0] if updated.data else None
+        if not user:
+            raise HTTPException(status_code=500, detail="Failed to update avatar")
+        return UserResponse(**user)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Avatar service error: {e}")
 
 
 @router.get("/me/preferences")
@@ -390,7 +501,10 @@ async def create_user(
     req: UserCreateRequest, admin_user: dict = Depends(_require_sudo)
 ):
     """Create a new user account. Requires sudo role."""
-    exists = await _user_exists(req.username)
+    username = req.username.strip().lower()
+    auth_email = _auth_email_for_username(username)
+
+    exists = await _user_exists(username)
     if exists:
         raise HTTPException(status_code=400, detail="Username already exists")
 
@@ -398,7 +512,7 @@ async def create_user(
         email_check = (
             supabase_service.table("user_profiles")
             .select("id")
-            .eq("email", req.email)
+            .eq("email", auth_email)
             .limit(1)
             .execute()
         )
@@ -417,10 +531,10 @@ async def create_user(
     try:
         password = req.password or secrets.token_urlsafe(18)
         auth_user_id = _create_auth_user(
-            str(req.email),
+            auth_email,
             password,
             {
-                "username": req.username,
+                "username": username,
                 "display_name": req.display_name,
                 "last_name": req.last_name,
                 "role": req.role,
@@ -431,13 +545,17 @@ async def create_user(
             .insert(
                 {
                     "id": auth_user_id,
-                    "username": req.username,
-                    "email": str(req.email),
+                    "username": username,
+                    "email": auth_email,
                     "display_name": req.display_name,
                     "last_name": req.last_name,
                     "role": req.role,
                     "pin": req.pin or None,
                     "active": True,
+                    "phone": req.phone,
+                    "job_title": req.job_title,
+                    "bio": req.bio,
+                    "avatar_url": req.avatar_url,
                     "created_at": now,
                     "updated_at": now,
                 }
@@ -505,19 +623,33 @@ async def update_user(
 
     # Username change (sudo only — update user_profiles + supabase auth metadata)
     if req.new_username:
-        if await _user_exists(req.new_username, exclude_id=user_id):
+        new_username = req.new_username.strip().lower()
+        if await _user_exists(new_username, exclude_id=user_id):
             raise HTTPException(
-                status_code=409, detail=f"Username already taken: {req.new_username}"
+                status_code=409, detail=f"Username already taken: {new_username}"
             )
-        update_data["username"] = req.new_username
+        update_data["username"] = new_username
+        update_data["email"] = _auth_email_for_username(new_username)
 
     if not update_data and not req.new_password:
         return UserResponse(**user)
 
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
 
-    # Password change via Supabase Admin API
+    # Username/password changes via Supabase Admin API
+    auth_payload: dict = {}
     if req.new_password:
+        auth_payload["password"] = req.new_password
+    if req.new_username:
+        auth_payload["email"] = update_data["email"]
+        auth_payload["email_confirm"] = True
+    if auth_payload:
+        auth_payload["user_metadata"] = {
+            "username": update_data.get("username", user.get("username")),
+            "display_name": update_data.get("display_name", user.get("display_name")),
+            "last_name": update_data.get("last_name", user.get("last_name")),
+            "role": update_data.get("role", user.get("role")),
+        }
         try:
             import httpx
 
@@ -528,7 +660,7 @@ async def update_user(
                     "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
                     "Content-Type": "application/json",
                 },
-                json={"password": req.new_password},
+                json=auth_payload,
                 timeout=10,
             )
             if resp.status_code not in (200, 201):
