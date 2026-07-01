@@ -4,6 +4,18 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.38] - 2026-07-01 - July W1 US Foods invoice parser guard
+
+**Codex:** Checked `C:\Users\ogdev\JobCorp\July 2026\July2026W1 Weekly Invoice.pdf` against the current deterministic invoice parser. The original parse would have staged July 2026 W1 received, but it double-counted SKU `5771977` because US Foods repeats that line inside the page 11 `HAZARD MATERIALS SUMMARY`. Added a US Foods summary-section guard so hazardous recap lines cannot become inventory receipts, and added structured US Foods header parsing so invoice metadata now resolves to invoice `1736605`, date `07/01/2026`, account `41736679`, PO `4520`, and route `3319`.
+
+**Dry run:** The corrected parse returns 201 invoice rows, 199 staged W1 received operations, no duplicate SKUs, 2 zero-shipped rows intentionally skipped, total received quantity 451, staged received value `$20,866.92`, and reconciliation `delta_pct=0.0`.
+
+**Verification:** `backend/.venv/Scripts/python.exe -m pytest backend/tests/test_invoice_parser.py -q` passed. `backend/.venv/Scripts/python.exe -m pytest backend/tests -q` passed (58 passed). `backend/.venv/Scripts/python.exe -m ruff check backend/ai/invoice_parser.py backend/tests/test_invoice_parser.py` passed. `backend/.venv/Scripts/python.exe -m ruff format --check backend/ai/invoice_parser.py backend/tests/test_invoice_parser.py` passed. `git diff --check` passed.
+
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.37] - 2026-07-01 - Auth/user controls pushed directly to main
 
 **Codex:** Per user direction, stopped PR flow for this work and merged `origin/codex/auth-user-controls-hardening` directly into `main` from a clean worktree. Resolved the changelog conflict by preserving the auth/user-control entries and the existing PR #1 mobile merge entry. No unrelated dirty workspace files were included.

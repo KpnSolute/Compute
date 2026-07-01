@@ -161,6 +161,27 @@ PACK_RE = re.compile(
     re.IGNORECASE,
 )
 
+USFOODS_ACCOUNT_HEADER_RE = re.compile(
+    r"ACCOUNT\s+NUMBER\s+INVOICE\s+NUMBER\s+INVOICE\s+DATE\s+CUSTOMER\s+NUMBER\s+"
+    r"PURCHASE\s+ORDER\s+#\s+SALES\s+LOCATION\s+SALES\s+REP\s+DATE\s+ORDERED\s*\n"
+    r"\s*([A-Z0-9-]+)\s+([A-Z0-9-]+)\s+(\d{1,2}/\d{1,2}/\d{2,4})\s+"
+    r"([A-Z0-9-]+)\s+([A-Z0-9-]+)\s+([A-Z0-9-]+)\s+([A-Z0-9-]+)\s+"
+    r"(\d{1,2}/\d{1,2}/\d{2,4})",
+    re.IGNORECASE,
+)
+
+USFOODS_ORDER_HEADER_RE = re.compile(
+    r"FREIGHT\s+TERMS\s+ORDER\s+NUMBER\s+PAYMENT\s+TERMS\s+ROUTE\s+NUMBER"
+    r"(?:\s+SPECIAL\s+INSTRUCTIONS)?\s*\n"
+    r"\s*([A-Z0-9-]+)\s+(.+?)\s+([A-Z0-9-]+)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+USFOODS_SUMMARY_SECTION_RE = re.compile(
+    r"^(?:HAZARD\s+MATERIALS\s+SUMMARY|HAZARDOUS\s+ITEM\s+TOTALS)\b",
+    re.IGNORECASE,
+)
+
 # ── invoice metadata patterns ─────────────────────────────────────────────────
 META_PATTERNS: list[tuple[str, re.Pattern]] = [
     (
@@ -705,6 +726,29 @@ def _extract_meta(pages: list[str]) -> dict[str, str]:
             meta[key] = _clean(m.group(1))
     if meta.get("po_number", "").upper() == "ITEM":
         meta.pop("po_number", None)
+    account_m = USFOODS_ACCOUNT_HEADER_RE.search(combined)
+    if account_m:
+        meta.update(
+            {
+                "account_number": _clean(account_m.group(1)),
+                "invoice_number": _clean(account_m.group(2)),
+                "invoice_date": _clean(account_m.group(3)),
+                "customer_number": _clean(account_m.group(4)),
+                "po_number": _clean(account_m.group(5)),
+                "sales_location": _clean(account_m.group(6)),
+                "sales_rep": _clean(account_m.group(7)),
+                "date_ordered": _clean(account_m.group(8)),
+            }
+        )
+    order_m = USFOODS_ORDER_HEADER_RE.search(combined)
+    if order_m:
+        meta.update(
+            {
+                "order_number": _clean(order_m.group(1)),
+                "payment_terms": _clean(order_m.group(2)),
+                "route": _clean(order_m.group(3)),
+            }
+        )
     # US Foods lists each GPO incentive on its own line (e.g. "VIZIENT-.50% ...
     # -$98.17 CR" and "VIZIENT-.60% ... -$117.80 CR"). Sum ALL of them for the true
     # member discount instead of capturing only the first.
@@ -725,6 +769,12 @@ def _parse_page_lines(text: str, current_cat: str) -> tuple[list[dict], str]:
         stripped = line.strip()
         if not stripped:
             continue
+
+        # US Foods repeats some delivered items inside non-inventory recap blocks
+        # such as HAZARD MATERIALS SUMMARY. Stop parsing page lines there so the
+        # summary copy cannot double count a received quantity.
+        if USFOODS_SUMMARY_SECTION_RE.match(stripped):
+            break
 
         # skip column headers and INVOICE SUMMARY noise lines
         if USFOODS_SKIP_RE.match(stripped):
