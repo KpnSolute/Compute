@@ -12,14 +12,11 @@ export interface SupaConfig {
 }
 
 export function getSupaConfig(): SupaConfig {
-  try {
-    return {
-      url: (localStorage.getItem(SUPA_URL_KEY) || '').trim(),
-      key: (localStorage.getItem(SUPA_KEY_KEY) || '').trim(),
-    };
-  } catch (e) {
-    return { url: '', key: '' };
-  }
+  const env = import.meta.env as Record<string, string>;
+  return {
+    url: env.VITE_SUPABASE_URL || '',
+    key: env.VITE_SUPABASE_ANON_KEY || '',
+  };
 }
 
 export function saveSupaConfig(url: string, key: string) {
@@ -46,10 +43,7 @@ export function isConnected(): boolean {
 let _client: SupabaseClient | null = null;
 export function getSupaClient(): SupabaseClient | null {
   if (_client) return _client;
-  const { url: lsUrl, key: lsKey } = getSupaConfig();
-  const env = import.meta.env as Record<string, string>;
-  const url = lsUrl || env.VITE_SUPABASE_URL || '';
-  const key = lsKey || env.VITE_SUPABASE_ANON_KEY || '';
+  const { url, key } = getSupaConfig();
   if (!url || !key) return null;
   _client = createClient(url, key, {
     auth: { persistSession: true, autoRefreshToken: true, storageKey: 'kpn_supa_auth' },
@@ -79,14 +73,14 @@ export async function realLogin({
   const db = getSupaClient();
   if (!db) return { ok: false, error: 'Not connected to Supabase.' };
 
-  // Staff PIN login is handled entirely by backendPinLogin() in Login.tsx.
-  // realLogin() is only called for the admin/manager Supabase Auth flow.
+  // Staff PIN login is handled by backendPinLogin(); this password flow is for
+  // any active user with a Supabase Auth account.
   if (type === 'staff') {
     return { ok: false, error: 'Staff must use the PIN keypad.' };
   }
 
-  // ADMIN / MANAGER — Supabase Auth FIRST, then fetch profile with authenticated session.
-  // Never query user_profiles with the anon key — RLS blocks it.
+  // Password users authenticate with Supabase Auth first. FastAPI owns the
+  // profile, role, and active-account checks when the token is exchanged.
   if (!password) return { ok: false, error: 'Password is required.' };
   try {
     const { data: authData, error: authErr } = await db.auth.signInWithPassword({
@@ -97,26 +91,7 @@ export async function realLogin({
       return { ok: false, error: 'Incorrect password. Please try again.' };
     }
 
-    // Now authenticated — fetch profile (RLS allows authenticated SELECT)
-    // Note: per AGENTS §3 and plan, data queries should prefer FastAPI; this is retained only for auth bootstrap in realLogin (minimal glue).
-    const { data: profile, error: profErr } = await db
-      .from('user_profiles')
-      .select('id, username, display_name, last_name, role, active')
-      .eq('username', username)
-      .single();
-    if (profErr || !profile) {
-      await db.auth.signOut();
-      return { ok: false, error: 'Profile not found. Contact your administrator.' };
-    }
-    if (!profile.active) {
-      await db.auth.signOut();
-      return { ok: false, error: 'Account is disabled.' };
-    }
-    if (!['admin', 'manager', 'assistant', 'sudo'].includes(profile.role)) {
-      await db.auth.signOut();
-      return { ok: false, error: 'Staff accounts must use the Staff login.' };
-    }
-
+    // FastAPI will validate the profile, role, and active flag during backendLogin().
     // Guard: Supabase can return an already-expired access_token when the prior
     // session hits its 1-hour TTL during the same browser session. If so, the
     // onAuthStateChange SIGNED_OUT event fires immediately after login and tears
@@ -126,7 +101,17 @@ export async function realLogin({
       const { data: refreshed } = await db.auth.refreshSession();
       if (refreshed?.session?.access_token) accessToken = refreshed.session.access_token;
     }
-    return { ok: true, user: { ..._publicUser(profile), access_token: accessToken } };
+    return {
+      ok: true,
+      user: {
+        id: authData.session.user.id,
+        username,
+        display_name: '',
+        last_name: '',
+        role: 'staff',
+        access_token: accessToken,
+      },
+    };
   } catch (e) {
     return { ok: false, error: 'Incorrect password. Please try again.' };
   }
@@ -478,15 +463,10 @@ export async function pushInventory(inv: any, syncedBy?: string) {
 }
 
 export async function fetchProfiles() {
-  const db = getSupaClient();
-  if (!db) return { ok: false, error: 'Not connected.' };
   try {
-    const { data, error } = await db
-      .from('user_profiles')
-      .select('id, username, display_name, last_name, role, active')
-      .order('username');
-    if (error) return { ok: false, error: error.message };
-    return { ok: true, users: data || [] };
+    const { api } = await import('./api');
+    const users = await api.getUsers();
+    return { ok: true, users };
   } catch (e: any) {
     return { ok: false, error: e.message };
   }

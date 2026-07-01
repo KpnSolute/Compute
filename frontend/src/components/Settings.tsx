@@ -262,17 +262,32 @@ function ProfileEditPanel({ user }: { user: any }) {
         avatar_url: user.avatar_url || '',
     });
     const [saving, setSaving] = useState(false);
+    const [uploadingAvatar, setUploadingAvatar] = useState(false);
     const [saved, setSaved] = useState(false);
     const [err, setErr] = useState<string | null>(null);
 
+    useEffect(() => {
+        setForm({
+            display_name: user.display_name || '',
+            last_name: user.last_name || '',
+            phone: user.phone || '',
+            job_title: user.job_title || '',
+            bio: user.bio || '',
+            avatar_url: user.avatar_url || '',
+        });
+    }, [user.avatar_url, user.bio, user.display_name, user.job_title, user.last_name, user.phone]);
+
     const avatarInitials = (form.display_name || user.username || '?').charAt(0).toUpperCase();
     const hasAvatar = Boolean(form.avatar_url);
+    const emitProfileUpdated = (updated: any) => {
+        window.dispatchEvent(new CustomEvent('mjcc:user-profile-updated', { detail: { user: updated } }));
+    };
 
     const save = async () => {
         if (!form.display_name.trim()) { setErr('Display name is required'); return; }
         setSaving(true); setErr(null); setSaved(false);
         try {
-            await api.updateMyProfile({
+            const updated = await api.updateMyProfile({
                 display_name: form.display_name.trim(),
                 last_name: form.last_name.trim(),
                 phone: form.phone.trim(),
@@ -280,12 +295,35 @@ function ProfileEditPanel({ user }: { user: any }) {
                 bio: form.bio.trim(),
                 avatar_url: form.avatar_url.trim(),
             });
+            emitProfileUpdated(updated);
             setSaved(true);
             setTimeout(() => setSaved(false), 2500);
         } catch (e: any) {
             setErr(e?.message || 'Failed to save');
         } finally {
             setSaving(false);
+        }
+    };
+
+    const uploadAvatar = async (file?: File) => {
+        if (!file) return;
+        if (!file.type.startsWith('image/')) {
+            setErr('Choose an image file');
+            return;
+        }
+        setUploadingAvatar(true);
+        setErr(null);
+        setSaved(false);
+        try {
+            const updated = await api.uploadMyAvatar(file);
+            setForm((f) => ({ ...f, avatar_url: updated.avatar_url || f.avatar_url }));
+            emitProfileUpdated(updated);
+            setSaved(true);
+            setTimeout(() => setSaved(false), 2500);
+        } catch (e: any) {
+            setErr(e?.message || 'Avatar upload failed');
+        } finally {
+            setUploadingAvatar(false);
         }
     };
 
@@ -311,6 +349,19 @@ function ProfileEditPanel({ user }: { user: any }) {
                             <span className={`pill role-${user.role}`}>{user.role}</span>
                         </div>
                     </div>
+                    <label className="btn" style={{ marginLeft: 'auto', cursor: uploadingAvatar ? 'wait' : 'pointer' }}>
+                        {uploadingAvatar ? 'Uploading...' : 'Upload photo'}
+                        <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp,image/gif"
+                            style={{ display: 'none' }}
+                            disabled={uploadingAvatar}
+                            onChange={(e) => {
+                                void uploadAvatar(e.target.files?.[0]);
+                                e.currentTarget.value = '';
+                            }}
+                        />
+                    </label>
                 </div>
 
                 {err && <div className="banner warn" style={{ marginBottom: 12 }}>{I.alert()} <span>{err}</span></div>}

@@ -77,9 +77,21 @@ function toast(msg: string) {
 }
 (window as any).toast = toast;
 
-const initials = (u: User) =>
+const initials = (u: Partial<User>) =>
     ((u.display_name?.[0] || "") + (u.last_name?.[0] || "")).toUpperCase() ||
     (u.username || "?").slice(0, 2).toUpperCase();
+
+function Avatar({ user, className = "" }: { user: Partial<User>; className?: string }) {
+    return (
+        <div className={["avatar", className].filter(Boolean).join(" ")}>
+            {user.avatar_url ? (
+                <img src={user.avatar_url} alt="" onError={(e) => { (e.currentTarget.style.display = "none"); }} />
+            ) : (
+                initials(user)
+            )}
+        </div>
+    );
+}
 
 const AUTO_REFRESH_MS = 60_000; // re-fetch from DB every 60 s
 
@@ -331,7 +343,7 @@ function Topbar({
                         setMenu((v) => !v);
                     }}
                 >
-                    <div className="avatar">{initials(user)}</div>
+                    <Avatar user={user} />
                     <div className="hide-sm">
                         <div className="nm">
                             {user.display_name} {user.last_name}
@@ -548,7 +560,7 @@ function ActivityBar({
                     onClick={(e) => { e.stopPropagation(); setUserMenu((v) => !v); }}
                     title={`${user.display_name} ${user.last_name} — ${ROLE_LABEL[user.role]}`}
                 >
-                    <div className="avatar ab-avatar">{initials(user)}</div>
+                    <Avatar user={user} className="ab-avatar" />
                     {userMenu && (
                         <div
                             className="usermenu ab-usermenu"
@@ -3702,11 +3714,15 @@ function UsersView({ user: currentUser }: { user: User }) {
     const updateForm = (key: string, value: string | boolean) => {
         setForm((prev) => ({ ...prev, [key]: value }));
     };
+    const loginEmailFor = (name: string) => {
+        const clean = (name || "").trim().toLowerCase();
+        return clean === "sudo" ? "sudo@mjc.local" : `${clean || "username"}@mjc-cafeteria.com`;
+    };
 
     const submitUser = async () => {
         const username = form.username.trim().toLowerCase();
         const displayName = form.display_name.trim();
-        const email = (form.email || `${username}@mjc-cafeteria.com`).trim();
+        const email = loginEmailFor(username);
         if (!displayName) {
             toast("Display name is required");
             return;
@@ -3716,6 +3732,10 @@ function UsersView({ user: currentUser }: { user: User }) {
             return;
         }
         if (!editing && form.role !== "staff" && form.password.length < 8) {
+            toast("Password must be at least 8 characters");
+            return;
+        }
+        if (!editing && form.password && form.password.length < 8) {
             toast("Password must be at least 8 characters");
             return;
         }
@@ -3752,7 +3772,11 @@ function UsersView({ user: currentUser }: { user: User }) {
                     last_name: form.last_name.trim(),
                     role: form.role,
                     pin: form.role === "staff" ? form.pin : "",
-                    password: form.role === "staff" ? undefined : form.password,
+                    password: form.password || undefined,
+                    phone: form.phone || undefined,
+                    job_title: form.job_title || undefined,
+                    bio: form.bio || undefined,
+                    avatar_url: form.avatar_url || undefined,
                 });
                 toast(`Created ${displayName}`);
             }
@@ -3830,9 +3854,7 @@ function UsersView({ user: currentUser }: { user: User }) {
                                     <tr key={u.id || u.username}>
                                         <td>
                                             <div className="user-cell">
-                                                <div className="avatar">
-                                                    {initials(u)}
-                                                </div>
+                                                <Avatar user={u} />
                                                 <div>
                                                     <div
                                                         style={{
@@ -3954,11 +3976,10 @@ function UsersView({ user: currentUser }: { user: User }) {
                                         />
                                     </label>
                                     <label>
-                                        <span>Email</span>
+                                        <span>Login email</span>
                                         <input
-                                            value={form.email}
-                                            onChange={(e) => updateForm("email", e.target.value)}
-                                            placeholder="username@mjc-cafeteria.com"
+                                            value={loginEmailFor(form.username)}
+                                            disabled
                                         />
                                     </label>
                                 </>
@@ -3990,7 +4011,7 @@ function UsersView({ user: currentUser }: { user: User }) {
                                     {isSudo && <option value="sudo">Sudo Administrator</option>}
                                 </select>
                             </label>
-                            {form.role === "staff" ? (
+                            {form.role === "staff" && (
                                 <label>
                                     <span>PIN</span>
                                     <input
@@ -3999,9 +4020,10 @@ function UsersView({ user: currentUser }: { user: User }) {
                                         placeholder="4-digit PIN"
                                     />
                                 </label>
-                            ) : !editing ? (
+                            )}
+                            {!editing && (
                                 <label>
-                                    <span>Password</span>
+                                    <span>{form.role === "staff" ? "Password (optional)" : "Password"}</span>
                                     <input
                                         type="password"
                                         value={form.password}
@@ -4009,7 +4031,7 @@ function UsersView({ user: currentUser }: { user: User }) {
                                         placeholder="At least 8 characters"
                                     />
                                 </label>
-                            ) : null}
+                            )}
                             <label>
                                 <span>Job Title</span>
                                 <input
@@ -4556,6 +4578,7 @@ export function Portal({
 
     const navItem = NAV.flatMap((g) => g.items).find((it) => it.key === active);
     useEffect(() => {
+        if (active === "settings") return;
         if (navItem && lvl < (navItem.min || 0)) setActive("dashboard");
     }, [active, lvl, navItem]);
 
@@ -4564,7 +4587,7 @@ export function Portal({
         toast("Refreshing live data…");
     }
 
-    const canAccess = (routeKey: string) => lvl >= (ROUTE_MIN[routeKey] ?? 10);
+    const canAccess = (routeKey: string) => routeKey === "settings" || lvl >= (ROUTE_MIN[routeKey] ?? 10);
     const goTo = (routeKey: string, opts?: { prId?: string }) => {
         setExplorerOpen(false);
         if (routeKey === "sourcectrl") {

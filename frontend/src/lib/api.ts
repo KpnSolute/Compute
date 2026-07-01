@@ -768,6 +768,43 @@ export const api = {
     return req('/api/users/me', { method: 'PUT', body: JSON.stringify(body) });
   },
 
+  async uploadMyAvatar(file: File): Promise<any> {
+    const token = getBackendToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const form = new FormData();
+    form.append('file', file);
+
+    const res = await fetch(BASE + '/api/users/me/avatar', {
+      method: 'POST',
+      headers,
+      body: form,
+      cache: 'no-store',
+    });
+
+    if (res.status === 401) {
+      clearBackendToken();
+      window.dispatchEvent(new CustomEvent('mjc:session-expired', { detail: { reason: 'unauthorized' } }));
+      throw new ApiError(401, 'Session expired');
+    }
+
+    if (!res.ok) {
+      let body: string;
+      try {
+        const json = await res.json();
+        body = json.detail || JSON.stringify(json);
+      } catch {
+        body = await res.text().catch(() => res.statusText);
+      }
+      throw new ApiError(res.status, body);
+    }
+
+    const data = await res.json();
+    window.dispatchEvent(new CustomEvent('mjcc:live-data-changed', { detail: { path: '/api/users/me/avatar' } }));
+    return data;
+  },
+
   // AI key management (sudo only)
   async getAIKeys(): Promise<Array<{ provider: string; is_active: boolean; has_key: boolean; base_url: string | null; updated_at: string | null }>> {
     return req('/api/data-entry/ai-keys');

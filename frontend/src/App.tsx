@@ -162,6 +162,21 @@ function App() {
     return () => window.removeEventListener('mjc:session-expired', onExpired);
   }, [teardown]);
 
+  useEffect(() => {
+    const onProfileUpdated = (e: Event) => {
+      const updated = (e as CustomEvent<{ user?: Partial<User> }>).detail?.user;
+      if (!updated) return;
+      setUser((prev) => {
+        if (!prev || (updated.id && updated.id !== prev.id)) return prev;
+        const next = { ...prev, ...updated };
+        saveStoredSession(next);
+        return next;
+      });
+    };
+    window.addEventListener('mjcc:user-profile-updated', onProfileUpdated);
+    return () => window.removeEventListener('mjcc:user-profile-updated', onProfileUpdated);
+  }, []);
+
   // Version check — P0.7: detect new deploys and prompt a non-blocking reload.
   useEffect(() => {
     if (!import.meta.env.PROD) return;
