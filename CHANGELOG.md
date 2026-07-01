@@ -4,6 +4,18 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.35] - 2026-07-01 - Supabase CLI verification
+
+**Codex:** Switched the Supabase follow-up to the initialized Supabase CLI per user direction. Confirmed `supabase` CLI v2.108.0 is installed and linked to `MJCCv1` (`mgvyylvmkxhhataavqjz`). Used `supabase db query --linked` to re-check the live auth hardening: `user_profiles` now has only service-role-all plus authenticated self-read policies, `app_settings` now has only service-role-all plus authenticated self-preferences-read policy, the two previously public SECURITY DEFINER functions deny `anon`/`authenticated` execute and allow `service_role`, and the `profile-avatars` bucket exists as public with 2 MB image-only limits.
+
+**CLI migration state:** `supabase migration list --linked` works, but this checkout's `supabase/migrations` directory is incomplete relative to remote history. A dry-run `supabase db push --linked --dry-run` refused to run because many remote migration versions are missing locally; it also shows two local CLI migrations (`20260629060433`, `20260629120817`) not recorded remotely. Did not run `db push`, `migration repair`, `migration fetch`, or `db pull`; reconciling CLI migration history should be a separate deliberate pass.
+
+**Verification:** `supabase db advisors --linked --type security --level warn` now reports only Supabase Auth leaked-password protection disabled; the prior function-execute warnings are gone.
+
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.34] - 2026-07-01 - Local verification pass and push prep
 
 **Codex:** Set up verification to use the actual project venv at `backend/.venv` (the root `.venv` does not exist). Confirmed backend runtime dependencies are installed there (`fastapi`, `supabase`, `PyJWT`, `pydantic`, `httpx` imported successfully) and frontend `node_modules` is present. Corrected the staff-password flow from v4.26.33: password login now accepts any active `user_profiles` row with a matching Supabase Auth user, so sudo-created staff passwords are usable; PIN login remains available for staff. Updated login tab copy from "Admin / Manager" to "Password" to match that behavior, and corrected comments/API docs accordingly.
