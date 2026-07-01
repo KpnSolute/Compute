@@ -12,7 +12,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** `supabase db advisors --linked --type security --level warn` now reports only Supabase Auth leaked-password protection disabled; the prior function-execute warnings are gone.
 
-**Push:** pending - not yet pushed.
+**Push:** Codex -> 07b5ae1 - 2026-07-01 12:02 EDT.
 
 ---
 
