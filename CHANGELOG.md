@@ -12,7 +12,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** `backend/.venv/Scripts/python.exe -m pytest backend/tests/test_invoice_parser.py -q` passed (2 passed). `backend/.venv/Scripts/python.exe -m pytest backend/tests -q` passed (59 passed). `backend/.venv/Scripts/python.exe -m ruff check backend/tests/test_invoice_parser.py` passed. `backend/.venv/Scripts/python.exe -m ruff format --check backend/tests/test_invoice_parser.py` passed. Frontend `npx tsc --noEmit`, `npm run lint -- --quiet`, and `npm run build` passed; build still reports existing Vite dynamic-import/chunk-size/plugin-timing warnings.
 
-**Push:** pending - not yet pushed.
+**Push:** Codex -> 084d546 - 2026-07-01 19:19 EDT.
 
 ---
 
