@@ -10,7 +10,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** `backend/.venv/Scripts/python.exe -m ruff check backend` passed. Focused format check for touched backend auth/user files passed. `backend/.venv/Scripts/python.exe -m pytest backend/tests -q` passed (49 passed / 4 skipped). Frontend `npm run lint -- --quiet`, `npx tsc --noEmit`, and `npm run build` passed; build still emits the existing Vite dynamic-import/chunk-size warnings. `git diff --check` passed. `python -c "import backend.main"` using the project venv is blocked because neither root `.env` nor backend `.env` exists and the shell has no `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY`, or `SUPABASE_JWT_SECRET`; no secret file was created or modified.
 
-**Push:** Codex -> 02b822a - 2026-07-01 11:29 EDT.
+**Push:** Codex -> 54ec584 - 2026-07-01 11:29 EDT.
 
 ---
 
