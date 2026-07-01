@@ -4,6 +4,20 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.30] - 2026-06-30 - Calendar-date rollover nudge extended to the Monthly Inventory editor
+
+**Claude:** Closed the gap from the last discussion: the auto-detecting rollover banner (`Portal.tsx::RolloverBanner`, driven by `GET /api/inventory/period-status`'s `needs_rollover`) only ever rendered on the "Inventory" page, never on "Monthly Inventory" — the actual master editor staff/managers work in day to day. Same discoverability gap the "Publish Month" button had before it was added directly to the editor (v4.26.26).
+
+**Fix — one line, no duplication:** `RolloverBanner` is already mounted globally in `Portal.tsx`'s `<main>` (renders on every page, self-gates by `active`) and already receives the currently-viewed `period`. Extended its page gate from `active !== "inventory"` to also allow `"moninv"`. No new component, no new API call, no new state — reuses the existing, already-correct implementation. Confirmed the two rollover banners (this one and the "stale unpublished period" banner added to `Operations.tsx` in v4.26.26) are mutually exclusive by construction: this one only fires while viewing the *latest* period with data, the other only fires while viewing a period *before* the latest — they can never both be true for the same viewed period, so no stacking risk.
+
+**Live verification surfaced something real, not simulated:** while testing, `GET /api/inventory/period-status` returned `current_month: 6, current_label: "July 2026", needs_rollover: true` — the production server's real clock has moved into July 2026, meaning June genuinely has not been rolled over yet. Confirmed the banner now correctly renders on both "Monthly Inventory" (previously silent) and "Inventory" (already worked) with the message "You're viewing June 2026, but it's now July 2026. Roll over to July 2026...". **Did not click the rollover button** — that publishes June and opens July, a real irreversible production action outside what was asked; left for the user's decision.
+
+**Verification:** `npx tsc --noEmit`, `npm run lint -- --quiet`, `npm run build` all passed. Live-verified on both pages via local dev frontend against the production API — no console errors, no regression on the original Inventory-page behavior.
+
+**Push:** pending — not yet pushed.
+
+---
+
 ## [v4.26.27] - 2026-06-30 - Data-layer audit: month-locking Q1/Q2, category-management completeness
 
 **mjcc-data:** Parallel domain audit pass (no schema changes made — read-only).

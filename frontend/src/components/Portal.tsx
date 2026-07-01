@@ -4424,8 +4424,12 @@ function RolloverBanner({
     }, []);
 
     if (!status || !status.needs_rollover || dismissed) return null;
-    // Only on the Inventory page…
-    if (active !== "inventory") return null;
+    // Only on the two pages where the viewed period is actually on screen — the
+    // simple Inventory list and the Monthly Inventory master editor (where staff
+    // and managers actually do the month's work; without this the calendar-date
+    // nudge only ever appeared on the lesser-used page, same gap the "Publish
+    // Month" button had before it was added to the editor directly).
+    if (active !== "inventory" && active !== "moninv") return null;
     // …and only while actually viewing the stale latest period (e.g. May), so the
     // message matches what's on screen instead of nagging from every other view.
     if (period[0] !== status.latest_month || period[1] !== status.latest_year)
