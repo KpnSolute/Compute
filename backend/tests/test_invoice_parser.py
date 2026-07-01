@@ -45,3 +45,40 @@ PRODUCT TOTAL $29.04
     assert ops[0]["payload"]["week"] == 1
     assert ops[0]["payload"]["direction"] == "received"
     assert ops[0]["payload"]["items"][0]["qty"] == 1
+
+
+def test_usfoods_receivable_value_is_product_items_not_tax_or_net_total():
+    page = """INVOICE
+ACCOUNT NUMBER INVOICE NUMBER INVOICE DATE CUSTOMER NUMBER PURCHASE ORDER # SALES LOCATION SALES REP DATE ORDERED
+41736679 1736605 07/01/2026 1273721 4520 3135 492 06/28/2026
+FREIGHT TERMS ORDER NUMBER PAYMENT TERMS ROUTE NUMBER SPECIAL INSTRUCTIONS
+482273 NET 30 DAYS 3319
+INVOICE LINE DETAILS
+QUANTITY SALES PRODUCT DESCRIPTION LABEL PACK SIZE CODE WEIGHT PRICING UNIT EXTENDED
+ORD SHP ADJ UNIT NUMBER UNIT PRICE PRICE
+DRY
+2 2 0 CS 1234567 BEAN, BLK CND MONARCH 6/#10 CS $50.0000 $100.00
+PRODUCT TOTAL $100.00
+FUEL SURCHARGE $5.00
+SALES TAX $7.00
+NET TOTAL $112.00
+"""
+
+    parsed = parse_invoice_text_pages([page], "usfoods-tax.txt")
+    items = parsed["items"]
+    recon = parsed["meta"]["reconciliation"]
+
+    assert len(items) == 1
+    assert sum(item["ext_price"] for item in items) == 100.00
+    assert recon["product_total"] == 100.00
+    assert recon["product_cost"] == 100.00
+    assert recon["fuel_surcharge"] == 5.00
+    assert recon["tax"] == 7.00
+    assert recon["net_total"] == 112.00
+
+    ops = invoice_items_to_ops(items, parsed["meta"], 7, 2026, 1, "received", {})
+    staged_value = sum(
+        (op["payload"]["items"][0]["price"] or 0) * op["payload"]["items"][0]["qty"]
+        for op in ops
+    )
+    assert staged_value == 100.00

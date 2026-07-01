@@ -4,6 +4,18 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.39] - 2026-07-01 - Data Entry session keepalive and item-value proof
+
+**Codex:** Traced the logout-during-parse report to the frontend idle watcher: uploads can be actively streaming while the session timer sees no user activity events, so a long parser run can trigger the 30-minute idle logout. Exported a session activity marker and wired Data Entry upload streaming to refresh activity at upload start, on each received stream chunk/heartbeat, and on successful result.
+
+**Invoice value:** Re-verified `C:\Users\ogdev\JobCorp\July 2026\July2026W1 Weekly Invoice.pdf`. The parser reads `$20,866.92` as product/item receivable value only. The same dry run reports product total `$20,866.92`, product cost `$20,866.92`, fuel surcharge `$5.00`, tax `$0.00`, Vizient discount `$417.33`, net total `$20,467.15`, staged received value `$20,866.92`, 201 parsed rows, 199 W1 received ops, and reconciliation `delta_pct=0.0`. Added a parser regression test proving staged receivable value uses item product cost and does not include fuel, tax, or net total.
+
+**Verification:** `backend/.venv/Scripts/python.exe -m pytest backend/tests/test_invoice_parser.py -q` passed (2 passed). `backend/.venv/Scripts/python.exe -m pytest backend/tests -q` passed (59 passed). `backend/.venv/Scripts/python.exe -m ruff check backend/tests/test_invoice_parser.py` passed. `backend/.venv/Scripts/python.exe -m ruff format --check backend/tests/test_invoice_parser.py` passed. Frontend `npx tsc --noEmit`, `npm run lint -- --quiet`, and `npm run build` passed; build still reports existing Vite dynamic-import/chunk-size/plugin-timing warnings.
+
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.38] - 2026-07-01 - July W1 US Foods invoice parser guard
 
 **Codex:** Checked `C:\Users\ogdev\JobCorp\July 2026\July2026W1 Weekly Invoice.pdf` against the current deterministic invoice parser. The original parse would have staged July 2026 W1 received, but it double-counted SKU `5771977` because US Foods repeats that line inside the page 11 `HAZARD MATERIALS SUMMARY`. Added a US Foods summary-section guard so hazardous recap lines cannot become inventory receipts, and added structured US Foods header parsing so invoice metadata now resolves to invoice `1736605`, date `07/01/2026`, account `41736679`, PO `4520`, and route `3319`.

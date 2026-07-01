@@ -28,6 +28,10 @@ function throttledWriteActivity() {
   }
 }
 
+export function markSessionActivity() {
+  throttledWriteActivity();
+}
+
 function checkIdle() {
   const last = readLastActivity();
   if (last > 0 && Date.now() - last > IDLE_LIMIT_MS) {

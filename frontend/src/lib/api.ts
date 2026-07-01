@@ -1,4 +1,5 @@
 import { getBackendToken, clearBackendToken, ensureFreshBackendAuth } from './supabase';
+import { markSessionActivity } from './session';
 
 const envBase = (import.meta.env as Record<string, string>).VITE_API_BASE;
 if (!envBase) {
@@ -674,6 +675,7 @@ export const api = {
 
   // Data Entry
   async uploadDataEntry(file: File, hint: string, month?: number, year?: number, week?: number, direction?: string, description?: string, signal?: AbortSignal, overwrite?: boolean): Promise<{ batch_id: string; staged_count: number; staging_ids?: string[]; sku_queued?: number; operations: Record<string, number>; file: string; month: number; year: number; description?: string; reconciliation?: any; ai_provider?: string; ai_model?: string; overwrite?: boolean; overwrite_scope?: any }> {
+    markSessionActivity();
     const token = getBackendToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -706,6 +708,7 @@ export const api = {
             for (;;) {
               const { done, value } = await reader.read();
               if (done) { reject(new ApiError(503, 'Stream ended before result was received')); return; }
+              markSessionActivity();
               buf += decoder.decode(value, { stream: true });
               const events = buf.split('\n\n');
               buf = events.pop()!;
@@ -723,6 +726,7 @@ export const api = {
                 reader.cancel().catch(() => {});
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 const { __ok, ...result } = data;
+                markSessionActivity();
                 window.dispatchEvent(new CustomEvent('mjcc:live-data-changed', { detail: { path: '/api/data-entry/upload' } }));
                 resolve(result as any);
                 return;
