@@ -10,7 +10,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** `supabase db query --linked` confirmed July 2026 W1 ledger received value `$20,866.92`. `backend/.venv/Scripts/python.exe -m pytest backend/tests/test_inventory_calculations.py -q` passed (3 passed). `backend/.venv/Scripts/python.exe -m pytest backend/tests -q` passed (60 passed). `backend/.venv/Scripts/python.exe -m ruff check backend/routes/inventory.py backend/tests/test_inventory_calculations.py` passed. `backend/.venv/Scripts/python.exe -m ruff format --check backend/routes/inventory.py backend/tests/test_inventory_calculations.py` passed.
 
-**Push:** pending - not yet pushed.
+**Push:** Codex -> 8538b50 - 2026-07-01 19:38 EDT.
 
 ---
 
