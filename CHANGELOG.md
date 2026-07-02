@@ -4,6 +4,16 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.40] - 2026-07-01 - Week tile totals use ledger invoice value
+
+**Codex:** Investigated the screenshot where July Week 1 showed `$18,348.76` while Total received showed `$20,866.92`. Confirmed live Supabase `inventory_transactions` has July 2026 Week 1 received quantity `451.0` and received value `$20,866.92`. The mismatch was display-side: the top card used cached monthly `received_value`, while the Week tile fell back to `quantity * current item price`, which can undercount invoice-specific costs. Updated `GET /api/inventory` metadata to provide `weekly_invoice_totals` from the inventory ledger when snapshot/workbook weekly totals are absent, so Week tiles use authoritative `SUM(quantity * unit_price)` from received ledger rows.
+
+**Verification:** `supabase db query --linked` confirmed July 2026 W1 ledger received value `$20,866.92`. `backend/.venv/Scripts/python.exe -m pytest backend/tests/test_inventory_calculations.py -q` passed (3 passed). `backend/.venv/Scripts/python.exe -m pytest backend/tests -q` passed (60 passed). `backend/.venv/Scripts/python.exe -m ruff check backend/routes/inventory.py backend/tests/test_inventory_calculations.py` passed. `backend/.venv/Scripts/python.exe -m ruff format --check backend/routes/inventory.py backend/tests/test_inventory_calculations.py` passed.
+
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.39] - 2026-07-01 - Data Entry session keepalive and item-value proof
 
 **Codex:** Traced the logout-during-parse report to the frontend idle watcher: uploads can be actively streaming while the session timer sees no user activity events, so a long parser run can trigger the 30-minute idle logout. Exported a session activity marker and wired Data Entry upload streaming to refresh activity at upload start, on each received stream chunk/heartbeat, and on successful result.

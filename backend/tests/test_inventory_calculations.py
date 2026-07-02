@@ -1,6 +1,7 @@
 """Inventory API calculation contract tests."""
 
 import importlib
+from types import SimpleNamespace
 
 
 def _import_inventory(monkeypatch):
@@ -83,3 +84,57 @@ def test_flatten_rows_prefers_audited_value_controls(monkeypatch):
     assert item.pulledValue == 25
     assert item.endingValue == 62
     assert item.value == 62
+
+
+def test_weekly_received_values_come_from_ledger_prices(monkeypatch):
+    inv = _import_inventory(monkeypatch)
+
+    class FakeQuery:
+        def select(self, *_args, **_kwargs):
+            return self
+
+        def eq(self, *_args, **_kwargs):
+            return self
+
+        def in_(self, *_args, **_kwargs):
+            return self
+
+        def execute(self):
+            return SimpleNamespace(
+                data=[
+                    {
+                        "week_number": 1,
+                        "quantity": 2,
+                        "unit_price": 50.25,
+                        "txn_type": "received",
+                    },
+                    {
+                        "week_number": 1,
+                        "quantity": 1,
+                        "unit_price": 5,
+                        "txn_type": "received",
+                    },
+                    {
+                        "week_number": 2,
+                        "quantity": 3,
+                        "unit_price": 10,
+                        "txn_type": "adjustment_increase",
+                    },
+                ]
+            )
+
+    class FakeSupabase:
+        def table(self, name):
+            assert name == "inventory_transactions"
+            return FakeQuery()
+
+    monkeypatch.setattr(inv, "supabase_service", FakeSupabase())
+
+    totals = inv._weekly_received_values_from_ledger(6, 2026)
+
+    assert totals == {
+        "source": "inventory_transactions",
+        "weeks": {"1": 105.5, "2": 30.0},
+        "total": 135.5,
+        "notes": {},
+    }

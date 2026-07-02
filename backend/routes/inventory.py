@@ -167,6 +167,41 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
     return items
 
 
+def _weekly_received_values_from_ledger(db_month: int, year: int) -> dict | None:
+    try:
+        txns = (
+            supabase_service.table("inventory_transactions")
+            .select("week_number,quantity,unit_price,txn_type")
+            .eq("month", db_month)
+            .eq("year", year)
+            .in_("txn_type", ["received", "adjustment_increase"])
+            .execute()
+        )
+    except Exception:
+        logger.exception("Could not load weekly received values from ledger")
+        return None
+
+    weeks: dict[str, float] = {}
+    for row in txns.data or []:
+        week = int(_to_float(row.get("week_number")))
+        if week <= 0:
+            continue
+        value = _to_float(row.get("quantity")) * _to_float(row.get("unit_price"))
+        if value <= 0:
+            continue
+        key = str(week)
+        weeks[key] = round(weeks.get(key, 0) + value, 2)
+
+    if not weeks:
+        return None
+    return {
+        "source": "inventory_transactions",
+        "weeks": weeks,
+        "total": round(sum(weeks.values()), 2),
+        "notes": {},
+    }
+
+
 def _serialize_dt(dt) -> str:
     if dt is None:
         return ""
@@ -297,6 +332,8 @@ async def get_inventory(
                         }
         except Exception:
             weekly_invoice_totals = None
+        if not weekly_invoice_totals:
+            weekly_invoice_totals = _weekly_received_values_from_ledger(db_month, year)
 
         return InventoryResponse(
             id=period_id,
