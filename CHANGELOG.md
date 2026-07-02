@@ -4,6 +4,16 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.43] - 2026-07-01 - Pull Sheet compact mode shows all weeks
+
+**Codex:** Updated Pull Sheet compact mode so it shows editable W1, W2, and W3 pull columns together. Compact drafts now persist all three weeks, the bottom staging bar reports the all-week total, and compact staging submits each changed week through the existing weekly pull API while Regular mode keeps the single-week tab workflow.
+
+**Verification:** Frontend `npx tsc --noEmit`, `npm run lint -- --quiet`, and `npm run build` passed; build still reports the existing Vite dynamic-import/chunk-size warnings. `git diff --check` passed for the touched frontend files.
+
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.42] - 2026-07-01 - Pull Sheet inputs match portal UI
 
 **Codex:** Updated Pull Sheet inputs to match the portal control system. Replaced the generic search field with an icon-wrapped `ipt` search control and moved pull quantity inputs onto a reusable Pull Sheet input class with consistent radius, focus ring, surface color, dark-mode behavior, and compact sizing. Clarified that Pull Sheet week columns are intentionally scoped to one selected week: Regular mode shows Week 1/2/3 tabs, while Compact stays focused on the active week to avoid cross-week pull edits.
