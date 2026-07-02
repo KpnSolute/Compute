@@ -1077,7 +1077,9 @@ table.data.logtbl td{padding:6px 10px}
 }
 .pull-period-actions{gap:8px;display:flex;align-items:center;flex-wrap:wrap}
 .pull-filter-bar{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
-.pull-filter-bar .field{max-width:300px;padding:7px 10px;font-size:13px}
+.pull-filter-bar .field{max-width:300px;height:33px;padding:7px 10px;font-size:13px}
+.pull-view-toggle{margin-left:auto;height:33px;align-items:center}
+.pull-view-toggle .vt-btn{min-height:27px;padding:5px 11px}
 .pull-select{position:relative;flex:0 0 auto}
 .pull-select-btn{
   height:33px;min-width:106px;display:inline-flex;align-items:center;justify-content:space-between;gap:10px;
@@ -1106,6 +1108,9 @@ table.data.logtbl td{padding:6px 10px}
 .pull-week-tab:hover{background:var(--surface-2);color:var(--ink)}
 .pull-week-tab[data-on="true"]{background:var(--accent);color:#fff}
 .pull-sheet-table{min-width:940px}
+.pull-sheet-compact{min-width:720px}
+.pull-sheet-compact .cinp{width:58px}
+.pull-sheet-compact td:first-child{font-weight:650;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pull-category-row td{background:var(--surface-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:10px 13px!important}
 .pull-category-row span{font-size:13.5px;font-weight:850;color:var(--ink)}
 .pull-category-row em{font-style:normal;font-size:11px;color:var(--muted);float:right}
@@ -1800,6 +1805,10 @@ table.data.logtbl td{padding:6px 10px}
 .view-toggle{display:inline-flex;background:var(--surface-2,#eef2f7);border:1px solid var(--line);border-radius:8px;padding:2px;gap:2px}
 .vt-btn{padding:7px 13px;font-size:12px;font-weight:700;border:none;background:transparent;color:var(--muted);border-radius:6px;cursor:pointer;transition:all .12s;min-height:36px}
 .vt-btn.active{background:#fff;color:var(--navy);box-shadow:0 1px 2px rgba(9,22,51,.12)}
+.inventory-editor-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex:1;min-width:0}
+.inventory-search-wrap{position:relative;flex:1 1 260px;min-width:190px;max-width:360px}
+.inventory-search-icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--faint);pointer-events:none;display:flex;align-items:center}
+.inventory-search-input{width:100%;height:36px;padding-left:32px!important;box-sizing:border-box}
 
 .cat-secs{display:flex;flex-direction:column;gap:10px;padding:12px}
 .cat-sec{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}

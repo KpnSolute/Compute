@@ -749,10 +749,10 @@ export function MonthlyInventory({
             {/* ── Controls row ── */}
             <div className="card-head" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               <h3>Inventory editor</h3>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', flex: 1 }}>
+              <div className="inventory-editor-tools">
                 {/* Search */}
-                <div style={{ position: 'relative', minWidth: 150 }}>
-                  <span style={{ position: 'absolute', left: 9, top: 8, color: 'var(--faint)', pointerEvents: 'none' }}>
+                <div className="inventory-search-wrap">
+                  <span className="inventory-search-icon">
                     {I.search({ style: { width: 14, height: 14 } })}
                   </span>
                   <input
@@ -760,7 +760,6 @@ export function MonthlyInventory({
                     value={q}
                     onChange={(e) => setQ(e.target.value)}
                     placeholder="Search SKU, name, category, or $price"
-                    style={{ width: '100%', paddingLeft: 28 }}
                   />
                 </div>
                 {/* View mode */}

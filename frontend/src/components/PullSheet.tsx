@@ -119,6 +119,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
   const [showAll, setShowAll] = useState(false);
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('');
+  const [viewMode, setViewMode] = useState<'regular' | 'compact'>('regular');
   const [staging, setStaging] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
@@ -364,6 +365,26 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
           <input type="checkbox" checked={showAll} onChange={e => setShowAll(e.target.checked)} />
           Show zero-on-hand items
         </label>
+        <div className="view-toggle pull-view-toggle" role="tablist" aria-label="Pull sheet view">
+          <button
+            type="button"
+            className={`vt-btn${viewMode === 'regular' ? ' active' : ''}`}
+            onClick={() => setViewMode('regular')}
+            role="tab"
+            aria-selected={viewMode === 'regular'}
+          >
+            Regular
+          </button>
+          <button
+            type="button"
+            className={`vt-btn${viewMode === 'compact' ? ' active' : ''}`}
+            onClick={() => setViewMode('compact')}
+            role="tab"
+            aria-selected={viewMode === 'compact'}
+          >
+            Compact
+          </button>
+        </div>
       </div>
 
       <div className="pull-kpi-grid">
@@ -381,19 +402,21 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
         })}
       </div>
 
-      <div className="pull-week-tabs">
-        {weekOpts.map((o) => (
-          <button
-            type="button"
-            className="pull-week-tab"
-            data-on={week === o.value}
-            key={o.value}
-            onClick={() => setWeek(o.value)}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
+      {viewMode === 'regular' && (
+        <div className="pull-week-tabs">
+          {weekOpts.map((o) => (
+            <button
+              type="button"
+              className="pull-week-tab"
+              data-on={week === o.value}
+              key={o.value}
+              onClick={() => setWeek(o.value)}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {loading && (
         <div className="load-wrap">
@@ -408,7 +431,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
         </div>
       )}
 
-      {!loading && !loadErr && (
+      {!loading && !loadErr && viewMode === 'regular' && (
         <div className="card" style={{ marginBottom: 0 }}>
           <div className="card-body flush tbl-wrap">
             <table className="data pull-sheet-table">
@@ -490,6 +513,71 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
                     })}
                   </Fragment>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {!loading && !loadErr && viewMode === 'compact' && (
+        <div className="card" style={{ marginBottom: 0 }}>
+          <div className="card-body flush tbl-wrap">
+            <table className="data compact pull-sheet-compact">
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>SKU</th>
+                  <th className="r">OH</th>
+                  <th className="r">Par</th>
+                  <th>Status</th>
+                  <th className="r">Pull W{week}</th>
+                  <th className="r">Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={7} style={{ textAlign: 'center', padding: '28px 0', color: 'var(--muted)', fontSize: 13 }}>
+                      No items match.
+                    </td>
+                  </tr>
+                )}
+                {filtered.map((it) => {
+                  const sku = String(it.sku);
+                  const desc = pdesc(it);
+                  const price = pprice(it);
+                  const onHand = pavailable(it);
+                  const par = ppar(it);
+                  const qty = pullQtyFor(it);
+                  const rowValue = qty * price;
+                  const isEdited = Object.prototype.hasOwnProperty.call(qtys, sku);
+                  const isDirty = qty > 0 || isEdited;
+                  const status = onHand <= 0 ? 'Out' : par > 0 && onHand <= par ? 'Low' : 'OK';
+                  return (
+                    <tr key={`compact-${sku}`} className={isDirty ? 'rcvd' : undefined}>
+                      <td data-label="Item">{desc}</td>
+                      <td data-label="SKU" style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{sku}</td>
+                      <td data-label="OH" className="r num">{onHand}</td>
+                      <td data-label="Par" className="r num">{par || '-'}</td>
+                      <td data-label="Status"><span className="pull-status" data-status={status.toLowerCase()}>{status}</span></td>
+                      <td data-label={`W${week} Pull`} className="r">
+                        <input
+                          className="cinp"
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={qty === 0 ? '' : qty}
+                          placeholder="0"
+                          onChange={e => setQty(sku, Number(e.target.value) || 0)}
+                          onFocus={e => e.target.select()}
+                        />
+                      </td>
+                      <td data-label="Value" className="r num" style={{ color: isDirty ? 'var(--green)' : 'var(--muted)' }}>
+                        {isDirty ? fmt(rowValue) : '-'}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

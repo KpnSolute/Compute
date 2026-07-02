@@ -4,6 +4,16 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.41] - 2026-07-01 - Pull Sheet compact view and toolbar alignment
+
+**Codex:** Updated Pull Sheet with a Regular/Compact view toggle. Regular keeps the full table and explicit Week 1/2/3 tabs, while Compact provides a denser pull-entry table focused on item, SKU, on-hand, par, status, W# pull quantity, and value. Aligned the Inventory editor search input with the surrounding toolbar controls by moving it into stable toolbar/search wrapper classes and matching control height/padding.
+
+**Verification:** Frontend `npx tsc --noEmit`, `npm run lint -- --quiet`, and `npm run build` passed; build still reports the existing Vite dynamic-import/chunk-size warnings. `git diff --check` passed for the touched frontend files.
+
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.40] - 2026-07-01 - Week tile totals use ledger invoice value
 
 **Codex:** Investigated the screenshot where July Week 1 showed `$18,348.76` while Total received showed `$20,866.92`. Confirmed live Supabase `inventory_transactions` has July 2026 Week 1 received quantity `451.0` and received value `$20,866.92`. The mismatch was display-side: the top card used cached monthly `received_value`, while the Week tile fell back to `quantity * current item price`, which can undercount invoice-specific costs. Updated `GET /api/inventory` metadata to provide `weekly_invoice_totals` from the inventory ledger when snapshot/workbook weekly totals are absent, so Week tiles use authoritative `SUM(quantity * unit_price)` from received ledger rows.
