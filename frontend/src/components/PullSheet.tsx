@@ -346,12 +346,15 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
 
       {/* Filter bar */}
       <div className="pull-filter-bar">
-        <input
-          className="field"
-          placeholder="Search SKU or description…"
-          value={q}
-          onChange={e => setQ(e.target.value)}
-        />
+        <div className="pull-search-wrap">
+          <span className="pull-search-icon">{I.search({ style: { width: 14, height: 14 } })}</span>
+          <input
+            className="ipt pull-search-input"
+            placeholder="Search SKU or description…"
+            value={q}
+            onChange={e => setQ(e.target.value)}
+          />
+        </div>
         <PullSheetSelect
           label="Item category"
           value={cat}
@@ -486,6 +489,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
                       <td><span className="pull-status" data-status={status.toLowerCase()}>{status}</span></td>
                       <td style={{ textAlign: 'center' }}>
                         <input
+                          className="pull-qty-input"
                           type="number"
                           min={0}
                           step={1}
@@ -493,16 +497,6 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
                           placeholder="0"
                           onChange={e => setQty(sku, Number(e.target.value) || 0)}
                           onFocus={e => e.target.select()}
-                          style={{
-                            width: 80,
-                            textAlign: 'center',
-                            padding: '4px 6px',
-                            border: '1px solid var(--line)',
-                            borderRadius: 'var(--radius-sm)',
-                            fontSize: 13,
-                            background: 'var(--surface)',
-                            color: 'var(--ink)',
-                          }}
                         />
                       </td>
                       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: isDirty ? 'var(--green)' : 'var(--muted)' }}>
@@ -562,7 +556,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
                       <td data-label="Status"><span className="pull-status" data-status={status.toLowerCase()}>{status}</span></td>
                       <td data-label={`W${week} Pull`} className="r">
                         <input
-                          className="cinp"
+                          className="cinp pull-qty-input"
                           type="number"
                           min={0}
                           step={1}

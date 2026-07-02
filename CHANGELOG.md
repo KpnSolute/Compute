@@ -4,6 +4,16 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.42] - 2026-07-01 - Pull Sheet inputs match portal UI
+
+**Codex:** Updated Pull Sheet inputs to match the portal control system. Replaced the generic search field with an icon-wrapped `ipt` search control and moved pull quantity inputs onto a reusable Pull Sheet input class with consistent radius, focus ring, surface color, dark-mode behavior, and compact sizing. Clarified that Pull Sheet week columns are intentionally scoped to one selected week: Regular mode shows Week 1/2/3 tabs, while Compact stays focused on the active week to avoid cross-week pull edits.
+
+**Verification:** Frontend `npx tsc --noEmit`, `npm run lint -- --quiet`, and `npm run build` passed; build still reports the existing Vite dynamic-import/chunk-size warnings. `git diff --check` passed for the touched frontend files.
+
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.41] - 2026-07-01 - Pull Sheet compact view and toolbar alignment
 
 **Codex:** Updated Pull Sheet with a Regular/Compact view toggle. Regular keeps the full table and explicit Week 1/2/3 tabs, while Compact provides a denser pull-entry table focused on item, SKU, on-hand, par, status, W# pull quantity, and value. Aligned the Inventory editor search input with the surrounding toolbar controls by moving it into stable toolbar/search wrapper classes and matching control height/padding.
