@@ -4,6 +4,14 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.51] - 2026-07-03 - Bot/service accounts removed from live DB
+
+**Claude:** Per user direction, hard-deleted the three non-person admin accounts from live Supabase: `developer`, `sudo` ("Super Admin"), and `system` ("System Migration") — both `user_profiles` rows and their `auth.users` records. Verified beforehand that no rows in any FK-referencing table (commits, audit_log, staging_entries, pull_requests, week_status, app_settings, etc.) pointed at those IDs, so the delete was clean; post-check confirmed zero orphaned auth users. Remaining accounts: 2 sudo (jeremiah, othniel), 1 admin (grant.roshaun — promoted from manager by sudo in the UI today), 1 manager (torrez.dinitza), 6 staff. Data-only change — no code touched.
+
+**Push:** data-only; recorded here.
+
+---
+
 ## [v4.26.50] - 2026-07-03 - Credential banner standardized to the portal banner system
 
 **Claude:** Per user feedback that the fixed-overlay banner looked off-brand, moved the default-credential security banner from an App-level fixed bar into `Portal.tsx` beside `RolloverBanner`, using the standard `banner warn` design-system card (lock icon, flex message, `btn primary` action) rendered at the top of `<main>` like the monthly rollover notice. The inline change form now uses `ipt` inputs and design-system buttons, and validation/errors surface through the shared `toast` instead of ad-hoc inline text. Clearing the flag flows through the existing `mjcc:user-profile-updated` event that App already listens to, so no new prop plumbing.
