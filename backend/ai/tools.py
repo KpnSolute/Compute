@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from supabase import create_client
 
 from backend import inventory_formulas as fi
+from backend.periods import business_now
 
 ROLE_LEVEL: dict[str, int] = {
     "staff": 10,
@@ -64,7 +65,7 @@ def _require_user_id(args: dict) -> str:
 
 
 def _period_from_args(args: dict) -> tuple[int, int, int]:
-    now = datetime.now(timezone.utc)
+    now = business_now()  # cafeteria's local day, not UTC's
     display_month = int(args.get("month", now.month))
     year = int(args.get("year", now.year))
     db_month = display_month - 1 if 1 <= display_month <= 12 else display_month
@@ -164,8 +165,8 @@ def get_dashboard_stats(args: dict, user_role: str) -> dict:
             .execute()
         )
         status = (status_r.data or [{}])[0]
-        db_month = int(status.get("month", datetime.now(timezone.utc).month - 1))
-        year = int(status.get("year", datetime.now(timezone.utc).year))
+        db_month = int(status.get("month", business_now().month - 1))
+        year = int(status.get("year", business_now().year))
         return {
             "active_users": users_r.count or 0,
             "upcoming_events": events_r.count or 0,
@@ -342,8 +343,8 @@ def get_reorders(args: dict, user_role: str) -> dict:
             .execute()
         )
         period = (status.data or [{}])[0]
-        db_month = int(period.get("month", datetime.now(timezone.utc).month - 1))
-        year = int(period.get("year", datetime.now(timezone.utc).year))
+        db_month = int(period.get("month", business_now().month - 1))
+        year = int(period.get("year", business_now().year))
         return {
             "period": _period_label(db_month, year),
             "reorder_count": len(reorders),
@@ -366,8 +367,8 @@ def get_period_status(args: dict, user_role: str) -> dict:
             .execute()
         )
         current = (status.data or [{}])[0]
-        db_month = int(current.get("month", datetime.now(timezone.utc).month - 1))
-        year = int(current.get("year", datetime.now(timezone.utc).year))
+        db_month = int(current.get("month", business_now().month - 1))
+        year = int(current.get("year", business_now().year))
         r = (
             svc.table("monthly_inventory")
             .select("month,year", count="exact")

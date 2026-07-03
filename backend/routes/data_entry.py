@@ -38,6 +38,7 @@ from backend.ai import invoice_parser
 from backend.ai import mapper
 from backend.ai import parser as file_parser
 from backend.inventory_identity import canonical_sku
+from backend.periods import business_now
 from backend.routes import jwt_validator
 from backend.routes._deps import ensure_pr_for_entries
 from backend.staging.dispatch import _is_month_published
@@ -151,7 +152,7 @@ def _existing_inventory_scope_count(
 
 
 def _data_entry_period_settings() -> dict:
-    now = datetime.now(timezone.utc)
+    now = business_now()  # cafeteria's local day, not UTC's
     defaults = {
         "floor_year": 2026,
         "floor_month": 4,  # 0-indexed: May
@@ -206,10 +207,8 @@ def _validate_week(week: int, month: int, year: int) -> None:
 def _validate_period(month: int, year: int, settings: dict) -> None:
     floor_year = int(settings.get("floor_year", 2026))
     floor_month = int(settings.get("floor_month", 4))
-    max_year = int(settings.get("max_year", datetime.now(timezone.utc).year))
-    max_month = int(
-        settings.get("max_month", min(datetime.now(timezone.utc).month, 11))
-    )
+    max_year = int(settings.get("max_year", business_now().year))
+    max_month = int(settings.get("max_month", min(business_now().month, 11)))
     db_month = month - 1
     if month < 1 or month > 12:
         raise HTTPException(status_code=422, detail="Month must be between 1 and 12.")
@@ -1104,7 +1103,7 @@ async def upload_file(
     keep the TCP connection alive during parsing; the final 'data:' line is JSON.
     """
     job_start = time.monotonic()
-    now = datetime.now(timezone.utc)
+    now = business_now()  # cafeteria's local day, not UTC's
     if not month:
         month = now.month
     if not year:

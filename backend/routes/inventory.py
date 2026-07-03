@@ -29,7 +29,7 @@ from backend.inventory_identity import (
     resolve_and_write_item,
 )
 from backend import inventory_formulas as fi
-from backend.periods import weeks_in_month
+from backend.periods import business_now, weeks_in_month
 
 logger = logging.getLogger(__name__)
 
@@ -726,7 +726,8 @@ async def get_inventory_history(
                         "reorder_count": sum(
                             1
                             for item in items
-                            if (item.closingQty or 0) < (item.par or 0) and (item.par or 0) > 0
+                            if (item.closingQty or 0) < (item.par or 0)
+                            and (item.par or 0) > 0
                         ),
                         "opening_value": opening_value,
                         "received_value": received_value,
@@ -1028,7 +1029,7 @@ async def get_period_status(auth_user: dict = Depends(_get_auth_user)):
     stored in the DB — i.e. the cafeteria has moved into a new month but no
     rollover happened, so users are still looking at the previous month.
     """
-    now = datetime.now(timezone.utc)
+    now = business_now()
     current_month = now.month - 1  # 0-indexed to match the DB/JS convention
     current_year = now.year
 
@@ -1148,11 +1149,13 @@ async def rollover_period(
             detail=f"{_label(next_month, next_year)} already has inventory rows; rollover refused.",
         )
 
-    now = datetime.now(timezone.utc)
+    now = business_now()
     # next_month is 0-indexed (Jan=0); datetime.month is 1-indexed (Jan=1).
     # Compare in the same 0-indexed space so we block rolling INTO a month that
     # hasn't started yet (e.g. rolling May->June while it is still May), while
     # allowing the roll once the real-world clock has reached the next month.
+    # business_now() uses the cafeteria's local (Eastern) day, not UTC's --
+    # UTC crosses into the next day/month hours before Eastern does.
     current_month_0 = now.month - 1
     if (next_year, next_month) > (now.year, current_month_0):
         raise HTTPException(

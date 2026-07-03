@@ -1,6 +1,22 @@
 """Invoice-week period utilities shared across routes and dispatch."""
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 MAX_WEEKS = 3
+
+# MJCC operates in Miami. Every "what month/day is it right now" decision that
+# drives rollover prompts, period bounds, or the closed-month write guard must
+# use the cafeteria's local calendar day, not the server's UTC day -- UTC
+# crosses into the next day/month several hours before Eastern does (4h during
+# EDT, 5h during EST), which previously made the system think a new month had
+# started while it was still the last evening of the old one.
+BUSINESS_TZ = ZoneInfo("America/New_York")
+
+
+def business_now() -> datetime:
+    """Current time in the cafeteria's operating timezone (Eastern)."""
+    return datetime.now(BUSINESS_TZ)
 
 
 def to_db_month(ui_month: int) -> int:

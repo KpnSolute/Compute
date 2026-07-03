@@ -14,3 +14,4 @@ PyMuPDF
 pandas
 openpyxl
 Pillow
+tzdata
