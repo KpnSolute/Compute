@@ -16,6 +16,19 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.54] - 2026-07-03 - menu_entries seeded (104 rows); menu_feedback_summary created
+
+**Claude:** Closed out the menu work flagged as in-progress above.
+
+- **`backend/migrations/027_seed_menu_entries.sql`** (+ mirrored `supabase/migrations/20260703210000_seed_menu_entries.sql`): seeded 104 rows into `menu_entries` for the active cycle (`49732b15-5ed5-4479-b5c2-9c4b17b5869c`) — Breakfast/Lunch/Dinner/Snack for Mon-Fri, Brunch/Dinner/Snack for Sat/Sun, per day-to-weekday mapping (day 1 = Sunday, week_number = floor((day-1)/7)+1). `items`/`sides` serialized as JSON array text matching `backend/routes/menu.py`'s `_parse_items`. Brunch rows combine breakfast staples + that day's lunch items (deliberate simplification, noted inline — source data has no separate brunch dish). Verified: `count(*) = 104`, spot-checked Sun/Mon (day 1/2) rows decode correctly through the same JSON logic `_parse_items` uses.
+- **`backend/migrations/028_menu_feedback_summary.sql`** (+ mirrored `supabase/migrations/20260703210500_menu_feedback_summary.sql`): new `public.menu_feedback_summary` table for LunchVoice to push survey-rating aggregates into — `id uuid pk`, `cycle_day int not null`, `slot text not null`, `dish_name text not null`, `avg_rating numeric`, `response_count int not null default 0`, `updated_at timestamptz not null default now()`, unique `(cycle_day, slot)`. RLS enabled with `service_role_all` (ALL, `service_role`, `true`/`true`) + `authenticated_read` (SELECT, `authenticated`, `true`) — matches the pattern on `inventory_items`/`commits`/etc. LunchVoice writes via service role; MJCC staff get read-only.
+
+Both migrations applied live to MJCCv1 via Supabase MCP `apply_migration`. No backend Python changes needed — schema already matched `_parse_items` expectations.
+
+**Push:** commit 749440e on `codex/auth-user-controls-hardening` (not yet pushed) + this CHANGELOG entry.
+
+---
+
 ## [v4.26.52] - 2026-07-03 - Eastern business-timezone fix, migration history repair, cross-site audit
 
 **Claude:** Several items closed out in today's session:
