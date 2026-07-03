@@ -72,6 +72,95 @@ function showToast(html: string, duration = 4000) {
   t.__tt = setTimeout(() => t.classList.remove('show'), duration);
 }
 
+function CredentialBanner({ user, onCleared }: { user: User; onCleared: (patch: Partial<User>) => void }) {
+  const needsPassword = !!user.must_change_password;
+  const needsPin = !needsPassword && !!user.must_change_pin;
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  if (!needsPassword && !needsPin) return null;
+  const label = needsPassword ? 'password' : 'PIN';
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setErr('');
+    if (value !== confirm) { setErr('Entries do not match.'); return; }
+    if (needsPassword && value.length < 8) { setErr('Password must be at least 8 characters.'); return; }
+    if (needsPin && !/^\d{4}$/.test(value)) { setErr('PIN must be exactly 4 digits.'); return; }
+    setBusy(true);
+    try {
+      if (needsPassword) await api.updateMyPassword({ new_password: value });
+      else await api.updateMyPin({ new_pin: value });
+      showToast('<span>Your ' + label + ' has been updated.</span>');
+      onCleared(needsPassword ? { must_change_password: false } : { must_change_pin: false, pin: value });
+    } catch (ex: any) {
+      setErr(ex?.message || 'Update failed — please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9998,
+      background: 'var(--warn-bg, #78350f)', color: 'var(--warn-text, #fef3c7)',
+      padding: '8px 16px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      gap: 12, flexWrap: 'wrap', fontSize: 13.5, boxShadow: '0 2px 10px rgba(0,0,0,.3)',
+    }}>
+      <span>
+        Security notice: you are using the default {label}. Please set your own {label} now.
+      </span>
+      {!open ? (
+        <button
+          onClick={() => setOpen(true)}
+          style={{
+            background: 'var(--accent, #3b82f6)', color: '#fff', border: 'none',
+            borderRadius: 4, padding: '4px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+          }}
+        >
+          Change {label}
+        </button>
+      ) : (
+        <form onSubmit={submit} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <input
+            type="password"
+            autoFocus
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={needsPassword ? 'New password' : 'New 4-digit PIN'}
+            inputMode={needsPin ? 'numeric' : undefined}
+            maxLength={needsPin ? 4 : 128}
+            style={{ borderRadius: 4, border: 'none', padding: '4px 8px', fontSize: 13, width: needsPin ? 110 : 160 }}
+          />
+          <input
+            type="password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            placeholder={'Confirm ' + label}
+            inputMode={needsPin ? 'numeric' : undefined}
+            maxLength={needsPin ? 4 : 128}
+            style={{ borderRadius: 4, border: 'none', padding: '4px 8px', fontSize: 13, width: needsPin ? 110 : 160 }}
+          />
+          <button
+            type="submit"
+            disabled={busy}
+            style={{
+              background: 'var(--accent, #3b82f6)', color: '#fff', border: 'none',
+              borderRadius: 4, padding: '4px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+            }}
+          >
+            {busy ? 'Saving…' : 'Save'}
+          </button>
+          {err && <span style={{ color: 'var(--danger, #fca5a5)', fontWeight: 600 }}>{err}</span>}
+        </form>
+      )}
+    </div>
+  );
+}
+
 function App() {
   const [user, setUser] = useState<User | null>(loadSession);
   const [newVersionAvailable, setNewVersionAvailable] = useState(false);
@@ -221,7 +310,20 @@ function App() {
       {!user ? (
         <Login onLogin={handleLogin} layout="split" />
       ) : (
-        <Portal user={user} onLogout={handleLogout} density="comfortable" />
+        <>
+          <Portal user={user} onLogout={handleLogout} density="comfortable" />
+          <CredentialBanner
+            user={user}
+            onCleared={(patch) => {
+              setUser((prev) => {
+                if (!prev) return prev;
+                const next = { ...prev, ...patch };
+                saveStoredSession(next);
+                return next;
+              });
+            }}
+          />
+        </>
       )}
       {newVersionAvailable && (
         <div style={{

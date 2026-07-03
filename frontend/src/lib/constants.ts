@@ -9,6 +9,8 @@ export interface User {
   active?: boolean;
   pin?: string | null;
   password?: string | null;
+  must_change_password?: boolean;
+  must_change_pin?: boolean;
   access_token?: string;
   email?: string;
   phone?: string;

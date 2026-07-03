@@ -33,6 +33,16 @@ class UserInfo(BaseModel):
     last_name: str = ""
     role: str
     active: bool
+    must_change_password: bool = False
+    must_change_pin: bool = False
+
+
+def _credential_flags(user: dict) -> dict:
+    """Default-credential banner flags. PIN default is derived (PINs are plaintext)."""
+    return {
+        "must_change_password": bool(user.get("must_change_password")),
+        "must_change_pin": user.get("role") == "staff" and user.get("pin") == "2222",
+    }
 
 
 async def _get_user_profile(user_id: str) -> dict | None:
@@ -123,6 +133,7 @@ async def login(req: LoginRequest):
                 "role": user.get("role"),
                 "active": user.get("active"),
                 "email": email,  # From JWT
+                **_credential_flags(user),
             },
         )
 
@@ -165,6 +176,7 @@ async def login(req: LoginRequest):
                 "last_name": user.get("last_name"),
                 "role": user.get("role"),
                 "active": user.get("active"),
+                **_credential_flags(user),
             },
         )
 
@@ -204,7 +216,7 @@ async def me(authorization: str = Header("")):
         user = await _get_user_profile(user_id)
         if not user or not user.get("active"):
             raise HTTPException(status_code=401, detail="Invalid session")
-        return UserInfo(**user)
+        return UserInfo(**{**user, **_credential_flags(user)})
 
     # Handle Supabase JWT tokens
     claims = jwt_validator.verify_token(token)
@@ -216,4 +228,4 @@ async def me(authorization: str = Header("")):
     if not user or not user.get("active"):
         raise HTTPException(status_code=401, detail="User not found or inactive")
 
-    return UserInfo(**user)
+    return UserInfo(**{**user, **_credential_flags(user)})

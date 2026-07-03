@@ -124,6 +124,8 @@ function _publicUser(p: any): User {
     display_name: p.display_name || '',
     last_name: p.last_name || '',
     role: p.role,
+    must_change_password: !!p.must_change_password,
+    must_change_pin: !!p.must_change_pin,
   };
 }
 

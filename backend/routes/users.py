@@ -81,6 +81,10 @@ class PasswordUpdateRequest(BaseModel):
     new_password: str = Field(..., min_length=8, max_length=128)
 
 
+class PinUpdateRequest(BaseModel):
+    new_pin: str = Field(..., min_length=4, max_length=10)
+
+
 class UserSelfUpdateRequest(BaseModel):
     """Self-service profile update — cannot change role, username, email, or active."""
 
@@ -117,6 +121,7 @@ class UserResponse(BaseModel):
     avatar_url: str | None = None
     bio: str | None = None
     pin: str | None = None
+    must_change_password: bool | None = None
 
 
 class UsersListResponse(BaseModel):
@@ -134,6 +139,17 @@ SELF_PROFILE_FIELDS = {
 }
 STAFF_SELF_PROFILE_FIELDS = {"phone"}
 USERNAME_RE = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
+# Provisioning defaults. must_change_password stays true while the account is on
+# the known default password (hashes are unrecoverable, so this is the only window
+# where sudo can "view" a password); PIN default state is derived from pin == '2222'.
+DEFAULT_MANAGER_PASSWORD = "Manager@2026"
+DEFAULT_STAFF_PIN = "2222"
+
+
+def _pin_is_default(user: dict) -> bool:
+    return user.get("role") == "staff" and user.get("pin") == DEFAULT_STAFF_PIN
+
+
 VALID_SCOPE_KEYS = {
     "dashboard",
     "inventory",
@@ -661,10 +677,35 @@ async def update_my_password(
 ):
     """Allow manager/admin/sudo users to change their own Supabase Auth password."""
     _patch_auth_user(current_user["id"], {"password": req.new_password})
+    supabase_service.table("user_profiles").update(
+        {
+            "must_change_password": req.new_password == DEFAULT_MANAGER_PASSWORD,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    ).eq("id", current_user["id"]).execute()
     _log_credential_event(
         current_user.get("id"),
         current_user.get("id"),
         "password_reset",
+        {"self_service": True},
+    )
+    return {"ok": True}
+
+
+@router.put("/me/pin")
+async def update_my_pin(
+    req: PinUpdateRequest, current_user: dict = Depends(_require_any_auth)
+):
+    """Allow a user to change their own PIN (staff clear the default-PIN banner here)."""
+    if not req.new_pin.isdigit():
+        raise HTTPException(status_code=400, detail="PIN must be numeric")
+    supabase_service.table("user_profiles").update(
+        {"pin": req.new_pin, "updated_at": datetime.now(timezone.utc).isoformat()}
+    ).eq("id", current_user["id"]).execute()
+    _log_credential_event(
+        current_user.get("id"),
+        current_user.get("id"),
+        "pin_update",
         {"self_service": True},
     )
     return {"ok": True}
@@ -870,7 +911,10 @@ async def create_user(
     now = datetime.now(timezone.utc).isoformat()
 
     try:
-        password = req.password or secrets.token_urlsafe(18)
+        if req.role == "staff":
+            password = req.password or secrets.token_urlsafe(18)
+        else:
+            password = req.password or DEFAULT_MANAGER_PASSWORD
         auth_user_id = _create_auth_user(
             auth_email,
             password,
@@ -891,8 +935,12 @@ async def create_user(
                     "display_name": req.display_name,
                     "last_name": req.last_name,
                     "role": req.role,
-                    "pin": req.pin or None,
+                    "pin": (req.pin or DEFAULT_STAFF_PIN)
+                    if req.role == "staff"
+                    else (req.pin or None),
                     "active": True,
+                    "must_change_password": req.role != "staff"
+                    and password == DEFAULT_MANAGER_PASSWORD,
                     "phone": req.phone,
                     "job_title": req.job_title,
                     "bio": req.bio,
@@ -995,6 +1043,9 @@ async def update_user(
     auth_payload: dict = {}
     if req.new_password:
         auth_payload["password"] = req.new_password
+        update_data["must_change_password"] = (
+            req.new_password == DEFAULT_MANAGER_PASSWORD
+        )
     if req.new_username:
         auth_payload["email"] = update_data["email"]
         auth_payload["email_confirm"] = True
@@ -1071,15 +1122,25 @@ async def get_user_credentials(
             )
         data = resp.json()
         _log_credential_event(admin_user.get("id"), user_id, "view")
-        # Supabase does not expose plaintext passwords — return masked indicator + last sign in
+        # Supabase stores only password hashes. The password is viewable exactly while
+        # the account is still on the provisioning default; after that it is reset-only.
+        on_default_password = bool(user.get("must_change_password"))
+        show_pin = admin_user.get("role") == "sudo" or user.get("role") == "staff"
         return {
             "user_id": user_id,
             "username": user.get("username")
             or data.get("user_metadata", {}).get("username"),
             "email": data.get("email"),
-            "pin": user.get("pin") if user.get("role") == "staff" else None,
+            "pin": user.get("pin") if show_pin else None,
+            "pin_is_default": _pin_is_default(user),
+            "password": DEFAULT_MANAGER_PASSWORD if on_default_password else None,
+            "password_is_default": on_default_password,
             "last_sign_in_at": data.get("last_sign_in_at"),
-            "password_note": "Supabase does not store plaintext passwords. Use reset to set a new one.",
+            "password_note": (
+                f"Account is on the default password ({DEFAULT_MANAGER_PASSWORD})."
+                if on_default_password
+                else "Password was changed by the user and is not recoverable. Use reset to set a new one."
+            ),
             "can_reset": True,
         }
     except HTTPException:

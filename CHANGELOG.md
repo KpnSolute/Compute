@@ -4,6 +4,16 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.49] - 2026-07-03 - Default credentials, change-credential banner, credential visibility
+
+**Claude:** Established provisioning defaults: manager default password `Manager@2026`, staff default PIN `2222`. Live data reset applied in Supabase: both active managers (grant.roshaun, torrez.dinitza) now have the default password with `must_change_password=true`; all six active staff PINs reset to `2222`. Added `user_profiles.must_change_password` (migration `20260703200500_default_credentials.sql`, DDL applied live); PIN default state is derived from `pin='2222'` rather than stored. Backend: user creation now defaults credentials and sets the flag; admin password resets set the flag when resetting to the default; self password change clears it; new `PUT /api/users/me/pin` lets any user change their own PIN; `/api/auth/login` and `/api/auth/me` return `must_change_password`/`must_change_pin`; the credentials endpoint now returns the actual password while an account is on the default (hashes are unrecoverable afterward — reset-only), returns PINs to sudo for any role (managers still staff-only), and reports default-state flags. Frontend: App-level security banner when the session user is on a default credential, with an inline change form (password for manager+, 4-digit PIN for staff) so it works regardless of page scopes; login/session plumbing carries the flags.
+
+**Verification:** `backend/.venv/Scripts/python.exe -m pytest backend/tests -q` passed (70 passed). Ruff check/format-check passed for `backend/routes/users.py` and `backend/routes/auth.py`. Frontend `npx tsc --noEmit`, `npm run lint -- --quiet`, and `npm run build` passed (existing chunk-size warning only). Browser-verified on a local preview against prod: `grant.roshaun` / `Manager@2026` signs in successfully (Roshaun's login is fixed), no console errors, and the banner + inline change form render correctly. Note: the banner will not appear for real users until this branch reaches main/Render, since prod `/api/auth/login` does not yet return the flags.
+
+**Push:** pending.
+
+---
+
 ## [v4.26.48] - 2026-07-03 - Staff/manager usernames standardized to lastname.firstname
 
 **Claude:** Renamed all current staff and manager usernames in live Supabase to the `lastname.firstname` standard (v4.26.44), updating `user_profiles.username`, `auth.users.email`, and `auth.identities` email in one pass: accountant→torrez.dinitza, admin→grant.roshaun, pearline→brissetts.pearline, staff2→nelson.kathleen, staff3→eugene.madeline, staff4→rigby.veronica, staff6→williams.christene. Skipped staff5 (placeholder "Staff Five", no real name). Sudo/admin service accounts (jeremiah, othniel, developer, sudo, system) untouched. The identities sync also fixed a pre-existing stale email on `developer`.

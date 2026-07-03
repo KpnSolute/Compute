@@ -784,6 +784,10 @@ export const api = {
     return req('/api/users/me/password', { method: 'PUT', body: JSON.stringify(body) });
   },
 
+  async updateMyPin(body: { new_pin: string }): Promise<any> {
+    return req('/api/users/me/pin', { method: 'PUT', body: JSON.stringify(body) });
+  },
+
   async uploadMyAvatar(file: File): Promise<any> {
     const token = getBackendToken();
     const headers: Record<string, string> = {};
