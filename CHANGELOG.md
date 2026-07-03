@@ -4,6 +4,16 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.48] - 2026-07-03 - Staff/manager usernames standardized to lastname.firstname
+
+**Claude:** Renamed all current staff and manager usernames in live Supabase to the `lastname.firstname` standard (v4.26.44), updating `user_profiles.username`, `auth.users.email`, and `auth.identities` email in one pass: accountant→torrez.dinitza, admin→grant.roshaun, pearline→brissetts.pearline, staff2→nelson.kathleen, staff3→eugene.madeline, staff4→rigby.veronica, staff6→williams.christene. Skipped staff5 (placeholder "Staff Five", no real name). Sudo/admin service accounts (jeremiah, othniel, developer, sudo, system) untouched. The identities sync also fixed a pre-existing stale email on `developer`.
+
+**Verification:** The transactional UPDATE returned all 7 renamed rows with matching profile usernames and auth emails. Data-only change — no code touched.
+
+**Push:** data-only; recorded here.
+
+---
+
 ## [v4.26.47] - 2026-07-03 - Fix credential view 502 and password reset 405
 
 **Claude:** Diagnosed the "Could not retrieve user from auth service" 502 on the credential-view endpoint via live GoTrue logs. Two root causes: (1) `GET /auth/v1/admin/users/{id}` returned 500 for the six staff accounts because their `auth.users` rows were created by direct SQL insert with NULL text token columns (`confirmation_token` etc.), which GoTrue cannot scan; (2) `_patch_auth_user` used `httpx.patch` but GoTrue's admin user-update endpoint only accepts PUT, so every password/PIN-era credential update returned 405 — including today's attempted password resets for `accountant` and `admin` (Roshaun Grant), which silently failed.
