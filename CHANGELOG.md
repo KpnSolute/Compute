@@ -10,7 +10,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** `backend/.venv/Scripts/python.exe -m pytest backend/tests -q` passed (70 passed). Ruff check/format-check passed for `backend/routes/users.py` and `backend/routes/auth.py`. Frontend `npx tsc --noEmit`, `npm run lint -- --quiet`, and `npm run build` passed (existing chunk-size warning only). Browser-verified on a local preview against prod: `grant.roshaun` / `Manager@2026` signs in successfully (Roshaun's login is fixed), no console errors, and the banner + inline change form render correctly. Note: the banner will not appear for real users until this branch reaches main/Render, since prod `/api/auth/login` does not yet return the flags.
 
-**Push:** pending.
+**Push:** Claude -> ebc8c44 - 2026-07-03 16:14 EDT.
 
 ---
 
