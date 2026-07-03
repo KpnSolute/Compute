@@ -3626,6 +3626,8 @@ function CategoryManager({ onChanged }: { onChanged?: () => void }) {
 
 function UsersView({ user: currentUser }: { user: User }) {
     const isSudo = currentUser.role === 'sudo';
+    const currentLevel = ROLE_LEVEL[currentUser.role] || 0;
+    const canManageStaff = currentLevel >= 30;
     const blankForm = {
         username: "",
         email: "",
@@ -3639,6 +3641,8 @@ function UsersView({ user: currentUser }: { user: User }) {
         job_title: "",
         bio: "",
         avatar_url: "",
+        new_username: "",
+        new_password: "",
     };
     const [state, setState] = useState({
         loading: true,
@@ -3693,6 +3697,7 @@ function UsersView({ user: currentUser }: { user: User }) {
     };
 
     const openEdit = (u: any) => {
+        const standard = u.role === "staff" ? standardUsernameFor(u.last_name || "", u.display_name || "") : "";
         setEditing(u);
         setForm({
             username: u.username || "",
@@ -3707,12 +3712,35 @@ function UsersView({ user: currentUser }: { user: User }) {
             job_title: u.job_title || "",
             bio: u.bio || "",
             avatar_url: u.avatar_url || "",
+            new_username: standard && standard !== u.username ? standard : "",
+            new_password: "",
         });
         setShowForm(true);
     };
 
+    function usernamePart(value: string) {
+        return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+    }
+    function standardUsernameFor(lastName: string, firstName: string) {
+        const last = usernamePart(lastName);
+        const first = usernamePart(firstName);
+        return last && first ? `${last}.${first}` : "";
+    }
+    const canEditUser = (u: any) => isSudo || (canManageStaff && u.role === "staff");
+    const canEditCredentials = Boolean(editing && (isSudo || (canManageStaff && editing.role === "staff")));
     const updateForm = (key: string, value: string | boolean) => {
-        setForm((prev) => ({ ...prev, [key]: value }));
+        setForm((prev) => {
+            const next = { ...prev, [key]: value };
+            if (!editing && next.role === "staff" && ["display_name", "last_name", "role"].includes(key)) {
+                const standard = standardUsernameFor(next.last_name, next.display_name);
+                if (standard) next.username = standard;
+            }
+            if (editing?.role === "staff" && canEditCredentials && ["display_name", "last_name"].includes(key)) {
+                const standard = standardUsernameFor(next.last_name, next.display_name);
+                if (standard && standard !== editing.username) next.new_username = standard;
+            }
+            return next;
+        });
     };
     const loginEmailFor = (name: string) => {
         const clean = (name || "").trim().toLowerCase();
@@ -3720,9 +3748,12 @@ function UsersView({ user: currentUser }: { user: User }) {
     };
 
     const submitUser = async () => {
-        const username = form.username.trim().toLowerCase();
         const displayName = form.display_name.trim();
+        const standardUsername = standardUsernameFor(form.last_name, displayName);
+        const username = (form.username.trim().toLowerCase() || standardUsername);
         const email = loginEmailFor(username);
+        const newUsername = (form as any).new_username?.trim().toLowerCase() || "";
+        const newPassword = (form as any).new_password?.trim() || "";
         if (!displayName) {
             toast("Display name is required");
             return;
@@ -3731,11 +3762,23 @@ function UsersView({ user: currentUser }: { user: User }) {
             toast("Username is required");
             return;
         }
+        if (!editing && form.role === "staff" && standardUsername && username !== standardUsername) {
+            toast(`Staff username must be ${standardUsername}`);
+            return;
+        }
+        if (editing && editing.role === "staff" && newUsername && standardUsername && newUsername !== standardUsername) {
+            toast(`Staff username must be ${standardUsername}`);
+            return;
+        }
         if (!editing && form.role !== "staff" && form.password.length < 8) {
             toast("Password must be at least 8 characters");
             return;
         }
         if (!editing && form.password && form.password.length < 8) {
+            toast("Password must be at least 8 characters");
+            return;
+        }
+        if (editing && newPassword && newPassword.length < 8) {
             toast("Password must be at least 8 characters");
             return;
         }
@@ -3759,8 +3802,8 @@ function UsersView({ user: currentUser }: { user: User }) {
                         bio: form.bio || undefined,
                         avatar_url: form.avatar_url || undefined,
                     };
-                    if (isSudo && (form as any).new_username?.trim()) p.new_username = (form as any).new_username.trim().toLowerCase();
-                    if (isSudo && (form as any).new_password?.trim()) p.new_password = (form as any).new_password.trim();
+                    if (canEditCredentials && newUsername && newUsername !== editing.username) p.new_username = newUsername;
+                    if (canEditCredentials && newPassword) p.new_password = newPassword;
                     return p;
                 })());
                 toast(`Updated ${displayName}`);
@@ -3812,7 +3855,7 @@ function UsersView({ user: currentUser }: { user: User }) {
                     <h2>Users &amp; Access</h2>
                     <div className="ph-sub">
                         {users.length} accounts · {activeUsers} active · {disabledUsers} disabled
-                        {!isSudo && " · read-only view"}
+                        {!isSudo && (canManageStaff ? " · staff management" : " · read-only view")}
                     </div>
                 </div>
                 <div className="ph-actions">
@@ -3913,7 +3956,7 @@ function UsersView({ user: currentUser }: { user: User }) {
                                             )}
                                         </td>
                                         <td style={{ display: "flex", gap: 6 }}>
-                                            {isSudo && (
+                                            {canEditUser(u) && (
                                                 <>
                                                     <button
                                                         className="btn"
@@ -3928,23 +3971,25 @@ function UsersView({ user: currentUser }: { user: User }) {
                                                             },
                                                         })}
                                                     </button>
-                                                    <button
-                                                        className="btn"
-                                                        style={{
-                                                            padding: "5px 9px",
-                                                            color: "var(--red)",
-                                                        }}
-                                                        onClick={() => disableUser(u)}
-                                                        disabled={u.active === false}
-                                                        title="Disable user"
-                                                    >
-                                                        {I.del({
-                                                            style: {
-                                                                width: 14,
-                                                                height: 14,
-                                                            },
-                                                        })}
-                                                    </button>
+                                                    {isSudo && (
+                                                        <button
+                                                            className="btn"
+                                                            style={{
+                                                                padding: "5px 9px",
+                                                                color: "var(--red)",
+                                                            }}
+                                                            onClick={() => disableUser(u)}
+                                                            disabled={u.active === false}
+                                                            title="Disable user"
+                                                        >
+                                                            {I.del({
+                                                                style: {
+                                                                    width: 14,
+                                                                    height: 14,
+                                                                },
+                                                            })}
+                                                        </button>
+                                                    )}
                                                 </>
                                             )}
                                         </td>
@@ -3972,7 +4017,7 @@ function UsersView({ user: currentUser }: { user: User }) {
                                         <input
                                             value={form.username}
                                             onChange={(e) => updateForm("username", e.target.value)}
-                                            placeholder="staff1"
+                                            placeholder="lastname.firstname"
                                         />
                                     </label>
                                     <label>
@@ -4003,12 +4048,17 @@ function UsersView({ user: currentUser }: { user: User }) {
                                 <select
                                     value={form.role}
                                     onChange={(e) => updateForm("role", e.target.value)}
+                                    disabled={editing && !isSudo}
                                 >
                                     <option value="staff">Staff</option>
-                                    <option value="assistant">Assistant</option>
-                                    <option value="manager">Manager</option>
-                                    <option value="admin">Administrator</option>
-                                    {isSudo && <option value="sudo">Sudo Administrator</option>}
+                                    {isSudo && (
+                                        <>
+                                            <option value="assistant">Assistant</option>
+                                            <option value="manager">Manager</option>
+                                            <option value="admin">Administrator</option>
+                                            <option value="sudo">Sudo Administrator</option>
+                                        </>
+                                    )}
                                 </select>
                             </label>
                             {form.role === "staff" && (
@@ -4066,14 +4116,14 @@ function UsersView({ user: currentUser }: { user: User }) {
                                     <span>Active account</span>
                                 </label>
                             )}
-                            {editing && isSudo && (
+                            {editing && canEditCredentials && (
                                 <>
                                     <label>
                                         <span>Change username</span>
                                         <input
                                             value={(form as any).new_username || ""}
                                             onChange={(e) => updateForm("new_username", e.target.value.toLowerCase())}
-                                            placeholder={editing.username || "new-username"}
+                                            placeholder={standardUsernameFor(form.last_name, form.display_name) || editing.username || "lastname.firstname"}
                                             autoComplete="off"
                                         />
                                     </label>

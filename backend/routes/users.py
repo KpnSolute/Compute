@@ -18,6 +18,7 @@ Endpoints:
 """
 
 import json
+import re
 import secrets
 from datetime import datetime, timezone
 from urllib import request
@@ -76,6 +77,10 @@ class UserUpdateRequest(BaseModel):
     new_password: str | None = Field(None, min_length=8, max_length=128)
 
 
+class PasswordUpdateRequest(BaseModel):
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
 class UserSelfUpdateRequest(BaseModel):
     """Self-service profile update — cannot change role, username, email, or active."""
 
@@ -123,6 +128,7 @@ SELF_PROFILE_FIELDS = {
     "avatar_url",
 }
 STAFF_SELF_PROFILE_FIELDS = {"phone"}
+USERNAME_RE = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 
 
 def _provided_request_fields(req: BaseModel) -> set[str]:
@@ -130,6 +136,38 @@ def _provided_request_fields(req: BaseModel) -> set[str]:
     if fields is None:
         fields = getattr(req, "__fields_set__", set())
     return set(fields or set())
+
+
+def _username_part(value: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (value or "").strip().lower())
+
+
+def _standard_username(last_name: str | None, first_name: str | None) -> str:
+    last = _username_part(last_name)
+    first = _username_part(first_name)
+    return f"{last}.{first}" if last and first else ""
+
+
+def _normalize_username(username: str) -> str:
+    normalized = re.sub(r"\s+", ".", (username or "").strip().lower())
+    normalized = re.sub(r"\.+", ".", normalized).strip(".")
+    if not normalized or not USERNAME_RE.fullmatch(normalized):
+        raise HTTPException(
+            status_code=400,
+            detail="Username must use lowercase letters, numbers, dots, underscores, or hyphens",
+        )
+    return normalized
+
+
+def _require_staff_username_standard(
+    username: str, last_name: str | None, first_name: str | None
+) -> None:
+    expected = _standard_username(last_name, first_name)
+    if expected and username != expected:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Staff username must use lastname.firstname format: {expected}",
+        )
 
 
 def _self_profile_update_data(req: UserSelfUpdateRequest, current_user: dict) -> dict:
@@ -150,6 +188,42 @@ def _self_profile_update_data(req: UserSelfUpdateRequest, current_user: dict) ->
         if value is not None:
             update_data[field] = value
     return update_data
+
+
+def _enforce_user_update_scope(
+    req: UserUpdateRequest, target_user: dict, actor: dict
+) -> bool:
+    actor_is_sudo = actor.get("role") == "sudo"
+    actor_level = ROLE_LEVEL.get(actor.get("role", ""), 0)
+    target_role = target_user.get("role", "")
+    is_self = actor.get("id") == target_user.get("id")
+
+    if actor_is_sudo:
+        return True
+
+    if is_self:
+        provided = _provided_request_fields(req)
+        disallowed = sorted(provided - {"new_password"})
+        if disallowed:
+            raise HTTPException(
+                status_code=403,
+                detail="Managers can change their own password, not username or profile fields here",
+            )
+        return False
+
+    if actor_level < 30:
+        raise HTTPException(
+            status_code=403,
+            detail="This endpoint requires manager or higher role",
+        )
+
+    if target_role != "staff":
+        raise HTTPException(
+            status_code=403,
+            detail="Managers can only update staff accounts",
+        )
+
+    return False
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -228,6 +302,32 @@ def _auth_email_for_username(username: str) -> str:
     return f"{username}@mjc-cafeteria.com"
 
 
+def _patch_auth_user(user_id: str, payload: dict) -> None:
+    if not payload:
+        return
+    try:
+        import httpx
+
+        resp = httpx.patch(
+            f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}",
+            headers={
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=10,
+        )
+        if resp.status_code not in (200, 201):
+            raise HTTPException(
+                status_code=502, detail=f"Auth credential update failed: {resp.text}"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Auth service error: {e}")
+
+
 # ── auth dependencies ─────────────────────────────────────────────────────────
 
 
@@ -304,6 +404,16 @@ async def _require_admin(authorization: str = Header("")) -> dict:
     return user
 
 
+async def _require_manager(authorization: str = Header("")) -> dict:
+    """Require manager, admin, or sudo role."""
+    user = await _resolve_jwt_user(authorization)
+    if ROLE_LEVEL.get(user.get("role", ""), 0) < 30:
+        raise HTTPException(
+            status_code=403, detail="This endpoint requires manager or higher role"
+        )
+    return user
+
+
 async def _require_sudo(authorization: str = Header("")) -> dict:
     """Require sudo role — write access to user management."""
     user = await _resolve_jwt_user(authorization)
@@ -347,6 +457,15 @@ async def update_my_profile(
         if isinstance(e, HTTPException):
             raise
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@router.put("/me/password")
+async def update_my_password(
+    req: PasswordUpdateRequest, current_user: dict = Depends(_require_manager)
+):
+    """Allow manager/admin/sudo users to change their own Supabase Auth password."""
+    _patch_auth_user(current_user["id"], {"password": req.new_password})
+    return {"ok": True}
 
 
 @router.post("/me/avatar", response_model=UserResponse)
@@ -480,9 +599,9 @@ async def update_user_preferences(
 
 @router.get("", response_model=UsersListResponse)
 async def list_users(
-    active_only: bool = False, admin_user: dict = Depends(_require_admin)
+    active_only: bool = False, admin_user: dict = Depends(_require_manager)
 ):
-    """List all users. Requires admin or sudo role."""
+    """List all users. Requires manager or higher role."""
     try:
         query = supabase_service.table("user_profiles").select("*")
         if active_only:
@@ -501,7 +620,9 @@ async def create_user(
     req: UserCreateRequest, admin_user: dict = Depends(_require_sudo)
 ):
     """Create a new user account. Requires sudo role."""
-    username = req.username.strip().lower()
+    username = _normalize_username(req.username)
+    if req.role == "staff":
+        _require_staff_username_standard(username, req.last_name, req.display_name)
     auth_email = _auth_email_for_username(username)
 
     exists = await _user_exists(username)
@@ -577,8 +698,8 @@ async def create_user(
 
 
 @router.get("/{user_id}", response_model=UserResponse)
-async def get_user(user_id: str, admin_user: dict = Depends(_require_admin)):
-    """Get a specific user's profile. Requires admin or sudo role."""
+async def get_user(user_id: str, admin_user: dict = Depends(_require_manager)):
+    """Get a specific user's profile. Requires manager or higher role."""
     user = await _get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -587,12 +708,14 @@ async def get_user(user_id: str, admin_user: dict = Depends(_require_admin)):
 
 @router.put("/{user_id}", response_model=UserResponse)
 async def update_user(
-    user_id: str, req: UserUpdateRequest, admin_user: dict = Depends(_require_sudo)
+    user_id: str, req: UserUpdateRequest, admin_user: dict = Depends(_require_manager)
 ):
-    """Update a user's profile. Requires sudo role."""
+    """Update a user's profile. Managers can update staff; sudo can update any user."""
     user = await _get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    actor_is_sudo = _enforce_user_update_scope(req, user, admin_user)
 
     if req.role == "sudo" and admin_user.get("role") != "sudo":
         raise HTTPException(
@@ -605,6 +728,11 @@ async def update_user(
     if req.last_name is not None:
         update_data["last_name"] = req.last_name
     if req.role is not None:
+        if not actor_is_sudo and req.role != user.get("role"):
+            raise HTTPException(
+                status_code=403,
+                detail="Only sudo can change user roles",
+            )
         update_data["role"] = req.role
     if req.pin is not None:
         if req.pin and not req.pin.isdigit():
@@ -623,7 +751,14 @@ async def update_user(
 
     # Username change (sudo only — update user_profiles + supabase auth metadata)
     if req.new_username:
-        new_username = req.new_username.strip().lower()
+        new_username = _normalize_username(req.new_username)
+        effective_role = update_data.get("role", user.get("role"))
+        if effective_role == "staff":
+            _require_staff_username_standard(
+                new_username,
+                update_data.get("last_name", user.get("last_name")),
+                update_data.get("display_name", user.get("display_name")),
+            )
         if await _user_exists(new_username, exclude_id=user_id):
             raise HTTPException(
                 status_code=409, detail=f"Username already taken: {new_username}"
@@ -650,27 +785,7 @@ async def update_user(
             "last_name": update_data.get("last_name", user.get("last_name")),
             "role": update_data.get("role", user.get("role")),
         }
-        try:
-            import httpx
-
-            resp = httpx.patch(
-                f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}",
-                headers={
-                    "apikey": SUPABASE_SERVICE_KEY,
-                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json=auth_payload,
-                timeout=10,
-            )
-            if resp.status_code not in (200, 201):
-                raise HTTPException(
-                    status_code=502, detail=f"Auth password update failed: {resp.text}"
-                )
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=502, detail=f"Auth service error: {e}")
+        _patch_auth_user(user_id, auth_payload)
 
     try:
         result = (

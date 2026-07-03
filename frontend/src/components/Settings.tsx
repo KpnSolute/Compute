@@ -265,7 +265,11 @@ function ProfileEditPanel({ user }: { user: any }) {
     const [uploadingAvatar, setUploadingAvatar] = useState(false);
     const [saved, setSaved] = useState(false);
     const [err, setErr] = useState<string | null>(null);
+    const [passwordForm, setPasswordForm] = useState({ new_password: '', confirm_password: '' });
+    const [savingPassword, setSavingPassword] = useState(false);
+    const [passwordSaved, setPasswordSaved] = useState(false);
     const isStaff = user.role === 'staff';
+    const canChangePassword = ['manager', 'admin', 'sudo'].includes(user.role);
 
     useEffect(() => {
         setForm({
@@ -329,6 +333,30 @@ function ProfileEditPanel({ user }: { user: any }) {
             setErr(e?.message || 'Avatar upload failed');
         } finally {
             setUploadingAvatar(false);
+        }
+    };
+
+    const savePassword = async () => {
+        if (passwordForm.new_password.length < 8) {
+            setErr('Password must be at least 8 characters');
+            return;
+        }
+        if (passwordForm.new_password !== passwordForm.confirm_password) {
+            setErr('Passwords do not match');
+            return;
+        }
+        setSavingPassword(true);
+        setErr(null);
+        setPasswordSaved(false);
+        try {
+            await api.updateMyPassword({ new_password: passwordForm.new_password });
+            setPasswordForm({ new_password: '', confirm_password: '' });
+            setPasswordSaved(true);
+            setTimeout(() => setPasswordSaved(false), 2500);
+        } catch (e: any) {
+            setErr(e?.message || 'Password update failed');
+        } finally {
+            setSavingPassword(false);
         }
     };
 
@@ -428,6 +456,48 @@ function ProfileEditPanel({ user }: { user: any }) {
                     </button>
                     {saved && <span className="pill ok">Saved</span>}
                 </div>
+
+                {canChangePassword && (
+                    <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--line-soft)' }}>
+                        <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 10 }}>Change password</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                            <div>
+                                <label style={LBL}>New password</label>
+                                <input
+                                    className="sheet-inp txt"
+                                    type="password"
+                                    value={passwordForm.new_password}
+                                    style={{ width: '100%' }}
+                                    placeholder="At least 8 characters"
+                                    autoComplete="new-password"
+                                    onChange={e => setPasswordForm(f => ({ ...f, new_password: e.target.value }))}
+                                />
+                            </div>
+                            <div>
+                                <label style={LBL}>Confirm password</label>
+                                <input
+                                    className="sheet-inp txt"
+                                    type="password"
+                                    value={passwordForm.confirm_password}
+                                    style={{ width: '100%' }}
+                                    placeholder="Repeat password"
+                                    autoComplete="new-password"
+                                    onChange={e => setPasswordForm(f => ({ ...f, confirm_password: e.target.value }))}
+                                />
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10 }}>
+                            <button
+                                className="btn"
+                                onClick={savePassword}
+                                disabled={savingPassword || !passwordForm.new_password || !passwordForm.confirm_password}
+                            >
+                                {savingPassword ? 'Updating...' : 'Update password'}
+                            </button>
+                            {passwordSaved && <span className="pill ok">Password updated</span>}
+                        </div>
+                    </div>
+                )}
 
                 {/* Read-only account info */}
                 <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--line-soft)' }}>

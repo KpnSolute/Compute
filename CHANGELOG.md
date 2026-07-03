@@ -4,6 +4,18 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.44] - 2026-07-03 - Staff credential management and username standard
+
+**Codex:** Fixed user credential scope so managers/admins can edit staff accounts and set staff usernames/passwords while sudo retains full user control. Added a dedicated manager+ self-service password endpoint so managers can change their own password without any self-username path. Standardized staff username creation/update validation to `lastname.firstname`, synced username changes to Supabase Auth login email, and updated the Users UI to auto-suggest the standard username for staff. Settings now exposes manager/admin/sudo self password changes.
+
+**Supabase check:** `supabase db query --linked` confirmed current `user_profiles` rows all have matching `auth.users` rows, with several staff Auth emails still on old `staff#@mjc-cafeteria.com` names; the code path now updates Auth email when the profile username is changed.
+
+**Verification:** `backend/.venv/Scripts/python.exe -m pytest backend/tests/test_users_self_profile.py -q` passed (11 passed). `backend/.venv/Scripts/python.exe -m pytest backend/tests -q` passed (67 passed). Ruff check and format-check passed for touched backend user files. Frontend `npx tsc --noEmit`, `npm run lint -- --quiet`, and `npm run build` passed; build still reports the existing Vite dynamic-import/chunk-size warnings. `git diff --check` passed for touched files.
+
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.43] - 2026-07-01 - Pull Sheet compact mode shows all weeks
 
 **Codex:** Updated Pull Sheet compact mode so it shows editable W1, W2, and W3 pull columns together. Compact drafts now persist all three weeks, the bottom staging bar reports the all-week total, and compact staging submits each changed week through the existing weekly pull API while Regular mode keeps the single-week tab workflow.
