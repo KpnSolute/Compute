@@ -12,7 +12,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** `backend/.venv/Scripts/python.exe -m pytest backend/tests -q` passed (70 passed). Ruff check and format-check passed for `backend/routes/users.py`. The backfill UPDATE returned the 7 affected rows, confirming no NULL token columns remain in `auth.users`.
 
-**Push:** pending.
+**Push:** Claude -> a7a0199 - 2026-07-03 15:52 EDT.
 
 ---
 
