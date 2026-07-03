@@ -37,7 +37,7 @@ export function CycleMenu({ user: _user }: { user: User }) {
           const result = await api.getMenu(d);
           if (alive && result?.data) {
             dayMap[d.toLowerCase()] = result.data.meals || result.data;
-            sidesMap[d.toLowerCase()] = result.data.sides || {};
+            sidesMap[d.toLowerCase()] = result.sides || {};
           }
         } catch {
           // day has no menu data
@@ -78,7 +78,7 @@ export function CycleMenu({ user: _user }: { user: User }) {
       ) : (
         <>
           <div className="day-pills">
-            {DOW_KEYS.slice(1).concat('Sun').map(d => (
+            {DOW_KEYS.slice(1).concat(DOW_KEYS[0]).map(d => (
               <button key={d} className="day-pill" data-on={day === d} onClick={() => setDay(d)}>
                 {DOW_FULL[DOW_KEYS.indexOf(d) >= 0 ? DOW_KEYS.indexOf(d) : 0]}{d === todayKey && <span className="dp-today">Today</span>}
               </button>

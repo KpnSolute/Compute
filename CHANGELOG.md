@@ -4,6 +4,32 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.56] - 2026-07-03 - CycleMenu two display bugs fixed; menu GET verified live against seeded data
+
+**Claude (mjcc-api):** Verified the menu data-entry pipeline end-to-end after `menu_entries` was seeded with 104 real rows.
+
+**Backend (`backend/routes/menu.py`) — no bugs found.** `GET /api/menu/{day}` correctly returns seeded dish names for both weekday and weekend days. Live verification:
+
+- `GET /api/menu/Mon` → `{ id: "Mon", data: { Breakfast: ["Baked Bacon", "Hard Boiled Eggs", "Grits / Oatmeal", "French Toast / Waffles"], Lunch: ["Herbed Roasted Chicken", "Pork Quesadilla"], Dinner: ["Teriyaki Mahi Mahi", "Bistro Steak"], Snack: [...] }, sides: {...} }` — correct.
+- `GET /api/menu/Sun` → `{ id: "Sun", data: { Brunch: ["Baked Bacon", ...], Dinner: ["Cajun Grilled Chicken", "Smothered Pork Chops"], Snack: [...] } }` — correct weekend meal periods.
+
+`_parse_items` correctly decodes JSON-array text from DB. `_get_active_cycle` resolves the seeded cycle. No backend changes needed.
+
+**`POST /api/menu/{day}` write path — not destructively tested** (would corrupt real seeded data). Code review: the delete-then-insert pattern is correct for a single-week template; `week_number: 1` hardcode and sides always `[]` are known simplifications (inline comments say so). The Edit button in the UI is currently a no-op (no edit modal wired), so this path is unreachable from the portal.
+
+**AI data-entry pipeline** — no menu-specific upload path exists. `data_entry.py` has a `menu_save` operation only for `inventory_items.suggested_menu` field, not cycle-menu editing. Confirmed: no latent menu upload code path.
+
+**Frontend bugs found and fixed in `frontend/src/components/CycleMenu.tsx`:**
+
+1. **Sides never populated** — line 40 read `result.data.sides` but the API returns `{ id, data, sides }` so `result.data` is the meals dict; sides is a top-level field. Fixed to `result.sides || {}`.
+2. **Sunday pill set wrong key** — `DOW_KEYS.slice(1).concat('Sun')` put the string literal `'Sun'` (uppercase) in the pills, but `menuData` keys are always lowercase (from `.toLowerCase()` in the load loop). Clicking Sunday would look up `menuData['Sun']` → `undefined`, showing "No menu items loaded." Fixed to `DOW_KEYS.slice(1).concat(DOW_KEYS[0])` (which is `'sun'`).
+
+`tsc --noEmit` clean after both fixes.
+
+**Push:** commit pending on `codex/auth-user-controls-hardening` (not pushed, session convention).
+
+---
+
 ## [v4.26.55] - 2026-07-03 - KpnCompute auth-bridge edge functions (session-status, pin-login) live; LunchVoice edge functions synced + auto-deploy added; MailerSend key rotated
 
 **Claude:** Closed out three threads from today's session.
