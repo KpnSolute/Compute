@@ -12,7 +12,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** `supabase db query --linked` confirmed `permission_scopes`, `role_permissions`, and `credential_access_audit` exist. `backend/.venv/Scripts/python.exe -m pytest backend/tests/test_users_self_profile.py -q` passed (14 passed). `backend/.venv/Scripts/python.exe -m pytest backend/tests -q` passed (70 passed). Ruff check and format-check passed for touched backend user files. Frontend `npx tsc --noEmit`, `npm run lint -- --quiet`, and `npm run build` passed; build still reports the existing Vite dynamic-import/chunk-size warnings.
 
-**Push:** pending - not yet pushed.
+**Push:** Claude -> 4864fdd - 2026-07-03 15:32 EDT.
 
 ---
 
