@@ -6517,3 +6517,17 @@ Audit only. No application code, schema, or git history changed this session. Fi
 Now if the AI provider doesn't respond within 120s, the user gets a toast: "AI parsing failed: Request timed out — AI provider did not respond within 120s" plus inline error banner.
 
 **Push:** OpenCode → `84db801` — 2026-06-19
+
+## Auth bridge — session-status + pin-login edge functions (Claude)
+
+Two auth paths never actually needed the Render round-trip because they only touch Supabase: fetching profile/credential-flags for an already-authenticated user (today: `backendLogin` → `/api/auth/me`), and staff PIN login (today: `backendPinLogin` → `/api/auth/login`). Built two new Supabase Edge Functions to remove that hop, following the same shape as the LunchVoice `staff-login`/`staff-status` functions (CORS via `APP_ORIGINS`, in-memory rate limiting, `required(name)` env helper).
+
+**`supabase/functions/session-status/index.ts`** — given a Bearer token, verifies either a native Supabase Auth JWT (ES256, via `auth.getUser()`) or an HS256 staff JWT (via `jose`, same secret FastAPI uses) and returns the same 8-field shape `/api/auth/me` returns today (`id, username, display_name, last_name, role, active, must_change_password, must_change_pin`), deriving credential flags the same way `_credential_flags()` in `backend/routes/auth.py` does.
+
+**`supabase/functions/pin-login/index.ts`** — username+PIN against `user_profiles` (active staff only), same error semantics as `auth.py`'s PIN branch, mints an HS256 JWT with the identical claim shape (`sub`, `role`, `iat`, `exp` @ +12h) `auth.py` produces — a drop-in valid session for the existing FastAPI `jwt_validator` fallback, no backend changes needed.
+
+Both deployed to `mgvyylvmkxhhataavqjz` with `verify_jwt: false` (self-contained auth). `APP_ORIGINS` secret set to `https://kpncompute.onrender.com,http://localhost:5173,http://127.0.0.1:5173`.
+
+**Verification:** `session-status` correctly 401s on a garbage/invalid token (confirmed live). `pin-login` correctly reaches the token-signing step against a real active staff username+PIN (rate limit, user lookup, and PIN compare all passed) but returned 500 at `required("SUPABASE_JWT_SECRET")` — **that secret is not yet set on the edge-function side**. It only exists in the FastAPI service's Render environment, and this environment has no local `.env` to read it from and no non-interactive way to reach `render ssh` (interactive-TTY only in this CLI version). Blocked — needs a human (or an interactive session) to run: `supabase secrets set SUPABASE_JWT_SECRET="<value from Render → MJCC-Managements- service env>" --project-ref mgvyylvmkxhhataavqjz`. Once set, `pin-login` end-to-end and the "same JWT accepted by both sides" property should be re-verified.
+
+Frontend (`frontend/src/lib/supabase.ts`) intentionally untouched — that's the follow-up once `SUPABASE_JWT_SECRET` is set and `pin-login` is verified end-to-end.
