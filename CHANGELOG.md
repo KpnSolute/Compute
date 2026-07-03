@@ -4,6 +4,31 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.52] - 2026-07-03 - Eastern business-timezone fix, migration history repair, cross-site audit
+
+**Claude:** Several items closed out in today's session:
+
+**a) Timezone fix committed (d221090 on codex/auth-user-controls-hardening).**
+Period rollover guards, closed-month checks, and data-entry timestamp generation all used `datetime.now(timezone.utc)`, which caused them to flip to the next day at 8 PM Eastern rather than midnight. Replaced every call-site (`backend/ai/tools.py`, `backend/routes/data_entry.py`, `backend/routes/inventory.py`) with `backend.periods.business_now()` — a new helper in `backend/periods.py` that uses `zoneinfo.ZoneInfo('America/New_York')`. Added `tzdata` to `backend/requirements.txt` for Windows/minimal envs. Covered by `backend/tests/test_periods_business_now.py`. Verification: ruff clean, 70/70 backend tests pass, `tsc --noEmit` + vite build pass, prod `/health` OK.
+
+**b) Migration history repaired on MJCCv1.**
+Four migrations whose DDL was already live had missing or broken metadata in `supabase_migrations.schema_migrations`. Repaired via `supabase migration repair --status applied` (metadata-only, no DDL re-run):
+- `20260629060433_carry_inventory_values` — carry-forward on period open
+- `20260629120817_audited_live_inventory_values` — audited live-value view
+- `20260703172609_auth_role_permissions` — role/permission tables (Codex)
+- `20260703200500_default_credentials` — must_change_password column
+All four now appear cleanly in `supabase migration list` as Applied. The two carry/audited migrations are also recorded in-tree under `supabase/migrations/` and `backend/migrations/` in the commit above.
+
+**c) Full verify pass green today.**
+Ruff check/format clean. 70/70 backend tests pass. Frontend `tsc --noEmit`, `npm run lint -- --quiet`, and `npm run build` all pass (existing chunk-size warning only). Prod `/health` returns 200 OK.
+
+**d) Cross-project audit — lunchvoice.com (MJCC-Portal/Interact, Supabase qprfonxvthmaoxfixigk).**
+Parallel agent audited the Interact repo and found two issues introduced by multi-tenant migration `0003`: (1) `handle_new_user()` trigger was missing `org_id`, breaking all new user signups after the migration; (2) several pre-tenant RLS policies were still referencing `auth.uid()` directly without org-scoping, effectively bypassing org isolation. Fixes being applied in that repo by the parallel agent. No code in this repo was touched.
+
+**Push:** commits d221090 (business-tz fix) + CHANGELOG commit — pending (branch codex/auth-user-controls-hardening, not yet pushed per task instructions).
+
+---
+
 ## [v4.26.51] - 2026-07-03 - Bot/service accounts removed from live DB
 
 **Claude:** Per user direction, hard-deleted the three non-person admin accounts from live Supabase: `developer`, `sudo` ("Super Admin"), and `system` ("System Migration") — both `user_profiles` rows and their `auth.users` records. Verified beforehand that no rows in any FK-referencing table (commits, audit_log, staging_entries, pull_requests, week_status, app_settings, etc.) pointed at those IDs, so the delete was clean; post-check confirmed zero orphaned auth users. Remaining accounts: 2 sudo (jeremiah, othniel), 1 admin (grant.roshaun — promoted from manager by sudo in the UI today), 1 manager (torrez.dinitza), 6 staff. Data-only change — no code touched.
