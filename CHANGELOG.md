@@ -4,6 +4,18 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.53] - 2026-07-03 - LionCafe login fixed (CORS), email verified, MJCCv1 menu source-of-truth work started
+
+**Claude:** User reported LionCafe (lunchvoice.com) logins failing. Root cause: `login-start`/`staff-login` edge functions on the LunchVoice Supabase project (`qprfonxvthmaoxfixigk`) build `Access-Control-Allow-Origin` from an `APP_ORIGINS` secret, which was missing the production domain — every request from a real browser at `https://lunchvoice.com` was silently CORS-blocked while `curl` (no Origin enforcement) worked fine, masking the bug. Fixed by `supabase secrets set APP_ORIGINS="https://lunchvoice.com,https://interact-3npi.onrender.com"` on that project. Verified: OPTIONS/POST to `login-start`, `staff-login`, `staff-status` now echo `https://lunchvoice.com`; full staff login (jeremiah/JerBlue.16) succeeds end-to-end with a real access token.
+
+**Email integration:** confirmed already correctly wired — MailerSend (`MAILERSEND_API_KEY`/`MAIL_FROM`/`MAIL_FROM_NAME`) is the Supabase Auth send-email hook (`SEND_EMAIL_HOOK_SECRET`), auth logs show "Hook ran successfully" for OTP/confirmation emails. No changes needed.
+
+**Menu integration (in progress):** user confirmed direction — MJCCv1 becomes source of truth for the 28-day cycle menu (its `menu_entries` table was empty; the real menu only existed as a hardcoded array in LunchVoice's frontend). A parallel agent is seeding `menu_entries` from that data and adding a new `menu_feedback_summary` table for LunchVoice to push rating/survey aggregates back into MJCCv1. LunchVoice-side sync (replacing the static frontend array with a live fetch, plus the aggregate push-back) is queued to start once that table exists.
+
+**Push:** not applicable — DB secret + live DB changes only, no repo commits from this entry.
+
+---
+
 ## [v4.26.52] - 2026-07-03 - Eastern business-timezone fix, migration history repair, cross-site audit
 
 **Claude:** Several items closed out in today's session:
