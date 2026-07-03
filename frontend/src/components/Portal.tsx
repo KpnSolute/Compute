@@ -4605,6 +4605,111 @@ export interface PortalProps {
  * true. It does not nag on the Dashboard, other modules, or while viewing a
  * different month.
  */
+function CredentialBanner({ user }: { user: User }) {
+    const needsPassword = !!user.must_change_password;
+    const needsPin = !needsPassword && !!user.must_change_pin;
+    const [open, setOpen] = useState(false);
+    const [value, setValue] = useState("");
+    const [confirm, setConfirm] = useState("");
+    const [busy, setBusy] = useState(false);
+
+    if (!needsPassword && !needsPin) return null;
+    const label = needsPassword ? "password" : "PIN";
+
+    const submit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (value !== confirm) {
+            toast("Entries do not match.");
+            return;
+        }
+        if (needsPassword && value.length < 8) {
+            toast("Password must be at least 8 characters.");
+            return;
+        }
+        if (needsPin && !/^\d{4}$/.test(value)) {
+            toast("PIN must be exactly 4 digits.");
+            return;
+        }
+        setBusy(true);
+        try {
+            if (needsPassword) {
+                await api.updateMyPassword({ new_password: value });
+            } else {
+                await api.updateMyPin({ new_pin: value });
+            }
+            toast(`Your ${label} has been updated.`);
+            window.dispatchEvent(
+                new CustomEvent("mjcc:user-profile-updated", {
+                    detail: {
+                        user: needsPassword
+                            ? { id: user.id, must_change_password: false }
+                            : { id: user.id, must_change_pin: false, pin: value },
+                    },
+                }),
+            );
+        } catch (e: any) {
+            toast(e?.message || "Update failed — please try again.");
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div
+            className="banner warn"
+            style={{ marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}
+        >
+            {I.lock()}
+            <span style={{ flex: 1 }}>
+                Security notice: you're using the <b>default {label}</b>.
+                Please set your own {label} now.
+            </span>
+            {!open ? (
+                <button className="btn primary" onClick={() => setOpen(true)}>
+                    Change {label}
+                </button>
+            ) : (
+                <form
+                    onSubmit={submit}
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        flexWrap: "wrap",
+                    }}
+                >
+                    <input
+                        className="ipt"
+                        type="password"
+                        autoFocus
+                        value={value}
+                        onChange={(e) => setValue(e.target.value)}
+                        placeholder={
+                            needsPassword ? "New password" : "New 4-digit PIN"
+                        }
+                        inputMode={needsPin ? "numeric" : undefined}
+                        maxLength={needsPin ? 4 : 128}
+                        style={{ width: needsPin ? 130 : 170 }}
+                    />
+                    <input
+                        className="ipt"
+                        type="password"
+                        value={confirm}
+                        onChange={(e) => setConfirm(e.target.value)}
+                        placeholder={`Confirm ${label}`}
+                        inputMode={needsPin ? "numeric" : undefined}
+                        maxLength={needsPin ? 4 : 128}
+                        style={{ width: needsPin ? 130 : 170 }}
+                    />
+                    <button className="btn primary" type="submit" disabled={busy}>
+                        {busy ? "Saving…" : "Save"}
+                    </button>
+                </form>
+            )}
+        </div>
+    );
+}
+
 function RolloverBanner({
     user,
     active,
@@ -4947,6 +5052,7 @@ export function Portal({
                 />
             )}
             <main className="main">
+                <CredentialBanner user={user} />
                 <RolloverBanner
                     user={user}
                     active={active}

@@ -4,6 +4,16 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.50] - 2026-07-03 - Credential banner standardized to the portal banner system
+
+**Claude:** Per user feedback that the fixed-overlay banner looked off-brand, moved the default-credential security banner from an App-level fixed bar into `Portal.tsx` beside `RolloverBanner`, using the standard `banner warn` design-system card (lock icon, flex message, `btn primary` action) rendered at the top of `<main>` like the monthly rollover notice. The inline change form now uses `ipt` inputs and design-system buttons, and validation/errors surface through the shared `toast` instead of ad-hoc inline text. Clearing the flag flows through the existing `mjcc:user-profile-updated` event that App already listens to, so no new prop plumbing.
+
+**Verification:** Frontend `npx tsc --noEmit`, `npm run lint -- --quiet`, and `npm run build` passed (existing chunk-size warning only). Browser-verified in the preview: banner renders as a standard amber warn card above the dashboard, the Change password form opens with design-system inputs, and no console errors.
+
+**Push:** pending.
+
+---
+
 ## [v4.26.49] - 2026-07-03 - Default credentials, change-credential banner, credential visibility
 
 **Claude:** Established provisioning defaults: manager default password `Manager@2026`, staff default PIN `2222`. Live data reset applied in Supabase: both active managers (grant.roshaun, torrez.dinitza) now have the default password with `must_change_password=true`; all six active staff PINs reset to `2222`. Added `user_profiles.must_change_password` (migration `20260703200500_default_credentials.sql`, DDL applied live); PIN default state is derived from `pin='2222'` rather than stored. Backend: user creation now defaults credentials and sets the flag; admin password resets set the flag when resetting to the default; self password change clears it; new `PUT /api/users/me/pin` lets any user change their own PIN; `/api/auth/login` and `/api/auth/me` return `must_change_password`/`must_change_pin`; the credentials endpoint now returns the actual password while an account is on the default (hashes are unrecoverable afterward — reset-only), returns PINs to sudo for any role (managers still staff-only), and reports default-state flags. Frontend: App-level security banner when the session user is on a default credential, with an inline change form (password for manager+, 4-digit PIN for staff) so it works regardless of page scopes; login/session plumbing carries the flags.
