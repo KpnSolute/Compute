@@ -4,9 +4,11 @@ import pytest
 from fastapi import HTTPException
 
 from backend.routes.users import (
+    _can_view_user_credentials,
     _enforce_user_update_scope,
     _normalize_username,
     _require_staff_username_standard,
+    _sanitize_role_scopes,
     _self_profile_update_data,
 )
 
@@ -117,3 +119,34 @@ def test_manager_self_update_rejects_username_change():
         )
 
     assert exc.value.status_code == 403
+
+
+def test_manager_can_view_staff_credentials_only():
+    assert _can_view_user_credentials(
+        {"role": "staff"},
+        {"role": "manager"},
+    )
+    assert not _can_view_user_credentials(
+        {"role": "manager"},
+        {"role": "manager"},
+    )
+
+
+def test_sudo_can_view_any_credentials():
+    assert _can_view_user_credentials(
+        {"role": "manager"},
+        {"role": "sudo"},
+    )
+
+
+def test_role_scope_sanitizer_keeps_known_scopes_and_forces_sudo_full_access():
+    scopes = _sanitize_role_scopes(
+        {
+            "staff": ["dashboard", "bad-scope"],
+            "sudo": ["dashboard"],
+        }
+    )
+
+    assert scopes["staff"] == ["dashboard"]
+    assert "settings" in scopes["sudo"]
+    assert "users" in scopes["sudo"]

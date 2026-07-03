@@ -4,6 +4,18 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.45] - 2026-07-03 - Staff credential recovery and role scopes
+
+**Codex:** Tightened user-management rules around manager scope: managers/admins can still edit staff accounts, set staff PINs, reset staff passwords, and change their own password, but cannot edit peer managers or change their own username. Added credential recovery metadata so authorized managers can view current staff PINs and sudo can view credential metadata for any account; Supabase Auth passwords remain reset-only because plaintext passwords are not retrievable. Added sudo-managed role/page scopes stored in `app_settings.auth_role_scopes`, plus a Users UI scope editor and frontend navigation filtering from those scopes. Lowered the Users page nav minimum to manager so staff management is reachable by managers.
+
+**Supabase check:** `supabase db query --linked` confirmed `app_settings` supports JSONB settings and that no `auth_role_scopes` row exists yet; the API returns default scopes until sudo saves custom scopes.
+
+**Verification:** `backend/.venv/Scripts/python.exe -m pytest backend/tests/test_users_self_profile.py -q` passed (14 passed). `backend/.venv/Scripts/python.exe -m pytest backend/tests -q` passed (70 passed). Ruff check and format-check passed for touched backend user files. Frontend `npx tsc --noEmit`, `npm run lint -- --quiet`, and `npm run build` passed; build still reports the existing Vite dynamic-import/chunk-size warnings. `git diff --check` passed for touched files.
+
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.44] - 2026-07-03 - Staff credential management and username standard
 
 **Codex:** Fixed user credential scope so managers/admins can edit staff accounts and set staff usernames/passwords while sudo retains full user control. Added a dedicated manager+ self-service password endpoint so managers can change their own password without any self-username path. Standardized staff username creation/update validation to `lastname.firstname`, synced username changes to Supabase Auth login email, and updated the Users UI to auto-suggest the standard username for staff. Settings now exposes manager/admin/sudo self password changes.

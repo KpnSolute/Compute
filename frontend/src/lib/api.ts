@@ -268,7 +268,15 @@ export const api = {
   },
 
   async getUserPassword(id: string): Promise<any> {
-    return req(`/api/users/${id}/password`);
+    return req(`/api/users/${id}/credentials`);
+  },
+
+  async getRoleScopes(): Promise<{ scopes: Record<string, string[]>; available: string[] }> {
+    return req('/api/users/role-scopes');
+  },
+
+  async updateRoleScopes(scopes: Record<string, string[]>): Promise<{ scopes: Record<string, string[]>; available: string[] }> {
+    return req('/api/users/role-scopes', { method: 'PUT', body: JSON.stringify({ scopes }) });
   },
 
   async updateUser(userId: string, body: any): Promise<any> {

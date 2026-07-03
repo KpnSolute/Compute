@@ -101,7 +101,7 @@ export const NAV = [
   {
     group: 'Administration',
     items: [
-      { key: 'users', label: 'Users & Access', icon: 'users', min: 40 },
+      { key: 'users', label: 'Users & Access', icon: 'users', min: 30 },
       { key: 'settings', label: 'Settings', icon: 'settings', min: 40 },
     ],
   },

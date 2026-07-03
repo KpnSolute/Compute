@@ -96,6 +96,10 @@ class UserPrefsRequest(BaseModel):
     theme: str | None = None
 
 
+class RoleScopesRequest(BaseModel):
+    scopes: dict[str, list[str]] = Field(default_factory=dict)
+
+
 class UserResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -112,6 +116,7 @@ class UserResponse(BaseModel):
     job_title: str | None = None
     avatar_url: str | None = None
     bio: str | None = None
+    pin: str | None = None
 
 
 class UsersListResponse(BaseModel):
@@ -129,6 +134,87 @@ SELF_PROFILE_FIELDS = {
 }
 STAFF_SELF_PROFILE_FIELDS = {"phone"}
 USERNAME_RE = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
+ROLE_SCOPES_KEY = "auth_role_scopes"
+VALID_SCOPE_KEYS = {
+    "dashboard",
+    "inventory",
+    "moninv",
+    "pullsheet",
+    "mballot",
+    "foodreq",
+    "dataentry",
+    "barcodes",
+    "haccp",
+    "dailyops",
+    "inspection",
+    "snackbar",
+    "events",
+    "menu",
+    "sourcectrl",
+    "reports",
+    "archives",
+    "ai-usage",
+    "ai-tools",
+    "ai-presets",
+    "users",
+    "settings",
+}
+DEFAULT_ROLE_SCOPES = {
+    "staff": [
+        "dashboard",
+        "inventory",
+        "mballot",
+        "foodreq",
+        "barcodes",
+        "events",
+        "sourcectrl",
+        "reports",
+    ],
+    "assistant": [
+        "dashboard",
+        "inventory",
+        "moninv",
+        "mballot",
+        "foodreq",
+        "dataentry",
+        "barcodes",
+        "haccp",
+        "dailyops",
+        "inspection",
+        "snackbar",
+        "events",
+        "menu",
+        "sourcectrl",
+        "reports",
+        "archives",
+    ],
+    "manager": [
+        "dashboard",
+        "inventory",
+        "moninv",
+        "pullsheet",
+        "mballot",
+        "foodreq",
+        "dataentry",
+        "barcodes",
+        "haccp",
+        "dailyops",
+        "inspection",
+        "snackbar",
+        "events",
+        "menu",
+        "sourcectrl",
+        "reports",
+        "archives",
+        "ai-usage",
+        "ai-tools",
+        "ai-presets",
+        "users",
+        "settings",
+    ],
+    "admin": list(VALID_SCOPE_KEYS),
+    "sudo": list(VALID_SCOPE_KEYS),
+}
 
 
 def _provided_request_fields(req: BaseModel) -> set[str]:
@@ -168,6 +254,37 @@ def _require_staff_username_standard(
             status_code=400,
             detail=f"Staff username must use lastname.firstname format: {expected}",
         )
+
+
+def _sanitize_role_scopes(scopes: dict[str, list[str]]) -> dict[str, list[str]]:
+    clean: dict[str, list[str]] = {}
+    for role in ROLE_LEVEL:
+        values = scopes.get(role, DEFAULT_ROLE_SCOPES.get(role, []))
+        valid = sorted({scope for scope in values if scope in VALID_SCOPE_KEYS})
+        if role == "sudo":
+            valid = sorted(VALID_SCOPE_KEYS)
+        clean[role] = valid
+    return clean
+
+
+def _role_scopes_from_setting(value: object) -> dict[str, list[str]]:
+    if not isinstance(value, dict):
+        return _sanitize_role_scopes({})
+    return _sanitize_role_scopes(
+        {
+            role: [str(scope) for scope in scopes] if isinstance(scopes, list) else []
+            for role, scopes in value.items()
+        }
+    )
+
+
+def _can_view_user_credentials(target_user: dict, actor: dict) -> bool:
+    if actor.get("role") == "sudo":
+        return True
+    return (
+        ROLE_LEVEL.get(actor.get("role", ""), 0) >= 30
+        and target_user.get("role") == "staff"
+    )
 
 
 def _self_profile_update_data(req: UserSelfUpdateRequest, current_user: dict) -> dict:
@@ -597,6 +714,48 @@ async def update_user_preferences(
 # ── collection routes ─────────────────────────────────────────────────────────
 
 
+@router.get("/role-scopes")
+async def get_role_scopes(current_user: dict = Depends(_require_manager)):
+    """Return role/group permission scopes. Sudo manages them; manager+ can view."""
+    try:
+        result = (
+            supabase_service.table("app_settings")
+            .select("setting_value")
+            .eq("setting_key", ROLE_SCOPES_KEY)
+            .limit(1)
+            .execute()
+        )
+        value = result.data[0]["setting_value"] if result.data else {}
+        return {
+            "scopes": _role_scopes_from_setting(value),
+            "available": sorted(VALID_SCOPE_KEYS),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@router.put("/role-scopes")
+async def update_role_scopes(
+    req: RoleScopesRequest, current_user: dict = Depends(_require_sudo)
+):
+    """Update role/group permission scopes. Requires sudo."""
+    scopes = _sanitize_role_scopes(req.scopes)
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        supabase_service.table("app_settings").upsert(
+            {
+                "setting_key": ROLE_SCOPES_KEY,
+                "setting_value": scopes,
+                "updated_by": current_user["id"],
+                "updated_at": now,
+            },
+            on_conflict="setting_key",
+        ).execute()
+        return {"scopes": scopes, "available": sorted(VALID_SCOPE_KEYS)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
 @router.get("", response_model=UsersListResponse)
 async def list_users(
     active_only: bool = False, admin_user: dict = Depends(_require_manager)
@@ -805,9 +964,19 @@ async def update_user(
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
-@router.get("/{user_id}/password", summary="Get user password (sudo only)")
-async def get_user_password(user_id: str, admin_user: dict = Depends(_require_sudo)):
-    """Retrieve a user's current password from Supabase auth. Sudo only. Used for staff account recovery."""
+@router.get("/{user_id}/credentials", summary="Get user credential metadata")
+async def get_user_credentials(
+    user_id: str, admin_user: dict = Depends(_require_manager)
+):
+    """Return credential recovery metadata. Staff PIN is visible; passwords are reset-only."""
+    user = await _get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not _can_view_user_credentials(user, admin_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Managers can view staff credentials only",
+        )
     try:
         import httpx
 
@@ -827,8 +996,10 @@ async def get_user_password(user_id: str, admin_user: dict = Depends(_require_su
         # Supabase does not expose plaintext passwords — return masked indicator + last sign in
         return {
             "user_id": user_id,
-            "username": data.get("user_metadata", {}).get("username"),
+            "username": user.get("username")
+            or data.get("user_metadata", {}).get("username"),
             "email": data.get("email"),
+            "pin": user.get("pin") if user.get("role") == "staff" else None,
             "last_sign_in_at": data.get("last_sign_in_at"),
             "password_note": "Supabase does not store plaintext passwords. Use reset to set a new one.",
             "can_reset": True,
@@ -837,6 +1008,12 @@ async def get_user_password(user_id: str, admin_user: dict = Depends(_require_su
         raise
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Auth service error: {e}")
+
+
+@router.get("/{user_id}/password", summary="Get user credential metadata")
+async def get_user_password(user_id: str, admin_user: dict = Depends(_require_manager)):
+    """Backward-compatible alias for credential recovery metadata."""
+    return await get_user_credentials(user_id, admin_user)
 
 
 @router.delete("/{user_id}", status_code=204)

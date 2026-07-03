@@ -390,6 +390,7 @@ function Sidebar({
     reorderCount,
     stagedCount,
     skuReviewCount,
+    allowedScopes,
 }: {
     user: User;
     active: string;
@@ -397,13 +398,14 @@ function Sidebar({
     reorderCount: number;
     stagedCount: number;
     skuReviewCount: number;
+    allowedScopes?: string[] | null;
 }) {
     const lvl = ROLE_LEVEL[user.role];
     return (
         <nav className="sidebar">
             <div className="explorer-title">Explorer</div>
             {NAV.map((group) => {
-                const items = group.items.filter((it) => lvl >= (it.min || 0));
+                const items = group.items.filter((it) => lvl >= (it.min || 0) && (!allowedScopes || allowedScopes.includes(it.key)));
                 if (!items.length) return null;
                 return (
                     <div key={group.group}>
@@ -3653,6 +3655,11 @@ function UsersView({ user: currentUser }: { user: User }) {
     const [editing, setEditing] = useState<any | null>(null);
     const [showForm, setShowForm] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [credentialView, setCredentialView] = useState<any | null>(null);
+    const [loadingCredentials, setLoadingCredentials] = useState<string | null>(null);
+    const [roleScopes, setRoleScopes] = useState<Record<string, string[]> | null>(null);
+    const [availableScopes, setAvailableScopes] = useState<string[]>([]);
+    const [savingScopes, setSavingScopes] = useState(false);
     useEscapeClose(showForm, () => setShowForm(false), saving);
 
     const loadUsers = useCallback(async () => {
@@ -3689,6 +3696,25 @@ function UsersView({ user: currentUser }: { user: User }) {
             alive = false;
         };
     }, []);
+
+    useEffect(() => {
+        let alive = true;
+        if (!canManageStaff) return () => { alive = false; };
+        api.getRoleScopes()
+            .then((data) => {
+                if (!alive) return;
+                setRoleScopes(data.scopes || {});
+                setAvailableScopes(data.available || []);
+            })
+            .catch(() => {
+                if (!alive) return;
+                setRoleScopes(null);
+                setAvailableScopes([]);
+            });
+        return () => {
+            alive = false;
+        };
+    }, [canManageStaff]);
 
     const openCreate = () => {
         setEditing(null);
@@ -3845,6 +3871,45 @@ function UsersView({ user: currentUser }: { user: User }) {
         }
     };
 
+    const viewCredentials = async (u: any) => {
+        setLoadingCredentials(u.id);
+        try {
+            const credentials = await api.getUserPassword(u.id);
+            setCredentialView({ user: u, credentials });
+        } catch (e: any) {
+            toast(e?.message || "Could not load credentials");
+        } finally {
+            setLoadingCredentials(null);
+        }
+    };
+
+    const toggleScope = (role: string, scope: string) => {
+        if (role === "sudo") return;
+        setRoleScopes((prev) => {
+            const next = { ...(prev || {}) };
+            const current = new Set(next[role] || []);
+            if (current.has(scope)) current.delete(scope);
+            else current.add(scope);
+            next[role] = [...current].sort();
+            return next;
+        });
+    };
+
+    const saveScopes = async () => {
+        if (!roleScopes) return;
+        setSavingScopes(true);
+        try {
+            const data = await api.updateRoleScopes(roleScopes);
+            setRoleScopes(data.scopes);
+            setAvailableScopes(data.available);
+            toast("Role scopes updated");
+        } catch (e: any) {
+            toast(e?.message || "Could not save role scopes");
+        } finally {
+            setSavingScopes(false);
+        }
+    };
+
     const users = state.users || [];
     const activeUsers = users.filter((u: any) => u.active !== false).length;
     const disabledUsers = users.length - activeUsers;
@@ -3971,6 +4036,17 @@ function UsersView({ user: currentUser }: { user: User }) {
                                                             },
                                                         })}
                                                     </button>
+                                                    {(isSudo || (canManageStaff && u.role === "staff")) && (
+                                                        <button
+                                                            className="btn"
+                                                            style={{ padding: "5px 9px" }}
+                                                            onClick={() => viewCredentials(u)}
+                                                            disabled={loadingCredentials === u.id}
+                                                            title="View credential recovery"
+                                                        >
+                                                            {loadingCredentials === u.id ? "..." : "Creds"}
+                                                        </button>
+                                                    )}
                                                     {isSudo && (
                                                         <button
                                                             className="btn"
@@ -3997,6 +4073,67 @@ function UsersView({ user: currentUser }: { user: User }) {
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            )}
+            {isSudo && roleScopes && (
+                <div className="card" style={{ marginTop: 12 }}>
+                    <div className="card-head">
+                        <h3>Role Scopes</h3>
+                        <span className="ph-sub">page permissions by auth group</span>
+                    </div>
+                    <div className="card-body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12 }}>
+                        {(["staff", "assistant", "manager", "admin", "sudo"] as Role[]).map((role) => (
+                            <div key={role} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10, background: "var(--surface)" }}>
+                                <div style={{ fontWeight: 850, marginBottom: 8 }}>{ROLE_LABEL[role]}</div>
+                                <div style={{ display: "grid", gap: 6 }}>
+                                    {availableScopes.map((scope) => {
+                                        const label = NAV.flatMap((g) => g.items).find((it) => it.key === scope)?.label || scope;
+                                        const checked = roleScopes[role]?.includes(scope) || role === "sudo";
+                                        return (
+                                            <label key={`${role}-${scope}`} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12 }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={checked}
+                                                    disabled={role === "sudo"}
+                                                    onChange={() => toggleScope(role, scope)}
+                                                />
+                                                <span>{label}</span>
+                                            </label>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ))}
+                        <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end" }}>
+                            <button className="btn primary" onClick={saveScopes} disabled={savingScopes}>
+                                {savingScopes ? "Saving..." : "Save scopes"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {credentialView && (
+                <div className="overlay" onClick={() => setCredentialView(null)}>
+                    <div className="modal" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-head">
+                            <h3>Credential recovery</h3>
+                            <button className="btn" onClick={() => setCredentialView(null)}>Close</button>
+                        </div>
+                        <div className="card-body" style={{ display: "grid", gap: 10 }}>
+                            <div><strong>{credentialView.user.display_name || credentialView.user.username}</strong></div>
+                            <div style={{ fontSize: 13 }}>Username: <span style={{ fontFamily: "var(--mono)" }}>{credentialView.credentials.username}</span></div>
+                            <div style={{ fontSize: 13 }}>Login email: <span style={{ fontFamily: "var(--mono)" }}>{credentialView.credentials.email || "-"}</span></div>
+                            {credentialView.credentials.pin ? (
+                                <div style={{ fontSize: 13 }}>Current PIN: <span className="pill" style={{ fontFamily: "var(--mono)" }}>{credentialView.credentials.pin}</span></div>
+                            ) : (
+                                <div style={{ fontSize: 13, color: "var(--muted)" }}>No staff PIN is set.</div>
+                            )}
+                            <div className="banner warn" style={{ margin: 0 }}>
+                                {I.alert()}
+                                <span>{credentialView.credentials.password_note}</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
@@ -4582,10 +4719,31 @@ export function Portal({
     const [stagedCount, setStagedCount] = useState(0);
     const [skuReviewCount, setSkuReviewCount] = useState(0);
     const [periodPublished, setPeriodPublished] = useState<boolean | null>(null);
+    const [roleScopes, setRoleScopes] = useState<Record<string, string[]> | null>(null);
 
     useEffect(() => {
         (window as any).__logout = onLogout;
     }, [onLogout]);
+
+    useEffect(() => {
+        let alive = true;
+        if (lvl < 30) {
+            setRoleScopes(null);
+            return () => {
+                alive = false;
+            };
+        }
+        api.getRoleScopes()
+            .then((data) => {
+                if (alive) setRoleScopes(data.scopes || null);
+            })
+            .catch(() => {
+                if (alive) setRoleScopes(null);
+            });
+        return () => {
+            alive = false;
+        };
+    }, [lvl]);
 
     // Open SC panel + highlight batch on custom event (from DataEntry)
     useEffect(() => {
@@ -4626,18 +4784,20 @@ export function Portal({
         return () => mq.removeEventListener('change', handler);
     }, [user.id]);
 
+    const allowedScopes = roleScopes?.[user.role] || null;
+    const hasScope = (routeKey: string) => !allowedScopes || allowedScopes.includes(routeKey);
     const navItem = NAV.flatMap((g) => g.items).find((it) => it.key === active);
     useEffect(() => {
         if (active === "settings") return;
-        if (navItem && lvl < (navItem.min || 0)) setActive("dashboard");
-    }, [active, lvl, navItem]);
+        if (navItem && (lvl < (navItem.min || 0) || !hasScope(active))) setActive("dashboard");
+    }, [active, allowedScopes, lvl, navItem]);
 
     function doSync() {
         reloadInv();
         toast("Refreshing live data…");
     }
 
-    const canAccess = (routeKey: string) => routeKey === "settings" || lvl >= (ROUTE_MIN[routeKey] ?? 10);
+    const canAccess = (routeKey: string) => (routeKey === "settings" || lvl >= (ROUTE_MIN[routeKey] ?? 10)) && hasScope(routeKey);
     const goTo = (routeKey: string, opts?: { prId?: string }) => {
         setExplorerOpen(false);
         if (routeKey === "sourcectrl") {
@@ -4778,6 +4938,7 @@ export function Portal({
                 reorderCount={reorderCount}
                 stagedCount={stagedCount}
                 skuReviewCount={skuReviewCount}
+                allowedScopes={allowedScopes}
             />
             {explorerOpen && (
                 <div
