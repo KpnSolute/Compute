@@ -503,7 +503,8 @@ def _patch_auth_user(user_id: str, payload: dict) -> None:
     try:
         import httpx
 
-        resp = httpx.patch(
+        # GoTrue's admin user-update endpoint only accepts PUT; PATCH returns 405.
+        resp = httpx.put(
             f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}",
             headers={
                 "apikey": SUPABASE_SERVICE_KEY,

@@ -4,6 +4,18 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.47] - 2026-07-03 - Fix credential view 502 and password reset 405
+
+**Claude:** Diagnosed the "Could not retrieve user from auth service" 502 on the credential-view endpoint via live GoTrue logs. Two root causes: (1) `GET /auth/v1/admin/users/{id}` returned 500 for the six staff accounts because their `auth.users` rows were created by direct SQL insert with NULL text token columns (`confirmation_token` etc.), which GoTrue cannot scan; (2) `_patch_auth_user` used `httpx.patch` but GoTrue's admin user-update endpoint only accepts PUT, so every password/PIN-era credential update returned 405 — including today's attempted password resets for `accountant` and `admin` (Roshaun Grant), which silently failed.
+
+**Fixes:** Backfilled NULL token columns to `''` on 7 `auth.users` rows (staff1-6 + system) directly in live Supabase — this immediately fixes the 502 on prod. Changed `_patch_auth_user` to `httpx.put` so admin credential updates (password resets, email sync on username change) actually apply.
+
+**Verification:** `backend/.venv/Scripts/python.exe -m pytest backend/tests -q` passed (70 passed). Ruff check and format-check passed for `backend/routes/users.py`. The backfill UPDATE returned the 7 affected rows, confirming no NULL token columns remain in `auth.users`.
+
+**Push:** pending.
+
+---
+
 ## [v4.26.46] - 2026-07-03 - Role permissions moved to first-class DB tables
 
 **Codex:** Reworked the role-scope implementation from loose `app_settings` JSON into real authorization tables. Added Supabase CLI migration `20260703172609_auth_role_permissions.sql` creating `permission_scopes`, `role_permissions`, and `credential_access_audit` with RLS enabled and service-role-only access. Updated the Users API to read/write role assignments from those tables, keep sudo full access, keep manager default access away from Settings, and audit credential views, PIN updates, password resets, and username changes.
