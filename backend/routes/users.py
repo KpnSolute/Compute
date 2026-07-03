@@ -134,7 +134,6 @@ SELF_PROFILE_FIELDS = {
 }
 STAFF_SELF_PROFILE_FIELDS = {"phone"}
 USERNAME_RE = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
-ROLE_SCOPES_KEY = "auth_role_scopes"
 VALID_SCOPE_KEYS = {
     "dashboard",
     "inventory",
@@ -210,7 +209,6 @@ DEFAULT_ROLE_SCOPES = {
         "ai-tools",
         "ai-presets",
         "users",
-        "settings",
     ],
     "admin": list(VALID_SCOPE_KEYS),
     "sudo": list(VALID_SCOPE_KEYS),
@@ -256,26 +254,18 @@ def _require_staff_username_standard(
         )
 
 
-def _sanitize_role_scopes(scopes: dict[str, list[str]]) -> dict[str, list[str]]:
+def _sanitize_role_scopes(
+    scopes: dict[str, list[str]], valid_scope_keys: set[str] | None = None
+) -> dict[str, list[str]]:
+    valid_scope_keys = valid_scope_keys or VALID_SCOPE_KEYS
     clean: dict[str, list[str]] = {}
     for role in ROLE_LEVEL:
         values = scopes.get(role, DEFAULT_ROLE_SCOPES.get(role, []))
-        valid = sorted({scope for scope in values if scope in VALID_SCOPE_KEYS})
+        valid = sorted({scope for scope in values if scope in valid_scope_keys})
         if role == "sudo":
-            valid = sorted(VALID_SCOPE_KEYS)
+            valid = sorted(valid_scope_keys)
         clean[role] = valid
     return clean
-
-
-def _role_scopes_from_setting(value: object) -> dict[str, list[str]]:
-    if not isinstance(value, dict):
-        return _sanitize_role_scopes({})
-    return _sanitize_role_scopes(
-        {
-            role: [str(scope) for scope in scopes] if isinstance(scopes, list) else []
-            for role, scopes in value.items()
-        }
-    )
 
 
 def _can_view_user_credentials(target_user: dict, actor: dict) -> bool:
@@ -285,6 +275,94 @@ def _can_view_user_credentials(target_user: dict, actor: dict) -> bool:
         ROLE_LEVEL.get(actor.get("role", ""), 0) >= 30
         and target_user.get("role") == "staff"
     )
+
+
+def _load_role_scope_payload() -> dict:
+    try:
+        scope_result = (
+            supabase_service.table("permission_scopes")
+            .select("key,label,group_name,min_role,sort_order,active")
+            .eq("active", True)
+            .order("sort_order")
+            .execute()
+        )
+        scope_rows = scope_result.data or []
+        if not scope_rows:
+            return {
+                "scopes": _sanitize_role_scopes({}),
+                "available": sorted(VALID_SCOPE_KEYS),
+                "catalog": [],
+            }
+
+        valid_keys = {row["key"] for row in scope_rows}
+        perm_result = (
+            supabase_service.table("role_permissions")
+            .select("role,scope_key,allowed")
+            .eq("allowed", True)
+            .execute()
+        )
+        grouped: dict[str, list[str]] = {role: [] for role in ROLE_LEVEL}
+        for row in perm_result.data or []:
+            role = row.get("role")
+            scope_key = row.get("scope_key")
+            if role in grouped and scope_key in valid_keys:
+                grouped[role].append(scope_key)
+
+        return {
+            "scopes": _sanitize_role_scopes(grouped, valid_keys),
+            "available": [row["key"] for row in scope_rows],
+            "catalog": scope_rows,
+        }
+    except Exception:
+        return {
+            "scopes": _sanitize_role_scopes({}),
+            "available": sorted(VALID_SCOPE_KEYS),
+            "catalog": [],
+        }
+
+
+def _replace_role_scope_rows(scopes: dict[str, list[str]], actor_id: str) -> dict:
+    payload = _load_role_scope_payload()
+    valid_keys = set(payload["available"]) or VALID_SCOPE_KEYS
+    clean = _sanitize_role_scopes(scopes, valid_keys)
+    now = datetime.now(timezone.utc).isoformat()
+    rows = [
+        {
+            "role": role,
+            "scope_key": scope_key,
+            "allowed": True,
+            "updated_by": actor_id,
+            "updated_at": now,
+        }
+        for role, scope_keys in clean.items()
+        for scope_key in scope_keys
+    ]
+
+    supabase_service.table("role_permissions").delete().in_(
+        "role", list(ROLE_LEVEL.keys())
+    ).execute()
+    if rows:
+        supabase_service.table("role_permissions").insert(rows).execute()
+    return _load_role_scope_payload()
+
+
+def _log_credential_event(
+    actor_id: str | None,
+    target_user_id: str | None,
+    action: str,
+    metadata: dict | None = None,
+) -> None:
+    try:
+        supabase_service.table("credential_access_audit").insert(
+            {
+                "actor_id": actor_id,
+                "target_user_id": target_user_id,
+                "action": action,
+                "metadata": metadata or {},
+            }
+        ).execute()
+    except Exception:
+        return
 
 
 def _self_profile_update_data(req: UserSelfUpdateRequest, current_user: dict) -> dict:
@@ -582,6 +660,12 @@ async def update_my_password(
 ):
     """Allow manager/admin/sudo users to change their own Supabase Auth password."""
     _patch_auth_user(current_user["id"], {"password": req.new_password})
+    _log_credential_event(
+        current_user.get("id"),
+        current_user.get("id"),
+        "password_reset",
+        {"self_service": True},
+    )
     return {"ok": True}
 
 
@@ -717,21 +801,8 @@ async def update_user_preferences(
 @router.get("/role-scopes")
 async def get_role_scopes(current_user: dict = Depends(_require_manager)):
     """Return role/group permission scopes. Sudo manages them; manager+ can view."""
-    try:
-        result = (
-            supabase_service.table("app_settings")
-            .select("setting_value")
-            .eq("setting_key", ROLE_SCOPES_KEY)
-            .limit(1)
-            .execute()
-        )
-        value = result.data[0]["setting_value"] if result.data else {}
-        return {
-            "scopes": _role_scopes_from_setting(value),
-            "available": sorted(VALID_SCOPE_KEYS),
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    _ = current_user
+    return _load_role_scope_payload()
 
 
 @router.put("/role-scopes")
@@ -739,19 +810,8 @@ async def update_role_scopes(
     req: RoleScopesRequest, current_user: dict = Depends(_require_sudo)
 ):
     """Update role/group permission scopes. Requires sudo."""
-    scopes = _sanitize_role_scopes(req.scopes)
-    now = datetime.now(timezone.utc).isoformat()
     try:
-        supabase_service.table("app_settings").upsert(
-            {
-                "setting_key": ROLE_SCOPES_KEY,
-                "setting_value": scopes,
-                "updated_by": current_user["id"],
-                "updated_at": now,
-            },
-            on_conflict="setting_key",
-        ).execute()
-        return {"scopes": scopes, "available": sorted(VALID_SCOPE_KEYS)}
+        return _replace_role_scope_rows(req.scopes, current_user["id"])
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
@@ -956,6 +1016,22 @@ async def update_user(
         updated_user = result.data[0] if result.data else None
         if not updated_user:
             raise HTTPException(status_code=500, detail="Failed to update user")
+        if req.new_password:
+            _log_credential_event(
+                admin_user.get("id"),
+                user_id,
+                "password_reset",
+                {"self_service": admin_user.get("id") == user_id},
+            )
+        if req.pin is not None:
+            _log_credential_event(admin_user.get("id"), user_id, "pin_update")
+        if req.new_username:
+            _log_credential_event(
+                admin_user.get("id"),
+                user_id,
+                "username_update",
+                {"username": update_data.get("username")},
+            )
         return UserResponse(**updated_user)
 
     except Exception as e:
@@ -993,6 +1069,7 @@ async def get_user_credentials(
                 status_code=502, detail="Could not retrieve user from auth service"
             )
         data = resp.json()
+        _log_credential_event(admin_user.get("id"), user_id, "view")
         # Supabase does not expose plaintext passwords — return masked indicator + last sign in
         return {
             "user_id": user_id,

@@ -4,6 +4,18 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.26.46] - 2026-07-03 - Role permissions moved to first-class DB tables
+
+**Codex:** Reworked the role-scope implementation from loose `app_settings` JSON into real authorization tables. Added Supabase CLI migration `20260703172609_auth_role_permissions.sql` creating `permission_scopes`, `role_permissions`, and `credential_access_audit` with RLS enabled and service-role-only access. Updated the Users API to read/write role assignments from those tables, keep sudo full access, keep manager default access away from Settings, and audit credential views, PIN updates, password resets, and username changes.
+
+**DB apply:** Applied the migration to linked Supabase with `supabase db query --linked --file ...`; the CLI timed out after execution, then verification confirmed the tables exist with 22 scopes and 89 role-permission rows.
+
+**Verification:** `supabase db query --linked` confirmed `permission_scopes`, `role_permissions`, and `credential_access_audit` exist. `backend/.venv/Scripts/python.exe -m pytest backend/tests/test_users_self_profile.py -q` passed (14 passed). `backend/.venv/Scripts/python.exe -m pytest backend/tests -q` passed (70 passed). Ruff check and format-check passed for touched backend user files. Frontend `npx tsc --noEmit`, `npm run lint -- --quiet`, and `npm run build` passed; build still reports the existing Vite dynamic-import/chunk-size warnings.
+
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.26.45] - 2026-07-03 - Staff credential recovery and role scopes
 
 **Codex:** Tightened user-management rules around manager scope: managers/admins can still edit staff accounts, set staff PINs, reset staff passwords, and change their own password, but cannot edit peer managers or change their own username. Added credential recovery metadata so authorized managers can view current staff PINs and sudo can view credential metadata for any account; Supabase Auth passwords remain reset-only because plaintext passwords are not retrievable. Added sudo-managed role/page scopes stored in `app_settings.auth_role_scopes`, plus a Users UI scope editor and frontend navigation filtering from those scopes. Lowered the Users page nav minimum to manager so staff management is reachable by managers.
