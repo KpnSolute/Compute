@@ -12,7 +12,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** `backend/.venv/Scripts/python.exe -m pytest backend/tests/test_users_self_profile.py -q` passed (11 passed). `backend/.venv/Scripts/python.exe -m pytest backend/tests -q` passed (67 passed). Ruff check and format-check passed for touched backend user files. Frontend `npx tsc --noEmit`, `npm run lint -- --quiet`, and `npm run build` passed; build still reports the existing Vite dynamic-import/chunk-size warnings. `git diff --check` passed for touched files.
 
-**Push:** pending - not yet pushed.
+**Push:** Codex -> 58e5ab8 - 2026-07-03 13:16 EDT.
 
 ---
 
