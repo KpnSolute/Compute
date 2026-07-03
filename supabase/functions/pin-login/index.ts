@@ -102,7 +102,7 @@ Deno.serve(async (req) => {
     if (user.role !== "staff") return json(req, { error: "PIN login only available for staff" }, 401);
     if (pin !== (user.pin ?? "")) return json(req, { error: "Invalid PIN" }, 401);
 
-    const secret = new TextEncoder().encode(required("SUPABASE_JWT_SECRET"));
+    const secret = new TextEncoder().encode(required("MJCC_JWT_SECRET"));
     const now = Math.floor(Date.now() / 1000);
     const accessToken = await new SignJWT({ sub: user.id, role: user.role, iat: now })
       .setProtectedHeader({ alg: "HS256" })

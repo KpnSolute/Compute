@@ -68,7 +68,7 @@ async function resolveUserId(token: string): Promise<string | null> {
   // Staff HS256 token (pin-login / FastAPI's staff branch) — verify with the
   // shared JWT secret so this stays a drop-in for the existing backend.
   try {
-    const secret = new TextEncoder().encode(required("SUPABASE_JWT_SECRET"));
+    const secret = new TextEncoder().encode(required("MJCC_JWT_SECRET"));
     const { payload } = await jwtVerify(token, secret, { algorithms: ["HS256"] });
     return typeof payload.sub === "string" ? payload.sub : null;
   } catch {
