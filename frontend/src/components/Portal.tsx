@@ -47,7 +47,7 @@ import { DataEntry } from "./DataEntry";
 import { DailyOps } from "./DailyOps";
 import { EventsCalendar } from "./EventsCalendar";
 import { MealLog, InspectionSheet, FoodRequest } from "./Forms";
-import { CycleMenu } from "./CycleMenu";
+import { CycleMenu, PERIOD_ORDER, mealSummary, shortSideLabel } from "./CycleMenu";
 import { SnackBar, MonthlyInventory } from "./Operations";
 import { SourceControlPanel, SourceControlPage } from "./SourceControl";
 import { SaveBar } from "./ui/ActionBars";
@@ -703,7 +703,7 @@ function Dashboard({
     const invMeta = invState.metadata || {};
     const todayISO = new Date().toISOString().slice(0, 10);
 
-    const [menuData, setMenuData] = useState<any>({});
+    const [menuToday, setMenuToday] = useState<any>(null);
     const [menuLoading, setMenuLoading] = useState(true);
     const [events, setEvents] = useState<any[]>([]);
     const [eventsLoading, setEventsLoading] = useState(true);
@@ -713,18 +713,9 @@ function Dashboard({
         (async () => {
             try {
                 setMenuLoading(true);
-                const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][
-                    new Date().getDay()
-                ];
-                const res = await api.getMenu(day);
+                const res = await api.getMenuToday();
                 if (alive) {
-                    const raw = res?.data || {};
-                    const normalized: any = {};
-                    Object.keys(raw).forEach(k => {
-                        const key = k.charAt(0).toUpperCase() + k.slice(1);
-                        normalized[key] = Array.isArray(raw[k]) ? raw[k] : [];
-                    });
-                    setMenuData(normalized);
+                    setMenuToday(res);
                     setMenuLoading(false);
                 }
             } catch (e: any) {
@@ -779,13 +770,18 @@ function Dashboard({
 
     const miSum = moneyTotalsFromMeta(invMeta);
 
-    const menuMeals = [
-        "Breakfast",
-        "Brunch",
-        "Lunch",
-        "Dinner",
-        "Snack",
-    ].filter((m) => menuData[m] && menuData[m].length);
+    const menuMeals = (() => {
+        if (!menuToday?.slots) return [] as Array<{ period: string; summary: ReturnType<typeof mealSummary> }>;
+        const byPeriod = new Map<string, any[]>();
+        for (const s of menuToday.slots) {
+            if (!s.active || !s.item_name) continue;
+            if (!byPeriod.has(s.meal_period)) byPeriod.set(s.meal_period, []);
+            byPeriod.get(s.meal_period)!.push(s);
+        }
+        const order = PERIOD_ORDER.filter(p => byPeriod.has(p));
+        const rest = [...byPeriod.keys()].filter(p => !PERIOD_ORDER.includes(p));
+        return [...order, ...rest].map(period => ({ period, summary: mealSummary(byPeriod.get(period)!) }));
+    })();
 
     const ml = loadLog("meallog:" + todayISO, null);
     const mlRows = (ml && ml.rows) || [];
@@ -985,24 +981,36 @@ function Dashboard({
                     }}
                 >
                     <WinCard
-                        title={`Today's menu · ${DOW_FULL[new Date().getDay()]}`}
+                        title={`Today's menu · ${menuToday?.day_of_week || DOW_FULL[new Date().getDay()]}${menuToday?.cycle_day ? ` · Day ${menuToday.cycle_day}` : ""}`}
                         link="Full menu →"
                         onLink={() => go("menu")}
                     >
-                        <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                             {menuLoading ? (
                                 <div style={{ fontSize: 12, color: "var(--muted)" }}>Loading menu…</div>
                             ) : menuMeals.length === 0 ? (
                                 <div style={{ fontSize: 12, color: "var(--muted)" }}>No menu for today.</div>
                             ) : (
-                                menuMeals.map((meal) => (
-                                    <div key={meal} className="dash-meal">
-                                        <div className="dm-head">{meal}</div>
+                                menuMeals.map(({ period, summary }) => (
+                                    <div key={period} className="dash-meal">
+                                        <div className="dm-head">{period}</div>
                                         <div className="dm-items">
-                                            {meal === "Snack"
-                                                ? menuData[meal].join(" · ")
-                                                : menuData[meal].map((it: any) => typeof it === "string" ? it : it.item).join(" · ")}
+                                            {summary.primary && <strong>{summary.primary}</strong>}
+                                            {summary.secondary && <span style={{ color: "var(--muted)" }}> · {summary.secondary}</span>}
+                                            {summary.remaining > 0 && (
+                                                <span style={{ color: "var(--faint)", fontSize: 11 }}> +{summary.remaining} more</span>
+                                            )}
                                         </div>
+                                        {summary.sides.length > 0 && (
+                                            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
+                                                {summary.sides.map((s: any) => (
+                                                    <span key={s.record_id || s.slot_name + s.item_name} className="cm-side-chip" title={s.slot_name}>
+                                                        <span className="cm-side-kind">{shortSideLabel(s.slot_name)}</span>
+                                                        {s.item_name}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 ))
                             )}

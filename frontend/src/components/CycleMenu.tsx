@@ -14,16 +14,16 @@ const GROUP_FOR_PERIOD: Record<string, string> = {
   Lunch: 'Midday',
   Dinner: 'Evening',
 };
-const PERIOD_ORDER = ['Breakfast', 'Brunch', 'Short Order', 'Lunch', 'Dinner'];
+export const PERIOD_ORDER = ['Breakfast', 'Brunch', 'Short Order', 'Lunch', 'Dinner'];
 
 // Public cycle "meals" period keys → preview tint bucket
 const TINT_FOR_PERIOD: Record<string, 'morning' | 'midday' | 'evening'> = {
   Breakfast: 'morning', Brunch: 'morning', 'Short Order': 'midday', Lunch: 'midday', Dinner: 'evening',
 };
 
-const SIDE_SLOTS = new Set(['Vegetable 1', 'Vegetable 2', 'Starch 1', 'Starch 2', 'Accompaniment / Sauce']);
+export const SIDE_SLOTS = new Set(['Vegetable 1', 'Vegetable 2', 'Starch 1', 'Starch 2', 'Accompaniment / Sauce']);
 
-function shortSideLabel(slot: string): string {
+export function shortSideLabel(slot: string): string {
   if (slot.startsWith('Vegetable')) return 'Veg';
   if (slot.startsWith('Starch')) return 'Starch';
   if (slot.includes('Sauce')) return 'Sauce';
@@ -31,7 +31,7 @@ function shortSideLabel(slot: string): string {
 }
 
 // Template mealSummary logic — primary = first Entree slot (or first non-Soup/Vegetarian), secondary = second Entree
-function mealSummary(items: import('../lib/api').PublicMenuCycleSlot[]) {
+export function mealSummary(items: import('../lib/api').PublicMenuCycleSlot[]) {
   const entrees = items.filter(s => s.slot_name.startsWith('Entree'));
   const primary = entrees[0]?.item_name
     || items.find(s => !['Soup', 'Vegetarian'].includes(s.slot_name))?.item_name

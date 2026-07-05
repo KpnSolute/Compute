@@ -4,6 +4,13 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.27.8] - 2026-07-05 - Dashboard "Today's menu" widget rebuilt: structured meals + side chips (was a run-on text blob)
+
+**Claude:** User flagged the dashboard Today's-menu card rendering every dish as one giant dot-separated string. Rebuilt it on the slot-aware `api.getMenuToday()` (was legacy flat `getMenu(day)`): title now shows weekday + cycle day ("Today's menu · Sunday · Day 8"); each meal period renders entree-first (bold primary · muted secondary · "+N more") with VEG/STARCH/SAUCE side chips — same treatment as the cycle-menu day cards, reusing `mealSummary`/`shortSideLabel`/`PERIOD_ORDER` now exported from CycleMenu.tsx (no duplication) and the existing `.cm-side-chip` styles (dark-safe from v4.27.7). Verified in-browser with live prod data. tsc + build clean.
+
+**Push:** committed + pushed to main.
+
+
 ## [v4.27.7] - 2026-07-05 - Pills made visible + dark-mode compatibility for all new UI
 
 **Claude:** User feedback: pills were invisible and dark mode broke on the new UI. Root causes + fixes:
