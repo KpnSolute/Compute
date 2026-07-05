@@ -25,7 +25,9 @@ def _fake_client(item_row, monthly_row):
                 item_row
             ]
         elif name == "monthly_inventory":
-            chain = t.select.return_value.eq.return_value.eq.return_value.eq.return_value
+            chain = (
+                t.select.return_value.eq.return_value.eq.return_value.eq.return_value
+            )
             chain.limit.return_value.execute.return_value.data = [monthly_row]
         return t
 

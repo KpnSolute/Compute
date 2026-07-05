@@ -544,9 +544,9 @@ def dispatch_inventory_save(payload: dict) -> dict:
             ).execute()
         cell_groups: dict[tuple, set[str]] = {}
         for r in txn_rows:
-            cell_groups.setdefault(
-                (r["week_number"], r["txn_type"]), set()
-            ).add(r["item_id"])
+            cell_groups.setdefault((r["week_number"], r["txn_type"]), set()).add(
+                r["item_id"]
+            )
         for (wk, ttype), item_ids in cell_groups.items():
             sup.table("inventory_transactions").delete().eq("month", db_month).eq(
                 "year", year

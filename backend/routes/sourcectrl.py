@@ -1152,7 +1152,8 @@ async def submit_staging(
             )
         caller_role = (auth_user.get("role") or "").lower()
         if (
-            body.operation in (
+            body.operation
+            in (
                 "inventory_save",
                 "inventory_week_update",
                 "monthly_invoice_totals_update",
@@ -1181,7 +1182,8 @@ async def submit_staging(
                     )
         if caller_role not in ("admin", "manager", "sudo"):
             if (
-                body.operation in (
+                body.operation
+                in (
                     "inventory_save",
                     "inventory_week_update",
                     "monthly_invoice_totals_update",

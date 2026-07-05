@@ -450,11 +450,17 @@ def _formula_value(
         values = []
         for row_idx in range(min(start_row, end_row), max(start_row, end_row) + 1):
             token_ref = f"{sheet_prefix}{col}{row_idx}"
-            if sheet_name and formula_wb is not None and sheet_name in formula_wb.sheetnames:
+            if (
+                sheet_name
+                and formula_wb is not None
+                and sheet_name in formula_wb.sheetnames
+            ):
                 col_idx = column_index_from_string(col)
                 formula = formula_wb[sheet_name].cell(row=row_idx, column=col_idx).value
                 if isinstance(formula, str) and formula.startswith("="):
-                    values.append(_formula_value(wb, formula_wb, formula, sheet_name, cache={}))
+                    values.append(
+                        _formula_value(wb, formula_wb, formula, sheet_name, cache={})
+                    )
                     continue
             values.append(_resolve_ref(token_ref))
         return values
@@ -483,7 +489,9 @@ def _formula_value(
             if ":" in token:
                 total += sum(fi.num(value) for value in _range_values(token))
                 continue
-            value = _resolve_ref(token) if re.search(r"[A-Z]", token, re.I) else _num(token)
+            value = (
+                _resolve_ref(token) if re.search(r"[A-Z]", token, re.I) else _num(token)
+            )
             total += fi.num(value)
         return total
     if not re.fullmatch(r"[A-Z0-9_ '!+\-*/().]+", expression, flags=re.IGNORECASE):
@@ -493,7 +501,9 @@ def _formula_value(
         r"(?:'[^']+'|[A-Z][A-Z0-9 _]*)![A-Z]+\d+|[A-Z]+\d+",
         flags=re.IGNORECASE,
     )
-    numeric_expr = ref_re.sub(lambda m: str(fi.num(_resolve_ref(m.group(0)))), expression)
+    numeric_expr = ref_re.sub(
+        lambda m: str(fi.num(_resolve_ref(m.group(0)))), expression
+    )
     return _safe_arithmetic(numeric_expr)
 
 
@@ -544,7 +554,11 @@ def _parse_review_value_rows(wb, formula_wb=None) -> dict[str, dict[str, Any]]:
             for c_idx, canonical in col_map.items():
                 if c_idx < len(row):
                     value = row[c_idx]
-                    if value is None and formula_wb is not None and c_idx < len(formula_row):
+                    if (
+                        value is None
+                        and formula_wb is not None
+                        and c_idx < len(formula_row)
+                    ):
                         value = _formula_value(
                             wb,
                             formula_wb,
@@ -621,7 +635,9 @@ def _parse_mjcc_flat_inventory(content: bytes) -> list[dict[str, Any]]:
         return []
 
     wb = openpyxl.load_workbook(io.BytesIO(content), read_only=False, data_only=True)
-    formula_wb = openpyxl.load_workbook(io.BytesIO(content), read_only=False, data_only=False)
+    formula_wb = openpyxl.load_workbook(
+        io.BytesIO(content), read_only=False, data_only=False
+    )
     review_values = _parse_review_value_rows(wb, formula_wb)
     for ws in wb.worksheets:
         rows = list(ws.iter_rows(values_only=True))
@@ -815,8 +831,12 @@ def _review_controls(content: bytes) -> dict[str, float] | None:
     except ImportError:
         return None
     try:
-        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=False, data_only=True)
-        formula_wb = openpyxl.load_workbook(io.BytesIO(content), read_only=False, data_only=False)
+        wb = openpyxl.load_workbook(
+            io.BytesIO(content), read_only=False, data_only=True
+        )
+        formula_wb = openpyxl.load_workbook(
+            io.BytesIO(content), read_only=False, data_only=False
+        )
     except Exception:
         return None
     for ws in wb.worksheets:
@@ -833,7 +853,11 @@ def _review_controls(content: bytes) -> dict[str, float] | None:
                 continue
             # Quantity Control verified total is column B.
             cell = row[1] if len(row) > 1 else None
-            formula = formula_ws.cell(row=row_idx, column=2).value if formula_ws is not None else None
+            formula = (
+                formula_ws.cell(row=row_idx, column=2).value
+                if formula_ws is not None
+                else None
+            )
             val = None
             if isinstance(formula, str) and formula.startswith("="):
                 val = _num(_formula_value(wb, formula_wb, formula, ws.title))
@@ -853,8 +877,12 @@ def _review_financial_controls(content: bytes) -> dict[str, float] | None:
     except ImportError:
         return None
     try:
-        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=False, data_only=True)
-        formula_wb = openpyxl.load_workbook(io.BytesIO(content), read_only=False, data_only=False)
+        wb = openpyxl.load_workbook(
+            io.BytesIO(content), read_only=False, data_only=True
+        )
+        formula_wb = openpyxl.load_workbook(
+            io.BytesIO(content), read_only=False, data_only=False
+        )
     except Exception:
         return None
     for ws in wb.worksheets:

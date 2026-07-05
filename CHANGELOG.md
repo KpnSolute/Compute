@@ -4,6 +4,62 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.27.1] - 2026-07-04 - 28-day cycle menu: data imported to MJCCv1, schema hygiene audit (17 tables dropped), MENU_API_KEY provisioned, ponytail shrink pass
+
+**Claude (Senior Dev Manager):** Coordination entry closing out the cycle-menu rebuild session (v4.26.57 UI + v4.27.0 API were the delegated builds; this entry covers the manager-side work).
+
+**a) Cycle menu data imported.** Parsed `Miami_Job_Corps_28_Day_Cycle_Menu_System_Import.xlsx` (QA-passed workbook) and loaded MJCCv1: `menu_items` 266, `menu_cycle_days` 28, `menu_cycle_slots` 1215 — counts match the workbook's own QA sheet exactly. Migration recorded as `backend/migrations/029_cycle_menu_system.sql` (+ supabase mirror `20260704120000`). DDL applied via MCP `apply_migration`; bulk rows loaded via PostgREST with a temporary anon-insert policy + grant that was dropped/revoked immediately after (verified). `app_settings.menu_cycle_anchor_date = "2026-06-28"` (a Sunday = cycle day 1 → 2026-07-04 = Day 7); note `app_settings` real columns are `setting_key`/`setting_value` (jsonb), not `key`/`value`.
+
+**b) Full schema audit (user-requested).** Census of all 68 public relations with exact counts + code-reference grep. Dropped 17 tables, every one verified 0 rows AND 0 code references: all 14 `_bak_0624_*`/`_bak_20260623_*` backup shells, `audit_log`, `archive_import_log`, `inventory_versions` (`backend/migrations/030_drop_empty_legacy_tables.sql` + supabase mirror, applied live). **Kept** `month_periods` + `week_gross` (0 rows but `invoices` FKs depend on them — live invoice-period model, not dups) and `item_barcodes`/`inventory_audit_log`/`sku_review_queue` (empty but referenced from code). **Deprecation follow-up flagged:** `menu_entries` (104) + `menu_cycles` (1) are now legacy — still written by `ai/tools.py`, `ai/diff.py`, `staging/dispatch.py` (`dispatch_menu_save`), `seed_data.py`; repoint those to `menu_cycle_slots` then drop both tables. Supabase security advisors post-audit: clean for the new menu tables; 3 INFO lints (RLS-no-policy = deny-all) on `credential_access_audit`/`permission_scopes`/`role_permissions` are intentional service-role-only tables; 1 WARN — leaked-password protection disabled (dashboard toggle, user action). **AGENTS.md §4 drift flag:** row counts there are stale (e.g. `inventory_items` 361 not 1591, `commit_changes` 23143 not 5460, `monthly_inventory` 890 not 21089; `barcodes`/`inventory_master` no longer exist) — needs a facts refresh.
+
+**c) MENU_API_KEY provisioned.** Generated a random key, set as `MENU_API_KEY` on Render `MJCC-Managements-` (srv-d8afnemgvqtc73cr64l0, via Render API — CLI lacks env-var commands) and mirrored as `MJCC_MENU_API_KEY` in LunchVoice Supabase (`qprfonxvthmaoxfixigk`) edge-function secrets. Same value both sides, never printed/logged. LunchVoice edge functions can now POST `/api/public/menu/suggestions`. Still TODO on LunchVoice side: repoint its menu display from the hardcoded array / `menu-sync` to `GET /api/public/menu/today|cycle`, and verify `CORS_ORIGINS` on Render includes `https://lunchvoice.com`.
+
+**d) Ponytail review applied (−56 lines).** `menu.py`: merged the triplicated 9-field slot dict into `_slot_payload`/`_single_slot_payload`, collapsed `DOW_INDEX`+`LEGACY_DAY_TO_FULL` into one `LEGACY_DAY_INDEX`. `public_menu.py`: deduped today/date handlers into `_public_day_for_date`. `CycleMenu.tsx`: removed unreachable settings-fetch fallback. Re-verified after: ruff clean, 74/74 backend tests, `tsc --noEmit` + vite build clean.
+
+**Push:** committed on `codex/auth-user-controls-hardening` (not pushed, session convention).
+
+---
+
+## [v4.27.0] - 2026-07-04 - Menu backend rebuilt around the new 28-day cycle schema — confirms mjcc-ui's [API-AGENT REQUIRED] from v4.26.57
+
+**Claude (mjcc-api):** Rewrote `backend/routes/menu.py` and added `backend/routes/public_menu.py` against the live 28-day cycle schema (`menu_items`, `menu_cycle_days`, `menu_cycle_slots`, `menu_suggestions`, `app_settings.menu_cycle_anchor_date`) — already applied + seeded on Supabase MJCCv1, no migrations written. This confirms the contract `CycleMenu.tsx` (v4.26.57, above) was built against: **routes now exist and match** — `GET /cycle/overview`, `GET /cycle/day/{n}`, `GET /today`, `PUT /slot/{record_id}`, `POST /cycle/day/{n}/slots`, `GET /items?q=`, `GET/PUT /settings`, `GET /suggestions`, `PUT /suggestions/{id}`, all under `/api/menu`, response shapes as documented in `API.md`.
+
+**`backend/routes/menu.py` — full rewrite (prefix unchanged, `/api/menu`):**
+- Shared cycle-math helpers (`_get_anchor_date`, `_cycle_day_for_date`, `_build_day_payload`, `_fetch_item_names`, `_resolve_item`) live here and are imported by `public_menu.py` — no duplicated logic.
+- Item resolution: `item_name` → `item_key = name.strip().upper()` lookup/create against `menu_items`, auto-incrementing `MENU-NNNN` ids.
+- Legacy compat kept: `GET /api/menu/{day}` (short weekday keys, declared **after** the literal routes so FastAPI matches literals first) now sources from the new tables — resolves the requested weekday within the *current cycle week*, groups active slot item names by `meal_period`. Same response shape as before (`{ id, data, sides }`).
+- `POST /api/menu/{day}` retired → `410 { "detail": "Use PUT /api/menu/slot/{record_id}" }`. The old `menu_entries`/`menu_cycles` write path is dead; `dispatch_menu_save` in `backend/staging/dispatch.py` is now unreferenced but left in place (out of scope for this task — flagging rather than silently deleting).
+
+**New `backend/routes/public_menu.py`, prefix `/api/public/menu`:** unauthenticated GET routes (`/today`, `/date/{iso_date}`, `/cycle`) for public consumers like lunchvoice.com. `/cycle` builds all 28 days from one slots query + one items query, no N+1. `POST /suggestions` gated by `X-Api-Key` header against env `MENU_API_KEY` (`503` if unset, `403` if wrong) — inserts into `menu_suggestions`. Registered in `backend/main.py`. **CORS note:** `CORS_ORIGINS` is read from env at runtime, not hardcoded in `main.py` — allowing `https://lunchvoice.com` is a Render env var change, not a code change. Flagging that the Render env var needs it added if not already present.
+
+**Verification:** `ruff check backend/ && ruff format backend/` clean (9 files reformatted to double-quote style — this repo's ruff has no config file, defaults to double quotes, matching every existing route file; deferred to that repo norm over the single-quote instruction in my brief). `python -m pytest backend/tests -q` → 74 passed, including new `backend/tests/test_menu_cycle_math.py` (anchor day → 1, anchor+27 → 28, anchor+28 wraps to 1, dates before anchor). Did not run the server against prod DB this session — endpoint shapes verified by code review against the schema in the task brief, not a live spot-check.
+
+**Push:** pending.
+
+---
+
+## [v4.26.57] - 2026-07-04 - CycleMenu rebuilt as a real 28-day cycle menu editor
+
+**Claude (mjcc-ui):** Replaced the old 7-day static-viewer `CycleMenu.tsx` with a real 28-day cycle editor, coded against the backend contract being built in parallel (`GET/PUT /api/menu/cycle/*`, `/api/menu/today`, `/api/menu/items`, `/api/menu/settings`, `/api/menu/suggestions`). Backend endpoints not yet confirmed live — this is a frontend-only change built to spec; **[API-AGENT REQUIRED]** please confirm these routes exist/match the documented shapes before this ships to users (cycle overview/day/slot CRUD, item search, settings, suggestions).
+
+**`frontend/src/lib/api.ts`:**
+- Added `MenuCycleOverview`, `MenuCycleDaySummary`, `MenuCycleDay`, `MenuSlot`, `MenuSuggestion` interfaces mirroring the documented contract.
+- Added `getMenuCycleOverview`, `getMenuCycleDay`, `getMenuToday`, `updateMenuSlot`, `addMenuSlot`, `searchMenuItems`, `getMenuSettings`, `saveMenuSettings`, `getMenuSuggestions`, `updateMenuSuggestion`.
+- Kept `getMenu`/`saveMenu` (legacy single-day GET/POST) for compat — noted as unused by the new component, `saveMenu` is 410 server-side.
+
+**`frontend/src/components/CycleMenu.tsx` (full rewrite, same exported name/props — `Portal.tsx` untouched):**
+- Cycle overview: 4 week rows × 7 day cards, today's cycle day gets accent ring + "Today" pill, zone-2 days get a "Zone 2" badge and collapsed service labels (Brunch/Dinner vs Breakfast/Lunch/Dinner).
+- Day editor (in-component view, back button): slots grouped by `meal_period` in service order, inline edit via modal + debounced autocomplete (`ItemAutocomplete` → `searchMenuItems`, 250ms debounce), activate/deactivate toggle per slot, "+ Add slot" per meal-period section.
+- Suggestions panel (header button, badge = count of `status==='new'`) with Reviewed/Applied/Dismiss actions.
+- Settings modal: anchor-date picker + "Today = Day N", surfaces backend 400 (non-Sunday) in an inline banner.
+- All new UI uses existing design-system classes only (`.card`, `.card-head/-body`, `.modal`/`.overlay`, `.pill`, `.banner`, `.ft-field`, `.ipt.sel`, `.btn`) — no new CSS added, no new dependencies.
+
+**Verify:** `npx tsc --noEmit` clean. `npm run build` passing (pre-existing chunk-size/dynamic-import warnings only, unrelated). `npm run lint` — 0 errors (629 pre-existing `any` warnings project-wide, none new from this file beyond the project's standing convention).
+
+**Push:** pending — not committed this session (per task instructions).
+
+---
+
 ## [v4.26.56] - 2026-07-03 - CycleMenu two display bugs fixed; menu GET verified live against seeded data
 
 **Claude (mjcc-api):** Verified the menu data-entry pipeline end-to-end after `menu_entries` was seeded with 104 real rows.

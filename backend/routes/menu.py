@@ -1,132 +1,441 @@
 import json
-from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Depends
+from datetime import date, datetime, timezone
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+
+from backend.periods import business_now
 from backend.routes import supabase_service
 from backend.routes._deps import _get_auth_user
 
 router = APIRouter(prefix="/api/menu", tags=["menu"])
 
-VALID_DAYS = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
-
-MEAL_PERIODS = {
-    "Mon": ["Breakfast", "Lunch", "Dinner", "Snack"],
-    "Tue": ["Breakfast", "Lunch", "Dinner", "Snack"],
-    "Wed": ["Breakfast", "Lunch", "Dinner", "Snack"],
-    "Thu": ["Breakfast", "Lunch", "Dinner", "Snack"],
-    "Fri": ["Breakfast", "Lunch", "Dinner", "Snack"],
-    "Sat": ["Brunch", "Dinner", "Snack"],
-    "Sun": ["Brunch", "Dinner", "Snack"],
+# Legacy compat route (`GET /api/menu/{day}`) uses short weekday keys; index 0 = Sunday = cycle day 1.
+LEGACY_DAY_INDEX = {
+    "Sun": 0,
+    "Mon": 1,
+    "Tue": 2,
+    "Wed": 3,
+    "Thu": 4,
+    "Fri": 5,
+    "Sat": 6,
 }
 
-
-class MenuUpdate(BaseModel):
-    data: dict
-    updated_by: str = "api"
+ANCHOR_SETTING_KEY = "menu_cycle_anchor_date"
+CYCLE_LENGTH = 28
 
 
-# _get_auth_user imported from backend.routes._deps (single source of truth).
+class SlotUpdate(BaseModel):
+    item_id: str | None = None
+    item_name: str | None = None
+    active: bool | None = None
 
 
-def _get_active_cycle() -> str | None:
-    result = (
-        supabase_service.table("menu_cycles")
-        .select("id")
-        .eq("active", True)
+class SlotCreate(BaseModel):
+    meal_group: str
+    meal_period: str
+    slot_name: str
+    item_id: str | None = None
+    item_name: str | None = None
+    slot_order: int | None = None
+
+
+class SettingsUpdate(BaseModel):
+    anchor_date: str
+
+
+class SuggestionStatusUpdate(BaseModel):
+    status: str
+
+
+VALID_SUGGESTION_STATUS = {"new", "reviewed", "applied", "dismissed"}
+
+
+# ---------------------------------------------------------------------------
+# Shared cycle-math helpers (also imported by backend.routes.public_menu).
+# ---------------------------------------------------------------------------
+
+
+def _get_anchor_date() -> date:
+    r = (
+        supabase_service.table("app_settings")
+        .select("setting_value")
+        .eq("setting_key", ANCHOR_SETTING_KEY)
         .limit(1)
         .execute()
     )
-    if result.data:
-        return result.data[0]["id"]
-    return None
+    if not r.data:
+        raise HTTPException(
+            status_code=500, detail="menu_cycle_anchor_date is not configured"
+        )
+    raw = r.data[0]["setting_value"]
+    # setting_value is jsonb storing a JSON string, e.g. '"2026-06-28"'.
+    value = json.loads(raw) if isinstance(raw, str) else raw
+    return date.fromisoformat(value)
 
 
-def _parse_items(items_field) -> list:
-    if items_field is None:
-        return []
-    if isinstance(items_field, list):
-        return items_field
-    if isinstance(items_field, str):
-        if items_field.startswith("["):
-            try:
-                return json.loads(items_field)
-            except (json.JSONDecodeError, ValueError):
-                pass
-        return [s.strip() for s in items_field.split("|") if s.strip()]
-    return []
+def _cycle_day_for_date(d: date, anchor: date | None = None) -> int:
+    """1-28 cycle day for calendar date `d`. Cycle day 1 falls on `anchor` (a Sunday)."""
+    anchor = anchor or _get_anchor_date()
+    return ((d - anchor).days % CYCLE_LENGTH) + 1
+
+
+def _fetch_item_names(item_ids: set[str]) -> dict[str, str]:
+    if not item_ids:
+        return {}
+    r = (
+        supabase_service.table("menu_items")
+        .select("id,name")
+        .in_("id", list(item_ids))
+        .execute()
+    )
+    return {row["id"]: row["name"] for row in (r.data or [])}
+
+
+def _fetch_day_row(cycle_day: int) -> dict:
+    r = (
+        supabase_service.table("menu_cycle_days")
+        .select("*")
+        .eq("cycle_day", cycle_day)
+        .limit(1)
+        .execute()
+    )
+    if not r.data:
+        raise HTTPException(status_code=404, detail=f"No cycle day {cycle_day}")
+    return r.data[0]
+
+
+def _fetch_day_slots(cycle_day: int) -> list[dict]:
+    r = (
+        supabase_service.table("menu_cycle_slots")
+        .select("*")
+        .eq("cycle_day", cycle_day)
+        .order("service_order")
+        .order("slot_order")
+        .execute()
+    )
+    return r.data or []
+
+
+def _slot_payload(s: dict, item_names: dict[str, str]) -> dict:
+    return {
+        "record_id": s["record_id"],
+        "meal_group": s["meal_group"],
+        "meal_period": s["meal_period"],
+        "service_order": s["service_order"],
+        "slot_order": s["slot_order"],
+        "slot_name": s["slot_name"],
+        "item_id": s.get("item_id"),
+        "item_name": item_names.get(s.get("item_id")),
+        "active": s.get("active"),
+    }
+
+
+def _single_slot_payload(slot: dict) -> dict:
+    item_names = _fetch_item_names({slot["item_id"]} if slot.get("item_id") else set())
+    return _slot_payload(slot, item_names)
+
+
+def _build_day_payload(cycle_day: int) -> dict:
+    day_row = _fetch_day_row(cycle_day)
+    slots = _fetch_day_slots(cycle_day)
+    item_names = _fetch_item_names({s["item_id"] for s in slots if s.get("item_id")})
+    return {
+        "cycle_day": day_row["cycle_day"],
+        "cycle_week": day_row["cycle_week"],
+        "day_of_week": day_row["day_of_week"],
+        "zone": day_row.get("zone"),
+        "morning_service": day_row.get("morning_service"),
+        "midday_service": day_row.get("midday_service"),
+        "evening_service": day_row.get("evening_service"),
+        "active": day_row.get("active"),
+        "slots": [_slot_payload(s, item_names) for s in slots],
+    }
+
+
+def _resolve_item(item_id: str | None, item_name: str | None) -> str | None:
+    """Return an item_id, creating a new menu_items row if only a name was given."""
+    if item_id:
+        return item_id
+    if not item_name:
+        return None
+    item_key = item_name.strip().upper()
+    existing = (
+        supabase_service.table("menu_items")
+        .select("id")
+        .eq("item_key", item_key)
+        .limit(1)
+        .execute()
+    )
+    if existing.data:
+        return existing.data[0]["id"]
+    max_r = (
+        supabase_service.table("menu_items")
+        .select("id")
+        .order("id", desc=True)
+        .limit(1)
+        .execute()
+    )
+    next_num = 1
+    if max_r.data:
+        last_id = max_r.data[0]["id"]
+        try:
+            next_num = int(last_id.split("-")[1]) + 1
+        except (IndexError, ValueError):
+            next_num = 1
+    new_id = f"MENU-{next_num:04d}"
+    supabase_service.table("menu_items").insert(
+        {"id": new_id, "name": item_name.strip(), "item_key": item_key, "active": True}
+    ).execute()
+    return new_id
+
+
+def _actor_name(auth_user: dict) -> str:
+    return auth_user.get("username") or auth_user.get("display_name") or "api"
+
+
+# ---------------------------------------------------------------------------
+# Cycle overview / day / today
+# ---------------------------------------------------------------------------
+
+
+@router.get("/cycle/overview")
+async def cycle_overview(auth_user: dict = Depends(_get_auth_user)):
+    anchor = _get_anchor_date()
+    today = business_now().date()
+    today_cycle_day = _cycle_day_for_date(today, anchor)
+    days_r = (
+        supabase_service.table("menu_cycle_days")
+        .select("*")
+        .order("cycle_day")
+        .execute()
+    )
+    days = [
+        {
+            "cycle_day": d["cycle_day"],
+            "cycle_week": d["cycle_week"],
+            "day_of_week": d["day_of_week"],
+            "zone": d.get("zone"),
+            "morning_service": d.get("morning_service"),
+            "midday_service": d.get("midday_service"),
+            "evening_service": d.get("evening_service"),
+            "active": d.get("active"),
+        }
+        for d in (days_r.data or [])
+    ]
+    return {
+        "anchor_date": anchor.isoformat(),
+        "today": {"date": today.isoformat(), "cycle_day": today_cycle_day},
+        "days": days,
+    }
+
+
+@router.get("/cycle/day/{n}")
+async def cycle_day(n: int, auth_user: dict = Depends(_get_auth_user)):
+    if not 1 <= n <= CYCLE_LENGTH:
+        raise HTTPException(status_code=400, detail="cycle_day must be 1-28")
+    return _build_day_payload(n)
+
+
+@router.get("/today")
+async def menu_today(auth_user: dict = Depends(_get_auth_user)):
+    today = business_now().date()
+    cycle_day_num = _cycle_day_for_date(today)
+    payload = _build_day_payload(cycle_day_num)
+    payload["date"] = today.isoformat()
+    return payload
+
+
+# ---------------------------------------------------------------------------
+# Slot mutation
+# ---------------------------------------------------------------------------
+
+
+@router.put("/slot/{record_id}")
+async def update_slot(
+    record_id: str, body: SlotUpdate, auth_user: dict = Depends(_get_auth_user)
+):
+    existing = (
+        supabase_service.table("menu_cycle_slots")
+        .select("*")
+        .eq("record_id", record_id)
+        .limit(1)
+        .execute()
+    )
+    if not existing.data:
+        raise HTTPException(status_code=404, detail=f"Unknown slot {record_id}")
+
+    updates: dict = {}
+    if body.item_id or body.item_name:
+        resolved = _resolve_item(body.item_id, body.item_name)
+        if resolved:
+            updates["item_id"] = resolved
+    if body.active is not None:
+        updates["active"] = body.active
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    updates["updated_by"] = _actor_name(auth_user)
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    result = (
+        supabase_service.table("menu_cycle_slots")
+        .update(updates)
+        .eq("record_id", record_id)
+        .execute()
+    )
+    return _single_slot_payload(result.data[0])
+
+
+@router.post("/cycle/day/{n}/slots")
+async def create_slot(
+    n: int, body: SlotCreate, auth_user: dict = Depends(_get_auth_user)
+):
+    if not 1 <= n <= CYCLE_LENGTH:
+        raise HTTPException(status_code=400, detail="cycle_day must be 1-28")
+
+    item_id = _resolve_item(body.item_id, body.item_name)
+
+    slot_order = body.slot_order
+    if slot_order is None:
+        max_r = (
+            supabase_service.table("menu_cycle_slots")
+            .select("slot_order")
+            .eq("cycle_day", n)
+            .eq("meal_period", body.meal_period)
+            .order("slot_order", desc=True)
+            .limit(1)
+            .execute()
+        )
+        slot_order = (max_r.data[0]["slot_order"] + 1) if max_r.data else 1
+
+    record_id = f"MJCC28-D{n:02d}-CUSTOM-{uuid4().hex[:6].upper()}"
+    now = datetime.now(timezone.utc).isoformat()
+    row = {
+        "record_id": record_id,
+        "cycle_day": n,
+        "meal_group": body.meal_group,
+        "meal_period": body.meal_period,
+        "service_order": 0,
+        "slot_order": slot_order,
+        "slot_name": body.slot_name,
+        "item_id": item_id,
+        "active": True,
+        "updated_by": _actor_name(auth_user),
+        "updated_at": now,
+    }
+    result = supabase_service.table("menu_cycle_slots").insert(row).execute()
+    return _single_slot_payload(result.data[0])
+
+
+# ---------------------------------------------------------------------------
+# Item lookup, settings, suggestions
+# ---------------------------------------------------------------------------
+
+
+@router.get("/items")
+async def list_items(q: str = "", auth_user: dict = Depends(_get_auth_user)):
+    query = (
+        supabase_service.table("menu_items").select("id,name,active").eq("active", True)
+    )
+    if q:
+        query = query.ilike("name", f"%{q}%")
+    result = query.order("name").limit(50).execute()
+    return result.data or []
+
+
+@router.get("/settings")
+async def get_settings(auth_user: dict = Depends(_get_auth_user)):
+    return {"anchor_date": _get_anchor_date().isoformat()}
+
+
+@router.put("/settings")
+async def update_settings(
+    body: SettingsUpdate, auth_user: dict = Depends(_get_auth_user)
+):
+    try:
+        parsed = date.fromisoformat(body.anchor_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="anchor_date must be YYYY-MM-DD")
+    if parsed.weekday() != 6:
+        raise HTTPException(status_code=400, detail="anchor_date must be a Sunday")
+    supabase_service.table("app_settings").update(
+        {"setting_value": json.dumps(parsed.isoformat())}
+    ).eq("setting_key", ANCHOR_SETTING_KEY).execute()
+    return {"anchor_date": parsed.isoformat()}
+
+
+@router.get("/suggestions")
+async def list_suggestions(status: str = "", auth_user: dict = Depends(_get_auth_user)):
+    query = supabase_service.table("menu_suggestions").select("*")
+    if status:
+        query = query.eq("status", status)
+    result = query.order("created_at", desc=True).execute()
+    return result.data or []
+
+
+@router.put("/suggestions/{suggestion_id}")
+async def update_suggestion(
+    suggestion_id: str,
+    body: SuggestionStatusUpdate,
+    auth_user: dict = Depends(_get_auth_user),
+):
+    if body.status not in VALID_SUGGESTION_STATUS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"status must be one of {sorted(VALID_SUGGESTION_STATUS)}",
+        )
+    result = (
+        supabase_service.table("menu_suggestions")
+        .update({"status": body.status})
+        .eq("id", suggestion_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Suggestion not found")
+    return result.data[0]
+
+
+# ---------------------------------------------------------------------------
+# Legacy compat — GET/POST /api/menu/{day}. Declared LAST so literal routes
+# above (cycle/*, today, slot/*, items, settings, suggestions) match first.
+# ---------------------------------------------------------------------------
 
 
 @router.get("/{day}")
-async def get_menu(day: str, auth_user: dict = Depends(_get_auth_user)):
-    if day not in VALID_DAYS:
+async def get_menu_legacy(day: str, auth_user: dict = Depends(_get_auth_user)):
+    if day not in LEGACY_DAY_INDEX:
         raise HTTPException(status_code=400, detail=f"Invalid day: {day}")
 
-    cycle_id = _get_active_cycle()
-    if not cycle_id:
-        return {"id": day, "data": {p: [] for p in MEAL_PERIODS[day]}}
+    anchor = _get_anchor_date()
+    today = business_now().date()
+    today_cycle_day = _cycle_day_for_date(today, anchor)
+    current_week = ((today_cycle_day - 1) // 7) + 1
+    target_cycle_day = (current_week - 1) * 7 + LEGACY_DAY_INDEX[day] + 1
 
-    result = (
-        supabase_service.table("menu_entries")
-        .select("*")
-        .eq("day_of_week", day)
-        .eq("cycle_id", cycle_id)
-        .execute()
-    )
+    day_row = _fetch_day_row(target_cycle_day)
+    slots = _fetch_day_slots(target_cycle_day)
+    item_names = _fetch_item_names({s["item_id"] for s in slots if s.get("item_id")})
 
-    data = {p: [] for p in MEAL_PERIODS[day]}
-    sides_data = {p: [] for p in MEAL_PERIODS[day]}
-    if result.data:
-        for row in result.data:
-            meal_type = row.get("meal_type")
-            if meal_type not in data:
-                continue
-            data[meal_type] = _parse_items(row.get("items"))
-            sides_data[meal_type] = _parse_items(row.get("sides") or "[]")
+    data: dict[str, list[str]] = {}
+    for s in slots:
+        if not s.get("active"):
+            continue
+        period = s["meal_period"]
+        name = item_names.get(s.get("item_id"))
+        if not name:
+            continue
+        data.setdefault(period, []).append(name)
 
-    # Include sides for full fidelity per real schema (§4); frontend can ignore extra for now or use in CycleMenu
-    return {"id": day, "data": data, "sides": sides_data}
+    return {
+        "id": day,
+        "data": data,
+        "sides": {k: [] for k in data},
+        "day_of_week": day_row["day_of_week"],
+    }
 
 
 @router.post("/{day}")
-async def update_menu(
-    day: str, body: MenuUpdate, auth_user: dict = Depends(_get_auth_user)
-):
-    if day not in VALID_DAYS:
-        raise HTTPException(status_code=400, detail=f"Invalid day: {day}")
-
-    cycle_id = _get_active_cycle()
-    if not cycle_id:
-        raise HTTPException(status_code=404, detail="No active menu cycle found")
-
-    now = datetime.now(timezone.utc).isoformat()
-
-    supabase_service.table("menu_entries").delete().eq("day_of_week", day).eq(
-        "cycle_id", cycle_id
-    ).execute()
-
-    inserts = []
-    periods = MEAL_PERIODS[day]
-    for sort_order, meal_type in enumerate(periods):
-        items = body.data.get(meal_type, [])
-        # menu_entries.items is a text column — serialize lists as JSON strings.
-        inserts.append(
-            {
-                "cycle_id": cycle_id,
-                "week_number": 1,
-                "day_of_week": day,
-                "meal_type": meal_type,
-                "items": json.dumps(items if isinstance(items, list) else []),
-                "sides": json.dumps(
-                    []
-                ),  # sides as TEXT JSON per real schema §4 (plan); extend payload for real sides
-                "sort_order": sort_order,
-                "created_at": now,
-                "updated_at": now,
-            }
-        )
-
-    if inserts:
-        result = supabase_service.table("menu_entries").insert(inserts).execute()
-        return result.data
-
-    return []
+async def update_menu_legacy(day: str, auth_user: dict = Depends(_get_auth_user)):
+    raise HTTPException(status_code=410, detail="Use PUT /api/menu/slot/{record_id}")

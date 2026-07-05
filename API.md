@@ -40,7 +40,7 @@
 | `inventory_week_update` | `W{week}-{received\|issued}-{month}-{year}` (week 1-3 only; issued maps to pulled storage) |
 | batch compact | `batch-compact-{month}-{year}` |
 | `item_update` / `item_delete` | `{sku}` |
-| `menu_save` | `{day_of_week}` |
+| `menu_save` | `{day_of_week}` (legacy `menu_entries` operation — retired from the API surface as of v4.27.0; the dispatch handler still exists but nothing stages this operation anymore) |
 | `event_create` | event title slug or UUID |
 | `haccp_save` / `daily_log_save` | ISO timestamp or compound key |
 
@@ -373,36 +373,111 @@ Calls the `perform_rollover()` Supabase SECURITY DEFINER RPC. Opens the next mon
 
 ---
 
-## Menu — `/api/menu`
+## Menu — `/api/menu` (28-day cycle schema, v4.27.0)
 
-### `GET /api/menu/{day}`
-`day` = day-of-week string, e.g. `Monday`, `Tuesday`.
+Backed by `menu_items`, `menu_cycle_days` (28 rows, `cycle_day` 1-28), `menu_cycle_slots`,
+`menu_suggestions`, and `app_settings` (`menu_cycle_anchor_date`). Auth: any valid token
+unless noted. Cycle-day math: `cycle_day = ((date - anchor_date).days % 28) + 1`, using
+`backend.periods.business_now().date()` for "today". Anchor date is always a Sunday = cycle day 1.
 
-**Response `200`:**
-```json
-{
-  "day": "Monday",
-  "meals": {
-    "breakfast": { "items": ["Eggs", "Toast"], "sides": ["Juice"] },
-    "lunch": { "items": ["Chicken"], "sides": ["Rice"] }
-  }
-}
-```
+### `GET /api/menu/cycle/overview`
+**Response `200`:** `{ anchor_date, today: { date, cycle_day }, days: [{ cycle_day, cycle_week, day_of_week, zone, morning_service, midday_service, evening_service, active }] }` (all 28 days).
 
 ---
 
-### `POST /api/menu/{day}`
-**Body:**
-```json
-{
-  "meals": {
-    "breakfast": { "items": ["string"], "sides": ["string"] },
-    "lunch": { "items": ["string"], "sides": ["string"] },
-    "dinner": { "items": ["string"], "sides": ["string"] }
-  }
-}
-```
-**Response `200`:** Saved menu for the day.
+### `GET /api/menu/cycle/day/{n}`
+`n` = 1-28.
+
+**Response `200`:** `{ cycle_day, cycle_week, day_of_week, zone, morning_service, midday_service, evening_service, slots: [{ record_id, meal_group, meal_period, service_order, slot_order, slot_name, item_id, item_name, active }] }` — slots ordered by `service_order`, `slot_order`.
+
+**`400`** if `n` not in 1-28. **`404`** if the cycle day row doesn't exist.
+
+---
+
+### `GET /api/menu/today`
+Same shape as `GET /api/menu/cycle/day/{n}` plus top-level `date` (ISO), resolved from the current business day's cycle day.
+
+---
+
+### `PUT /api/menu/slot/{record_id}`
+**Body:** `{ "item_id": "string (optional)", "item_name": "string (optional)", "active": true }`
+- If `item_name` given and no `item_id`: normalizes `item_key = name.strip().upper()`, looks up `menu_items` by `item_key`; creates a new item (`MENU-NNNN`, next sequential id) if not found.
+- Sets `updated_by` from the caller's username/display name, `updated_at` = now.
+
+**Response `200`:** Updated slot `{ record_id, meal_group, meal_period, service_order, slot_order, slot_name, item_id, item_name, active }`.
+**`404`** unknown `record_id`. **`400`** no fields to update.
+
+---
+
+### `POST /api/menu/cycle/day/{n}/slots`
+Add a custom slot to a cycle day.
+
+**Body:** `{ "meal_group", "meal_period", "slot_name", "item_id" (optional), "item_name" (optional), "slot_order" (optional) }`
+- `record_id` = `MJCC28-D{n:02d}-CUSTOM-{6 hex chars}`.
+- `slot_order` defaults to `max(existing for day+meal_period) + 1`.
+
+**Response `200`:** Created slot (same shape as `PUT /api/menu/slot/{record_id}`).
+
+---
+
+### `GET /api/menu/items?q=`
+Up to 50 active `menu_items`, `ilike '%q%'` on name (all active items if `q` omitted), ordered by name.
+
+**Response `200`:** `[{ "id", "name", "active" }]`
+
+---
+
+### `GET /api/menu/settings`
+**Response `200`:** `{ "anchor_date": "YYYY-MM-DD" }`
+
+### `PUT /api/menu/settings`
+**Body:** `{ "anchor_date": "YYYY-MM-DD" }` — must parse as a date AND be a Sunday (`weekday() == 6`), else `400`.
+
+**Response `200`:** `{ "anchor_date": "YYYY-MM-DD" }`
+
+---
+
+### `GET /api/menu/suggestions?status=`
+List `menu_suggestions`, newest first. Optional `status` filter (`new | reviewed | applied | dismissed`).
+
+### `PUT /api/menu/suggestions/{id}`
+**Body:** `{ "status": "new | reviewed | applied | dismissed" }`
+**`400`** invalid status. **`404`** not found.
+
+---
+
+### `GET /api/menu/{day}` (legacy compat)
+`day` = short weekday key (`Mon`...`Sun`). Declared after the literal routes above so those match first.
+
+Resolves the cycle day for the requested weekday **within the current cycle week** (today's cycle week, not necessarily today's weekday), groups active slots' item names by `meal_period`.
+
+**Response `200`:** `{ "id": "Monday-key-as-given", "data": { "<meal_period>": ["item name", ...] }, "sides": { "<meal_period>": [] }, "day_of_week": "Monday" }`
+
+### `POST /api/menu/{day}` — **retired**
+Returns `410` `{ "detail": "Use PUT /api/menu/slot/{record_id}" }`. The old `menu_entries` write path no longer exists.
+
+---
+
+## Public Menu — `/api/public/menu` (v4.27.0, no auth)
+
+Read-only cycle menu data for external consumers (e.g. lunchvoice.com). GET routes have **no bearer auth** — menu data is public. Requires CORS origin allowlist to include the consuming site (`CORS_ORIGINS` env var on Render).
+
+### `GET /api/public/menu/today`
+**Response `200`:** `{ date, cycle_day, cycle_week, day_of_week, meals: { "<meal_period>": [{ slot_name, item_name }] } }` (active slots only).
+
+### `GET /api/public/menu/date/{iso_date}`
+Same shape for an arbitrary date. **`400`** if `iso_date` isn't `YYYY-MM-DD`.
+
+### `GET /api/public/menu/cycle`
+**Response `200`:** `{ anchor_date, days: [{ cycle_day, day_of_week, meals: {...} }] }` for all 28 days — built from one slots query + one items query.
+
+### `POST /api/public/menu/suggestions`
+Requires header `X-Api-Key` matching env `MENU_API_KEY`.
+**`503`** if `MENU_API_KEY` unset server-side. **`403`** if the header doesn't match.
+
+**Body:** `{ "suggested_item": "string, required, max 200", "cycle_day": 1-28 (optional), "meal_period": "string (optional)", "slot_name": "string (optional)", "notes": "string, max 1000 (optional)", "submitted_by": "string (optional)", "source": "string (optional, default lunchvoice)" }`
+
+**Response `200`:** `{ "id": "uuid" }`
 
 ---
 
@@ -975,7 +1050,8 @@ Key tables the API reads/writes:
 | `monthly_inventory` | inventory (period counts, 0-indexed month) |
 | `inventory_categories` | inventory, data |
 | `live_inventory` | reorders view (joined from barcodes) |
-| `menu_entries`, `menu_cycles` | menu |
+| `menu_items`, `menu_cycle_days`, `menu_cycle_slots`, `menu_suggestions` | menu, public/menu (28-day cycle schema, v4.27.0) |
+| `menu_entries`, `menu_cycles` | legacy — no longer read/written by the API (kept only for the unreferenced `dispatch_menu_save` handler) |
 | `events` | events |
 | `haccp_logs` | logs/haccp |
 | `daily_operations_logs` | logs/daily |

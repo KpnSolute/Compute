@@ -273,9 +273,7 @@ def test_resave_with_different_staging_id_replaces_not_accumulates_ledger():
         dispatch_inventory_save({**base_payload, "_staging_entry_id": "pass-2"})
         dispatch_inventory_save({**base_payload, "_staging_entry_id": "pass-3"})
 
-    txns = sorted(
-        (t["week_number"], t["txn_type"], t["quantity"]) for t in sup.txns
-    )
+    txns = sorted((t["week_number"], t["txn_type"], t["quantity"]) for t in sup.txns)
     assert txns == [
         (1, "issued", 1),
         (1, "received", 2),

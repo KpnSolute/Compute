@@ -1308,9 +1308,9 @@ async def upload_file(
                         "inventory_save",
                         "inventory_week_update",
                     ):
-                        op.setdefault("payload", {})[
-                            "weekly_invoice_totals"
-                        ] = weekly_invoice_totals
+                        op.setdefault("payload", {})["weekly_invoice_totals"] = (
+                            weekly_invoice_totals
+                        )
 
         try:
             item_count_r = (

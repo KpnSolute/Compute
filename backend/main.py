@@ -40,6 +40,7 @@ from backend.routes.inventory import router as inventory_router
 from backend.routes.logs import router as logs_router
 from backend.routes.events import router as events_router
 from backend.routes.menu import router as menu_router
+from backend.routes.public_menu import router as public_menu_router
 from backend.routes.sourcectrl import router as sourcectrl_router
 from backend.routes.github_sync import router as github_sync_router
 from backend.routes.data import router as data_router
@@ -179,6 +180,7 @@ app.include_router(inventory_router)
 app.include_router(logs_router)
 app.include_router(events_router)
 app.include_router(menu_router)
+app.include_router(public_menu_router)
 app.include_router(sourcectrl_router)
 app.include_router(github_sync_router)
 app.include_router(data_router)

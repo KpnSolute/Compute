@@ -223,6 +223,60 @@ export interface InventoryCatalogItem {
 
 export type EntityType = 'inventory' | 'menu' | 'user' | 'compliance' | 'event' | 'ops';
 
+// Menu — 28-day cycle editor
+export interface MenuCycleDaySummary {
+  cycle_day: number;
+  cycle_week: number;
+  day_of_week: string;
+  zone: number;
+  morning_service: string;
+  midday_service: string;
+  evening_service: string;
+  active: boolean;
+}
+
+export interface MenuCycleOverview {
+  anchor_date: string;
+  today: { date: string; cycle_day: number };
+  days: MenuCycleDaySummary[];
+}
+
+export interface MenuSlot {
+  record_id: string;
+  meal_group: string;
+  meal_period: string;
+  service_order: number;
+  slot_order: number;
+  slot_name: string;
+  item_id?: string | null;
+  item_name: string;
+  active: boolean;
+}
+
+export interface MenuCycleDay {
+  cycle_day: number;
+  cycle_week: number;
+  day_of_week: string;
+  zone: number;
+  morning_service: string;
+  midday_service: string;
+  evening_service: string;
+  slots: MenuSlot[];
+}
+
+export interface MenuSuggestion {
+  id: string;
+  source: string;
+  cycle_day: number;
+  meal_period: string;
+  slot_name: string;
+  suggested_item: string;
+  notes?: string | null;
+  submitted_by: string;
+  status: 'new' | 'reviewed' | 'applied' | 'dismissed';
+  created_at: string;
+}
+
 export interface SubmitStagingBody {
   entity_type: EntityType;
   entity_id: string;
@@ -455,13 +509,55 @@ export const api = {
     return req('/api/staging/mine');
   },
 
-  // Menu
+  // Menu (legacy — kept for compat; saveMenu is 410 on the backend now)
   async getMenu(day: string): Promise<any> {
     return req(`/api/menu/${encodeURIComponent(day)}`);
   },
 
   async saveMenu(day: string, body: any): Promise<any> {
     return req(`/api/menu/${encodeURIComponent(day)}`, { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  // Menu — 28-day cycle editor
+  async getMenuCycleOverview(): Promise<MenuCycleOverview> {
+    return req('/api/menu/cycle/overview');
+  },
+
+  async getMenuCycleDay(n: number): Promise<MenuCycleDay> {
+    return req(`/api/menu/cycle/day/${n}`);
+  },
+
+  async getMenuToday(): Promise<MenuCycleDay & { date: string; cycle_day: number }> {
+    return req('/api/menu/today');
+  },
+
+  async updateMenuSlot(recordId: string, body: { item_id?: string; item_name?: string; active?: boolean }): Promise<MenuSlot> {
+    return req(`/api/menu/slot/${encodeURIComponent(recordId)}`, { method: 'PUT', body: JSON.stringify(body) });
+  },
+
+  async addMenuSlot(day: number, body: { meal_group: string; meal_period: string; slot_name: string; item_id?: string; item_name?: string; slot_order?: number }): Promise<MenuSlot> {
+    return req(`/api/menu/cycle/day/${day}/slots`, { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  async searchMenuItems(q: string): Promise<Array<{ id: string; name: string; active: boolean }>> {
+    return req(`/api/menu/items?q=${encodeURIComponent(q)}`);
+  },
+
+  async getMenuSettings(): Promise<{ anchor_date: string }> {
+    return req('/api/menu/settings');
+  },
+
+  async saveMenuSettings(anchor_date: string): Promise<{ anchor_date: string }> {
+    return req('/api/menu/settings', { method: 'PUT', body: JSON.stringify({ anchor_date }) });
+  },
+
+  async getMenuSuggestions(status?: string): Promise<MenuSuggestion[]> {
+    const q = status ? `?status=${encodeURIComponent(status)}` : '';
+    return req(`/api/menu/suggestions${q}`);
+  },
+
+  async updateMenuSuggestion(id: string, status: MenuSuggestion['status']): Promise<MenuSuggestion> {
+    return req(`/api/menu/suggestions/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ status }) });
   },
 
   // Events

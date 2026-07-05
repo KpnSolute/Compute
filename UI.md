@@ -580,13 +580,21 @@ Five HACCP sub-tabs (period-scoped, month/year navigation via `<MonthNav>`):
 **Props:** `{ user: User }` *(user is unused — `_user`)*  
 **Nav key:** `menu`
 
-**API calls:** `api.getMenu(day)` looped over all 7 days sequentially on mount. Result stored as `menuData[dowKey]` and `sidesData[dowKey]`.
+Rebuilt as a real 28-day cycle menu editor (v2 — replaces the old 7-day static-day-pill viewer).
 
-**UI:** Day-selector pill row (Mon–Sun, Today badge) · Per-meal cards for periods with data · Snack rendered as chips · Footer credits `Cafeteria_Cycle_Menu_March_2026.xlsm`
+**Two in-component views (no router):**
+- **Cycle overview** — 4 week rows × 7 day cards from `api.getMenuCycleOverview()`. Each card shows cycle day number, weekday, zone-2 badge, and service labels (`Brunch / Dinner` for zone 2, `Breakfast / Lunch / Dinner` otherwise). Today's `cycle_day` gets an accent ring + "Today" pill. Click a card → day editor.
+- **Day editor** — `api.getMenuCycleDay(n)`. Slots grouped into cards by `meal_period` in service order (Breakfast/Brunch → Short Order → Lunch → Dinner). Each `SlotRow`: slot name + item name, click to open `SlotEditModal` (text input + debounced `ItemAutocomplete` from `api.searchMenuItems`; picking a result sends `item_id`, free text sends `item_name` to `api.updateMenuSlot`). Deactivate/Activate toggle per slot (dims inactive rows). "+ Add slot" per section opens `AddSlotModal` → `api.addMenuSlot(day, { meal_group, meal_period, slot_name, item_id|item_name })` — `meal_period` → `meal_group` mapped via `GROUP_FOR_PERIOD` (Breakfast/Brunch→Morning, Short Order→Short Order, Lunch→Midday, Dinner→Evening).
 
-**Print / Edit buttons:** Rendered but no `onClick` handlers (stubs).
+**Suggestions panel:** Header button shows count of `status==='new'` suggestions (`api.getMenuSuggestions('new')`). Panel lists item/context/notes/source/date with Reviewed / Applied / Dismiss actions → `api.updateMenuSuggestion(id, status)`.
 
-**Role gating:** None.
+**Settings modal:** Gear button → shows `anchor_date` (native `<input type="date">`) + "Today = Day N" note → `api.saveMenuSettings(date)` (backend enforces Sunday, 400 message surfaced in modal banner).
+
+**State updates:** Optimistic-ish — local state updated from the API response on success; `window.toast` / inline `.banner warn` on error.
+
+**Role gating:** None (matches prior behavior — not yet role-gated).
+
+**Legacy note:** Old `api.getMenu`/`api.saveMenu` (single-day GET/POST) kept in `api.ts` for compat but no longer used by this component; `saveMenu` POST is 410 on the backend.
 
 ---
 
