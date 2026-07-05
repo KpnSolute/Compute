@@ -4,6 +4,24 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.27.3] - 2026-07-04 - MJCC PRODUCTION FINALIZED: main pushed + deployed, public menu API live-verified for LionCafe
+
+**Claude:** Production cutover for the cycle-menu system.
+
+- **Pushed `main`** (fast-forward through `faae56d`, then hotfix `8dfe66c`) — Render deployed both, final deploy `live` on `8dfe66c`.
+- **Prod bug found+fixed during verification:** every cycle-menu endpoint 500'd because `_get_anchor_date` did `json.loads` on `app_settings.setting_value` — supabase-py returns jsonb already decoded (plain `'2026-06-28'`), so `json.loads` parsed `2026` and raised `Extra data`. Reader now decodes only when the value is JSON-quoted; `PUT /settings` writes a plain string (json.dumps there would double-encode via PostgREST). Commit `8dfe66c`.
+- **Live verification against `https://mjcc-managements.onrender.com` (all pass):**
+  - `/health` 200.
+  - `GET /api/public/menu/today` → date 2026-07-04, cycle_day 7, week 1, Saturday; Brunch 28 / Short Order 7 / Dinner 7 items with real dish names.
+  - `GET /api/public/menu/date/2026-07-10` → cycle_day 13, Friday (correct math).
+  - `GET /api/public/menu/cycle` → 28 days, anchor 2026-06-28, 1000 active named items.
+  - `POST /api/public/menu/suggestions`: wrong key → 403; valid `X-Api-Key` → 200 with created id (test row deleted from `menu_suggestions` after).
+- **LionCafe integration contract (stable, no bearer auth):** `GET /api/public/menu/today`, `GET /api/public/menu/date/{YYYY-MM-DD}`, `GET /api/public/menu/cycle` are open reads; `POST /api/public/menu/suggestions` requires `X-Api-Key` = the `MJCC_MENU_API_KEY` secret already set in the LunchVoice Supabase project's edge-function env. `CORS_ORIGINS=*` on the Render service covers browser calls. Interact/LunchVoice repo intentionally NOT pushed this session (user decision) — its menu fetch + survey wiring is the next lane.
+
+**Push:** this entry + `8dfe66c` on `main` (deployed).
+
+---
+
 ## [v4.27.2] - 2026-07-04 - Legacy menu tables retired: AI data-entry repointed to menu_cycle_slots, menu_entries + menu_cycles dropped
 
 **Claude:** Closed the deprecation follow-up flagged in v4.27.1(b).
