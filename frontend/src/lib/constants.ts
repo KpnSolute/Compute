@@ -65,7 +65,6 @@ export const NAV = [
       { key: 'mballot', label: 'Meal Log', icon: 'users', min: 10 },
       { key: 'foodreq', label: 'Food Request', icon: 'inbox', min: 10 },
       { key: 'dataentry', label: 'Data Entry', icon: 'inbox', min: 20 },
-      { key: 'barcodes', label: 'Barcodes & Scan', icon: 'qr', min: 10 },
     ],
   },
   {

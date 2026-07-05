@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { I } from '../lib/icons';
 import { type User, ROLE_LEVEL } from '../lib/constants';
 import { api } from '../lib/api';
+import { StatusPill } from './ui/StatusPill';
 
 interface Incident {
   id: string;
@@ -67,6 +68,8 @@ export function DailyOps({ user }: { user: User }) {
 
   const [mealSchedule, setMealSchedule] = useState<MealScheduleItem[]>(DEFAULT_MEAL_SCHEDULE);
   const [mealLoading, setMealLoading] = useState(true);
+  const [mealScheduleIsDefault, setMealScheduleIsDefault] = useState(false);
+  const [editingSchedule, setEditingSchedule] = useState(false);
 
   const [cycleDay, setCycleDay] = useState('1');
   const [notes, setNotes] = useState('');
@@ -89,11 +92,22 @@ export function DailyOps({ user }: { user: User }) {
       } catch {
         if (alive) setChecklist(DEFAULT_CHECKLIST);
       }
+      // hydrate today's completion state
+      try {
+        const stateLogs = await api.getDailyLogs(50, 'checklist_state');
+        const todays = stateLogs.find((l: any) => l.title === date);
+        if (alive && todays?.description) {
+          const idx: number[] = JSON.parse(todays.description);
+          setChecks(Object.fromEntries(idx.map((i) => [i, true])));
+        }
+      } catch {
+        // no saved state for today — leave checks empty
+      }
       if (alive) setChecklistLoading(false);
     }
     load();
     return () => { alive = false; };
-  }, []);
+  }, [date]);
 
   useEffect(() => {
     let alive = true;
@@ -112,9 +126,14 @@ export function DailyOps({ user }: { user: User }) {
               close: parseInt(parts[3]) || 0,
             };
           });
-        if (alive && items.length) setMealSchedule(items);
+        if (alive && items.length) {
+          setMealSchedule(items);
+          setMealScheduleIsDefault(false);
+        } else if (alive) {
+          setMealScheduleIsDefault(true);
+        }
       } catch {
-        if (alive) setMealSchedule(DEFAULT_MEAL_SCHEDULE);
+        if (alive) { setMealSchedule(DEFAULT_MEAL_SCHEDULE); setMealScheduleIsDefault(true); }
       }
       if (alive) setMealLoading(false);
     }
@@ -127,8 +146,35 @@ export function DailyOps({ user }: { user: User }) {
 
   function toggle(i: number) {
     if (!canEdit) return;
-    setChecks((prev) => ({ ...prev, [i]: !prev[i] }));
+    setChecks((prev) => {
+      const next = { ...prev, [i]: !prev[i] };
+      const idx = Object.entries(next).filter(([, v]) => v).map(([k]) => Number(k));
+      api.saveDailyLog({
+        entry_type: 'checklist_state',
+        title: date,
+        description: JSON.stringify(idx),
+      }).catch(() => {});
+      return next;
+    });
     setSaved(false);
+  }
+
+  async function saveMealSchedule(rows: MealScheduleItem[]) {
+    for (const s of rows) {
+      try {
+        await api.saveDailyLog({
+          entry_type: 'meal_schedule',
+          title: s.meal,
+          description: `${s.hours}|${s.monitor}|${s.open}|${s.close}`,
+        });
+      } catch {
+        // continue saving remaining rows
+      }
+    }
+    setMealSchedule(rows);
+    setMealScheduleIsDefault(false);
+    setEditingSchedule(false);
+    (window as any).toast?.('Meal schedule updated');
   }
 
   function addIncident() {
@@ -203,9 +249,9 @@ export function DailyOps({ user }: { user: User }) {
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-head">
               <h3>Morning opening checklist</h3>
-              <span className="ch-link">
+              <StatusPill warn={doneCount < checklist.length}>
                 {doneCount}/{checklist.length} complete
-              </span>
+              </StatusPill>
             </div>
             {checklistLoading ? (
               <div className="card-body" style={{ padding: '20px 17px' }}>
@@ -307,11 +353,25 @@ export function DailyOps({ user }: { user: User }) {
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-head">
               <h3>Today&rsquo;s meal schedule</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {mealScheduleIsDefault && <StatusPill warn>Default schedule</StatusPill>}
+                {lvl >= 30 && !mealLoading && (
+                  <span className="ch-link" style={{ cursor: 'pointer' }} onClick={() => setEditingSchedule((v) => !v)}>
+                    {editingSchedule ? 'Cancel' : 'Edit hours'}
+                  </span>
+                )}
+              </div>
             </div>
             {mealLoading ? (
               <div className="card-body" style={{ padding: '20px 17px' }}>
                 <Loading label="Loading schedule…" />
               </div>
+            ) : editingSchedule ? (
+              <MealScheduleEditor
+                rows={mealSchedule}
+                onSave={saveMealSchedule}
+                onCancel={() => setEditingSchedule(false)}
+              />
             ) : (
               <div className="card-body flush tbl-wrap">
                 <table className="data">
@@ -356,7 +416,7 @@ export function DailyOps({ user }: { user: User }) {
             <div className="card-head">
               <h3>Incident log</h3>
               {incidents.length > 0 && (
-                <span className="ch-link">{incidents.length} logged</span>
+                <StatusPill warn>{incidents.length} logged</StatusPill>
               )}
             </div>
             <div
@@ -465,6 +525,87 @@ export function DailyOps({ user }: { user: User }) {
             {I.save({ style: { width: 15, height: 15 } })} Save
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+function MealScheduleEditor({
+  rows,
+  onSave,
+  onCancel,
+}: {
+  rows: MealScheduleItem[];
+  onSave: (rows: MealScheduleItem[]) => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState<MealScheduleItem[]>(rows);
+
+  function update(i: number, patch: Partial<MealScheduleItem>) {
+    setDraft((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  }
+
+  return (
+    <div className="card-body flush tbl-wrap">
+      <table className="data">
+        <thead>
+          <tr>
+            <th>Meal</th>
+            <th>Hours</th>
+            <th>Lead monitor</th>
+            <th>Open (24h)</th>
+            <th>Close (24h)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {draft.map((s, i) => (
+            <tr key={s.meal}>
+              <td style={{ fontWeight: 700 }}>{s.meal}</td>
+              <td>
+                <input
+                  className="ipt sel"
+                  value={s.hours}
+                  onChange={(e) => update(i, { hours: e.target.value })}
+                />
+              </td>
+              <td>
+                <input
+                  className="ipt sel"
+                  value={s.monitor}
+                  onChange={(e) => update(i, { monitor: e.target.value })}
+                />
+              </td>
+              <td>
+                <input
+                  className="ipt sel"
+                  type="number"
+                  min="0"
+                  max="23"
+                  style={{ width: 70 }}
+                  value={s.open}
+                  onChange={(e) => update(i, { open: Number(e.target.value) })}
+                />
+              </td>
+              <td>
+                <input
+                  className="ipt sel"
+                  type="number"
+                  min="0"
+                  max="23"
+                  style={{ width: 70 }}
+                  value={s.close}
+                  onChange={(e) => update(i, { close: Number(e.target.value) })}
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 17px' }}>
+        <button className="btn" onClick={onCancel}>Cancel</button>
+        <button className="btn primary" onClick={() => onSave(draft)}>
+          {I.save({ style: { width: 14, height: 14 } })} Save schedule
+        </button>
       </div>
     </div>
   );

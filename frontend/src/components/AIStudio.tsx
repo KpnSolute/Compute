@@ -178,8 +178,10 @@ export function AIUsageView({ user }: { user: User }) {
     const myTurns = history.filter(t => t.role === 'user');
     const today = new Date().toISOString().slice(0, 10);
     const todayCalls = myTurns.filter(t => t.created_at?.slice(0, 10) === today).length;
-    const hourLimit = config?.rate_limit_per_hour?.[user.role] ?? 10;
-    const dayLimit  = config?.rate_limit_per_day?.[user.role] ?? 30;
+    const hourLimitConfigured = config?.rate_limit_per_hour?.[user.role];
+    const dayLimitConfigured  = config?.rate_limit_per_day?.[user.role];
+    const hourLimit = hourLimitConfigured ?? 10;
+    const dayLimit  = dayLimitConfigured ?? 30;
 
     // Tool usage from tool turns
     const toolTurns = history.filter(t => t.role === 'tool' && t.tool_name);
@@ -222,8 +224,8 @@ export function AIUsageView({ user }: { user: User }) {
 
             {/* Stat row */}
             <div className="ai-stat-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 24 }}>
-                <StatBox label="Today's Calls" value={todayCalls} sub={`of ${dayLimit} daily limit`} />
-                <StatBox label="Hour Limit" value={hourLimit} sub="requests / hour" tint="var(--muted)" />
+                <StatBox label="Today's Calls" value={todayCalls} sub={`of ${dayLimit} daily limit${dayLimitConfigured == null ? ' (default)' : ''}`} />
+                <StatBox label="Hour Limit" value={hourLimit} sub={`requests / hour${hourLimitConfigured == null ? ' (default)' : ''}`} tint="var(--muted)" />
                 <StatBox label={`${window}d Conversations`} value={myTurns.length} sub="messages sent" tint="#7c3aed" />
                 <StatBox label="Tools Used" value={toolTurns.length} sub={`${window}d total calls`} tint="#0e7490" />
             </div>

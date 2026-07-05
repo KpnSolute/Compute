@@ -32,3 +32,11 @@ async def create_event(event: EventCreate, auth_user: dict = Depends(_get_auth_u
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to create event")
     return result.data[0]
+
+
+@router.delete("/{event_id}")
+async def delete_event(event_id: str, auth_user: dict = Depends(_get_auth_user)):
+    result = supabase_service.table("events").delete().eq("id", event_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return {"deleted": True, "id": event_id}

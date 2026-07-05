@@ -49,6 +49,36 @@ async def get_servsafe(auth_user: dict = Depends(_get_auth_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class ServSafeUpdate(BaseModel):
+    staff_name: str | None = None
+    certification: str | None = None
+    expiry_date: str | None = None
+    is_proctor: bool | None = None
+
+
+@router.put("/servsafe/{cert_id}")
+async def update_servsafe(
+    cert_id: str, body: ServSafeUpdate, auth_user: dict = Depends(_get_auth_user)
+):
+    update = body.model_dump(exclude_none=True)
+    if not update:
+        raise HTTPException(status_code=422, detail="No fields to update")
+    try:
+        result = (
+            supabase_service.table("servsafe_certifications")
+            .update(update)
+            .eq("id", cert_id)
+            .execute()
+        )
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Certification not found")
+        return result.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Meal Periods ──────────────────────────────────────────────────────────
 
 

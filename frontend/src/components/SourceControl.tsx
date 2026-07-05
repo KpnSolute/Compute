@@ -4,6 +4,7 @@ import { type User, ROLE_LEVEL, ROLE_LABEL } from "../lib/constants";
 import { api, type Commit, type SourceTransaction, type StagingEntry } from "../lib/api";
 import { useEscapeClose } from "../lib/useEscapeClose";
 import { PageToolbar } from "./ui/ActionBars";
+import { StatusPill } from "./ui/StatusPill";
 import { matchesInventoryQuery, parseInventoryQuery } from "../lib/inventorySearch";
 
 const t = (msg: string) => (window as any).toast?.(msg);
@@ -241,7 +242,7 @@ function TransactionLogView({ active }: { active: boolean }) {
             <div className="sc-log-head">
                 <div>
                     <h3>Transaction Log</h3>
-                    <p>{filteredRows.length} of {rows.length} entries</p>
+                    <StatusPill>{filteredRows.length} of {rows.length} entries</StatusPill>
                 </div>
                 <button className="btn" onClick={loadRows} disabled={loading}>
                     {I.refresh({ style: { width: 14, height: 14 } })} Refresh
@@ -1502,15 +1503,15 @@ export function SourceControlPage({
             <div className="pg-head">
                 <div>
                     <h2 className="pg-title">Source Control</h2>
-                    <p className="pg-sub">
-                        {I.branch({ style: { width: 12, height: 12, display: "inline-block", marginRight: 5 } })}
+                    <StatusPill ok={!!lastCommit?.github_sha} warn={!lastCommit?.github_sha}>
+                        {I.branch({ style: { width: 12, height: 12 } })}
                         main
                         {lastCommit && (
                             <> · <span className="mono" style={{ fontSize: 11 }}>
                                 {shortSha(lastCommit.github_sha) || lastCommit.commit_id.slice(0, 7)}
                             </span></>
                         )}
-                    </p>
+                    </StatusPill>
                 </div>
                 <button className="btn" onClick={loadData} disabled={loading}>
                     {I.refresh()} Refresh

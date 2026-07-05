@@ -584,6 +584,10 @@ export const api = {
     return req('/api/events', { method: 'POST', body: JSON.stringify(body) });
   },
 
+  async deleteEvent(id: string | number): Promise<{ deleted: boolean; id: string }> {
+    return req(`/api/events/${id}`, { method: 'DELETE' });
+  },
+
   // Opening Checklist
   async getOpeningChecklist(): Promise<any[]> {
     return req('/api/opening-checklist');
@@ -592,6 +596,10 @@ export const api = {
   // ServSafe Certifications
   async getServSafe(): Promise<any[]> {
     return req('/api/servsafe');
+  },
+
+  async updateServSafe(id: string | number, body: any): Promise<any> {
+    return req(`/api/servsafe/${id}`, { method: 'PUT', body: JSON.stringify(body) });
   },
 
   // Meal Periods

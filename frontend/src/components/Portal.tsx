@@ -51,6 +51,7 @@ import { CycleMenu } from "./CycleMenu";
 import { SnackBar, MonthlyInventory } from "./Operations";
 import { SourceControlPanel, SourceControlPage } from "./SourceControl";
 import { SaveBar } from "./ui/ActionBars";
+import { StatusPill } from "./ui/StatusPill";
 import { ItemInspector } from "./ui/ItemInspector";
 import { Reports } from "./Reports";
 import { PullSheet } from "./PullSheet";
@@ -1025,9 +1026,9 @@ function Dashboard({
 
                     <WinCard title="Inventory alerts">
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: reorderList.length ? 10 : 0 }}>
-                            <span className="viol-pill" style={{ margin: 0 }}>
+                            <StatusPill warn={reorderList.length > 0} style={{ margin: 0 }}>
                                 {I.alert({ style: { width: 13, height: 13 } })} {reorderList.length} below par
-                            </span>
+                            </StatusPill>
                         </div>
                         {reorderList.length === 0 ? (
                             <div style={{ fontSize: 12, color: "var(--muted)" }}>All items at or above par level.</div>
@@ -1879,7 +1880,6 @@ function InventoryView({
                     <button className="btn no-print" onClick={handlePrint}>
                         {I.printer({})} Print
                     </button>
-                    <button className="btn no-print" onClick={() => go?.("barcodes")}>{I.scan()} Scan</button>
                     <button className="btn no-print" onClick={onSync}>
                         {I.refresh()} Refresh
                     </button>
@@ -2324,9 +2324,9 @@ function InventoryView({
                                                             : ""}
                                                     </span>
                                                     {lowCount > 0 && (
-                                                        <span className="pill warn csh-low">
+                                                        <StatusPill warn className="csh-low">
                                                             {lowCount} below par
-                                                        </span>
+                                                        </StatusPill>
                                                     )}
                                                 </span>
                                                 <span className="csh-r">
@@ -2669,9 +2669,9 @@ function InventoryView({
                                                         </span>
                                                     )}
                                                     {lowCount > 0 && (
-                                                        <span className="pill warn csh-low">
+                                                        <StatusPill warn className="csh-low">
                                                             {lowCount} below par
-                                                        </span>
+                                                        </StatusPill>
                                                     )}
                                                 </span>
                                                 <span className="csh-r">
@@ -3918,9 +3918,11 @@ function UsersView({ user: currentUser }: { user: User }) {
             <div className="page-head">
                 <div>
                     <h2>Users &amp; Access</h2>
-                    <div className="ph-sub">
-                        {users.length} accounts · {activeUsers} active · {disabledUsers} disabled
-                        {!isSudo && (canManageStaff ? " · staff management" : " · read-only view")}
+                    <div className="ph-sub" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <StatusPill>{users.length} accounts</StatusPill>
+                        <StatusPill ok>{activeUsers} active</StatusPill>
+                        <StatusPill warn={disabledUsers > 0}>{disabledUsers} disabled</StatusPill>
+                        {!isSudo && (canManageStaff ? "staff management" : "read-only view")}
                     </div>
                 </div>
                 <div className="ph-actions">
@@ -4305,17 +4307,6 @@ const PAGE_INFO: Record<
             "Recipe → SKU mapping",
             "Quantity forecasting",
             "Nutrition / HACCP notes",
-        ],
-    },
-    barcodes: {
-        icon: "qr",
-        title: "Barcodes & Scan",
-        sub: "Generate CODE128 / QR labels and run mobile scan sessions to update on-hand counts in real time.",
-        feats: [
-            "Bulk label export",
-            "Camera scan sessions",
-            "Auto on-hand sync",
-            "Print sheets",
         ],
     },
     sourcectrl: {

@@ -4,6 +4,7 @@ import { ROLE_LEVEL, MONTHS, COOKING_TEMPS, TASTE_CODES } from '../lib/constants
 import { I } from '../lib/icons';
 import { saveLog, fetchLog, loadLog } from '../lib/supabase';
 import { api } from '../lib/api';
+import { StatusPill } from './ui/StatusPill';
 
 interface TempRow {
   am?: string;
@@ -49,8 +50,6 @@ const APPLIANCES: Appliance[] = [
 const HACCP_TABS = [
   { key: 'temp', label: 'Temperature Log', icon: 'thermo' },
   { key: 'sanit', label: 'Sanitizer Log', icon: 'droplet' },
-  { key: 'machine', label: 'Machine Temp', icon: 'settings' },
-  { key: 'cooling', label: 'Cooling & Reheat', icon: 'snow' },
   { key: 'taste', label: 'Taste Panel', icon: 'flame' },
 ];
 
@@ -307,10 +306,10 @@ function TemperatureLog({
         Notify management immediately if a refrigerator is above 41°F or a
         freezer is above 0°F. Keep on file for one year.
         {violations > 0 && (
-          <span className="viol-pill">
+          <StatusPill warn style={{ marginLeft: 'auto' }}>
             {I.alert({ style: { width: 13, height: 13 } })} {violations}{' '}
             out-of-range {violations === 1 ? 'day' : 'days'}
-          </span>
+          </StatusPill>
         )}
       </div>
 
@@ -446,9 +445,9 @@ function SanitizerLog({
         single prep site (e.g. third-compartment pot sink) is recommended. One
         form per month.
         {viol > 0 && (
-          <span className="viol-pill">
+          <StatusPill warn style={{ marginLeft: 'auto' }}>
             {I.alert({ style: { width: 13, height: 13 } })} {viol} out-of-range
-          </span>
+          </StatusPill>
         )}
       </div>
       <div className="card" style={{ marginBottom: 14 }}>
@@ -751,22 +750,6 @@ function TastePanel({
   );
 }
 
-function MachineLogPlaceholder(_props: SubTabProps) {
-  return (
-    <div className="placeholder">
-      <p>Machine temperature log coming soon.</p>
-    </div>
-  );
-}
-
-function CoolingLogPlaceholder(_props: SubTabProps) {
-  return (
-    <div className="placeholder">
-      <p>Cooling &amp; reheating log coming soon.</p>
-    </div>
-  );
-}
-
 export function ComplianceHub({
   user,
 }: {
@@ -785,8 +768,6 @@ export function ComplianceHub({
   let body: React.ReactNode;
   if (tab === 'temp') body = <TemperatureLog {...props} />;
   else if (tab === 'sanit') body = <SanitizerLog {...props} />;
-  else if (tab === 'machine') body = <MachineLogPlaceholder {...props} />;
-  else if (tab === 'cooling') body = <CoolingLogPlaceholder {...props} />;
   else body = <TastePanel {...props} />;
 
   return (

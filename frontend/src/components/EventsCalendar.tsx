@@ -18,14 +18,6 @@ const CAT_META: Record<string, { bg: string; color: string; dot: string; label: 
 const CAT_DEFAULT = CAT_META.other;
 function catMeta(cat: string | null | undefined) { return CAT_META[cat ?? ''] ?? CAT_DEFAULT; }
 
-const SERVSAFE_STAFF = [
-  { name: 'Angela Martin', cert: 'ServSafe Manager', expiry: '2027-03-15', proctor: true },
-  { name: 'Daniel Cortez', cert: 'ServSafe Manager', expiry: '2026-11-20', proctor: true },
-  { name: 'Lena Price', cert: 'ServSafe Food Handler', expiry: '2026-08-01', proctor: false },
-  { name: 'Rasheed Khan', cert: 'ServSafe Food Handler', expiry: '2026-06-15', proctor: false },
-  { name: 'Maria Lopez', cert: 'ServSafe Allergens', expiry: '2025-12-10', proctor: false },
-];
-
 function fmtEvDate(iso: string): string {
   const d = new Date(iso + 'T12:00:00');
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
@@ -47,10 +39,11 @@ interface CertStatus {
 }
 
 interface ServSafeStaff {
-  name: string;
-  cert: string;
-  expiry?: string;
-  proctor?: boolean;
+  id: string | number;
+  staff_name: string;
+  certification: string;
+  expiry_date?: string;
+  is_proctor?: boolean;
 }
 
 function Loading({ label = 'Loading…' }) {
@@ -66,6 +59,9 @@ export function EventsCalendar({ user }: { user: User }) {
   const [cat, setCat] = useState('all');
   const [selDay, setSelDay] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [servsafe, setServsafe] = useState<ServSafeStaff[]>([]);
+  const [editingCertId, setEditingCertId] = useState<string | number | null>(null);
+  const canEditCerts = lvl >= 30;
 
   useEffect(() => {
     let alive = true;
@@ -81,6 +77,24 @@ export function EventsCalendar({ user }: { user: User }) {
     load();
     return () => { alive = false; };
   }, []);
+
+  useEffect(() => {
+    let alive = true;
+    api.getServSafe().then((data) => { if (alive) setServsafe(data); }).catch(() => { if (alive) setServsafe([]); });
+    return () => { alive = false; };
+  }, []);
+
+  async function updateCertExpiry(id: string | number, expiry_date: string) {
+    const prev = servsafe;
+    setServsafe((rows) => rows.map((r) => (r.id === id ? { ...r, expiry_date } : r)));
+    try {
+      await api.updateServSafe(id, { expiry_date });
+    } catch {
+      setServsafe(prev);
+      t('Failed to update certification');
+    }
+    setEditingCertId(null);
+  }
 
   const y = cur.getFullYear(), m = cur.getMonth();
   const monthStr = y + '-' + String(m + 1).padStart(2, '0');
@@ -107,11 +121,20 @@ export function EventsCalendar({ user }: { user: User }) {
   function dayEvents(d: number) {
     return events.filter(e => e.date === dateStr(d) && (cat === 'all' || e.cat === cat));
   }
-  function removeEvent(id: number) { setEvents(es => es.filter(e => e.id !== id)); }
+  async function removeEvent(id: number) {
+    const prev = events;
+    setEvents(es => es.filter(e => e.id !== id));
+    try {
+      await api.deleteEvent(id);
+    } catch {
+      setEvents(prev);
+      t('Failed to delete event');
+    }
+  }
 
   function certStatus(s: ServSafeStaff): CertStatus {
-    if (!s.expiry) return { cls: 'warn', txt: 'Pending' };
-    const days = Math.ceil((new Date(s.expiry + 'T12:00:00').getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (!s.expiry_date) return { cls: 'warn', txt: 'Pending' };
+    const days = Math.ceil((new Date(s.expiry_date + 'T12:00:00').getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
     if (days < 0) return { cls: 'off', txt: 'Expired' };
     if (days < 60) return { cls: 'warn', txt: days + 'd left' };
     return { cls: 'ok', txt: 'Valid' };
@@ -254,16 +277,43 @@ export function EventsCalendar({ user }: { user: User }) {
               <div className="card">
                 <div className="card-head">
                   <h3>ServSafe tracker</h3>
-                  <span className="ch-link">{SERVSAFE_STAFF.length} staff</span>
+                  <span className="ch-link">{servsafe.length} staff</span>
                 </div>
                 <div className="card-body flush">
-                  {SERVSAFE_STAFF.map((s: ServSafeStaff, i: number) => {
+                  {servsafe.length === 0 && (
+                    <div style={{ padding: '18px 17px', textAlign: 'center', color: 'var(--faint)', fontSize: 12.5 }}>No certifications on file.</div>
+                  )}
+                  {servsafe.map((s: ServSafeStaff) => {
                     const st = certStatus(s);
                     return (
-                      <div className="ss-row" key={i}>
+                      <div className="ss-row" key={s.id}>
                         <div className="ss-info">
-                          <div className="ss-name">{s.name}{s.proctor && <span className="ss-proctor">{I.award({ style: { width: 11, height: 11 } })} Proctor</span>}</div>
-                          <div className="ss-cert">{s.cert}{s.expiry && ' · exp ' + s.expiry}</div>
+                          <div className="ss-name">{s.staff_name}{s.is_proctor && <span className="ss-proctor">{I.award({ style: { width: 11, height: 11 } })} Proctor</span>}</div>
+                          {editingCertId === s.id ? (
+                            <input
+                              className="ipt sel"
+                              type="date"
+                              autoFocus
+                              defaultValue={s.expiry_date || ''}
+                              style={{ marginTop: 4 }}
+                              onBlur={(e) => updateCertExpiry(s.id, e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Escape') setEditingCertId(null); }}
+                            />
+                          ) : (
+                            <div className="ss-cert">
+                              {s.certification}{s.expiry_date && ' · exp ' + s.expiry_date}
+                              {canEditCerts && (
+                                <button
+                                  className="row-del"
+                                  style={{ marginLeft: 6 }}
+                                  onClick={() => setEditingCertId(s.id)}
+                                  title="Edit expiry"
+                                >
+                                  {I.edit({ style: { width: 11, height: 11 } })}
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
                         <span className={'pill ' + st.cls}>{st.txt}</span>
                       </div>

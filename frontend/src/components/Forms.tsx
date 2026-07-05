@@ -12,6 +12,7 @@ import { I } from "../lib/icons";
 import { loadLog, saveLog, fetchLog } from "../lib/supabase";
 import { api } from "../lib/api";
 import { SaveBar } from "./ui/ActionBars";
+import { StatusPill } from "./ui/StatusPill";
 
 /* ── shared persistence hook ── */
 function useLog(key: string, initial: any) {
@@ -1053,7 +1054,7 @@ export function InspectionSheet({ user }: FormProps) {
                     <span className="saved-chip">
                         {done}/{total} rated
                     </span>
-                    {poor > 0 && <span className="viol-pill">{poor} poor</span>}
+                    {poor > 0 && <StatusPill warn>{poor} poor</StatusPill>}
                 </div>
             </div>
             <div className="card" style={{ marginBottom: 14 }}>

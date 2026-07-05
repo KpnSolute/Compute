@@ -4,6 +4,7 @@ import { type User, ROLE_LEVEL, MONTHS } from '../lib/constants';
 import { api } from '../lib/api';
 import { useEscapeClose } from '../lib/useEscapeClose';
 import { itemTotals } from '../lib/inventoryFormulas';
+import { StatusPill } from './ui/StatusPill';
 
 const t = (msg: string) => (window as any).toast?.(msg);
 
@@ -437,6 +438,9 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
           <div className="ph-sub">Manager weekly pulls · stages to Source Control before live inventory changes</div>
         </div>
         <div className="ph-actions pull-period-actions">
+          {anyStaged && (
+            <StatusPill ok>{fmt(actionTotalValue)} staged · {stagedItemCount} item{stagedItemCount !== 1 ? 's' : ''}</StatusPill>
+          )}
           {/* Period selectors */}
           <PullSheetSelect
             label="Pull sheet month"

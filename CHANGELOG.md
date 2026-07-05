@@ -21,6 +21,30 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.27.5] - 2026-07-05 - Status-pill rollout site-wide; interactivity audit: every element data-backed, manager+ editable
+
+**Claude (manager) + mjcc-ui + mjcc-api:** User mandate: pill UI everywhere, no display-only elements, manager+ (lvl >= 30) edit affordances wherever a write API exists.
+
+**Backend (mjcc-api):** `DELETE /api/events/{event_id}` (events.py) and `PUT /api/servsafe/{cert_id}` (data.py; body: staff_name/certification/expiry_date/is_proctor, all optional, 422 on empty) — both `_get_auth_user`-gated. 74/74 tests, ruff clean.
+
+**Frontend (mjcc-ui):** shared `<StatusPill warn|ok>` (ui/StatusPill.tsx) + `.status-pill` promoted from `.cm-status-pill` (shared declaration, `.viol-pill` retired). Converted to live-data pills: Users & Access counts, DailyOps checklist progress + incidents count, SourceControl entries count + branch/sha header, ComplianceHub out-of-range counts (2x), Portal below-par counts (3x, shared), PullSheet staged-total pill in page-head. Skipped: Forms `.ms-pill` (KPI grid, not a status — audit-reviewed), AIStudio StatBox (own treatment).
+
+**Interactivity/data-integrity fixes (site audit by Explore agent, all verified live):**
+- Opening checklist state was NEVER persisted (reset on every reload) — now saved via `POST /api/logs/daily` (entry_type `checklist_state`) and hydrated on load. Verified against prod: toggle → 201, reload → state restored.
+- Events delete was client-only (deleted events reappeared on refresh) — now calls new `api.deleteEvent`.
+- ServSafe certs were read-only — manager+ inline expiry editing via new `api.updateServSafe`.
+- HACCP "Machine/Cooling log coming soon" dead tabs removed.
+- Meal schedule silently fell back to hardcoded hours — now shows a "Default schedule" warn pill + manager+ Edit hours saving via saveDailyLog.
+- AIStudio rate-limit fallbacks (?? 10/30) now marked "(default)".
+- Sidebar "Barcodes & Scan" removed — only NAV item landing on PlaceholderPage.
+
+Known pre-existing (not this change): nested `<button>` DOM warnings in ActivityBar user menu; Forms.tsx dead exports MachineLog/CoolingLog (unused, future cleanup).
+
+Verification: ruff clean, 74/74 backend tests, tsc + vite build + eslint clean, browser-verified against prod API (checklist persistence, pills, nav).
+
+**Push:** committed + pushed to main (deploys backend routes + frontend).
+
+
 ## [v4.27.4] - 2026-07-05 - CycleMenu UI rebuild (windowed-dashboard style) + global modal orientation fix
 
 **Claude (mjcc-ui):** Adapted the reference `MJCC_28_Day_Menu_Dashboard_Updated.html` layout/interactions to the existing dark-navy design system — no new fonts, no cream palette, tinted meal-preview blocks use rgba tints of existing `--accent`/`--amber`/`--red` tokens.
@@ -6698,3 +6722,25 @@ Both deployed to `mgvyylvmkxhhataavqjz` with `verify_jwt: false` (self-contained
 **Verification:** `session-status` correctly 401s on a garbage/invalid token (confirmed live). `pin-login` correctly reaches the token-signing step against a real active staff username+PIN (rate limit, user lookup, and PIN compare all passed) but returned 500 at `required("SUPABASE_JWT_SECRET")` — **that secret is not yet set on the edge-function side**. It only exists in the FastAPI service's Render environment, and this environment has no local `.env` to read it from and no non-interactive way to reach `render ssh` (interactive-TTY only in this CLI version). Blocked — needs a human (or an interactive session) to run: `supabase secrets set SUPABASE_JWT_SECRET="<value from Render → MJCC-Managements- service env>" --project-ref mgvyylvmkxhhataavqjz`. Once set, `pin-login` end-to-end and the "same JWT accepted by both sides" property should be re-verified.
 
 Frontend (`frontend/src/lib/supabase.ts`) intentionally untouched — that's the follow-up once `SUPABASE_JWT_SECRET` is set and `pin-login` is verified end-to-end.
+
+## Site-wide status-pill rollout + dead-UI cleanup (Claude / mjcc-ui)
+
+**Part 1 — shared StatusPill.** `index.css`: `.status-pill` promoted as a shared base sharing the declaration block with `.cm-status-pill` (combined selector, no duplication) + new `.status-pill.ok` variant; `.status-pill` gets a light-surface default look (`.cm-status-pill` keeps its dark-hero look via the `.warn`/base override order). New `frontend/src/components/ui/StatusPill.tsx` — `<StatusPill warn? ok? className? style?>`. Converted to StatusPill: Portal.tsx Users&Access header (3 pills: accounts/active/disabled, warn on disabled>0), Portal.tsx 3× "below par" (dashboard alert card + 2 inventory category-header spots), DailyOps.tsx checklist "X/Y complete" (warn until done) + incident count, SourceControl.tsx "N of M entries" + "main · sha" branch header (ok when synced, warn when pending), ComplianceHub.tsx 2× "N out-of-range" (temp + sanitizer logs), Forms.tsx InspectionSheet "N poor" pill, PullSheet.tsx new "$X staged · N items" pill promoted into the page-head next to the period selectors (previously only visible in the fixed bottom toolbar).
+
+`.viol-pill` retired from index.css (all 3 usages converted). `.ms-pill` (Forms.tsx MealLog summary) intentionally **left alone** — audited and it's a 5-box KPI stat grid (22px number + label, `.total` variant) not a status indicator; converting it to the inline StatusPill atom would be a visual regression, not a pill-ification. Flagging this as a spec mismatch rather than silently skipping.
+
+**Part 2 — interactivity/data-integrity fixes:**
+
+- **A. DailyOps opening checklist persistence (real bug, fixed).** Toggles now persist via `api.saveDailyLog({entry_type:'checklist_state', title: date, description: JSON.stringify(checkedIndices)})` on every toggle, and hydrate on load by fetching `getDailyLogs(50,'checklist_state')` and matching `title === date`. Kept `entry_type: 'opening_checklist'` untouched since it's already used to load the checklist item *titles* themselves — reused a new entry_type for completion state to avoid colliding with that.
+- **B. Events delete (real bug, fixed).** Backend `DELETE /api/events/{id}` already existed (API agent shipped it). Added `api.deleteEvent(id)` to `lib/api.ts`; `EventsCalendar.removeEvent` now optimistic-removes + calls the API, rolls back local state and toasts on failure.
+- **C. ServSafe cert editing (fixed).** Backend `GET/PUT /api/servsafe[/{id}]` already existed (API agent shipped it, fields: `staff_name, certification, expiry_date, is_proctor`). Added `api.updateServSafe(id, body)`. Replaced the hardcoded `SERVSAFE_STAFF` array entirely with live `api.getServSafe()` data. For `lvl >= 30`, expiry becomes an inline `<input type="date">` (edit icon → date input → save on blur), optimistic update + rollback + toast on failure.
+- **D. HACCP dead tabs removed.** Deleted `MachineLogPlaceholder`/`CoolingLogPlaceholder` and their `machine`/`cooling` entries from `HACCP_TABS` in ComplianceHub.tsx — no DB backing exists for these, confirmed dead ("coming soon" placeholders). Note: `Forms.tsx` still exports unused `MachineLog`/`CoolingLog` full-field components (never imported anywhere) — left as-is, out of scope for this pass, but flagging as dead exports for a future cleanup.
+- **E. Meal schedule honesty + edit.** DailyOps now tracks `mealScheduleIsDefault` (true when `getDailyLogs(50,'meal_schedule')` returns nothing) and shows a `.status-pill warn` "Default schedule" badge in the card header. Added lvl>=30 "Edit hours" affordance → inline `MealScheduleEditor` table (hours/monitor/open/close per meal) → saves via `api.saveDailyLog({entry_type:'meal_schedule', title: meal, description: 'hours|monitor|open|close'})` per row — exact shape the existing loader already parses.
+- **F. AIStudio fallback honesty.** `rate_limit_per_hour`/`rate_limit_per_day` `?? 10`/`?? 30` fallbacks: when the per-role value is genuinely absent from config, the StatBox sub-label now appends " (default)" so unconfigured limits are visually distinguishable from configured ones.
+- **G. PlaceholderPage / dead sidebar item found and removed.** Audited all `NAV` keys against `Portal.tsx` `renderPage()` cases — every key had a matching case **except `barcodes`** ("Barcodes & Scan"), which fell through to `PlaceholderPage` ("Module preview", no real component ever built). Removed the `barcodes` NAV entry from `constants.ts`, its dead-end "Scan" button in the inventory toolbar, and its now-orphaned `PAGE_INFO.barcodes` placeholder-copy entry in Portal.tsx. All other nav items (`ai-usage`, `ai-tools`, `ai-presets`, `settings`, `pullsheet`, `dataentry` etc., which aren't in UI.md's stale route table but do exist in the live NAV/renderPage) all resolve to real components — no other dead sidebar items found.
+
+**Files touched:** `frontend/src/index.css`, `frontend/src/components/ui/StatusPill.tsx` (new), `frontend/src/components/Portal.tsx`, `frontend/src/components/DailyOps.tsx`, `frontend/src/components/SourceControl.tsx`, `frontend/src/components/ComplianceHub.tsx`, `frontend/src/components/Forms.tsx`, `frontend/src/components/EventsCalendar.tsx`, `frontend/src/components/PullSheet.tsx`, `frontend/src/components/AIStudio.tsx`, `frontend/src/lib/api.ts` (`deleteEvent`, `updateServSafe`), `frontend/src/lib/constants.ts`.
+
+**Verify:** `npx tsc --noEmit` clean · `npm run build` passing · `npm run lint` 0 errors (631 pre-existing `any`/warning-level items untouched, none new in touched files).
+
+**Push:** pending
