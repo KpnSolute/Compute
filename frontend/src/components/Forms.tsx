@@ -1309,48 +1309,38 @@ export function FoodRequest({ user }: FormProps) {
                     </div>
                 </div>
             </div>
-            <div className="formbar">
-                <div className="formbar-l">
-                    {submitted ? (
-                        <span className="saved-chip">
-                            {I.check({ style: { width: 12, height: 12 } })}{" "}
-                            Request submitted for approval
-                        </span>
-                    ) : (
-                        !saved && (
-                            <span className="dirty-chip">
-                                {I.alert({ style: { width: 12, height: 12 } })}{" "}
-                                Unsaved draft
+            {(!saved || submitted) && (
+                <div className={"save-bar" + (!saved && !submitted ? " dirty" : "")}>
+                    <div className="save-bar-l">
+                        {submitted ? (
+                            <span className="saved-chip">
+                                {I.check({ style: { width: 12, height: 12 } })}{" "}
+                                Request submitted for approval
                             </span>
-                        )
-                    )}
-                    {saved && savedAt && !submitted && (
-                        <span className="saved-chip">
-                            Draft saved{" "}
-                            {savedAt.toLocaleTimeString([], {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                            })}
-                        </span>
+                        ) : !saved ? (
+                            <span className="save-bar-msg">
+                                {I.alert({ style: { width: 13, height: 13 } })}{" "}
+                                Careful — you have unsaved changes
+                            </span>
+                        ) : savedAt ? (
+                            <span className="saved-chip">
+                                Draft saved{" "}
+                                {savedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                        ) : null}
+                    </div>
+                    {canEdit && !submitted && (
+                        <div className="save-bar-actions">
+                            <button className="btn" onClick={handleSave} disabled={saved}>
+                                {I.save({ style: { width: 15, height: 15 } })} Save draft
+                            </button>
+                            <button className="btn primary" onClick={handleSubmit}>
+                                {I.inbox({ style: { width: 15, height: 15 } })} Submit request
+                            </button>
+                        </div>
                     )}
                 </div>
-                {canEdit && (
-                    <div style={{ display: "flex", gap: 9 }}>
-                        <button
-                            className="btn"
-                            onClick={handleSave}
-                            disabled={saved}
-                        >
-                            {I.save({ style: { width: 15, height: 15 } })} Save
-                            draft
-                        </button>
-                        <button className="btn primary" onClick={handleSubmit}>
-                            {I.inbox({ style: { width: 15, height: 15 } })}{" "}
-                            Submit request
-                        </button>
-                    </div>
-                )}
-            </div>
+            )}
         </div>
     );
 }

@@ -5,6 +5,7 @@ import { I } from '../lib/icons';
 import { saveLog, fetchLog, loadLog } from '../lib/supabase';
 import { api } from '../lib/api';
 import { StatusPill } from './ui/StatusPill';
+import { SaveBar as SharedSaveBar } from './ui/ActionBars';
 
 interface TempRow {
   am?: string;
@@ -154,45 +155,11 @@ function textCell(
   );
 }
 
-function SaveBar({
-  saved,
-  savedAt,
-  onSave,
-  canEdit,
-  note,
-}: {
-  saved: boolean;
-  savedAt: Date | null;
-  onSave: () => void;
-  canEdit: boolean;
-  note?: React.ReactNode;
+// ponytail: alias keeps call sites unchanged; dirtyCount=1 when !saved (ComplianceHub tracks saved as bool not count)
+function SaveBar({ saved, savedAt, onSave, canEdit, note }: {
+  saved: boolean; savedAt: Date | null; onSave: () => void; canEdit: boolean; note?: React.ReactNode;
 }) {
-  return (
-    <div className="formbar">
-      <div className="formbar-l">
-        {note}
-        {!saved && canEdit && (
-          <span className="dirty-chip">
-            {I.alert({ style: { width: 12, height: 12 } })} Unsaved
-          </span>
-        )}
-        {saved && savedAt && (
-          <span className="saved-chip">
-            {I.check({ style: { width: 12, height: 12 } })} Saved{' '}
-            {savedAt.toLocaleTimeString([], {
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
-          </span>
-        )}
-      </div>
-      {canEdit && (
-        <button className="btn primary" onClick={onSave} disabled={saved}>
-          {I.save({ style: { width: 15, height: 15 } })} Save
-        </button>
-      )}
-    </div>
-  );
+  return <SharedSaveBar dirtyCount={saved ? 0 : 1} saved={saved} savedAt={savedAt} onSave={onSave} canEdit={canEdit} saveLabel="Save" savePrimary note={note} />;
 }
 
 function MonthNav({

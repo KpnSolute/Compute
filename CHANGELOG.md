@@ -4,6 +4,17 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.27.6] - 2026-07-05 - Discord-style floating unsaved-changes bar, unified across all views
+
+**Claude + mjcc-ui:** The shared `SaveBar` (ui/ActionBars.tsx) is now a fixed bottom-center floating pill — slides up (`saveBarIn`, .25s ease-out) whenever `dirtyCount > 0`, warn accent + "Careful — you have N unsaved change(s)" phrasing, z-index 150 (below modals at 200), sized/positioned to never collide with the AgentBubble. `.main` gets bottom padding so the bar never covers the last row. New optional `onReset` prop (renders Reset before Save; not wired anywhere yet — no caller has a bulk-discard function; Portal inventory discards per-item).
+
+Consistency sweep: ComplianceHub's duplicate local SaveBar deleted (now imports the shared one); DailyOps and Forms `.formbar` divs converted; SourceControl/PullSheet confirmed to have panel-scoped commit/stage toolbars, not page-level dirty bars — left as-is by design.
+
+Verified in-browser against prod API: editing a HACCP temperature slides the bar up, fixed 18px above viewport bottom, centered, dirty styling active; build/tsc/lint clean.
+
+**Push:** committed + pushed to main.
+
+
 ## [v4.27.5] - 2026-07-05 - CycleMenu: sides panel, smarter dish pick, data-source audit
 
 **Claude (mjcc-ui):** Follow-up to v4.27.4 per coordinator update (new update.html template reference).
@@ -6742,5 +6753,24 @@ Frontend (`frontend/src/lib/supabase.ts`) intentionally untouched — that's the
 **Files touched:** `frontend/src/index.css`, `frontend/src/components/ui/StatusPill.tsx` (new), `frontend/src/components/Portal.tsx`, `frontend/src/components/DailyOps.tsx`, `frontend/src/components/SourceControl.tsx`, `frontend/src/components/ComplianceHub.tsx`, `frontend/src/components/Forms.tsx`, `frontend/src/components/EventsCalendar.tsx`, `frontend/src/components/PullSheet.tsx`, `frontend/src/components/AIStudio.tsx`, `frontend/src/lib/api.ts` (`deleteEvent`, `updateServSafe`), `frontend/src/lib/constants.ts`.
 
 **Verify:** `npx tsc --noEmit` clean · `npm run build` passing · `npm run lint` 0 errors (631 pre-existing `any`/warning-level items untouched, none new in touched files).
+
+**Push:** pending
+
+## Discord-style floating SaveBar (Claude / mjcc-ui)
+
+**CSS (`index.css`):** `.save-bar` restyled from `position:sticky` in-flow to `position:fixed; bottom:18px; left:50%; transform:translateX(-50%); width:min(720px,calc(100vw-32px)); border-radius:12px; box-shadow:var(--shadow-lg); z-index:150`. Slide-up entrance animation (`saveBarIn` keyframe: translateY(80px)→0 + fade, .25s ease-out). Dirty state adds left amber border via `.save-bar.dirty`. Added `.save-bar-msg` for Discord-phrased message text. `.main` base padding-bottom bumped to `92px` (all responsive overrides updated) so fixed bar never covers last table row. AgentBubble is `bottom:24; right:24` — bar is centered and max 720px wide, no overlap on standard viewports.
+
+**`ActionBars.tsx`:** Added `onReset?` prop (renders "Reset" btn left of Save, only when provided and dirty). Message text changed to "Careful — you have N unsaved change(s)" (Discord phrasing). Dirty class applied via `save-bar.dirty`. `saved` condition stays as the null-return guard (bar vanishes when clean).
+
+**Consistency sweep — converted:**
+- `ComplianceHub.tsx`: deleted local `SaveBar` function (used `.formbar`), added `import { SaveBar as SharedSaveBar }`, thin alias wrapper passes `dirtyCount={saved ? 0 : 1}` — all 3 call sites unchanged.
+- `DailyOps.tsx`: replaced raw `.formbar` div → `<SaveBar dirtyCount={saved ? 0 : 1} ...>`. Now floats.
+- `Forms.tsx` FoodRequest: replaced raw `.formbar` div → inline `.save-bar` div with `.dirty` class + `.save-bar-msg` text + `.save-bar-actions` — kept dual buttons (Save draft + Submit request) since SaveBar component API has no third-button slot; raw div reuses the same CSS classes.
+
+**`onReset` wiring:** no callers have a clean bulk-discard handler — Portal inventory discards per-item via `mjcc:discard-draft-item` events, no single reset function exists. `onReset` prop added to API, not wired to any caller.
+
+**SourceControl/PullSheet:** no formbar-style save bars found — their commit/stage UI is inline within panels, not bottom-bar pattern. No conversion needed.
+
+**Verify:** `tsc --noEmit` clean · `npm run build` passing · 0 errors.
 
 **Push:** pending

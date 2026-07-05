@@ -7,6 +7,7 @@ export interface SaveBarProps {
     busy?: boolean;
     canEdit: boolean;
     onSave?: () => void;
+    onReset?: () => void;
     saveLabel?: string;
     savePrimary?: boolean;
     onStage?: () => void;
@@ -21,6 +22,7 @@ export function SaveBar({
     busy,
     canEdit,
     onSave,
+    onReset,
     saveLabel = "Save",
     savePrimary = false,
     onStage,
@@ -29,16 +31,18 @@ export function SaveBar({
 }: SaveBarProps) {
     if (dirtyCount === 0 && saved) return null;
 
+    const isDirty = dirtyCount > 0;
     return (
-        <div className="save-bar">
+        <div className={"save-bar" + (isDirty ? " dirty" : "")}>
             <div className="save-bar-l">
                 {note}
-                {dirtyCount > 0 && canEdit && (
-                    <span className="dirty-chip">
-                        {I.alert({ style: { width: 12, height: 12 } })} {dirtyCount} unsaved
+                {isDirty && canEdit && (
+                    <span className="save-bar-msg">
+                        {I.alert({ style: { width: 13, height: 13 } })}{" "}
+                        Careful — you have {dirtyCount} unsaved change{dirtyCount !== 1 ? "s" : ""}
                     </span>
                 )}
-                {dirtyCount === 0 && !saved && savedAt && (
+                {!isDirty && savedAt && (
                     <span className="saved-chip">
                         {I.check({ style: { width: 12, height: 12 } })} Saved{" "}
                         {savedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -47,11 +51,16 @@ export function SaveBar({
             </div>
             {canEdit && (
                 <div className="save-bar-actions">
+                    {onReset && isDirty && (
+                        <button className="btn" onClick={onReset} disabled={busy}>
+                            Reset
+                        </button>
+                    )}
                     {onSave && (
                         <button
                             className={"btn" + (savePrimary ? " primary" : "")}
                             onClick={onSave}
-                            disabled={busy || dirtyCount === 0}
+                            disabled={busy || !isDirty}
                         >
                             {I.save({ style: { width: 14, height: 14 } })} {saveLabel}
                         </button>
@@ -60,7 +69,7 @@ export function SaveBar({
                         <button
                             className="btn"
                             onClick={onStage}
-                            disabled={busy || dirtyCount === 0}
+                            disabled={busy || !isDirty}
                         >
                             {I.branch({ style: { width: 13, height: 13 } })} Stage
                         </button>

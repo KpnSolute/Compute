@@ -3,6 +3,7 @@ import { I } from '../lib/icons';
 import { type User, ROLE_LEVEL } from '../lib/constants';
 import { api } from '../lib/api';
 import { StatusPill } from './ui/StatusPill';
+import { SaveBar } from './ui/ActionBars';
 
 interface Incident {
   id: string;
@@ -498,34 +499,19 @@ export function DailyOps({ user }: { user: User }) {
         </div>
       </div>
 
-      <div className="formbar">
-        <div className="formbar-l">
+      <SaveBar
+        dirtyCount={saved ? 0 : 1}
+        saved={saved}
+        savedAt={savedAt}
+        canEdit={canEdit}
+        onSave={handleSave}
+        savePrimary
+        note={
           <span className="formbar-meta">
-            Daily operations ·{' '}
-            {new Date(date + 'T12:00:00').toLocaleDateString()}
+            Daily operations · {new Date(date + 'T12:00:00').toLocaleDateString()}
           </span>
-          {!saved && canEdit && (
-            <span className="dirty-chip">
-              {I.alert({ style: { width: 12, height: 12 } })} Unsaved
-            </span>
-          )}
-          {saved && savedAt && (
-            <span className="saved-chip">
-              {I.check({ style: { width: 12, height: 12 } })}{' '}
-              Saved{' '}
-              {savedAt.toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
-            </span>
-          )}
-        </div>
-        {canEdit && (
-          <button className="btn primary" onClick={handleSave} disabled={saved}>
-            {I.save({ style: { width: 15, height: 15 } })} Save
-          </button>
-        )}
-      </div>
+        }
+      />
     </div>
   );
 }
