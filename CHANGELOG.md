@@ -4,6 +4,25 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.27.4] - 2026-07-05 - CycleMenu UI rebuild (windowed-dashboard style) + global modal orientation fix
+
+**Claude (mjcc-ui):** Adapted the reference `MJCC_28_Day_Menu_Dashboard_Updated.html` layout/interactions to the existing dark-navy design system — no new fonts, no cream palette, tinted meal-preview blocks use rgba tints of existing `--accent`/`--amber`/`--red` tokens.
+
+- **`frontend/src/index.css`** — fixed the global modal orientation bug: `.modal,.modal-box` was `overflow-y:auto` on the whole modal (head/foot scrolled away). Now `display:flex;flex-direction:column;overflow:hidden;max-height:90vh`, with `.modal-head`/`.modal-foot` `flex-shrink:0` and `.modal-body{overflow-y:auto;flex:1;min-height:0}`. Added `.modal.mid` (640px) and `.modal.wide` (min(960px, 100vw-32px)) width modifiers; default unchanged at 480px. Added a `.modal>.form-grid{overflow-y:auto;flex:1}` fallback for the one modal (DataEntry.tsx model-picker) that skips the `.modal-body` wrapper. New `/* ── cycle menu dashboard ── */` section appended at EOF with `.cm-*` classes (hero, sticky control bar, week sections, day cards, meal-preview tints, meal-section detail rows) — all built from existing custom properties.
+- **`frontend/src/lib/api.ts`** — added `getPublicMenuCycle()` (plain unauthenticated `fetch` to `/api/public/menu/cycle`, confirmed shape in v4.27.3 entry above: `{anchor_date, days:[{cycle_day, day_of_week, meals:{period:[{slot_name,item_name}]}}]}`) + `PublicMenuCycle`/`PublicMenuCycleDay`/`PublicMenuCycleSlot` types.
+- **`frontend/src/components/CycleMenu.tsx`** — full presentation rebuild, same exported `CycleMenu({ user })`, all existing data wiring/api methods untouched (`getMenuCycleOverview`, `getMenuCycleDay`, `updateMenuSlot`, `addMenuSlot`, `searchMenuItems`, `getMenuSuggestions`, `updateMenuSuggestion`, `saveMenuSettings`):
+  - Dark hero header (`.cm-hero`) — eyebrow, title, status pill row (`Day N of 28 · <weekday>`, `Anchor <date>`, `4 weeks · 28 days`, `<n> new suggestions` — pill turns `.warn` when count > 0).
+  - Sticky control bar (`.cm-controls`, `position:sticky;top:0` + backdrop-filter) — live dish search (case-insensitive match across all `item_name`s for a cycle day, filters day cards per week + shows "N days" match count), native `<input type="date">` "Jump to date" (client-side cycle-day math off `overview.anchor_date`, opens `DayEditor` directly), W1–W4 quick-nav pills that `scrollIntoView` week sections (`scroll-margin-top` set).
+  - Week sections → responsive day-card grid (2 cols mobile → 4 at 900px → 7 at 1400px).
+  - Rich day cards (`.cm-day-card`) merge `api.getMenuCycleOverview()` (weeks/zone/today) with one `api.getPublicMenuCycle()` call for all 28 days' dishes: kicker, weekday, calculated calendar date for the current rotation, Today/Zone-2 badges, up to 3 tinted meal-preview blocks (`morning`=blue tint, `midday`=amber tint, `evening`=red tint, all rgba of existing tokens) each showing item count + bold first dish + muted second dish + "+N more".
+  - `DayEditor` restyled with `.cm-meal-section`/`.cm-slot-row` (head bar + grid rows: slot name / item / actions) — same click-to-edit flow into `SlotEditModal`/`AddSlotModal`, both now `.modal.mid`; `SuggestionsPanel` now `.modal.wide`. `SettingsModal` unchanged width.
+  - Dropped from the template per spec: notes panel, staples bar, print styles, edit-mode toggle, source tags.
+- **Verify:** `npx tsc --noEmit` clean. `npm run build` passing (135KB CSS / 835KB JS, same pre-existing chunk-size warning as before — unrelated). `npm run lint`: 0 errors, 627 warnings project-wide (all pre-existing `@typescript-eslint/no-explicit-any` on `catch (e: any)` patterns matching the codebase's existing style — none new). Grepped every other `.modal`-using component (`Settings`/`Portal.tsx` ×6, `PullSheet.tsx`, `SourceControl.tsx` ×5, `Operations.tsx`, `EventsCalendar.tsx`, `DataEntry.tsx` ×2) — all have proper `.modal-head`/`.modal-body`/`.modal-foot` structure except DataEntry's AI-model-picker modal (uses `.form-grid` directly instead of `.modal-body`), which is now covered by the added fallback selector. No component files touched besides `CycleMenu.tsx`.
+
+**Push:** pending
+
+---
+
 ## [v4.27.3] - 2026-07-04 - MJCC PRODUCTION FINALIZED: main pushed + deployed, public menu API live-verified for LionCafe
 
 **Claude:** Production cutover for the cycle-menu system.

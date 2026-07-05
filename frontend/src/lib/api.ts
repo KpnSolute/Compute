@@ -264,6 +264,14 @@ export interface MenuCycleDay {
   slots: MenuSlot[];
 }
 
+export interface PublicMenuCycleSlot { slot_name: string; item_name: string }
+export interface PublicMenuCycleDay {
+  cycle_day: number;
+  day_of_week: string;
+  meals: Record<string, PublicMenuCycleSlot[]>;
+}
+export interface PublicMenuCycle { anchor_date: string; days: PublicMenuCycleDay[] }
+
 export interface MenuSuggestion {
   id: string;
   source: string;
@@ -521,6 +529,13 @@ export const api = {
   // Menu — 28-day cycle editor
   async getMenuCycleOverview(): Promise<MenuCycleOverview> {
     return req('/api/menu/cycle/overview');
+  },
+
+  // Public, unauthenticated — all 28 days + dishes in one call (dashboard previews)
+  async getPublicMenuCycle(): Promise<PublicMenuCycle> {
+    const res = await fetch(`${BASE}/api/public/menu/cycle`, { cache: 'no-store' });
+    if (!res.ok) throw new ApiError(res.status, await res.text().catch(() => res.statusText));
+    return res.json();
   },
 
   async getMenuCycleDay(n: number): Promise<MenuCycleDay> {

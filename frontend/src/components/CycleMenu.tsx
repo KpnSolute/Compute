@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import type { User } from '../lib/constants';
 import { I } from '../lib/icons';
 import { api } from '../lib/api';
-import type { MenuCycleOverview, MenuCycleDay, MenuSlot, MenuSuggestion } from '../lib/api';
+import type { MenuCycleOverview, MenuCycleDay, MenuSlot, MenuSuggestion, PublicMenuCycle, PublicMenuCycleDay } from '../lib/api';
 
 const t = (msg: string) => (window as any).toast?.(msg);
 
@@ -15,6 +15,11 @@ const GROUP_FOR_PERIOD: Record<string, string> = {
   Dinner: 'Evening',
 };
 const PERIOD_ORDER = ['Breakfast', 'Brunch', 'Short Order', 'Lunch', 'Dinner'];
+
+// Public cycle "meals" period keys → preview tint bucket
+const TINT_FOR_PERIOD: Record<string, 'morning' | 'midday' | 'evening'> = {
+  Breakfast: 'morning', Brunch: 'morning', 'Short Order': 'midday', Lunch: 'midday', Dinner: 'evening',
+};
 
 function Loading({ label = 'Loading…' }) {
   return <div className="load-wrap"><div className="spinner"></div><div>{label}</div></div>;
@@ -32,19 +37,25 @@ function ErrorBox({ msg, onRetry }: { msg: string; onRetry: () => void }) {
 
 export function CycleMenu({ user: _user }: { user: User }) {
   const [overview, setOverview] = useState<MenuCycleOverview | null>(null);
+  const [pub, setPub] = useState<PublicMenuCycle | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<MenuSuggestion[]>([]);
+  const [q, setQ] = useState('');
 
   async function loadOverview() {
     setLoading(true);
     setErr(null);
     try {
-      const data = await api.getMenuCycleOverview();
+      const [data, pubData] = await Promise.all([
+        api.getMenuCycleOverview(),
+        api.getPublicMenuCycle().catch(() => null),
+      ]);
       setOverview(data);
+      setPub(pubData);
     } catch (e: any) {
       setErr(e?.message || 'Failed to load cycle menu');
     }
@@ -62,6 +73,33 @@ export function CycleMenu({ user: _user }: { user: User }) {
 
   useEffect(() => { loadOverview(); loadSuggestions(); }, []);
 
+  const mealsByDay = useMemo(() => {
+    const map = new Map<number, PublicMenuCycleDay>();
+    for (const d of pub?.days || []) map.set(d.cycle_day, d);
+    return map;
+  }, [pub]);
+
+  // dish search — filter cycle_day set matching any dish name (case-insensitive)
+  const matchedDays = useMemo(() => {
+    if (!q.trim()) return null;
+    const needle = q.trim().toLowerCase();
+    const hit = new Set<number>();
+    for (const d of pub?.days || []) {
+      const names = Object.values(d.meals).flat().map(s => s.item_name.toLowerCase());
+      if (names.some(n => n.includes(needle))) hit.add(d.cycle_day);
+    }
+    return hit;
+  }, [q, pub]);
+
+  function jumpToDate(dateStr: string) {
+    if (!dateStr || !overview?.anchor_date) return;
+    const anchor = new Date(overview.anchor_date + 'T00:00:00');
+    const target = new Date(dateStr + 'T00:00:00');
+    const diffDays = Math.round((target.getTime() - anchor.getTime()) / 86400000);
+    const cycleDay = (((diffDays % 28) + 28) % 28) + 1;
+    setSelectedDay(cycleDay);
+  }
+
   if (selectedDay !== null) {
     return (
       <DayEditor
@@ -71,22 +109,33 @@ export function CycleMenu({ user: _user }: { user: User }) {
     );
   }
 
+  const newSuggestions = suggestions.length;
+
   return (
     <div className="fade-in">
-      <div className="page-head">
-        <div>
-          <h2>28-Day Cycle Menu</h2>
-          <div className="ph-sub">
-            {overview ? `Today — Day ${overview.today.cycle_day} of 28` : 'Rotating 4-week template'}
+      <div className="cm-hero">
+        <div className="cm-hero-row">
+          <div>
+            <p className="cm-eyebrow">28-Day Cycle Menu</p>
+            <h1>MJCC Menu Dashboard</h1>
+            <p className="cm-hero-copy">Every rotation, every dish, one place — browse the 4-week cycle, jump to any calendar date, and keep slots in sync.</p>
+          </div>
+          <div className="cm-hero-actions">
+            <button className="btn" onClick={() => setSuggestOpen(true)}>
+              {I.inbox()} Suggestions
+              {newSuggestions > 0 && <span className="pill warn" style={{ marginLeft: 6 }}>{newSuggestions}</span>}
+            </button>
+            <button className="btn" onClick={() => setSettingsOpen(true)}>{I.settings()} Settings</button>
           </div>
         </div>
-        <div className="ph-actions">
-          <button className="btn" onClick={() => setSuggestOpen(true)}>
-            {I.inbox()} Suggestions
-            {suggestions.length > 0 && <span className="pill warn" style={{ marginLeft: 6 }}>{suggestions.length}</span>}
-          </button>
-          <button className="btn" onClick={() => setSettingsOpen(true)}>{I.settings()} Settings</button>
-        </div>
+        {overview && (
+          <div className="cm-status-row">
+            <span className="cm-status-pill"><strong>Day {overview.today.cycle_day}</strong> of 28 · {dowFromOverview(overview)}</span>
+            <span className="cm-status-pill">Anchor <strong>{overview.anchor_date}</strong></span>
+            <span className="cm-status-pill">4 weeks · 28 days</span>
+            <span className={`cm-status-pill${newSuggestions > 0 ? ' warn' : ''}`}><strong>{newSuggestions}</strong> new suggestions</span>
+          </div>
+        )}
       </div>
 
       {loading && (
@@ -94,7 +143,35 @@ export function CycleMenu({ user: _user }: { user: User }) {
       )}
       {!loading && err && <ErrorBox msg={err} onRetry={loadOverview} />}
       {!loading && !err && overview && (
-        <CycleOverviewGrid overview={overview} onSelectDay={setSelectedDay} />
+        <>
+          <div className="cm-controls">
+            <div className="cm-search">
+              {I.search()}
+              <input
+                value={q}
+                onChange={e => setQ(e.target.value)}
+                placeholder="Search dishes across the cycle…"
+              />
+            </div>
+            <div className="cm-jump">
+              <label>Jump to date</label>
+              <input type="date" onChange={e => jumpToDate(e.target.value)} />
+            </div>
+            {matchedDays && <span className="cm-result-count">{matchedDays.size} day{matchedDays.size === 1 ? '' : 's'}</span>}
+            <div className="cm-weeknav">
+              {[1, 2, 3, 4].map(w => (
+                <a key={w} onClick={() => document.getElementById(`cm-week-${w}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>W{w}</a>
+              ))}
+            </div>
+          </div>
+
+          <CycleOverviewGrid
+            overview={overview}
+            mealsByDay={mealsByDay}
+            matchedDays={matchedDays}
+            onSelectDay={setSelectedDay}
+          />
+        </>
       )}
 
       {suggestOpen && (
@@ -116,45 +193,102 @@ export function CycleMenu({ user: _user }: { user: User }) {
   );
 }
 
-function CycleOverviewGrid({ overview, onSelectDay }: { overview: MenuCycleOverview; onSelectDay: (n: number) => void }) {
+function dowFromOverview(overview: MenuCycleOverview): string {
+  const d = overview.days.find(d => d.cycle_day === overview.today.cycle_day);
+  return d?.day_of_week || '';
+}
+
+// Calendar date this cycle day occurs on in the current 4-week rotation
+function calendarDateFor(cycleDay: number, anchorDate: string): string {
+  const anchor = new Date(anchorDate + 'T00:00:00');
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const daysSinceAnchor = Math.round((today.getTime() - anchor.getTime()) / 86400000);
+  const currentRotationStart = daysSinceAnchor - (((daysSinceAnchor % 28) + 28) % 28);
+  const occurrence = new Date(anchor.getTime() + (currentRotationStart + (cycleDay - 1)) * 86400000);
+  return occurrence.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function CycleOverviewGrid({ overview, mealsByDay, matchedDays, onSelectDay }: {
+  overview: MenuCycleOverview;
+  mealsByDay: Map<number, PublicMenuCycleDay>;
+  matchedDays: Set<number> | null;
+  onSelectDay: (n: number) => void;
+}) {
   const weeks = [1, 2, 3, 4].map(w => overview.days.filter(d => d.cycle_week === w));
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      {weeks.map((week, i) => (
-        <div className="card" key={i}>
-          <div className="card-head"><h3>Week {i + 1}</h3></div>
-          <div className="card-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 10 }}>
-            {week.map(d => {
-              const isToday = d.cycle_day === overview.today.cycle_day;
-              return (
-                <button
+    <>
+      {weeks.map((week, i) => {
+        const visible = matchedDays ? week.filter(d => matchedDays.has(d.cycle_day)) : week;
+        return (
+          <div className="cm-week-section" id={`cm-week-${i + 1}`} key={i}>
+            <div className="cm-week-head">
+              <h3>Week {i + 1}</h3>
+              <span className="cm-week-count">{visible.length} of {week.length} days</span>
+            </div>
+            <div className="cm-day-grid">
+              {visible.length === 0 && <div className="cm-no-results">No dishes match your search this week.</div>}
+              {visible.map(d => (
+                <DayCard
                   key={d.cycle_day}
+                  day={d}
+                  meals={mealsByDay.get(d.cycle_day)}
+                  isToday={d.cycle_day === overview.today.cycle_day}
+                  anchorDate={overview.anchor_date}
                   onClick={() => onSelectDay(d.cycle_day)}
-                  style={{
-                    textAlign: 'left', border: isToday ? '2px solid var(--accent)' : '1px solid var(--line)',
-                    borderRadius: 'var(--radius)', padding: '10px 11px', background: d.active ? 'var(--surface)' : 'var(--surface-2)',
-                    cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 4, opacity: d.active ? 1 : 0.55,
-                    boxShadow: isToday ? '0 0 0 3px var(--accent-soft)' : 'none',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--faint)' }}>Day {d.cycle_day}</span>
-                    {isToday && <span className="pill ok">Today</span>}
-                    {!isToday && d.zone === 2 && <span className="pill warn">Zone 2</span>}
-                  </div>
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>{d.day_of_week}</div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                    {d.zone === 2
-                      ? `${d.morning_service} / ${d.evening_service}`
-                      : `${d.morning_service} / ${d.midday_service} / ${d.evening_service}`}
-                  </div>
-                </button>
-              );
-            })}
+                />
+              ))}
+            </div>
           </div>
+        );
+      })}
+    </>
+  );
+}
+
+function DayCard({ day, meals, isToday, anchorDate, onClick }: {
+  day: MenuCycleOverview['days'][number];
+  meals?: PublicMenuCycleDay;
+  isToday: boolean;
+  anchorDate: string;
+  onClick: () => void;
+}) {
+  const periods = meals ? Object.keys(meals.meals) : [];
+  return (
+    <button className={`cm-day-card${isToday ? ' today' : ''}`} onClick={onClick}>
+      <div className="cm-day-card-head">
+        <div>
+          <span className="cm-day-kicker">Day {day.cycle_day}</span>
+          <span className="cm-day-weekday">{day.day_of_week}</span>
+          <span className="cm-day-date">{calendarDateFor(day.cycle_day, anchorDate)}</span>
         </div>
-      ))}
-    </div>
+        <div className="cm-day-badges">
+          {isToday && <span className="pill ok">Today</span>}
+          {!isToday && day.zone === 2 && <span className="pill warn">Zone 2</span>}
+        </div>
+      </div>
+
+      {periods.length === 0 && (
+        <div style={{ fontSize: 11, color: 'var(--faint)' }}>
+          {day.zone === 2 ? `${day.morning_service} / ${day.evening_service}` : `${day.morning_service} / ${day.midday_service} / ${day.evening_service}`}
+        </div>
+      )}
+      {periods.map(period => {
+        const items = meals!.meals[period];
+        const tint = TINT_FOR_PERIOD[period] || 'morning';
+        return (
+          <div className={`cm-meal ${tint}`} key={period}>
+            <div className="cm-meal-label">
+              <span>{period}</span>
+              <span className="cm-meal-count">{items.length}</span>
+            </div>
+            {items[0] && <div className="cm-main-dish">{items[0].item_name}</div>}
+            {items[1] && <div className="cm-alt-dish">{items[1].item_name}</div>}
+            {items.length > 2 && <div className="cm-more-line">+{items.length - 2} more</div>}
+          </div>
+        );
+      })}
+    </button>
   );
 }
 
@@ -216,17 +350,17 @@ function DayEditor({ cycleDay, onBack }: { cycleDay: number; onBack: () => void 
       {!loading && !err && day && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {sections.map(({ period, slots }) => (
-            <div className="card" key={period}>
-              <div className="card-head">
-                <h3>{period}</h3>
-                <span className="ch-link" onClick={() => setAddingPeriod(period)}>+ Add slot</span>
+            <div className="cm-meal-section" key={period}>
+              <div className="cm-meal-section-head">
+                <h4>{period}</h4>
+                <span className="ch-link" onClick={() => setAddingPeriod(period)} style={{ cursor: 'pointer' }}>+ Add slot · {slots.length}</span>
               </div>
-              <div className="card-body flush">
+              <div>
                 {slots.map(slot => (
                   <SlotRow key={slot.record_id} slot={slot} onUpdated={updateSlotLocal} />
                 ))}
                 {slots.length === 0 && (
-                  <div style={{ padding: '16px 17px', fontSize: 12, color: 'var(--faint)' }}>No slots yet.</div>
+                  <div style={{ padding: '16px 13px', fontSize: 12, color: 'var(--faint)' }}>No slots yet.</div>
                 )}
               </div>
             </div>
@@ -262,14 +396,11 @@ function SlotRow({ slot, onUpdated }: { slot: MenuSlot; onUpdated: (s: MenuSlot)
   }
 
   return (
-    <div
-      className="menu-line"
-      style={{ padding: '10px 17px', borderBottom: '1px solid var(--line-soft)', opacity: slot.active ? 1 : 0.5 }}
-    >
-      <div className="ml-main" style={{ cursor: 'pointer', flex: 1 }} onClick={() => setEditing(true)}>
-        <span className="ml-item" style={{ fontWeight: 700, fontSize: 11, color: 'var(--muted)', display: 'block' }}>{slot.slot_name}</span>
-        <span className="ml-desc" style={{ fontSize: 13 }}>{slot.item_name || <em style={{ color: 'var(--faint)' }}>Not set</em>}</span>
-      </div>
+    <div className="cm-slot-row" style={{ opacity: slot.active ? 1 : 0.5 }}>
+      <span className="cm-slot-name">{slot.slot_name}</span>
+      <span className="cm-slot-item" style={{ cursor: 'pointer' }} onClick={() => setEditing(true)}>
+        {slot.item_name || <em style={{ color: 'var(--faint)', fontStyle: 'normal' }}>Not set</em>}
+      </span>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <button className="btn" style={{ padding: '5px 10px' }} onClick={() => setEditing(true)}>{I.edit({ style: { width: 13, height: 13 } })}</button>
         <button className="btn" disabled={busy} style={{ padding: '5px 10px' }} onClick={toggleActive}>
@@ -366,7 +497,7 @@ function SlotEditModal({ slot, onClose, onSaved }: { slot: MenuSlot; onClose: ()
 
   return (
     <div className="overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal">
+      <div className="modal mid">
         <div className="modal-head">
           <div><h3>{I.edit()} Edit slot</h3><div className="sub">{slot.slot_name}</div></div>
           <button className="modal-x" onClick={onClose}>{I.x()}</button>
@@ -423,7 +554,7 @@ function AddSlotModal({ cycleDay, period, onClose, onAdded }: {
 
   return (
     <div className="overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal">
+      <div className="modal mid">
         <div className="modal-head">
           <div><h3>{I.plus()} Add slot</h3><div className="sub">{period} — Day {cycleDay}</div></div>
           <button className="modal-x" onClick={onClose}>{I.x()}</button>
@@ -469,7 +600,7 @@ function SuggestionsPanel({ suggestions, onClose, onChanged }: {
 
   return (
     <div className="overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal" style={{ maxWidth: 560 }}>
+      <div className="modal wide">
         <div className="modal-head">
           <div><h3>{I.inbox()} Menu suggestions</h3><div className="sub">Submitted dish ideas awaiting review.</div></div>
           <button className="modal-x" onClick={onClose}>{I.x()}</button>
