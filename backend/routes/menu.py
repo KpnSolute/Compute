@@ -195,6 +195,40 @@ def _actor_name(auth_user: dict) -> str:
     return auth_user.get("username") or auth_user.get("display_name") or "api"
 
 
+# meal_period → meal_group for slots created outside the original import.
+GROUP_FOR_PERIOD = {
+    "Breakfast": "Morning",
+    "Brunch": "Morning",
+    "Short Order": "Short Order",
+    "Lunch": "Midday",
+    "Dinner": "Evening",
+}
+
+
+def legacy_target_cycle_day(day: str) -> int:
+    """Cycle day in the CURRENT cycle week matching short weekday `day` (Sun..Sat)."""
+    today_cycle_day = _cycle_day_for_date(business_now().date())
+    current_week = (today_cycle_day - 1) // 7
+    return current_week * 7 + LEGACY_DAY_INDEX[day] + 1
+
+
+def legacy_day_menu(day: str) -> dict[str, list[str]]:
+    """Active item names grouped by meal_period for the legacy short-weekday view.
+
+    Shared by the legacy GET route and the AI data-entry pipeline (ai/tools.py,
+    ai/diff.py, staging/dispatch.py)."""
+    slots = _fetch_day_slots(legacy_target_cycle_day(day))
+    item_names = _fetch_item_names({s["item_id"] for s in slots if s.get("item_id")})
+    data: dict[str, list[str]] = {}
+    for s in slots:
+        if not s.get("active"):
+            continue
+        name = item_names.get(s.get("item_id"))
+        if name:
+            data.setdefault(s["meal_period"], []).append(name)
+    return data
+
+
 # ---------------------------------------------------------------------------
 # Cycle overview / day / today
 # ---------------------------------------------------------------------------
@@ -408,26 +442,8 @@ async def get_menu_legacy(day: str, auth_user: dict = Depends(_get_auth_user)):
     if day not in LEGACY_DAY_INDEX:
         raise HTTPException(status_code=400, detail=f"Invalid day: {day}")
 
-    anchor = _get_anchor_date()
-    today = business_now().date()
-    today_cycle_day = _cycle_day_for_date(today, anchor)
-    current_week = ((today_cycle_day - 1) // 7) + 1
-    target_cycle_day = (current_week - 1) * 7 + LEGACY_DAY_INDEX[day] + 1
-
-    day_row = _fetch_day_row(target_cycle_day)
-    slots = _fetch_day_slots(target_cycle_day)
-    item_names = _fetch_item_names({s["item_id"] for s in slots if s.get("item_id")})
-
-    data: dict[str, list[str]] = {}
-    for s in slots:
-        if not s.get("active"):
-            continue
-        period = s["meal_period"]
-        name = item_names.get(s.get("item_id"))
-        if not name:
-            continue
-        data.setdefault(period, []).append(name)
-
+    day_row = _fetch_day_row(legacy_target_cycle_day(day))
+    data = legacy_day_menu(day)
     return {
         "id": day,
         "data": data,

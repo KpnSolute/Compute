@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -890,48 +889,87 @@ def dispatch_inventory_week(payload: dict) -> dict:
 
 
 def dispatch_menu_save(payload: dict) -> dict:
+    """Apply a day-level AI menu save onto menu_cycle_slots (positional update).
+
+    For each meal period: assign items to existing slots in order, create CUSTOM
+    slots for extras, deactivate leftover slots beyond the new list."""
+    from uuid import uuid4
+
+    from backend.routes.menu import (
+        GROUP_FOR_PERIOD,
+        LEGACY_DAY_INDEX,
+        _resolve_item,
+        legacy_target_cycle_day,
+    )
+
     day = payload.get("day")
     data = payload.get("data", {})
     if not day or not data:
         return {"applied": 0, "error": "Missing day or data"}
+    if day not in LEGACY_DAY_INDEX:
+        return {"applied": 0, "error": f"Invalid day {day}"}
 
+    cycle_day = legacy_target_cycle_day(day)
     sup = _client()
-    cycle_r = (
-        sup.table("menu_cycles").select("id").eq("active", True).limit(1).execute()
-    )
-    if not cycle_r.data:
-        return {"applied": 0, "error": "No active cycle found"}
-    cycle_id = cycle_r.data[0]["id"]
+    now = datetime.now(timezone.utc).isoformat()
+    applied = 0
 
-    sup.table("menu_entries").delete().eq("day_of_week", day).eq(
-        "cycle_id", cycle_id
-    ).execute()
+    for meal_period, items in data.items():
+        names = []
+        for it in items if isinstance(items, list) else []:
+            name = it.get("item") if isinstance(it, dict) else it
+            if isinstance(name, str) and name.strip():
+                names.append(name.strip())
 
-    inserts = []
-    sort_order = 0
-    for meal_type, items in data.items():
-        # menu_entries.items is a text column — serialize lists as JSON strings.
-        items_list = items if isinstance(items, list) else []
-        inserts.append(
-            {
-                "cycle_id": cycle_id,
-                "week_number": 1,
-                "day_of_week": day,
-                "meal_type": meal_type,
-                "items": json.dumps(items_list),
-                "sides": json.dumps(
-                    []
-                ),  # sides as TEXT JSON per §4 real schema (plan fix for fidelity)
-                "sort_order": sort_order,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            }
+        slots_r = (
+            sup.table("menu_cycle_slots")
+            .select("record_id,slot_order")
+            .eq("cycle_day", cycle_day)
+            .eq("meal_period", meal_period)
+            .order("service_order")
+            .order("slot_order")
+            .execute()
         )
-        sort_order += 1
+        slots = slots_r.data or []
 
-    if inserts:
-        sup.table("menu_entries").insert(inserts).execute()
-    return {"applied": len(inserts), "day": day, "cycle_id": cycle_id}
+        for i, name in enumerate(names):
+            item_id = _resolve_item(None, name)
+            if i < len(slots):
+                sup.table("menu_cycle_slots").update(
+                    {
+                        "item_id": item_id,
+                        "active": True,
+                        "updated_by": "ai-data-entry",
+                        "updated_at": now,
+                    }
+                ).eq("record_id", slots[i]["record_id"]).execute()
+            else:
+                next_order = (
+                    (slots[-1]["slot_order"] if slots else 0) + (i - len(slots)) + 1
+                )
+                sup.table("menu_cycle_slots").insert(
+                    {
+                        "record_id": f"MJCC28-D{cycle_day:02d}-CUSTOM-{uuid4().hex[:6].upper()}",
+                        "cycle_day": cycle_day,
+                        "meal_group": GROUP_FOR_PERIOD.get(meal_period, meal_period),
+                        "meal_period": meal_period,
+                        "service_order": 0,
+                        "slot_order": next_order,
+                        "slot_name": f"Item {i + 1}",
+                        "item_id": item_id,
+                        "active": True,
+                        "updated_by": "ai-data-entry",
+                        "updated_at": now,
+                    }
+                ).execute()
+            applied += 1
+
+        for extra in slots[len(names) :]:
+            sup.table("menu_cycle_slots").update(
+                {"active": False, "updated_by": "ai-data-entry", "updated_at": now}
+            ).eq("record_id", extra["record_id"]).execute()
+
+    return {"applied": applied, "day": day, "cycle_day": cycle_day}
 
 
 def dispatch_event_create(payload: dict) -> dict:

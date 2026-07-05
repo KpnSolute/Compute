@@ -278,33 +278,13 @@ def get_events(args: dict, user_role: str) -> dict:
 
 
 def get_menu(args: dict, user_role: str) -> dict:
+    from backend.routes.menu import LEGACY_DAY_INDEX, legacy_day_menu
+
     day = args.get("day", "Mon")
-    valid = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
-    if day not in valid:
+    if day not in LEGACY_DAY_INDEX:
         return {"error": f'Invalid day "{day}". Use: Mon Tue Wed Thu Fri Sat Sun'}
     try:
-        svc = _client()
-        cycle_r = (
-            svc.table("menu_cycles").select("id").eq("active", True).limit(1).execute()
-        )
-        if not cycle_r.data:
-            return {"day": day, "menu": {}, "note": "No active menu cycle"}
-        cycle_id = cycle_r.data[0]["id"]
-        entries = (
-            svc.table("menu_entries")
-            .select("meal_type,items")
-            .eq("day_of_week", day)
-            .eq("cycle_id", cycle_id)
-            .execute()
-        )
-        import json
-
-        menu: dict = {}
-        for row in entries.data or []:
-            raw = row.get("items") or "[]"
-            items = raw if isinstance(raw, list) else json.loads(raw)
-            menu[row["meal_type"]] = items
-        return {"day": day, "menu": menu}
+        return {"day": day, "menu": legacy_day_menu(day)}
     except Exception as exc:
         return {"error": str(exc)}
 

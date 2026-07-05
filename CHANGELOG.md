@@ -4,6 +4,23 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.27.2] - 2026-07-04 - Legacy menu tables retired: AI data-entry repointed to menu_cycle_slots, menu_entries + menu_cycles dropped
+
+**Claude:** Closed the deprecation follow-up flagged in v4.27.1(b).
+
+- **`backend/routes/menu.py`** — added shared helpers for the legacy weekday view: `legacy_target_cycle_day(day)` (cycle day in the current cycle week) and `legacy_day_menu(day)` (active item names grouped by meal_period), plus `GROUP_FOR_PERIOD`. The legacy `GET /{day}` route now uses them (behavior unchanged).
+- **`backend/ai/tools.py` `get_menu`** — reads via `legacy_day_menu()`; no more `menu_cycles`/`menu_entries` queries. Same `{day, menu}` response shape for the AI chat tool.
+- **`backend/ai/diff.py` `_diff_menu_save`** — staging preview now diffs the payload against `legacy_day_menu()` (live slot state); `table` reported as `menu_cycle_slots`.
+- **`backend/staging/dispatch.py` `dispatch_menu_save`** — rewritten as a positional slot update on `menu_cycle_slots` for the target cycle day: payload items are assigned to existing slots in order, extras become `-CUSTOM-` slots (`_resolve_item` auto-creates catalog entries), leftover slots are deactivated. Tolerates legacy dict-shaped items (`{qty, item, desc}`) by extracting `item`. `updated_by = 'ai-data-entry'`.
+- **`backend/seed_data.py`** — `CYCLE_MENU` blob, `_serialize_items`, `seed_menu_entries` deleted (~230 lines); `__main__` now runs `import_github_archive`. The cycle menu is seeded by migration 029, not scripts.
+- **Migration `031_drop_legacy_menu_tables.sql`** (+ supabase mirror, applied live via MCP): `menu_entries` (104 rows, superseded by the 1215-slot import) and `menu_cycles` (1 row) dropped. Grep confirms zero remaining code references outside migration history.
+
+Verification: ruff clean, 74/74 backend tests pass. Note `dispatch_menu_save`'s new write path is code-reviewed + type-safe but not exercised against prod (would mutate live slots); the diff preview path is read-only and safe.
+
+**Push:** committed on `codex/auth-user-controls-hardening` (not pushed, session convention).
+
+---
+
 ## [v4.27.1] - 2026-07-04 - 28-day cycle menu: data imported to MJCCv1, schema hygiene audit (17 tables dropped), MENU_API_KEY provisioned, ponytail shrink pass
 
 **Claude (Senior Dev Manager):** Coordination entry closing out the cycle-menu rebuild session (v4.26.57 UI + v4.27.0 API were the delegated builds; this entry covers the manager-side work).

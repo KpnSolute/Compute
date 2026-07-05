@@ -3,7 +3,6 @@ Row-level diff engine.
 Given staged entries (batch), compute before/after per row against live DB.
 """
 
-import json
 import os
 from supabase import create_client
 
@@ -395,44 +394,26 @@ def _diff_daily_log_save(payload: dict) -> dict:
 
 
 def _diff_menu_save(payload: dict) -> dict:
+    from backend.routes.menu import LEGACY_DAY_INDEX, legacy_day_menu
+
     day = payload.get("day", "")
     data = payload.get("data", {})
-    r = (
-        _client()
-        .table("menu_entries")
-        .select("meal_type,items")
-        .eq("day_of_week", day)
-        .execute()
-    )
-    existing = {row["meal_type"]: row["items"] for row in (r.data or [])}
+    existing = legacy_day_menu(day) if day in LEGACY_DAY_INDEX else {}
     rows = []
     for meal_type, items in data.items():
-        raw_before = existing.get(meal_type)
-        if raw_before is None:
-            before_items = None
-            status = "new"
-        else:
-            try:
-                before_items = (
-                    json.loads(raw_before)
-                    if isinstance(raw_before, str)
-                    else raw_before
-                )
-            except (ValueError, TypeError):
-                before_items = raw_before
-            status = "update"
+        before_items = existing.get(meal_type)
         rows.append(
             {
                 "day": day,
                 "meal_type": meal_type,
-                "status": status,
+                "status": "new" if before_items is None else "update",
                 "before": {"items": before_items},
                 "after": {"items": items},
                 "changes": ["items"] if before_items != items else [],
             }
         )
     return {
-        "table": "menu_entries",
+        "table": "menu_cycle_slots",
         "operation": "menu_save",
         "summary": f"{len(rows)} meal slots for {day}",
         "rows": rows,
