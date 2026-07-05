@@ -7,7 +7,7 @@ POST /suggestions is protected by a shared `X-Api-Key` header (env MENU_API_KEY)
 import os
 from datetime import date
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from backend.periods import business_now
@@ -76,7 +76,7 @@ async def public_date(iso_date: str):
 
 
 @router.get("/cycle")
-async def public_cycle():
+async def public_cycle(include_stats: bool = False):
     anchor = _get_anchor_date()
     days_r = (
         supabase_service.table("menu_cycle_days")
@@ -105,7 +105,32 @@ async def public_cycle():
         for n in range(1, CYCLE_LENGTH + 1)
         if n in days_by_num
     ]
+    if include_stats:
+        stats_by_day: dict[int, list[dict]] = {}
+        rows = (
+            supabase_service.table("menu_feedback_summary").select("*").execute().data
+            or []
+        )
+        for row in rows:
+            stats_by_day.setdefault(row["cycle_day"], []).append(row)
+        for day in days:
+            day["feedback"] = sorted(
+                stats_by_day.get(day["cycle_day"], []), key=_feedback_sort_key
+            )
     return {"anchor_date": anchor.isoformat(), "days": days}
+
+
+def _feedback_sort_key(row: dict) -> tuple[int, float]:
+    return (-(row.get("response_count") or 0), -(row.get("avg_rating") or 0))
+
+
+@router.get("/stats")
+async def public_menu_stats(limit: int = Query(10, ge=1, le=100)):
+    rows = (
+        supabase_service.table("menu_feedback_summary").select("*").execute().data or []
+    )
+    rows = sorted(rows, key=_feedback_sort_key)
+    return {"rows": rows, "top_meals": rows[:limit]}
 
 
 class SuggestionCreate(BaseModel):

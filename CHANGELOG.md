@@ -4,6 +4,20 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.27.9] - 2026-07-05 - LunchVoice public feedback stats API
+
+**Codex + Claude:** Added read-only public exposure of LunchVoice meal feedback stats from `menu_feedback_summary`, so KPN/MJCC compute can see most-voted meals and rating aggregates while LunchVoice continues writing the survey output.
+
+- **`backend/routes/public_menu.py`** - New `GET /api/public/menu/stats` with no bearer auth, matching the rest of `/api/public/menu`. It returns `{ rows, top_meals }`, sorted by `response_count` desc then `avg_rating` desc, with `?limit=` default 10 and capped 1-100. Also added optional `?include_stats=true` on `GET /api/public/menu/cycle`, attaching per-day `feedback` arrays from the same table.
+- **`API.md`** - Documented `/stats`, `/cycle?include_stats`, and `menu_feedback_summary` ownership.
+- **`backend/tests/test_public_menu_stats.py`** - Added pure-function sort-order coverage for response count, rating tiebreaks, and null ratings.
+
+**Verify:** `python -m ruff check backend\routes\public_menu.py backend\tests\test_public_menu_stats.py` clean; `python -m pytest backend\tests\test_public_menu_stats.py backend\tests\test_menu_cycle_math.py` passed, 7/7.
+
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.27.8] - 2026-07-05 - Dashboard "Today's menu" widget rebuilt: structured meals + side chips (was a run-on text blob)
 
 **Claude:** User flagged the dashboard Today's-menu card rendering every dish as one giant dot-separated string. Rebuilt it on the slot-aware `api.getMenuToday()` (was legacy flat `getMenu(day)`): title now shows weekday + cycle day ("Today's menu · Sunday · Day 8"); each meal period renders entree-first (bold primary · muted secondary · "+N more") with VEG/STARCH/SAUCE side chips — same treatment as the cycle-menu day cards, reusing `mealSummary`/`shortSideLabel`/`PERIOD_ORDER` now exported from CycleMenu.tsx (no duplication) and the existing `.cm-side-chip` styles (dark-safe from v4.27.7). Verified in-browser with live prod data. tsc + build clean.

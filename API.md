@@ -470,6 +470,12 @@ Same shape for an arbitrary date. **`400`** if `iso_date` isn't `YYYY-MM-DD`.
 
 ### `GET /api/public/menu/cycle`
 **Response `200`:** `{ anchor_date, days: [{ cycle_day, day_of_week, meals: {...} }] }` for all 28 days — built from one slots query + one items query.
+Optional `?include_stats=true` adds a `feedback` array to each day: rows from `menu_feedback_summary` matching that `cycle_day`, sorted by `response_count` desc then `avg_rating` desc. Costs one extra table read; stats are attached per-day, not merged into a specific slot because LunchVoice's slot enum does not yet map cleanly onto MJCC `meal_period`/`slot_name`.
+
+### `GET /api/public/menu/stats`
+Aggregated LunchVoice feedback ratings, read from `menu_feedback_summary`.
+**Query:** `?limit=` optional, default 10, valid range 1-100. Controls the size of `top_meals`.
+**Response `200`:** `{ "rows": [{ id, cycle_day, slot, dish_name, avg_rating, response_count, updated_at }, ...], "top_meals": [...] }` — both sorted by `response_count` desc then `avg_rating` desc; `top_meals` is `rows` truncated to `limit`.
 
 ### `POST /api/public/menu/suggestions`
 Requires header `X-Api-Key` matching env `MENU_API_KEY`.
@@ -1051,6 +1057,7 @@ Key tables the API reads/writes:
 | `inventory_categories` | inventory, data |
 | `live_inventory` | reorders view (joined from barcodes) |
 | `menu_items`, `menu_cycle_days`, `menu_cycle_slots`, `menu_suggestions` | menu, public/menu (28-day cycle schema, v4.27.0) |
+| `menu_feedback_summary` | public/menu `/stats` + `/cycle?include_stats` (written by LunchVoice, read-only here) |
 | `menu_entries`, `menu_cycles` | legacy — no longer read/written by the API (kept only for the unreferenced `dispatch_menu_save` handler) |
 | `events` | events |
 | `haccp_logs` | logs/haccp |
