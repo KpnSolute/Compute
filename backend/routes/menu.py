@@ -70,9 +70,11 @@ def _get_anchor_date() -> date:
             status_code=500, detail="menu_cycle_anchor_date is not configured"
         )
     raw = r.data[0]["setting_value"]
-    # setting_value is jsonb storing a JSON string, e.g. '"2026-06-28"'.
-    value = json.loads(raw) if isinstance(raw, str) else raw
-    return date.fromisoformat(value)
+    # setting_value is jsonb; supabase-py returns the decoded value (plain 'YYYY-MM-DD'
+    # string), but tolerate a JSON-encoded '"YYYY-MM-DD"' from other writers.
+    if isinstance(raw, str) and raw.startswith('"'):
+        raw = json.loads(raw)
+    return date.fromisoformat(raw)
 
 
 def _cycle_day_for_date(d: date, anchor: date | None = None) -> int:
@@ -394,8 +396,9 @@ async def update_settings(
         raise HTTPException(status_code=400, detail="anchor_date must be YYYY-MM-DD")
     if parsed.weekday() != 6:
         raise HTTPException(status_code=400, detail="anchor_date must be a Sunday")
+    # Plain string — PostgREST encodes it as a jsonb string; json.dumps here would double-encode.
     supabase_service.table("app_settings").update(
-        {"setting_value": json.dumps(parsed.isoformat())}
+        {"setting_value": parsed.isoformat()}
     ).eq("setting_key", ANCHOR_SETTING_KEY).execute()
     return {"anchor_date": parsed.isoformat()}
 
