@@ -21,6 +21,32 @@ const TINT_FOR_PERIOD: Record<string, 'morning' | 'midday' | 'evening'> = {
   Breakfast: 'morning', Brunch: 'morning', 'Short Order': 'midday', Lunch: 'midday', Dinner: 'evening',
 };
 
+const SIDE_SLOTS = new Set(['Vegetable 1', 'Vegetable 2', 'Starch 1', 'Starch 2', 'Accompaniment / Sauce']);
+
+function shortSideLabel(slot: string): string {
+  if (slot.startsWith('Vegetable')) return 'Veg';
+  if (slot.startsWith('Starch')) return 'Starch';
+  if (slot.includes('Sauce')) return 'Sauce';
+  return 'Side';
+}
+
+// Template mealSummary logic — primary = first Entree slot (or first non-Soup/Vegetarian), secondary = second Entree
+function mealSummary(items: import('../lib/api').PublicMenuCycleSlot[]) {
+  const entrees = items.filter(s => s.slot_name.startsWith('Entree'));
+  const primary = entrees[0]?.item_name
+    || items.find(s => !['Soup', 'Vegetarian'].includes(s.slot_name))?.item_name
+    || null;
+  const secondary = entrees[1]?.item_name || null;
+  const sides = items.filter(s => SIDE_SLOTS.has(s.slot_name));
+  // remaining = total minus what's shown (primary + secondary + sides, but only if shown)
+  const shown = new Set<string>();
+  if (primary) shown.add(primary);
+  if (secondary) shown.add(secondary);
+  sides.forEach(s => shown.add(s.item_name));
+  const remaining = items.length - shown.size;
+  return { primary, secondary, sides, remaining: Math.max(0, remaining) };
+}
+
 function Loading({ label = 'Loading…' }) {
   return <div className="load-wrap"><div className="spinner"></div><div>{label}</div></div>;
 }
@@ -132,7 +158,7 @@ export function CycleMenu({ user: _user }: { user: User }) {
           <div className="cm-status-row">
             <span className="cm-status-pill"><strong>Day {overview.today.cycle_day}</strong> of 28 · {dowFromOverview(overview)}</span>
             <span className="cm-status-pill">Anchor <strong>{overview.anchor_date}</strong></span>
-            <span className="cm-status-pill">4 weeks · 28 days</span>
+            <span className="cm-status-pill">{Math.max(...overview.days.map(d => d.cycle_week))} weeks · {overview.days.length} days</span>
             <span className={`cm-status-pill${newSuggestions > 0 ? ' warn' : ''}`}><strong>{newSuggestions}</strong> new suggestions</span>
           </div>
         )}
@@ -276,15 +302,30 @@ function DayCard({ day, meals, isToday, anchorDate, onClick }: {
       {periods.map(period => {
         const items = meals!.meals[period];
         const tint = TINT_FOR_PERIOD[period] || 'morning';
+        const { primary, secondary, sides, remaining } = mealSummary(items);
         return (
           <div className={`cm-meal ${tint}`} key={period}>
             <div className="cm-meal-label">
               <span>{period}</span>
               <span className="cm-meal-count">{items.length}</span>
             </div>
-            {items[0] && <div className="cm-main-dish">{items[0].item_name}</div>}
-            {items[1] && <div className="cm-alt-dish">{items[1].item_name}</div>}
-            {items.length > 2 && <div className="cm-more-line">+{items.length - 2} more</div>}
+            {primary && <div className="cm-main-dish">{primary}</div>}
+            {secondary && <div className="cm-alt-dish">{secondary}</div>}
+            {remaining > 0 && <div className="cm-more-line">+{remaining} more</div>}
+            <div className="cm-side-panel">
+              <span className="cm-side-title">Sides</span>
+              {sides.length === 0
+                ? <span className="cm-side-empty">No sides listed</span>
+                : <div className="cm-side-chips">
+                    {sides.map(s => (
+                      <span key={s.slot_name} className="cm-side-chip" title={s.slot_name}>
+                        <span className="cm-side-kind">{shortSideLabel(s.slot_name)}</span>
+                        {s.item_name}
+                      </span>
+                    ))}
+                  </div>
+              }
+            </div>
           </div>
         );
       })}
@@ -397,7 +438,10 @@ function SlotRow({ slot, onUpdated }: { slot: MenuSlot; onUpdated: (s: MenuSlot)
 
   return (
     <div className="cm-slot-row" style={{ opacity: slot.active ? 1 : 0.5 }}>
-      <span className="cm-slot-name">{slot.slot_name}</span>
+      <span className="cm-slot-name">
+        {slot.slot_name}
+        {SIDE_SLOTS.has(slot.slot_name) && <span className="cm-side-tag">{shortSideLabel(slot.slot_name)}</span>}
+      </span>
       <span className="cm-slot-item" style={{ cursor: 'pointer' }} onClick={() => setEditing(true)}>
         {slot.item_name || <em style={{ color: 'var(--faint)', fontStyle: 'normal' }}>Not set</em>}
       </span>

@@ -4,6 +4,23 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.27.5] - 2026-07-05 - CycleMenu: sides panel, smarter dish pick, data-source audit
+
+**Claude (mjcc-ui):** Follow-up to v4.27.4 per coordinator update (new update.html template reference).
+
+- **`frontend/src/components/CycleMenu.tsx`**:
+  - Added `SIDE_SLOTS` set, `shortSideLabel()`, `mealSummary()` module-level helpers (port of template's `mealSummary`/`shortSideLabel`/`renderSidePanel` JS).
+  - **Day cards** — each meal-preview block now uses `mealSummary` for primary/secondary dish selection (primary = first `Entree*` slot or first non-Soup/Vegetarian slot; secondary = second Entree) and renders a `.cm-side-panel` below showing "SIDES" mini-title + `.cm-side-chip` chips (kind label + item name, `title` attr = full slot_name) or "No sides listed" italic fallback. Remaining count now correctly excludes primary, secondary, and all shown sides.
+  - **DayEditor `SlotRow`** — side slots (matching `SIDE_SLOTS`) get a `.cm-side-tag` chip beneath the slot name label; fully editable as before (presentation only).
+  - **Data-source audit**: hero pill `"4 weeks · 28 days"` was hardcoded → now derived as `${Math.max(...overview.days.map(d=>d.cycle_week))} weeks · ${overview.days.length} days`. No other hardcoded counts/dates found — all other pills (`Day N`, `anchor_date`, suggestion count) were already wired to API data.
+- **`frontend/src/index.css`** — added `.cm-side-panel`, `.cm-side-title`, `.cm-side-empty`, `.cm-side-chips`, `.cm-side-chip`, `.cm-side-kind`, `.cm-side-tag` classes; updated `.cm-slot-name` to `flex-direction:column` for tag stacking.
+- **Verify:** `npx tsc --noEmit` clean. `npm run build` passing (136KB CSS / 836KB JS). No backend changes. No new fetches.
+- **Design hook note:** `agentBounce` keyframe at index.css:729 is pre-existing, intentional (agent bubble animation) — not a design-system violation, not touched.
+
+**Push:** pending
+
+---
+
 ## [v4.27.4] - 2026-07-05 - CycleMenu UI rebuild (windowed-dashboard style) + global modal orientation fix
 
 **Claude (mjcc-ui):** Adapted the reference `MJCC_28_Day_Menu_Dashboard_Updated.html` layout/interactions to the existing dark-navy design system — no new fonts, no cream palette, tinted meal-preview blocks use rgba tints of existing `--accent`/`--amber`/`--red` tokens.
