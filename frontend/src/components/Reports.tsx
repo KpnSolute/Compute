@@ -4,6 +4,7 @@ import { type User, MONTHS, ROLE_LEVEL, MEAL_LOG_TYPES } from '../lib/constants'
 import { api } from '../lib/api';
 import { itemTotals } from '../lib/inventoryFormulas';
 import { TemplatesPanel } from './Templates';
+import { StatusPill } from './ui/StatusPill';
 
 type ReportColumn = { label: string; key?: string; get?: (r: any) => any };
 type ReviewCellType = 'text' | 'number' | 'money';
@@ -929,8 +930,11 @@ export function Reports({
       <div className="page-head">
         <div>
           <h2>Reports</h2>
-          <div className="ph-sub">
-            Download or print any report or blank template across the system · live data
+          <div className="ph-sub" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <StatusPill><strong>{invItems.length}</strong>&nbsp;inventory items</StatusPill>
+            <StatusPill><strong>{events.length}</strong>&nbsp;events</StatusPill>
+            <StatusPill><strong>{commits.length}</strong>&nbsp;commits</StatusPill>
+            <StatusPill ok>live data</StatusPill>
           </div>
         </div>
         <div className="ph-actions">

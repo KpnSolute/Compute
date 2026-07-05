@@ -3,6 +3,7 @@ import type { User } from '../lib/constants';
 import { ROLE_LEVEL, MONTHS } from '../lib/constants';
 import { I } from '../lib/icons';
 import { api } from '../lib/api';
+import { StatusPill } from './ui/StatusPill';
 
 const t = (msg: string) => (window as any).toast?.(msg);
 
@@ -153,7 +154,15 @@ export function EventsCalendar({ user }: { user: User }) {
       <div className="page-head">
         <div>
           <h2>Events &amp; Programs</h2>
-          <div className="ph-sub">Cultural meals · special events · ServSafe training · HEALs program</div>
+          <div className="ph-sub" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <StatusPill><strong>{events.filter(e => e.date.startsWith(monthStr)).length}</strong>&nbsp;this month</StatusPill>
+            {nextCultural && <StatusPill ok>Next cultural&nbsp;<strong>{nextCultural.date.slice(5)}</strong></StatusPill>}
+            {servsafe.length > 0 && (
+              <StatusPill warn={servsafe.some(s => certStatus(s).cls !== 'ok')}>
+                <strong>{servsafe.filter(s => certStatus(s).cls === 'ok').length}/{servsafe.length}</strong>&nbsp;certs valid
+              </StatusPill>
+            )}
+          </div>
         </div>
         <div className="ph-actions">
           {canEdit && <button className="btn primary" onClick={() => setAdding(true)}>{I.plus()} Add event</button>}

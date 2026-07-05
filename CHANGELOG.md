@@ -4,6 +4,18 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.27.7] - 2026-07-05 - Pills made visible + dark-mode compatibility for all new UI
+
+**Claude:** User feedback: pills were invisible and dark mode broke on the new UI. Root causes + fixes:
+
+- **Pill visibility:** the site-wide `.status-pill` default was `--surface-2` on `--surface` (~2% contrast — camouflaged in both themes). Now the accent-chip look: `--accent-soft` bg / `--accent-chip` border / `--accent-chip-ink` text — visible chips in light AND dark (tokens flip). Also added pills to two views that had none: EventsCalendar header (events this month, next cultural date, N/M certs valid with warn) and Reports header (inventory/events/commits counts + live-data badge) — all from already-loaded state.
+- **Dark mode fixes (new UI was light-hardcoded):** `.cm-controls` sticky bar was hardcoded `rgba(248,250,252,.92)` → glaring white strip in dark (dark override rgba(22,27,34,.92)); `.cm-meal` morning/midday/evening tints got dark-calibrated overrides; `.cm-side-chip` black-tint bg → white-tint in dark; `.cm-side-panel` border → `--line-soft`; `.period-status-pill.open/.published` raw light hexes → green/amber tokens (dark-safe).
+
+Verified in-browser (data-theme=dark toggled live): controls bar dark, side chips visible, pills rendering with correct dark accent tokens and live data on Events. tsc + build clean.
+
+**Push:** committed + pushed to main.
+
+
 ## [v4.27.6] - 2026-07-05 - Discord-style floating unsaved-changes bar, unified across all views
 
 **Claude + mjcc-ui:** The shared `SaveBar` (ui/ActionBars.tsx) is now a fixed bottom-center floating pill — slides up (`saveBarIn`, .25s ease-out) whenever `dirtyCount > 0`, warn accent + "Careful — you have N unsaved change(s)" phrasing, z-index 150 (below modals at 200), sized/positioned to never collide with the AgentBubble. `.main` gets bottom padding so the bar never covers the last row. New optional `onReset` prop (renders Reset before Save; not wired anywhere yet — no caller has a bulk-discard function; Portal inventory discards per-item).
