@@ -34,6 +34,21 @@ Added two narrow Claude permissions for repeated GET/status probe usage:
 
 ---
 
+## [v4.27.12] - 2026-07-06 - Role Scopes grid: scope is now the sole gate on page visibility (fixed-role-level double-gate removed, per user request)
+
+**Claude:** Follow-up to v4.27.11. User asked what "(role level too low)" meant, then said they need to be able to check every scope for every role — the fixed `ROLE_LEVEL` floor was a second, invisible gate on top of the scope table, and they want the scope table to be the only page-visibility control.
+
+**Changed (`frontend/src/components/Portal.tsx`):**
+- Sidebar nav filtering (`ActivityBar`) dropped `lvl >= (it.min || 0)` — now filters on `hasScope()` alone.
+- The active-tab redirect guard dropped the same `lvl < navItem.min` check for the identical reason.
+- Role Scopes grid: removed the disabled/dimmed "(role level too low)" checkboxes added in v4.27.11 — every non-sudo role's checkbox is now enabled for every scope; sudo's column stays forced-checked/disabled (always-all, unconditionally).
+- Added an inline advisory banner on the grid: checking a box now fully controls page visibility, but sensitive server-side writes (user management, event delete, ServSafe edits, menu publishing, settings) still enforce their own role floor independent of scope — the two v4.27.9/v4.27.11 backend hardening passes are unaffected by this change; only frontend *visibility* gating moved to scope-only.
+
+**Verified live:** logged in as sudo, toggled staff→Settings scope, confirmed the checkbox enabled (not disabled) and the save round-tripped to `role_permissions` in the live DB — then reverted the test grant immediately (was verification, not an intended change). tsc + build clean.
+
+**Push:** committed + pushed to main.
+
+
 ## [v4.27.11] - 2026-07-06 - Student current-service menu modal + menu time adjustments
 
 **Codex:** Updated the dashboard/menu flow so students can tap the Today's Menu card and see the meal currently being served, while staff can configure service windows from the menu settings adjustment panel.

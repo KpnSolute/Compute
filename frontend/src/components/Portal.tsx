@@ -406,7 +406,9 @@ function Sidebar({
         <nav className="sidebar">
             <div className="explorer-title">Explorer</div>
             {NAV.map((group) => {
-                const items = group.items.filter((it) => lvl >= (it.min || 0) && (!allowedScopes || allowedScopes.includes(it.key)));
+                // Page visibility is governed by the Role Scopes grid (Users & Access), not the
+                // fixed role level — sudo can grant any page to any role there.
+                const items = group.items.filter((it) => !allowedScopes || allowedScopes.includes(it.key));
                 if (!items.length) return null;
                 return (
                     <div key={group.group}>
@@ -4177,29 +4179,32 @@ function UsersView({ user: currentUser }: { user: User }) {
                         <h3>Role Scopes</h3>
                         <span className="ph-sub">page permissions by auth group</span>
                     </div>
+                    <div className="banner info" style={{ margin: "0 16px 12px" }}>
+                        {I.alert()}
+                        <span>
+                            Checking a box here controls whether that role can see and navigate to a page — it's the only
+                            gate on visibility now. Some actions inside a page (editing users, deleting events, changing
+                            settings, publishing the menu) still enforce their own minimum role on the server regardless of
+                            these checkboxes, as a second layer of protection for sensitive writes.
+                        </span>
+                    </div>
                     <div className="card-body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12 }}>
                         {(["staff", "assistant", "manager", "admin", "sudo"] as Role[]).map((role) => (
                             <div key={role} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10, background: "var(--surface)" }}>
                                 <div style={{ fontWeight: 850, marginBottom: 8 }}>{ROLE_LABEL[role]}</div>
                                 <div style={{ display: "grid", gap: 6 }}>
                                     {availableScopes.map((scope) => {
-                                        const navItem = NAV.flatMap((g) => g.items).find((it) => it.key === scope);
-                                        const label = navItem?.label || scope;
+                                        const label = NAV.flatMap((g) => g.items).find((it) => it.key === scope)?.label || scope;
                                         const checked = roleScopes[role]?.includes(scope) || role === "sudo";
-                                        const unreachable = role !== "sudo" && ROLE_LEVEL[role as Role] < (navItem?.min || 0);
                                         return (
-                                            <label
-                                                key={`${role}-${scope}`}
-                                                style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, opacity: unreachable ? 0.45 : 1 }}
-                                                title={unreachable ? `${ROLE_LABEL[role as Role]} is below the level this page requires — granting it here has no effect` : undefined}
-                                            >
+                                            <label key={`${role}-${scope}`} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12 }}>
                                                 <input
                                                     type="checkbox"
                                                     checked={checked}
-                                                    disabled={role === "sudo" || unreachable}
+                                                    disabled={role === "sudo"}
                                                     onChange={() => toggleScope(role, scope)}
                                                 />
-                                                <span>{label}{unreachable && <span style={{ marginLeft: 5, fontSize: 10, color: "var(--faint)" }}>(role level too low)</span>}</span>
+                                                <span>{label}</span>
                                             </label>
                                         );
                                     })}
@@ -4980,7 +4985,7 @@ export function Portal({
     const navItem = NAV.flatMap((g) => g.items).find((it) => it.key === active);
     useEffect(() => {
         if (active === "settings") return;
-        if (navItem && (lvl < (navItem.min || 0) || !hasScope(active))) setActive("dashboard");
+        if (navItem && !hasScope(active)) setActive("dashboard");
     }, [active, allowedScopes, lvl, navItem]);
 
     function doSync() {
