@@ -20,6 +20,25 @@ Verified LunchVoice/LionCafe public API against production:
 
 ---
 
+## [v4.27.13] - 2026-07-06 - Staging/approval workflow hardened: assistant+ can approve (per policy), self-approval blocked, Pull Sheet's manager-only gate confirmed intentional
+
+**Claude:** User asked to verify the staging/approval logic gates for Data Entry, Pull Sheet, and Monthly Inventory — the core "staff stages, assistant+ approves" workflow. Dispatched a read-only audit agent across `sourcectrl.py`, `staging/dispatch.py`, `inventory.py`, `data_entry.py`, and every frontend gate. Findings and fixes:
+
+**1. Approval/push floor was manager+ (30), not assistant+ (20) as the stated policy requires.** `_require_assistant` existed in `_deps.py` since v4.27.9 but was never wired into any Source Control endpoint — every approve/reject/merge route used the stricter `_require_admin_or_manager`. Fixed: `POST /commits` (approve), `DELETE /staging/{id}` (reject), `DELETE /staging` (bulk unstage), `POST /pulls/{id}/merge` all now `_require_assistant`. Frontend `canReview`/`canCommit` in `SourceControl.tsx` (3 separate declarations) dropped from `lvl>=30` to `lvl>=20` to match.
+
+**2. No segregation-of-duties check existed — a real gap for an "orderly" system.** Any assistant+ (now more reachable than before) could stage their own change and then approve/push it themselves under the same account, with zero check anywhere in `sourcectrl.py`. Fixed: `approve_commit` now rejects (403) if any selected staging entry's `submitted_by` matches the caller; `merge_pull_request` blocks both the PR's own author and any entry inside it authored by the caller. Frontend surfaces this proactively — an approver's own staged rows now show "yours — needs another reviewer" and the per-row approve button is disabled, instead of letting them click through to a 403.
+
+**3. Verified no direct-write bypass exists.** Every real write to `monthly_inventory`/`inventory_items` flows through `staging_entries` → `_apply_entries` → `backend/staging/dispatch.py`; dispatch functions are unreachable except from the two now-assistant-gated endpoints above (confirmed via grep — no other caller). `POST /api/inventory` (the old direct-write path) is retired, returns 410 unconditionally.
+
+**4. Pull Sheet's manager-only gate is correct, not a bug — left unchanged.** Audit initially flagged `PullSheet.tsx`'s `canStage = lvl>=30` as inconsistent with the staff-can-stage model used elsewhere. Checked the actual payload: Pull Sheet unconditionally submits `direction: 'issued'` (physical pull-out / shrinkage-accountability quantities) — the backend deliberately restricts staging issued quantities to manager+ regardless of page (`sourcectrl.py` inline check, pre-existing). Lowering the client gate would only produce guaranteed 403s for staff. Left as-is; flagged to the user as a design decision (physical stock removal sign-off) rather than changed unilaterally.
+
+**5. Minor pre-existing inconsistencies noted, not changed:** `PATCH /items/{sku}` (item metadata) requires manager+ to even stage, stricter than the staff+ floor everywhere else — not a security issue, just tighter than necessary. `invoices` table writes in the AI data-entry pipeline bypass staging entirely (bookkeeping/idempotency metadata, not authoritative quantities) — acceptable if that's the intent, worth a look if `invoices` fields feed trusted reporting.
+
+Verification: ruff clean, 77/77 backend tests pass (no regressions from the floor change), tsc + build clean.
+
+**Push:** committed + pushed to main.
+
+
 ## [v4.27.12] - 2026-07-06 - Claude permission prompt allowlist tightened
 
 **Codex:** Reviewed recent Claude transcript tool usage for repeated read-only permission prompts. Most frequent read-only shell patterns were already covered by Claude Code's built-in allow rules (`grep`, `git diff`, `git log`, `git status`, `tail`, `ls`, `cat`, `echo`, `wc`). Mutating commands, arbitrary code execution, Supabase SQL/migration MCP calls, and browser actions were intentionally not allowlisted.

@@ -13,7 +13,7 @@ from backend.staging.dispatch import replay, validate_payload
 from backend.ai import diff as diff_engine
 from backend.routes._deps import (
     _get_auth_user,
-    _require_admin_or_manager,
+    _require_assistant,
     ensure_pr_for_entries,
 )
 
@@ -1288,9 +1288,13 @@ async def submit_staging(
 @router.post("/commits", status_code=201)
 async def approve_commit(
     body: ApproveCommitBody,
-    auth_user: dict = Depends(_require_admin_or_manager),
+    auth_user: dict = Depends(_require_assistant),
 ):
-    """Backward-compatible direct commit endpoint. Delegates to _apply_entries."""
+    """Backward-compatible direct commit endpoint. Delegates to _apply_entries.
+
+    Assistant role or higher may approve — but never their own staged entries
+    (segregation of duties: the person who proposed a change cannot be the one
+    who pushes it live)."""
     if not body.staging_ids:
         raise HTTPException(status_code=422, detail="staging_ids must not be empty.")
     try:
@@ -1299,6 +1303,11 @@ async def approve_commit(
             for entry in _select_staging_entries(body.staging_ids)
             if entry.get("status") == "pending"
         ]
+        if any(entry.get("submitted_by") == auth_user["id"] for entry in entries):
+            raise HTTPException(
+                status_code=403,
+                detail="You cannot approve your own staged changes — ask another assistant, manager, admin, or sudo to review them.",
+            )
         return _apply_entries(
             entries,
             author_id=auth_user["id"],
@@ -1316,7 +1325,7 @@ async def approve_commit(
 async def reject_staging(
     entry_id: str,
     review_note: Optional[str] = None,
-    auth_user: dict = Depends(_require_admin_or_manager),
+    auth_user: dict = Depends(_require_assistant),
 ):
     try:
         now = datetime.now(timezone.utc).isoformat()
@@ -1354,7 +1363,7 @@ class BulkUnstageBody(BaseModel):
 @router.delete("/staging", status_code=200)
 async def bulk_unstage(
     body: BulkUnstageBody,
-    auth_user: dict = Depends(_require_admin_or_manager),
+    auth_user: dict = Depends(_require_assistant),
 ):
     """Reject (unstage) multiple pending staging entries in one call."""
     if not body.entry_ids:
@@ -1623,9 +1632,12 @@ async def get_pull_request(
 @router.post("/pulls/{pr_id}/merge")
 async def merge_pull_request(
     pr_id: str,
-    auth_user: dict = Depends(_require_admin_or_manager),
+    auth_user: dict = Depends(_require_assistant),
 ):
-    """Merge a PR: replay its pending entries → commit → finalize PR. Admin/manager/sudo only."""
+    """Merge a PR: replay its pending entries → commit → finalize PR.
+
+    Assistant role or higher — but never the PR's own author or the author of any
+    entry inside it (segregation of duties: proposer and approver must differ)."""
     try:
         pr_r = (
             _client()
@@ -1638,6 +1650,12 @@ async def merge_pull_request(
         if not pr_r.data:
             raise HTTPException(status_code=404, detail="Pull request not found.")
         pr = pr_r.data[0]
+
+        if pr.get("author_id") == auth_user["id"]:
+            raise HTTPException(
+                status_code=403,
+                detail="You cannot merge your own pull request — ask another assistant, manager, admin, or sudo to review it.",
+            )
 
         if pr.get("status") != "open" or pr.get("commit_id"):
             raise HTTPException(
@@ -1655,6 +1673,11 @@ async def merge_pull_request(
             .execute()
         )
         entries = entries_r.data or []
+        if any(entry.get("submitted_by") == auth_user["id"] for entry in entries):
+            raise HTTPException(
+                status_code=403,
+                detail="You cannot merge a pull request containing your own staged changes — ask another assistant, manager, admin, or sudo to review it.",
+            )
         if not entries:
             existing_commit_r = (
                 _client()

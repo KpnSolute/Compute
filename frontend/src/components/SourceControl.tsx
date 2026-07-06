@@ -394,8 +394,8 @@ function SCChangesView({
 }) {
     const pageMode = externalTab !== undefined;
     const lvl = ROLE_LEVEL[user.role] || 0;
-    const canReview = lvl >= 30; // manager, admin, sudo
-    const canCommit = lvl >= 30;
+    const canReview = lvl >= 20; // assistant, manager, admin, sudo
+    const canCommit = lvl >= 20;
 
     const [draftChanges, setDraftChanges] = useState<DraftChange[]>([]);
     const [changesOpen, setChangesOpen] = useState(true);
@@ -1295,6 +1295,7 @@ function SCChangesView({
                         const summary = stagedSummary(ch);
                         const inPR = !!(ch as any).pull_request_id;
                         const isSelected = selectedIds.has(ch.entry_id);
+                        const isOwn = ch.submitted_by === user.id;
                         return (
                             <div key={ch.entry_id}
                                 className={"sc-vsc-file-row" + (isSelected ? " sc-row-selected" : "")}
@@ -1308,6 +1309,7 @@ function SCChangesView({
                                     <span className="sc-vsc-file-path">
                                         {summary}{summary ? " · " : ""}{ch.submitter_name || ""}{ch.created_at ? " · " + relTime(ch.created_at) : ""}
                                         {inPR && <span style={{ color: "var(--blue, #2563EB)", marginLeft: 4 }}>· in review</span>}
+                                        {canCommit && isOwn && <span style={{ color: "var(--amber, #B45309)", marginLeft: 4 }}>· yours — needs another reviewer</span>}
                                     </span>
                                 </div>
                                 <span className={"sc-vsc-badge sc-vsc-badge-" + kind.toLowerCase()}>{kind}</span>
@@ -1317,7 +1319,7 @@ function SCChangesView({
                                             <button className="sc-icon-btn danger" title="Discard / reject" disabled={busy} onClick={() => doReject(ch)}>
                                                 {I.x({ style: { width: 11, height: 11 } })}
                                             </button>
-                                            <button className="sc-icon-btn ok" title="Commit this entry" disabled={busy}
+                                            <button className="sc-icon-btn ok" title={isOwn ? "You cannot approve your own change" : "Commit this entry"} disabled={busy || isOwn}
                                                 onClick={() => setConfirm([ch])}>
                                                 {I.check({ style: { width: 11, height: 11 } })}
                                             </button>
@@ -1422,7 +1424,7 @@ export function SourceControlPanel({
     }, [open]);
 
     const lvl = ROLE_LEVEL[user.role] || 0;
-    const canReview = lvl >= 30;
+    const canReview = lvl >= 20;
     const visibleStaged = !canReview
         ? staged.filter((s) => s.submitted_by === user.id || s.submitter_name === user.display_name)
         : staged;
@@ -1492,7 +1494,7 @@ export function SourceControlPage({
     const [tab, setTab] = useState<SCPageTab>('history');
     const lastCommit = commits[0];
     const lvl = ROLE_LEVEL[user.role] ?? 0;
-    const canReview = lvl >= 30;
+    const canReview = lvl >= 20;
 
     useEffect(() => {
         if (openPrId) setTab('prs');
