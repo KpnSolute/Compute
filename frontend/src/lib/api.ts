@@ -287,6 +287,41 @@ export interface PublicMenuStats {
   top_meals: MenuFeedbackRow[];
 }
 
+export interface PublicMealPeriod {
+  meal: string;
+  label: string;
+  open_hour?: number | null;
+  close_hour?: number | null;
+  sort_order?: number | null;
+  active?: boolean;
+}
+
+export interface PublicMenuServiceStatus {
+  now: string;
+  current_period?: PublicMealPeriod | null;
+  next_period?: PublicMealPeriod | null;
+  periods: PublicMealPeriod[];
+}
+
+export interface PublicMenuToday {
+  date: string;
+  cycle_day: number;
+  cycle_week: number;
+  day_of_week: string;
+  meals: Record<string, PublicMenuCycleSlot[]>;
+  service_status?: PublicMenuServiceStatus;
+}
+
+export interface MealPeriod {
+  id: string;
+  meal: string;
+  label: string;
+  open_hour?: number | null;
+  close_hour?: number | null;
+  rate?: number | string | null;
+  sort_order?: number | null;
+}
+
 export interface MenuSuggestion {
   id: string;
   source: string;
@@ -553,6 +588,12 @@ export const api = {
     return res.json();
   },
 
+  async getPublicMenuToday(): Promise<PublicMenuToday> {
+    const res = await fetch(`${BASE}/api/public/menu/today`, { cache: 'no-store' });
+    if (!res.ok) throw new ApiError(res.status, await res.text().catch(() => res.statusText));
+    return res.json();
+  },
+
   async getPublicMenuStats(limit = 8): Promise<PublicMenuStats> {
     const res = await fetch(`${BASE}/api/public/menu/stats?limit=${encodeURIComponent(String(limit))}`, { cache: 'no-store' });
     if (!res.ok) throw new ApiError(res.status, await res.text().catch(() => res.statusText));
@@ -624,8 +665,12 @@ export const api = {
   },
 
   // Meal Periods
-  async getMealPeriods(): Promise<any[]> {
+  async getMealPeriods(): Promise<MealPeriod[]> {
     return req('/api/meal-periods');
+  },
+
+  async updateMealPeriod(id: string, body: { label?: string; open_hour?: number; close_hour?: number; sort_order?: number }): Promise<MealPeriod> {
+    return req(`/api/meal-periods/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) });
   },
 
   // Incidents

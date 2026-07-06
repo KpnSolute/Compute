@@ -4,6 +4,21 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.27.11] - 2026-07-06 - Student current-service menu modal + menu time adjustments
+
+**Codex:** Updated the dashboard/menu flow so students can tap the Today's Menu card and see the meal currently being served, while staff can configure service windows from the menu settings adjustment panel.
+
+- **Student menu UI:** `Portal.tsx` now reads today's menu through the public no-token `GET /api/public/menu/today` path, turns the dashboard menu card into a tap target, and opens a read-only modal focused on the current service meal (Breakfast/Lunch/Dinner/Brunch/etc.). If no service is open, it falls back to the next configured service or the first menu period.
+- **Menu service status API:** `backend/routes/public_menu.py` now attaches `service_status` to public `/today`, including current/next service windows from `meal_periods`. This is read-only public data; no auth token or staff/user data is sent.
+- **Staff adjustments:** `CycleMenu.tsx` settings now includes an **Adjustments** panel for service window labels/open/close hours. Saves use the authenticated `PUT /api/meal-periods/{period_id}` endpoint added in `backend/routes/data.py`; public students cannot write these values.
+- **API contract/security:** `frontend/src/lib/api.ts` now has typed public menu/status models plus authenticated meal-period update helpers. `API.md` documents the public `service_status` payload and authenticated write endpoint.
+
+**Verify:** `ruff check` + `ruff format --check` clean for touched backend routes; `npx tsc --noEmit` clean; `npm run lint -- --quiet` clean; `npm run build` passed with existing Vite chunk/dynamic-import warnings; `pytest backend\tests\test_public_menu_stats.py backend\tests\test_menu_cycle_math.py -q` passed, 7/7; production `/api/public/menu/today` returned 200 on the old deployed shape. Local `import backend.main` is blocked because this workspace currently has no root `.env` and no Supabase env vars in the shell.
+
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.27.10] - 2026-07-05 - Menu day editor inline sheet + LionCafe stats in dashboard
 
 **Codex:** Continued Claude's cycle-menu work from the current `main` state.

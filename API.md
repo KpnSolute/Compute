@@ -463,7 +463,7 @@ Returns `410` `{ "detail": "Use PUT /api/menu/slot/{record_id}" }`. The old `men
 Read-only cycle menu data for external consumers (e.g. lunchvoice.com). GET routes have **no bearer auth** — menu data is public. Requires CORS origin allowlist to include the consuming site (`CORS_ORIGINS` env var on Render).
 
 ### `GET /api/public/menu/today`
-**Response `200`:** `{ date, cycle_day, cycle_week, day_of_week, meals: { "<meal_period>": [{ slot_name, item_name }] } }` (active slots only).
+**Response `200`:** `{ date, cycle_day, cycle_week, day_of_week, meals: { "<meal_period>": [{ slot_name, item_name }] }, service_status }` (active slots only). `service_status` exposes read-only meal-period windows and the current/next service for student UI; it contains no auth or staff data.
 
 ### `GET /api/public/menu/date/{iso_date}`
 Same shape for an arbitrary date. **`400`** if `iso_date` isn't `YYYY-MM-DD`.
@@ -667,6 +667,13 @@ All ServSafe certifications ordered by staff name.
 Meal period definitions ordered by `sort_order`.
 
 **Response `200`:** `[{ "id", "meal", "label", "open_hour", "close_hour", "rate", "sort_order" }]`
+
+### `PUT /api/meal-periods/{period_id}`
+Authenticated update for menu service windows used by the student menu status.
+
+**Body:** `{ "label"?, "open_hour"?, "close_hour"?, "sort_order"? }`; `open_hour` must be before `close_hour`.
+
+**Response `200`:** updated meal period row.
 
 ---
 

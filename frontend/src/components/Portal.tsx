@@ -41,7 +41,7 @@ import {
     catColor,
     getBackendToken,
 } from "../lib/supabase";
-import { api } from "../lib/api";
+import { api, type PublicMenuToday, type PublicMenuCycleSlot, type PublicMealPeriod } from "../lib/api";
 import { ComplianceHub } from "./ComplianceHub";
 import { DataEntry } from "./DataEntry";
 import { DailyOps } from "./DailyOps";
@@ -685,6 +685,68 @@ function Loading({ label = "Loading live data…" }) {
     );
 }
 
+function StudentMenuModal({
+    day,
+    meal,
+    service,
+    nextService,
+    onClose,
+}: {
+    day: PublicMenuToday;
+    meal: { period: string; items: PublicMenuCycleSlot[]; summary: ReturnType<typeof mealSummary> } | null;
+    service: PublicMealPeriod | null;
+    nextService: PublicMealPeriod | null;
+    onClose: () => void;
+}) {
+    const title = service?.label || meal?.period || "Today's menu";
+    const serviceHours = service?.open_hour != null && service?.close_hour != null
+        ? `${service.open_hour}:00-${service.close_hour}:00`
+        : null;
+    const nextOpens = nextService?.open_hour != null ? `${nextService.open_hour}:00` : null;
+    return createPortal(
+        <div className="overlay student-menu-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+            <div className="student-menu-modal" role="dialog" aria-modal="true" aria-label="Student menu">
+                <div className="student-menu-hero">
+                    <div>
+                        <p>{day.day_of_week} - Cycle Day {day.cycle_day}</p>
+                        <h2>{title}</h2>
+                        <span>
+                            {service
+                                ? `Serving now${serviceHours ? `, ${serviceHours}` : ""}`
+                                : nextService
+                                    ? `${nextService.label} opens${nextOpens ? ` at ${nextOpens}` : ""}`
+                                    : "No service window is open right now"}
+                        </span>
+                    </div>
+                    <button className="modal-x" onClick={onClose} aria-label="Close student menu">{I.x()}</button>
+                </div>
+                <div className="student-menu-body">
+                    {!meal ? (
+                        <div className="student-menu-empty">No menu items are listed for this service yet.</div>
+                    ) : (
+                        <>
+                            <div className="student-menu-feature">
+                                {meal.summary.primary && <strong>{meal.summary.primary}</strong>}
+                                {meal.summary.secondary && <span>{meal.summary.secondary}</span>}
+                                {meal.summary.remaining > 0 && <em>+{meal.summary.remaining} more items</em>}
+                            </div>
+                            <div className="student-menu-list">
+                                {meal.items.map(item => (
+                                    <div className="student-menu-row" key={`${item.slot_name}-${item.item_name}`}>
+                                        <span>{item.slot_name}</span>
+                                        <strong>{item.item_name}</strong>
+                                    </div>
+                                ))}
+                            </div>
+                        </>
+                    )}
+                </div>
+            </div>
+        </div>,
+        document.body,
+    );
+}
+
 function Dashboard({
     user,
     period,
@@ -703,8 +765,9 @@ function Dashboard({
     const invMeta = invState.metadata || {};
     const todayISO = new Date().toISOString().slice(0, 10);
 
-    const [menuToday, setMenuToday] = useState<any>(null);
+    const [menuToday, setMenuToday] = useState<PublicMenuToday | null>(null);
     const [menuLoading, setMenuLoading] = useState(true);
+    const [studentMenuOpen, setStudentMenuOpen] = useState(false);
     const [events, setEvents] = useState<any[]>([]);
     const [eventsLoading, setEventsLoading] = useState(true);
 
@@ -713,7 +776,7 @@ function Dashboard({
         (async () => {
             try {
                 setMenuLoading(true);
-                const res = await api.getMenuToday();
+                const res = await api.getPublicMenuToday();
                 if (alive) {
                     setMenuToday(res);
                     setMenuLoading(false);
@@ -771,17 +834,22 @@ function Dashboard({
     const miSum = moneyTotalsFromMeta(invMeta);
 
     const menuMeals = (() => {
-        if (!menuToday?.slots) return [] as Array<{ period: string; summary: ReturnType<typeof mealSummary> }>;
-        const byPeriod = new Map<string, any[]>();
-        for (const s of menuToday.slots) {
-            if (!s.active || !s.item_name) continue;
-            if (!byPeriod.has(s.meal_period)) byPeriod.set(s.meal_period, []);
-            byPeriod.get(s.meal_period)!.push(s);
-        }
-        const order = PERIOD_ORDER.filter(p => byPeriod.has(p));
-        const rest = [...byPeriod.keys()].filter(p => !PERIOD_ORDER.includes(p));
-        return [...order, ...rest].map(period => ({ period, summary: mealSummary(byPeriod.get(period)!) }));
+        if (!menuToday?.meals) return [] as Array<{ period: string; items: PublicMenuCycleSlot[]; summary: ReturnType<typeof mealSummary> }>;
+        const keys = Object.keys(menuToday.meals);
+        const order = PERIOD_ORDER.filter(p => keys.includes(p));
+        const rest = keys.filter(p => !PERIOD_ORDER.includes(p));
+        return [...order, ...rest].map(period => {
+            const items = menuToday.meals[period] || [];
+            return { period, items, summary: mealSummary(items) };
+        });
     })();
+    const serviceStatus = menuToday?.service_status || null;
+    const currentServiceMeal = serviceStatus?.current_period?.meal || null;
+    const currentMenuMeal = currentServiceMeal
+        ? menuMeals.find(m => m.period === currentServiceMeal)
+        : null;
+    const studentModalMeal = currentMenuMeal || menuMeals[0] || null;
+    const serviceLabel = serviceStatus?.current_period?.label || studentModalMeal?.period || "Today's menu";
 
     const ml = loadLog("meallog:" + todayISO, null);
     const mlRows = (ml && ml.rows) || [];
@@ -985,7 +1053,15 @@ function Dashboard({
                         link="Full menu →"
                         onLink={() => go("menu")}
                     >
-                        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                        <button
+                            className="student-menu-trigger"
+                            onClick={() => setStudentMenuOpen(true)}
+                            disabled={menuLoading || menuMeals.length === 0}
+                        >
+                            <div className="student-menu-trigger-head">
+                                <span>{serviceStatus?.current_period ? `${serviceLabel} is being served now` : "Tap to view today's menu"}</span>
+                                <strong>{serviceStatus?.current_period ? "Open now" : serviceStatus?.next_period ? `${serviceStatus.next_period.label} next` : "Menu"}</strong>
+                            </div>
                             {menuLoading ? (
                                 <div style={{ fontSize: 12, color: "var(--muted)" }}>Loading menu…</div>
                             ) : menuMeals.length === 0 ? (
@@ -1014,7 +1090,7 @@ function Dashboard({
                                     </div>
                                 ))
                             )}
-                        </div>
+                        </button>
                     </WinCard>
 
                     <WinCard title="Inventory value by category" link="Live →" onLink={() => go("inventory")}>
@@ -1126,6 +1202,15 @@ function Dashboard({
                     </WinCard>
                 </div>
             </div>
+            {studentMenuOpen && menuToday && (
+                <StudentMenuModal
+                    day={menuToday}
+                    meal={studentModalMeal}
+                    service={serviceStatus?.current_period || null}
+                    nextService={serviceStatus?.next_period || null}
+                    onClose={() => setStudentMenuOpen(false)}
+                />
+            )}
         </div>
     );
 }

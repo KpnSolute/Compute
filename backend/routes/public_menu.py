@@ -23,6 +23,57 @@ from backend.routes.menu import (
 router = APIRouter(prefix="/api/public/menu", tags=["public-menu"])
 
 
+def _hour_value(row: dict, key: str) -> float | None:
+    raw = row.get(key)
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _meal_period_status(now=None) -> dict:
+    now = now or business_now()
+    rows = (
+        supabase_service.table("meal_periods")
+        .select("meal,label,open_hour,close_hour,sort_order")
+        .order("sort_order")
+        .execute()
+        .data
+        or []
+    )
+    periods = []
+    current = None
+    next_period = None
+    now_hour = now.hour + (now.minute / 60)
+    for row in rows:
+        open_hour = _hour_value(row, "open_hour")
+        close_hour = _hour_value(row, "close_hour")
+        item = {
+            "meal": row.get("meal"),
+            "label": row.get("label") or row.get("meal"),
+            "open_hour": open_hour,
+            "close_hour": close_hour,
+            "sort_order": row.get("sort_order") or 0,
+        }
+        if open_hour is not None and close_hour is not None:
+            item["active"] = open_hour <= now_hour < close_hour
+            if item["active"] and current is None:
+                current = item
+            if now_hour < open_hour and next_period is None:
+                next_period = item
+        else:
+            item["active"] = False
+        periods.append(item)
+    return {
+        "now": now.isoformat(),
+        "current_period": current,
+        "next_period": next_period,
+        "periods": periods,
+    }
+
+
 def _compact_day_payload(
     day_row: dict, slots: list[dict], item_names: dict[str, str]
 ) -> dict:
@@ -44,21 +95,24 @@ def _compact_day_payload(
 
 
 def _public_day_for_date(d: date) -> dict:
-    payload = _build_day_payload(_cycle_day_for_date(d))
+    day_payload = _build_day_payload(_cycle_day_for_date(d))
     meals: dict[str, list[dict]] = {}
-    for s in payload["slots"]:
+    for s in day_payload["slots"]:
         if not s["active"] or not s["item_name"]:
             continue
         meals.setdefault(s["meal_period"], []).append(
             {"slot_name": s["slot_name"], "item_name": s["item_name"]}
         )
-    return {
+    payload = {
         "date": d.isoformat(),
-        "cycle_day": payload["cycle_day"],
-        "cycle_week": payload["cycle_week"],
-        "day_of_week": payload["day_of_week"],
+        "cycle_day": day_payload["cycle_day"],
+        "cycle_week": day_payload["cycle_week"],
+        "day_of_week": day_payload["day_of_week"],
         "meals": meals,
     }
+    if d == business_now().date():
+        payload["service_status"] = _meal_period_status()
+    return payload
 
 
 @router.get("/today")

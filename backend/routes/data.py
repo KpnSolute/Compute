@@ -7,7 +7,7 @@ invoices, inventory categories, dashboard stats, and archives.
 
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from backend.routes import supabase_service
 from backend.routes._deps import _get_auth_user
 
@@ -82,6 +82,13 @@ async def update_servsafe(
 # ── Meal Periods ──────────────────────────────────────────────────────────
 
 
+class MealPeriodUpdate(BaseModel):
+    label: str | None = Field(None, max_length=120)
+    open_hour: int | None = Field(None, ge=0, le=23)
+    close_hour: int | None = Field(None, ge=1, le=24)
+    sort_order: int | None = Field(None, ge=0, le=100)
+
+
 @router.get("/meal-periods")
 async def get_meal_periods(auth_user: dict = Depends(_get_auth_user)):
     try:
@@ -97,6 +104,54 @@ async def get_meal_periods(auth_user: dict = Depends(_get_auth_user)):
 
 
 # ── Incidents ──────────────────────────────────────────────────────────────
+
+
+@router.put("/meal-periods/{period_id}")
+async def update_meal_period(
+    period_id: str,
+    body: MealPeriodUpdate,
+    auth_user: dict = Depends(_get_auth_user),
+):
+    updates = body.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    if updates.get("label") is not None and not updates["label"].strip():
+        raise HTTPException(status_code=400, detail="label cannot be empty")
+
+    existing = (
+        supabase_service.table("meal_periods")
+        .select("*")
+        .eq("id", period_id)
+        .limit(1)
+        .execute()
+    )
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="Meal period not found")
+
+    row = existing.data[0]
+    open_hour = updates.get("open_hour", row.get("open_hour"))
+    close_hour = updates.get("close_hour", row.get("close_hour"))
+    if (
+        open_hour is not None
+        and close_hour is not None
+        and int(open_hour) >= int(close_hour)
+    ):
+        raise HTTPException(
+            status_code=400, detail="open_hour must be before close_hour"
+        )
+    if updates.get("label") is not None:
+        updates["label"] = updates["label"].strip()
+
+    try:
+        result = (
+            supabase_service.table("meal_periods")
+            .update(updates)
+            .eq("id", period_id)
+            .execute()
+        )
+        return result.data[0] if result.data else {**row, **updates}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 class IncidentCreate(BaseModel):

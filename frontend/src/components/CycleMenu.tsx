@@ -11,6 +11,7 @@ import type {
   PublicMenuCycleDay,
   PublicMenuStats,
   MenuFeedbackRow,
+  MealPeriod,
 } from '../lib/api';
 
 const t = (msg: string) => (window as any).toast?.(msg);
@@ -834,15 +835,38 @@ function SettingsModal({ anchorDate, todayCycleDay, onClose, onSaved }: {
   anchorDate?: string; todayCycleDay?: number; onClose: () => void; onSaved: () => void;
 }) {
   const [date, setDate] = useState(anchorDate || '');
+  const [periods, setPeriods] = useState<MealPeriod[]>([]);
+  const [periodsLoading, setPeriodsLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    api.getMealPeriods()
+      .then(rows => { if (alive) setPeriods(rows); })
+      .catch(() => { if (alive) setPeriods([]); })
+      .finally(() => { if (alive) setPeriodsLoading(false); });
+    return () => { alive = false; };
+  }, []);
+
+  function updatePeriod(id: string, patch: Partial<MealPeriod>) {
+    setPeriods(prev => prev.map(row => row.id === id ? { ...row, ...patch } : row));
+  }
 
   async function save() {
     setBusy(true);
     setErr(null);
     try {
       await api.saveMenuSettings(date);
-      t('Cycle anchor date saved');
+      for (const row of periods) {
+        await api.updateMealPeriod(row.id, {
+          label: row.label,
+          open_hour: Number(row.open_hour),
+          close_hour: Number(row.close_hour),
+          sort_order: Number(row.sort_order || 0),
+        });
+      }
+      t('Menu settings saved');
       onSaved();
       onClose();
     } catch (e: any) {
@@ -863,6 +887,54 @@ function SettingsModal({ anchorDate, todayCycleDay, onClose, onSaved }: {
           <div className="ft-field">
             <span>Anchor date (Day 1)</span>
             <input className="ipt sel" type="date" value={date} onChange={e => setDate(e.target.value)} />
+          </div>
+          <div className="cm-adjustments-panel">
+            <div className="cm-adjustments-head">
+              <strong>Adjustments</strong>
+              <span>Student service windows</span>
+            </div>
+            {periodsLoading ? (
+              <div className="cm-adjustments-empty">Loading service windows...</div>
+            ) : periods.length === 0 ? (
+              <div className="cm-adjustments-empty">No meal periods are configured.</div>
+            ) : (
+              <div className="cm-adjustment-rows">
+                {periods.map(row => (
+                  <div className="cm-adjustment-row" key={row.id}>
+                    <label>
+                      <span>Label</span>
+                      <input
+                        className="ipt sel"
+                        value={row.label || ''}
+                        onChange={e => updatePeriod(row.id, { label: e.target.value })}
+                      />
+                    </label>
+                    <label>
+                      <span>Open</span>
+                      <input
+                        className="ipt sel"
+                        type="number"
+                        min="0"
+                        max="23"
+                        value={row.open_hour ?? 0}
+                        onChange={e => updatePeriod(row.id, { open_hour: Number(e.target.value) })}
+                      />
+                    </label>
+                    <label>
+                      <span>Close</span>
+                      <input
+                        className="ipt sel"
+                        type="number"
+                        min="1"
+                        max="24"
+                        value={row.close_hour ?? 1}
+                        onChange={e => updatePeriod(row.id, { close_hour: Number(e.target.value) })}
+                      />
+                    </label>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           {typeof todayCycleDay === 'number' && (
             <div className="form-note">{I.alert({ style: { width: 13, height: 13 } })}<span>Today = Day {todayCycleDay}</span></div>
