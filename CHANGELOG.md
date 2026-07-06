@@ -4,6 +4,71 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.28.0-SPEC] - 2026-07-06 - UI shell naming conventions + FLOW feature spec (build delegated to OpenCode/Mimo, Claude = structural review + push)
+
+**Claude:** User defined the shell element vocabulary and the next major feature ("Flow"). This entry is the canonical spec. **OpenCode and Mimo CLI: read this before writing any code. Be direct, minimal diffs, no new files unless listed below, no new .md files ever.** Claude reviews structure, runs UI checks (tsc/lint/build + chrome-devtools), and pushes when green.
+
+### 1. Shell element naming (canonical → existing code)
+
+| Canonical name | CSS class | Component (Portal.tsx) | Notes |
+|---|---|---|---|
+| **Navigator Panel** (fig A, left icon rail) | `.activity-bar` (`ab-*` children) | `ActivityBar` :456 | Keep class names; "Navigator Panel" is the spoken/spec name. |
+| **Explorer Panel** (beside Navigator) | `.sidebar` (`.explorer-title`, `.nav-item`) | `Sidebar` :387 | Already titled "Explorer". |
+| **Status Panel** (fig B, blue bottom bar) | `.status-bar` (`sb-*` children) | `StatusBar` :598 | |
+| **Header Panel** (fig C, top bar) | `.topbar` (`tb-*` children) | `Topbar` :~260 | |
+
+New sub-elements use the same prefixes: `ab-tools-btn`, `sb-breadcrumb`, `tb-flow-btn`.
+
+### 2. Shell changes (Phase 1 — small, do first)
+
+- **Navigator Panel:** replace the bottom user-avatar button (`.ab-user-btn`) with a hamburger button (`.ab-tools-btn`) opening an **External Tools** menu. First item: "LunchVoice — Menu Review" → `https://lunchvoice.com/LionCafe` (new tab). Account access moves fully to the Header Panel user chip (already exists there — just delete the avatar/usermenu from ActivityBar).
+- **Status Panel:** left→right layout becomes: branch pill · period date · staged pill (existing) | **center: breadcrumb trail** (`.sb-breadcrumb`, e.g. `Portal › Inventory › Pull Sheet`, segments clickable via existing `setActive`) | right: **permission scope** (role label — already there) · API status (already there). Breadcrumb source: NAV group/label lookup from `constants.ts` for the `active` key — no router, no new state.
+- **Header Panel:** add a **Flow icon button** (`.tb-flow-btn`) next to the Source Control button → navigates to the Flow view. Keep LIVE badge, period selects, SC button, user chip as-is.
+
+### 3. FLOW (Phase 2 — the feature)
+
+Flow = the work protocol: assigning + tracking kitchen work. **Rebrands Daily Ops** (view key stays `dailyops` internally to avoid churn; all user-facing labels become "Flow").
+
+- **For staff, Flow is the endpoint to see and complete work:** assigned tasks, daily checks, HACCP checks, custom assignments, meal logs, inspection checks, snack bar duties.
+- **Managers/assistants create + assign:** custom assignments and recurring daily-ops tasks to staff, and track completion.
+- **Staff access widens:** staff can open the main Inventory editor, Pull Sheet, meal logs (food requests), inspection checks, snack bar — all writes still route through the existing staging → approval pipeline (v4.27.13 rules: stage yes, self-approve no). Scope grid (Users & Access) governs visibility as before — this is a default-scope change, not a new gate system.
+- Backend: assignment CRUD lands in `backend/routes/` — contract shape directed by Claude, data logic per AGENTS.md delegation. Schema (likely a `flow_assignments` table) goes through mjcc-data/Gemini — **no schema SQL from OpenCode/Mimo.**
+
+### 4. Dashboard role split (Phase 2)
+
+- **Assistant+ (lvl ≥ 20):** current dashboard unchanged (finance stats: Inventory Value, Closing Value, etc.).
+- **Staff (lvl < 20):** NO finance numbers. Staff dashboard shows: my Flow assignments, daily checks due, today's menu, upcoming events, inventory alerts (below-par count only, no $ values). Implement as a branch inside the existing Dashboard render in `Portal.tsx` — not a new page.
+
+### 5. Working agreement for OpenCode / Mimo
+
+1. Frontend only unless the task says backend. Match `index.css` design system — no new styling patterns, no new deps.
+2. Verify before handing back: `cd frontend && npm run lint && npx tsc --noEmit && npm run build`. Backend touches: `ruff check backend/`.
+3. Log what you actually changed here in CHANGELOG.md, attributed by name. No aspirational claims.
+4. Claude does final UI verification against prod and pushes. Do not push.
+
+**Push:** spec only, no code yet.
+
+---
+
+## [v4.28.1] - 2026-07-06 - Phase 1 shell changes shipped (Navigator tools menu, Status Panel breadcrumb, Header Flow button)
+
+**OpenCode (opencode/big-pickle) + Claude review:** Implemented the three Phase 1 shell changes from the v4.28.0-SPEC entry above, in `frontend/src/components/Portal.tsx` + `frontend/src/index.css`.
+
+- **Navigator Panel:** replaced the bottom `.ab-user-btn` avatar/usermenu with `.ab-tools-btn` ("External Tools") opening a dropdown with one item, "LunchVoice — Menu Review" → `https://lunchvoice.com/LionCafe` in a new tab. Account access already lived in the Header Panel's `tb-user` chip, so nothing was lost.
+- **Status Panel:** added a centered `.sb-breadcrumb` (e.g. `Portal › Logs › Daily Operations`) built from the existing `NAV` lookup in `constants.ts` against the current `active` key — clickable segments call the existing `goTo`/`setActive` callback. No router, no new global state.
+- **Header Panel:** added `.tb-flow-btn` ("Flow") next to the Source Control button, navigating to the `dailyops` view (internal key unchanged, all labels will read "Flow" once Phase 2 rebrand lands).
+- **Bonus fix, in scope:** OpenCode also noticed the pre-existing `lioncafe` route handler in `Portal.tsx` (`goTo`, opens `lunchvoice.com/admin`) had no `NAV` entry — added `{ key: 'lioncafe', label: 'LionCafe', icon: 'coffee', min: 30 }` to `constants.ts` so manager+ can actually reach it from the Explorer panel. Reused the existing `coffee` icon (already used by Snack Bar/Reports/Templates).
+
+**Bug found + fixed by Claude during review:** OpenCode's first pass put the External Tools dropdown menu as a DOM child of the `<button>` that toggles it (mirroring the pre-existing, same-shaped bug in the old `.ab-user-btn`/avatar pattern it replaced) — an invalid `<button>` nested inside a `<button>`. Changed the outer toggle from `<button>` to a `<div role="button" tabIndex={0}>` with an `onKeyDown` handler for Enter/Space, matching the working `tb-user` pattern in Topbar (also a div, not a button). Verified the fix directly against the running dev server (breadcrumb updates live, Flow button navigates to Daily Operations, External Tools menu opens and shows LunchVoice).
+
+**Note for future agents:** `preview_click` (CDP synthetic mouse clicks) was unreliable in this session across multiple fresh server restarts — real, pre-existing, unmodified buttons (Login submit, Source Control toggle) also didn't respond to it. Verification instead used `element.click()` via `preview_eval`, which the app responded to correctly every time. Treat `preview_click` non-response as inconclusive on its own; cross-check with a direct `.click()` eval before concluding a click handler is broken.
+
+**Verify:** `npx tsc --noEmit` clean, `npm run build` clean (pre-existing dynamic-import/chunk-size warnings only, unrelated), `npm run lint` 0 errors (630 pre-existing `any` warnings, unrelated). Manually verified in browser: External Tools menu opens/link correct, Flow button navigates to `dailyops`, breadcrumb reflects `active` and its segments navigate.
+
+**Push:** committed + pushed to main.
+
+---
+
 ## [v4.27.13] - 2026-07-06 - Menu cycle moved to week 4 + LunchVoice API verified
 
 **Codex:** Updated the live `app_settings.menu_cycle_anchor_date` from `2026-06-28` to `2026-06-14` in Supabase `MJCCv1`, so today (`2026-07-06`) resolves to cycle day 23 / cycle week 4 instead of cycle day 9 / week 2.

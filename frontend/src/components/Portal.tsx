@@ -337,6 +337,16 @@ function Topbar({
                         )}
                     </button>
                 )}
+                {onNav && (
+                    <button
+                        className="tb-flow-btn"
+                        onClick={() => onNav('dailyops')}
+                        title="Flow"
+                        aria-label="Open Flow view"
+                    >
+                        {I.checkSquare({ style: { width: 16, height: 16 } })}
+                    </button>
+                )}
                 <div
                     className="tb-user"
                     onClick={(e) => {
@@ -473,13 +483,13 @@ function ActivityBar({
     goTo: (k: string) => void;
 }) {
     const lvl = ROLE_LEVEL[user.role];
-    const [userMenu, setUserMenu] = useState(false);
+    const [toolsOpen, setToolsOpen] = useState(false);
     useEffect(() => {
-        if (!userMenu) return;
-        const close = () => setUserMenu(false);
+        if (!toolsOpen) return;
+        const close = () => setToolsOpen(false);
         window.addEventListener("click", close);
         return () => window.removeEventListener("click", close);
-    }, [userMenu]);
+    }, [toolsOpen]);
 
     const inGroup = (keys: string[]) => keys.some((k) => active === k);
 
@@ -560,36 +570,33 @@ function ActivityBar({
                         {I.terminal({})}
                     </a>
                 )}
-                <button
-                    className={"ab-btn ab-user-btn" + (userMenu ? " active" : "")}
-                    onClick={(e) => { e.stopPropagation(); setUserMenu((v) => !v); }}
-                    title={`${user.display_name} ${user.last_name} — ${ROLE_LABEL[user.role]}`}
+                <div
+                    className={"ab-btn ab-tools-btn" + (toolsOpen ? " active" : "")}
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); setToolsOpen((v) => !v); }}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setToolsOpen((v) => !v); } }}
+                    title="External Tools"
                 >
-                    <Avatar user={user} className="ab-avatar" />
-                    {userMenu && (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ width: 20, height: 20 }}>
+                        <line x1="4" y1="6" x2="20" y2="6" />
+                        <line x1="4" y1="12" x2="20" y2="12" />
+                        <line x1="4" y1="18" x2="20" y2="18" />
+                    </svg>
+                    {toolsOpen && (
                         <div
                             className="usermenu ab-usermenu"
                             onClick={(e) => e.stopPropagation()}
                         >
                             <div className="um-head">
-                                <div className="nm">{user.display_name} {user.last_name}</div>
-                                <div className="em">{user.username}@mjc-cafeteria.com</div>
+                                <div className="nm">External Tools</div>
                             </div>
-                            <button className="um-item" onClick={() => { goTo('settings'); setUserMenu(false); }}>
-                                {I.user()} My profile
-                            </button>
-                            <button
-                                className="um-item danger"
-                                onClick={() => {
-                                    realLogout();
-                                    (window as any).__logout?.();
-                                }}
-                            >
-                                {I.logout()} Sign out
+                            <button className="um-item" onClick={() => { window.open('https://lunchvoice.com/LionCafe', '_blank', 'noreferrer'); setToolsOpen(false); }}>
+                                LunchVoice — Menu Review
                             </button>
                         </div>
                     )}
-                </button>
+                </div>
             </div>
         </div>
     );
@@ -600,13 +607,27 @@ function StatusBar({
     period,
     stagedCount,
     onOpenSC,
+    active,
+    onNav,
 }: {
     user: User;
     period: [number, number];
     stagedCount: number;
     onOpenSC: () => void;
+    active?: string;
+    onNav?: (k: string) => void;
 }) {
     const [m, y] = period;
+    const activeGrp = NAV.find(g => g.items.some(i => i.key === active));
+    const activeItem = activeGrp?.items.find(i => i.key === active);
+    const crumbs: { label: string; key?: string }[] = [{ label: 'Portal', key: 'dashboard' }];
+    if (activeGrp && activeGrp.group !== 'Overview') {
+        const firstKey = activeGrp.items[0]?.key;
+        crumbs.push({ label: activeGrp.group, key: firstKey });
+    }
+    if (activeItem) {
+        crumbs.push({ label: activeItem.label });
+    }
     return (
         <div className="status-bar">
             <div className="sb-left">
@@ -622,6 +643,18 @@ function StatusBar({
                         <span className="sb-staged-count">{stagedCount} staged</span>
                     </button>
                 )}
+            </div>
+            <div className="sb-breadcrumb">
+                {crumbs.flatMap((c, i) => [
+                    i > 0 ? <span key={`sep-${i}`} className="sb-bc-sep">›</span> : null,
+                    <span
+                        key={c.label}
+                        className={"sb-bc-seg" + (i === crumbs.length - 1 ? " current" : "")}
+                        onClick={() => c.key && onNav?.(c.key)}
+                    >
+                        {c.label}
+                    </span>,
+                ])}
             </div>
             <div className="sb-right">
                 <span>{ROLE_LABEL[user.role]}</span>
@@ -5182,6 +5215,8 @@ export function Portal({
                 period={period}
                 stagedCount={stagedCount}
                 onOpenSC={() => setScPanelOpen(true)}
+                active={active}
+                onNav={goTo}
             />
             <SourceControlPanel
                 user={user}

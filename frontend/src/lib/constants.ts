@@ -89,6 +89,7 @@ export const NAV = [
       { key: 'sourcectrl', label: 'Source Control', icon: 'branch', min: 10, badge: 'pending' },
       { key: 'reports', label: 'Reports', icon: 'download', min: 10 },
       { key: 'archives', label: 'Archives', icon: 'archive', min: 20 },
+      { key: 'lioncafe', label: 'LionCafe', icon: 'coffee', min: 30 },
     ],
   },
   {
