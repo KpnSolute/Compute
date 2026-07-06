@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 from backend.routes import supabase_service
-from backend.routes._deps import _get_auth_user
+from backend.routes._deps import _get_auth_user, _require_assistant
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
@@ -35,7 +35,7 @@ async def create_event(event: EventCreate, auth_user: dict = Depends(_get_auth_u
 
 
 @router.delete("/{event_id}")
-async def delete_event(event_id: str, auth_user: dict = Depends(_get_auth_user)):
+async def delete_event(event_id: str, auth_user: dict = Depends(_require_assistant)):
     result = supabase_service.table("events").delete().eq("id", event_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Event not found")

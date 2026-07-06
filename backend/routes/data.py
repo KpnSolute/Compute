@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 from backend.routes import supabase_service
-from backend.routes._deps import _get_auth_user
+from backend.routes._deps import _get_auth_user, _require_admin_or_manager
 
 router = APIRouter(prefix="/api", tags=["data"])
 
@@ -58,7 +58,7 @@ class ServSafeUpdate(BaseModel):
 
 @router.put("/servsafe/{cert_id}")
 async def update_servsafe(
-    cert_id: str, body: ServSafeUpdate, auth_user: dict = Depends(_get_auth_user)
+    cert_id: str, body: ServSafeUpdate, auth_user: dict = Depends(_require_admin_or_manager)
 ):
     update = body.model_dump(exclude_none=True)
     if not update:

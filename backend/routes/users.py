@@ -32,6 +32,7 @@ from backend.routes import (
     jwt_validator,
     supabase_service,
 )
+from backend.routes._deps import _get_auth_user
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -168,6 +169,7 @@ VALID_SCOPE_KEYS = {
     "sourcectrl",
     "reports",
     "archives",
+    "lioncafe",
     "ai-usage",
     "ai-tools",
     "ai-presets",
@@ -221,6 +223,7 @@ DEFAULT_ROLE_SCOPES = {
         "sourcectrl",
         "reports",
         "archives",
+        "lioncafe",
         "ai-usage",
         "ai-tools",
         "ai-presets",
@@ -841,8 +844,9 @@ async def update_user_preferences(
 
 
 @router.get("/role-scopes")
-async def get_role_scopes(current_user: dict = Depends(_require_manager)):
-    """Return role/group permission scopes. Sudo manages them; manager+ can view."""
+async def get_role_scopes(current_user: dict = Depends(_get_auth_user)):
+    """Return role/group permission scopes. Any authenticated user can view (the
+    frontend needs its own role's scopes to build the nav); sudo manages them."""
     _ = current_user
     return _load_role_scope_payload()
 

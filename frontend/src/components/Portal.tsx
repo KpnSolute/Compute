@@ -4916,12 +4916,8 @@ export function Portal({
 
     useEffect(() => {
         let alive = true;
-        if (lvl < 30) {
-            setRoleScopes(null);
-            return () => {
-                alive = false;
-            };
-        }
+        // All roles fetch scopes — staff/assistant nav is gated by role_permissions too
+        // (GET /users/role-scopes is readable by any authenticated user; PUT stays sudo).
         api.getRoleScopes()
             .then((data) => {
                 if (alive) setRoleScopes(data.scopes || null);
@@ -4992,6 +4988,14 @@ export function Portal({
         if (routeKey === "sourcectrl") {
             setOpenPrId(opts?.prId || null);
             setActive("sourcectrl");
+            return;
+        }
+        if (routeKey === "lioncafe") {
+            if (!canAccess(routeKey)) {
+                toast("Manager access required for this route.");
+                return;
+            }
+            window.open("https://lunchvoice.com/admin", "_blank", "noopener,noreferrer");
             return;
         }
         if (!canAccess(routeKey)) {

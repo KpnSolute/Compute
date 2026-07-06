@@ -4,6 +4,36 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.27.13] - 2026-07-06 - Menu cycle moved to week 4 + LunchVoice API verified
+
+**Codex:** Updated the live `app_settings.menu_cycle_anchor_date` from `2026-06-28` to `2026-06-14` in Supabase `MJCCv1`, so today (`2026-07-06`) resolves to cycle day 23 / cycle week 4 instead of cycle day 9 / week 2.
+
+Verified LunchVoice/LionCafe public API against production:
+- `GET https://mjcc-managements.onrender.com/api/public/menu/today` returns `cycle_day: 23`, `cycle_week: 4`, `day_of_week: Monday`, and current service status.
+- `GET /api/public/menu/cycle?include_stats=true` returns `anchor_date: 2026-06-14`, 28 days, and feedback arrays.
+- `GET /api/public/menu/stats?limit=10` returns a valid empty payload (`rows: []`, `top_meals: []`) because `menu_feedback_summary` currently has 0 rows / 0 total LunchVoice responses.
+- CORS for `Origin: https://lunchvoice.com` is working on GET and OPTIONS; responses include `access-control-allow-origin: https://lunchvoice.com`.
+
+**Verify:** Supabase SQL readback confirmed anchor/date math; production public API calls passed; no code build/test run needed because only a live settings row changed.
+
+**Push:** pending - not yet pushed.
+
+---
+
+## [v4.27.12] - 2026-07-06 - Claude permission prompt allowlist tightened
+
+**Codex:** Reviewed recent Claude transcript tool usage for repeated read-only permission prompts. Most frequent read-only shell patterns were already covered by Claude Code's built-in allow rules (`grep`, `git diff`, `git log`, `git status`, `tail`, `ls`, `cat`, `echo`, `wc`). Mutating commands, arbitrary code execution, Supabase SQL/migration MCP calls, and browser actions were intentionally not allowlisted.
+
+Added two narrow Claude permissions for repeated GET/status probe usage:
+- `Bash(curl -s https://kpncompute.onrender.com/*)`
+- `Bash(curl -s -o /dev/null -w *)`
+
+**Verify:** Read `.claude/settings.json` after the change; the scoped `curl` entries are present. No app build/test run needed because only local agent settings changed.
+
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.27.11] - 2026-07-06 - Student current-service menu modal + menu time adjustments
 
 **Codex:** Updated the dashboard/menu flow so students can tap the Today's Menu card and see the meal currently being served, while staff can configure service windows from the menu settings adjustment panel.
@@ -46,6 +76,20 @@ This is the **central development memory and discussion board** for development 
 **Push:** pending - not yet pushed.
 
 ---
+
+## [v4.27.9] - 2026-07-05 - Access-scope audit: scopes now enforced for ALL roles; backend write guards; permission matrix reconciled
+
+**Claude:** User-requested access-scope discrepancy audit across DB (permission_scopes/role_permissions) / backend enforcement / frontend gating. Findings + fixes:
+
+1. **Scopes were never applied to staff/assistant (critical).** Portal skipped `getRoleScopes()` below lvl 30 (and the GET endpoint required manager+), so `allowedScopes=null` → `hasScope()` allowed everything; only static NAV `min` levels actually gated staff/assistant. The Users & Access permission grid was a placebo for exactly the roles it exists to restrict. Fixed both ends: `GET /api/users/role-scopes` now `_get_auth_user` (any authed user can read the catalog; `PUT` stays sudo-only), and Portal fetches scopes for every role.
+2. **role_permissions reconciled to lived behavior (migration 032, applied live):** staff −{dailyops,dataentry,haccp,inspection,menu} (unreachable at lvl 10 anyway) +{sourcectrl,reports} (NAV min 10 pages they use today — without this, fix #1 would have locked staff out of Source Control/Reports); assistant +sourcectrl −lioncafe (min 30). `permission_scopes.min_role` verified consistent with NAV mins throughout.
+3. **Dead `barcodes` scope retired** (page removed in v4.27.5): scope deactivated + all 5 role grants deleted — no more toggle for a nonexistent page in the sudo grid.
+4. **Backend write-guard gaps closed** (UI-only gating before; a staff PIN token could hit these directly): `DELETE /api/events/{id}` → assistant+ (new `_require_assistant` in _deps, matches UI lvl≥20); `PUT /api/servsafe/{cert_id}` → manager+; all menu writes (`PUT /slot`, `POST /cycle/day/{n}/slots`, `PUT /settings`, `PUT /suggestions/{id}`) → manager+.
+
+Note: CycleMenu UI-side manager gating (read-only editor below lvl 30) is still queued — the delegated agent hit its session limit; backend 403s cover security meanwhile. Verification: ruff clean, 77/77 tests, tsc + build clean; staff-flow live verification after deploy.
+
+**Push:** committed + pushed to main.
+
 
 ## [v4.27.8] - 2026-07-05 - Dashboard "Today's menu" widget rebuilt: structured meals + side chips (was a run-on text blob)
 

@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from backend.periods import business_now
 from backend.routes import supabase_service
-from backend.routes._deps import _get_auth_user
+from backend.routes._deps import _get_auth_user, _require_manager
 
 router = APIRouter(prefix="/api/menu", tags=["menu"])
 
@@ -290,7 +290,7 @@ async def menu_today(auth_user: dict = Depends(_get_auth_user)):
 
 @router.put("/slot/{record_id}")
 async def update_slot(
-    record_id: str, body: SlotUpdate, auth_user: dict = Depends(_get_auth_user)
+    record_id: str, body: SlotUpdate, auth_user: dict = Depends(_require_manager)
 ):
     existing = (
         supabase_service.table("menu_cycle_slots")
@@ -326,7 +326,7 @@ async def update_slot(
 
 @router.post("/cycle/day/{n}/slots")
 async def create_slot(
-    n: int, body: SlotCreate, auth_user: dict = Depends(_get_auth_user)
+    n: int, body: SlotCreate, auth_user: dict = Depends(_require_manager)
 ):
     if not 1 <= n <= CYCLE_LENGTH:
         raise HTTPException(status_code=400, detail="cycle_day must be 1-28")
@@ -388,7 +388,7 @@ async def get_settings(auth_user: dict = Depends(_get_auth_user)):
 
 @router.put("/settings")
 async def update_settings(
-    body: SettingsUpdate, auth_user: dict = Depends(_get_auth_user)
+    body: SettingsUpdate, auth_user: dict = Depends(_require_manager)
 ):
     try:
         parsed = date.fromisoformat(body.anchor_date)
@@ -416,7 +416,7 @@ async def list_suggestions(status: str = "", auth_user: dict = Depends(_get_auth
 async def update_suggestion(
     suggestion_id: str,
     body: SuggestionStatusUpdate,
-    auth_user: dict = Depends(_get_auth_user),
+    auth_user: dict = Depends(_require_manager),
 ):
     if body.status not in VALID_SUGGESTION_STATUS:
         raise HTTPException(

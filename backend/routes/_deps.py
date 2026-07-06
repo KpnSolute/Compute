@@ -74,6 +74,12 @@ def _require_admin_or_manager(auth_user: dict = Depends(_get_auth_user)) -> dict
 _require_manager = _require_admin_or_manager
 
 
+def _require_assistant(auth_user: dict = Depends(_get_auth_user)) -> dict:
+    if ROLE_LEVEL.get(auth_user.get("role"), 0) < 20:
+        raise HTTPException(status_code=403, detail="Assistant role or higher required")
+    return auth_user
+
+
 def ensure_pr_for_entries(
     entry_ids: list[str],
     author_id: str,
