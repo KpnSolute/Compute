@@ -15,7 +15,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verify:** `ruff check` + `ruff format --check` clean for touched backend routes; `npx tsc --noEmit` clean; `npm run lint -- --quiet` clean; `npm run build` passed with existing Vite chunk/dynamic-import warnings; `pytest backend\tests\test_public_menu_stats.py backend\tests\test_menu_cycle_math.py -q` passed, 7/7; production `/api/public/menu/today` returned 200 on the old deployed shape. Local `import backend.main` is blocked because this workspace currently has no root `.env` and no Supabase env vars in the shell.
 
-**Push:** pending - not yet pushed.
+**Push:** Codex -> 5e0787c - 2026-07-06 00:26 -04:00
 
 ---
 
