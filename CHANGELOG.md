@@ -69,6 +69,25 @@ Flow = the work protocol: assigning + tracking kitchen work. **Rebrands Daily Op
 
 ---
 
+## [v4.28.2] - 2026-07-06 - Flow label rebrand completed (Phase 1 gap closed)
+
+**Claude:** User caught that v4.28.1 added the Flow header button but never actually rebranded the "Daily Operations" user-facing text — the button pointed at a view that still called itself "Daily Operations" everywhere. Fixed directly (small, no CLI delegation needed):
+
+- `frontend/src/lib/constants.ts`: NAV label `'Daily Operations'` → `'Flow'` (key stays `dailyops`).
+- `frontend/src/components/Portal.tsx`: quick-links label `"Daily operations"` → `"Flow"`.
+- `frontend/src/components/DailyOps.tsx`: page `<h2>` and formbar-meta note → `"Flow"`.
+- `frontend/src/components/Reports.tsx`: report `name: 'Daily Operations'` → `'Flow'`.
+
+**Deliberately left unchanged** (data-category labels, not page branding): `AIStudio.tsx`'s `get_daily_logs`/`Daily Ops Logs`/`Daily Ops Summary` (AI tool names describing the log data type), `Settings.tsx`'s `daily_ops` AI parsing tool label, `SourceControl.tsx`'s `"Daily ops"` op-kind display (audit/history label for staged `daily_log_save` entries). Renaming these would touch AI tool routing and historical audit display, not the Flow page itself — out of scope for a label rebrand.
+
+`VIEW_LABELS` and the Status Panel breadcrumb both derive from `NAV` dynamically, so they picked up the fix automatically — verified live via `.click()` in the dev server: header subtitle, breadcrumb ("Portal › Logs › Flow"), Explorer nav item, and page heading all read "Flow".
+
+**Verify:** `npx tsc --noEmit` clean. Verified live in browser (screenshot + DOM check).
+
+**Push:** committed + pushed to main.
+
+---
+
 ## [v4.27.13] - 2026-07-06 - Menu cycle moved to week 4 + LunchVoice API verified
 
 **Codex:** Updated the live `app_settings.menu_cycle_anchor_date` from `2026-06-28` to `2026-06-14` in Supabase `MJCCv1`, so today (`2026-07-06`) resolves to cycle day 23 / cycle week 4 instead of cycle day 9 / week 2.
