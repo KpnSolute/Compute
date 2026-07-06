@@ -63,6 +63,21 @@ Added two narrow Claude permissions for repeated GET/status probe usage:
 
 ---
 
+## [v4.27.10] - 2026-07-06 - LionCafe staff access now driven by the MJCC 'lioncafe' permission scope (was hardcoded sudo-only)
+
+**Claude:** Follow-up to the v4.27.9 access-scope audit — user reported grant.roshaun (admin) getting "Staff username not found." on lunchvoice.com/LionCafe/login.
+
+Root cause: all three LunchVoice auth edge functions (`login-start`, `staff-login`, `staff-status` on `qprfonxvthmaoxfixigk`) hardcoded `role === 'sudo'` when validating MJCC profiles — only jeremiah/othniel could ever staff-login; the MJCC scope system was ignored entirely.
+
+Fix (deployed live via MCP `deploy_edge_function` — login-start v17, staff-login v28, staff-status v16): each function now queries MJCCv1 `role_permissions` for roles holding the **`lioncafe` scope** (`allowed=true`) and admits those; falls back to sudo-only if the lookup fails or the scope has no grants. `staff-login` also stores `mjcc_role` in user metadata and its 403 message no longer claims "sudo" is required. Net effect: LionCafe staff access is managed from the MJCC portal's Users & Access grid — grant/revoke `lioncafe` per role and it propagates to the site (staff-status revalidates persisted sessions, so revocation kicks existing sessions too).
+
+Live verification against prod login-start: grant.roshaun (admin) → `{kind:"staff"}`; torrez.dinitza (manager) → `{kind:"staff"}`; jeremiah (sudo) → ok; staff5 (staff) → 404 (staff role has no lioncafe grant). Current grants: manager, admin, sudo.
+
+**Drift note:** the Interact repo's copies of these three functions are now behind the deployed versions (repo intentionally not pushed per user instruction) — sync the function sources when LunchVoice work resumes.
+
+**Push:** CHANGELOG-only commit on MJCC main; edge functions deployed directly.
+
+
 ## [v4.27.9] - 2026-07-05 - LunchVoice public feedback stats API
 
 **Codex + Claude:** Added read-only public exposure of LunchVoice meal feedback stats from `menu_feedback_summary`, so KPN/MJCC compute can see most-voted meals and rating aggregates while LunchVoice continues writing the survey output.
