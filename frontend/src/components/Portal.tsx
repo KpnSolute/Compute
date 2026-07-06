@@ -4183,17 +4183,23 @@ function UsersView({ user: currentUser }: { user: User }) {
                                 <div style={{ fontWeight: 850, marginBottom: 8 }}>{ROLE_LABEL[role]}</div>
                                 <div style={{ display: "grid", gap: 6 }}>
                                     {availableScopes.map((scope) => {
-                                        const label = NAV.flatMap((g) => g.items).find((it) => it.key === scope)?.label || scope;
+                                        const navItem = NAV.flatMap((g) => g.items).find((it) => it.key === scope);
+                                        const label = navItem?.label || scope;
                                         const checked = roleScopes[role]?.includes(scope) || role === "sudo";
+                                        const unreachable = role !== "sudo" && ROLE_LEVEL[role as Role] < (navItem?.min || 0);
                                         return (
-                                            <label key={`${role}-${scope}`} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12 }}>
+                                            <label
+                                                key={`${role}-${scope}`}
+                                                style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, opacity: unreachable ? 0.45 : 1 }}
+                                                title={unreachable ? `${ROLE_LABEL[role as Role]} is below the level this page requires — granting it here has no effect` : undefined}
+                                            >
                                                 <input
                                                     type="checkbox"
                                                     checked={checked}
-                                                    disabled={role === "sudo"}
+                                                    disabled={role === "sudo" || unreachable}
                                                     onChange={() => toggleScope(role, scope)}
                                                 />
-                                                <span>{label}</span>
+                                                <span>{label}{unreachable && <span style={{ marginLeft: 5, fontSize: 10, color: "var(--faint)" }}>(role level too low)</span>}</span>
                                             </label>
                                         );
                                     })}

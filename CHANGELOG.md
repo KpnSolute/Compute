@@ -49,6 +49,21 @@ Added two narrow Claude permissions for repeated GET/status probe usage:
 
 ---
 
+## [v4.27.11] - 2026-07-06 - Role Scopes grid honesty fix + closed a real backend write-guard gap it exposed
+
+**Claude:** User screenshotted the Users & Access "Role Scopes" grid (staff had HACCP & Logs and Tools checked) and asked to verify it actually works.
+
+**DB round-trip confirmed working** — the grid's PUT/GET against `role_permissions` is correct; the checked boxes matched live DB state exactly.
+
+**But found a real UI-honesty bug:** the grid lets sudo check a scope for any role regardless of that role's fixed `ROLE_LEVEL` — e.g. staff (level 10) had "HACCP & Logs" (requires 20) and "Tools" (requires 30) checked, which can never take effect since the frontend nav gate (`lvl >= item.min`) blocks staff from reaching those pages no matter what the scope table says. Sudo had no way to know these checkboxes were inert. **Fixed:** checkboxes for scopes above a role's level are now disabled, dimmed, and labeled "(role level too low)" with an explanatory tooltip — can't grant something that silently does nothing.
+
+**That inspection also surfaced a real backend gap:** `POST /api/logs/haccp` and `POST /api/logs/daily` had zero role enforcement — any authenticated user (including a staff PIN token) could write HACCP/inspection/checklist/incident/meal-schedule entries directly via API, even though the frontend hides those pages below assistant level. Fixed: `POST /api/logs/haccp` now `_require_assistant`. `POST /api/logs/daily` is trickier — it's a **shared** endpoint also used by `meal_log` and `food_request` (NAV min 10, staff-accessible) — a blanket assistant+ gate would have broken staff's Meal Log/Food Request submissions. Added per-`entry_type` gating instead: `inspection`/`checklist_state`/`meal_schedule`/`incident` require assistant+; `meal_log`/`food_request` (and anything else) stay open to any authenticated role, matching their actual NAV min.
+
+Verification: ruff clean, 77/77 backend tests (regression-checked the shared-endpoint fix specifically), tsc + build clean.
+
+**Push:** committed + pushed to main.
+
+
 ## [v4.27.10] - 2026-07-05 - Menu day editor inline sheet + LionCafe stats in dashboard
 
 **Codex:** Continued Claude's cycle-menu work from the current `main` state.

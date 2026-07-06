@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, ConfigDict, Field
 from backend.routes import supabase_service
-from backend.routes._deps import _get_auth_user
+from backend.routes._deps import ROLE_LEVEL, _get_auth_user, _require_assistant
 
 router = APIRouter(prefix="/api/logs", tags=["logs"])
 
@@ -113,7 +113,7 @@ async def get_haccp_logs(
 
 @router.post("/haccp", response_model=HACCPLogResponse, status_code=201)
 async def record_haccp_log(
-    entry: HACCPLogEntry, auth_user: dict = Depends(_get_auth_user)
+    entry: HACCPLogEntry, auth_user: dict = Depends(_require_assistant)
 ):
     """
     Record a new HACCP temperature check.
@@ -216,6 +216,11 @@ async def get_daily_logs(
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
+#: entry_types below assistant-only (dailyops/inspection) NAV pages — meal_log and
+#: food_request are staff-accessible (NAV min 10) and share this endpoint.
+ASSISTANT_ONLY_ENTRY_TYPES = {"inspection", "checklist_state", "meal_schedule", "incident"}
+
+
 @router.post("/daily", response_model=DailyLogResponse, status_code=201)
 async def record_daily_log(
     entry: DailyLogEntry, auth_user: dict = Depends(_get_auth_user)
@@ -223,7 +228,9 @@ async def record_daily_log(
     """
     Record a new daily operations log entry.
 
-    Requires: Valid authentication token
+    Requires: Valid authentication token (assistant role or higher for
+    inspection/checklist/schedule/incident entry types — see
+    ASSISTANT_ONLY_ENTRY_TYPES; meal_log and food_request stay staff-accessible)
 
     Request Body:
     - entry_type: Type of entry (inventory, prep, issue, other)
@@ -237,8 +244,15 @@ async def record_daily_log(
     Raises:
         400: Invalid input
         401: Missing or invalid auth
+        403: Entry type requires assistant role or higher
         500: Database error
     """
+    if entry.entry_type in ASSISTANT_ONLY_ENTRY_TYPES and ROLE_LEVEL.get(
+        auth_user.get("role"), 0
+    ) < 20:
+        raise HTTPException(
+            status_code=403, detail="Assistant role or higher required"
+        )
     try:
         now = datetime.now(timezone.utc).isoformat()
         result = (
