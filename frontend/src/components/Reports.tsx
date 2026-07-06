@@ -584,7 +584,7 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
     },
     {
       id: 'dailyops',
-      name: 'Daily Operations',
+      name: 'Flow',
       group: 'Compliance',
       icon: 'checkSquare',
       period: 'all dates',

@@ -227,7 +227,7 @@ export function DailyOps({ user }: { user: User }) {
     <div className="fade-in">
       <div className="page-head">
         <div>
-          <h2>Daily Operations</h2>
+          <h2>Flow</h2>
           <div className="ph-sub">
             Opening checklist, meal schedule &amp; incident log
           </div>
@@ -508,7 +508,7 @@ export function DailyOps({ user }: { user: User }) {
         savePrimary
         note={
           <span className="formbar-meta">
-            Daily operations · {new Date(date + 'T12:00:00').toLocaleDateString()}
+            Flow · {new Date(date + 'T12:00:00').toLocaleDateString()}
           </span>
         }
       />

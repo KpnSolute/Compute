@@ -975,7 +975,7 @@ function Dashboard({
             min: 20,
         },
         {
-            label: "Daily operations",
+            label: "Flow",
             icon: "checkSquare",
             to: "dailyops",
             min: 20,
