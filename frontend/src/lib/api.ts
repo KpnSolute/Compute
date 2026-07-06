@@ -272,6 +272,21 @@ export interface PublicMenuCycleDay {
 }
 export interface PublicMenuCycle { anchor_date: string; days: PublicMenuCycleDay[] }
 
+export interface MenuFeedbackRow {
+  id: string;
+  cycle_day: number;
+  slot: string;
+  dish_name: string;
+  avg_rating?: number | null;
+  response_count?: number | null;
+  updated_at?: string | null;
+}
+
+export interface PublicMenuStats {
+  rows: MenuFeedbackRow[];
+  top_meals: MenuFeedbackRow[];
+}
+
 export interface MenuSuggestion {
   id: string;
   source: string;
@@ -534,6 +549,12 @@ export const api = {
   // Public, unauthenticated — all 28 days + dishes in one call (dashboard previews)
   async getPublicMenuCycle(): Promise<PublicMenuCycle> {
     const res = await fetch(`${BASE}/api/public/menu/cycle`, { cache: 'no-store' });
+    if (!res.ok) throw new ApiError(res.status, await res.text().catch(() => res.statusText));
+    return res.json();
+  },
+
+  async getPublicMenuStats(limit = 8): Promise<PublicMenuStats> {
+    const res = await fetch(`${BASE}/api/public/menu/stats?limit=${encodeURIComponent(String(limit))}`, { cache: 'no-store' });
     if (!res.ok) throw new ApiError(res.status, await res.text().catch(() => res.statusText));
     return res.json();
   },

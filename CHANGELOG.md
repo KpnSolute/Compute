@@ -4,6 +4,20 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.27.10] - 2026-07-05 - Menu day editor inline sheet + LionCafe stats in dashboard
+
+**Codex:** Continued Claude's cycle-menu work from the current `main` state.
+
+- **`frontend/src/components/CycleMenu.tsx`** - The per-day editor now opens as a large day-sheet modal over the menu dashboard instead of replacing the page. Each scheduled slot renders as a compact assignment row with the slot label on the left and an inline editable autocomplete input on the right; Enter/blur saves through `PUT /api/menu/slot/{record_id}` and autocomplete picks are guarded against duplicate saves. Active/inactive toggles remain available per row, and adding slots still uses the existing create-slot flow.
+- **LionCafe stats** - The dashboard now consumes the existing public `GET /api/public/menu/stats` endpoint, shows total LionCafe response count in the hero, renders a compact top-feedback strip, and adds per-day feedback chips when ratings exist. Verified the production endpoint is healthy; it currently returns empty rows/top_meals until LunchVoice submits rating data.
+- **`frontend/src/lib/api.ts` / `frontend/src/index.css`** - Added typed public menu stats client helpers and the new editor/stat-strip styles using the existing MJCC design tokens.
+
+**Verify:** `npx tsc --noEmit` clean; `npm run lint -- --quiet` clean; `npm run build` passed with existing Vite chunk/dynamic-import warnings; `python -m pytest backend\tests\test_public_menu_stats.py backend\tests\test_menu_cycle_math.py -q` passed, 7/7; local Vite server running at `http://127.0.0.1:5173/`; prod `/api/public/menu/stats?limit=4` returned 200 with empty stats arrays.
+
+**Push:** pending - not yet pushed.
+
+---
+
 ## [v4.27.9] - 2026-07-05 - LunchVoice public feedback stats API
 
 **Codex + Claude:** Added read-only public exposure of LunchVoice meal feedback stats from `menu_feedback_summary`, so KPN/MJCC compute can see most-voted meals and rating aggregates while LunchVoice continues writing the survey output.

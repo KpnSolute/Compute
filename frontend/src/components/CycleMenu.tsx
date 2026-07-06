@@ -2,7 +2,16 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import type { User } from '../lib/constants';
 import { I } from '../lib/icons';
 import { api } from '../lib/api';
-import type { MenuCycleOverview, MenuCycleDay, MenuSlot, MenuSuggestion, PublicMenuCycle, PublicMenuCycleDay } from '../lib/api';
+import type {
+  MenuCycleOverview,
+  MenuCycleDay,
+  MenuSlot,
+  MenuSuggestion,
+  PublicMenuCycle,
+  PublicMenuCycleDay,
+  PublicMenuStats,
+  MenuFeedbackRow,
+} from '../lib/api';
 
 const t = (msg: string) => (window as any).toast?.(msg);
 
@@ -61,9 +70,15 @@ function ErrorBox({ msg, onRetry }: { msg: string; onRetry: () => void }) {
   );
 }
 
+function formatRating(value?: number | null): string {
+  const n = Number(value || 0);
+  return n > 0 ? n.toFixed(1) : 'N/A';
+}
+
 export function CycleMenu({ user: _user }: { user: User }) {
   const [overview, setOverview] = useState<MenuCycleOverview | null>(null);
   const [pub, setPub] = useState<PublicMenuCycle | null>(null);
+  const [feedbackStats, setFeedbackStats] = useState<PublicMenuStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
@@ -76,12 +91,14 @@ export function CycleMenu({ user: _user }: { user: User }) {
     setLoading(true);
     setErr(null);
     try {
-      const [data, pubData] = await Promise.all([
+      const [data, pubData, statsData] = await Promise.all([
         api.getMenuCycleOverview(),
         api.getPublicMenuCycle().catch(() => null),
+        api.getPublicMenuStats(8).catch(() => null),
       ]);
       setOverview(data);
       setPub(pubData);
+      setFeedbackStats(statsData);
     } catch (e: any) {
       setErr(e?.message || 'Failed to load cycle menu');
     }
@@ -126,16 +143,17 @@ export function CycleMenu({ user: _user }: { user: User }) {
     setSelectedDay(cycleDay);
   }
 
-  if (selectedDay !== null) {
-    return (
-      <DayEditor
-        cycleDay={selectedDay}
-        onBack={() => setSelectedDay(null)}
-      />
-    );
-  }
-
   const newSuggestions = suggestions.length;
+  const feedbackRows = feedbackStats?.rows || [];
+  const feedbackByDay = useMemo(() => {
+    const map = new Map<number, MenuFeedbackRow[]>();
+    for (const row of feedbackRows) {
+      map.set(row.cycle_day, [...(map.get(row.cycle_day) || []), row]);
+    }
+    return map;
+  }, [feedbackRows]);
+  const totalFeedbackResponses = feedbackRows.reduce((sum, row) => sum + Number(row.response_count || 0), 0);
+  const topFeedback = feedbackStats?.top_meals?.[0] || null;
 
   return (
     <div className="fade-in">
@@ -160,9 +178,33 @@ export function CycleMenu({ user: _user }: { user: User }) {
             <span className="cm-status-pill">Anchor <strong>{overview.anchor_date}</strong></span>
             <span className="cm-status-pill">{Math.max(...overview.days.map(d => d.cycle_week))} weeks · {overview.days.length} days</span>
             <span className={`cm-status-pill${newSuggestions > 0 ? ' warn' : ''}`}><strong>{newSuggestions}</strong> new suggestions</span>
+            <span className="cm-status-pill"><strong>{totalFeedbackResponses}</strong> LionCafe responses</span>
           </div>
         )}
       </div>
+
+      {feedbackStats && (
+        <div className="cm-lion-strip">
+          <div className="cm-lion-summary">
+            <span className="cm-lion-kicker">LionCafe stats</span>
+            <strong>{topFeedback?.dish_name || 'No ratings yet'}</strong>
+            <span>
+              {topFeedback
+                ? `Top feedback: ${formatRating(topFeedback.avg_rating)} avg from ${topFeedback.response_count || 0} response${topFeedback.response_count === 1 ? '' : 's'}`
+                : 'Feedback appears here as students submit ratings.'}
+            </span>
+          </div>
+          <div className="cm-lion-list">
+            {(feedbackStats.top_meals || []).slice(0, 4).map(row => (
+              <div className="cm-lion-card" key={row.id}>
+                <span>Day {row.cycle_day} - {row.slot}</span>
+                <strong>{row.dish_name}</strong>
+                <em>{formatRating(row.avg_rating)} avg - {row.response_count || 0} votes</em>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {loading && (
         <div className="card" style={{ padding: '40px' }}><Loading label="Loading cycle menu…" /></div>
@@ -194,6 +236,7 @@ export function CycleMenu({ user: _user }: { user: User }) {
           <CycleOverviewGrid
             overview={overview}
             mealsByDay={mealsByDay}
+            feedbackByDay={feedbackByDay}
             matchedDays={matchedDays}
             onSelectDay={setSelectedDay}
           />
@@ -213,6 +256,12 @@ export function CycleMenu({ user: _user }: { user: User }) {
           todayCycleDay={overview?.today.cycle_day}
           onClose={() => setSettingsOpen(false)}
           onSaved={loadOverview}
+        />
+      )}
+      {selectedDay !== null && (
+        <DayEditor
+          cycleDay={selectedDay}
+          onBack={() => setSelectedDay(null)}
         />
       )}
     </div>
@@ -235,9 +284,10 @@ function calendarDateFor(cycleDay: number, anchorDate: string): string {
   return occurrence.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-function CycleOverviewGrid({ overview, mealsByDay, matchedDays, onSelectDay }: {
+function CycleOverviewGrid({ overview, mealsByDay, feedbackByDay, matchedDays, onSelectDay }: {
   overview: MenuCycleOverview;
   mealsByDay: Map<number, PublicMenuCycleDay>;
+  feedbackByDay: Map<number, MenuFeedbackRow[]>;
   matchedDays: Set<number> | null;
   onSelectDay: (n: number) => void;
 }) {
@@ -259,6 +309,7 @@ function CycleOverviewGrid({ overview, mealsByDay, matchedDays, onSelectDay }: {
                   key={d.cycle_day}
                   day={d}
                   meals={mealsByDay.get(d.cycle_day)}
+                  feedback={feedbackByDay.get(d.cycle_day) || []}
                   isToday={d.cycle_day === overview.today.cycle_day}
                   anchorDate={overview.anchor_date}
                   onClick={() => onSelectDay(d.cycle_day)}
@@ -272,14 +323,16 @@ function CycleOverviewGrid({ overview, mealsByDay, matchedDays, onSelectDay }: {
   );
 }
 
-function DayCard({ day, meals, isToday, anchorDate, onClick }: {
+function DayCard({ day, meals, feedback, isToday, anchorDate, onClick }: {
   day: MenuCycleOverview['days'][number];
   meals?: PublicMenuCycleDay;
+  feedback: MenuFeedbackRow[];
   isToday: boolean;
   anchorDate: string;
   onClick: () => void;
 }) {
   const periods = meals ? Object.keys(meals.meals) : [];
+  const topFeedback = feedback[0];
   return (
     <button className={`cm-day-card${isToday ? ' today' : ''}`} onClick={onClick}>
       <div className="cm-day-card-head">
@@ -297,6 +350,13 @@ function DayCard({ day, meals, isToday, anchorDate, onClick }: {
       {periods.length === 0 && (
         <div style={{ fontSize: 11, color: 'var(--faint)' }}>
           {day.zone === 2 ? `${day.morning_service} / ${day.evening_service}` : `${day.morning_service} / ${day.midday_service} / ${day.evening_service}`}
+        </div>
+      )}
+      {topFeedback && (
+        <div className="cm-feedback-chip">
+          <span>LionCafe</span>
+          <strong>{formatRating(topFeedback.avg_rating)}</strong>
+          <em>{topFeedback.dish_name}</em>
         </div>
       )}
       {periods.map(period => {
@@ -377,51 +437,130 @@ function DayEditor({ cycleDay, onBack }: { cycleDay: number; onBack: () => void 
     setDay(d => d ? { ...d, slots: [...d.slots, created] } : d);
   }
 
+  const assignmentCount = day?.slots.filter(slot => slot.active).length || 0;
+
   return (
-    <div className="fade-in">
-      <div className="page-head">
-        <div>
-          <button className="btn" onClick={onBack} style={{ marginBottom: 8 }}>{I.chevL()} Back to cycle</button>
-          <h2>{day ? `Day ${day.cycle_day} — ${day.day_of_week} (Week ${day.cycle_week})` : `Day ${cycleDay}`}</h2>
+    <div className="overlay cm-editor-overlay" onClick={e => { if (e.target === e.currentTarget) onBack(); }}>
+      <div className="cm-day-editor-modal" role="dialog" aria-modal="true" aria-label="Menu day editor">
+        <div className="cm-day-editor-head">
+          <div>
+            <p className="cm-editor-kicker">
+              {day ? `Week ${day.cycle_week} - Cycle Day ${day.cycle_day}` : `Cycle Day ${cycleDay}`}
+            </p>
+            <h2>{day?.day_of_week || 'Loading day'}</h2>
+            <span>{assignmentCount} menu assignment{assignmentCount === 1 ? '' : 's'}</span>
+          </div>
+          <button className="cm-editor-close" onClick={onBack} aria-label="Close day editor">{I.x()}</button>
         </div>
-      </div>
 
-      {loading && <div className="card" style={{ padding: '40px' }}><Loading label="Loading day…" /></div>}
-      {!loading && err && <ErrorBox msg={err} onRetry={load} />}
-      {!loading && !err && day && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {sections.map(({ period, slots }) => (
-            <div className="cm-meal-section" key={period}>
-              <div className="cm-meal-section-head">
-                <h4>{period}</h4>
-                <span className="ch-link" onClick={() => setAddingPeriod(period)} style={{ cursor: 'pointer' }}>+ Add slot · {slots.length}</span>
-              </div>
-              <div>
-                {slots.map(slot => (
-                  <SlotRow key={slot.record_id} slot={slot} onUpdated={updateSlotLocal} />
-                ))}
-                {slots.length === 0 && (
-                  <div style={{ padding: '16px 13px', fontSize: 12, color: 'var(--faint)' }}>No slots yet.</div>
-                )}
-              </div>
-            </div>
-          ))}
-
-          {addingPeriod && (
-            <AddSlotModal
-              cycleDay={day.cycle_day}
-              period={addingPeriod}
-              onClose={() => setAddingPeriod(null)}
-              onAdded={(s) => { addSlotLocal(s); setAddingPeriod(null); }}
-            />
+        <div className="cm-day-editor-body">
+          {loading && <Loading label="Loading day..." />}
+          {!loading && err && <ErrorBox msg={err} onRetry={load} />}
+          {!loading && !err && day && (
+            <>
+              {sections.map(({ period, slots }) => (
+                <div className="cm-assignment-section" key={period}>
+                  <div className="cm-assignment-period">
+                    <span>{period}</span>
+                    <button type="button" onClick={() => setAddingPeriod(period)}>Add slot - {slots.length}</button>
+                  </div>
+                  {slots.map(slot => (
+                    <AssignmentRow key={slot.record_id} slot={slot} onUpdated={updateSlotLocal} />
+                  ))}
+                  {slots.length === 0 && (
+                    <div className="cm-assignment-empty">No slots yet.</div>
+                  )}
+                </div>
+              ))}
+            </>
           )}
         </div>
-      )}
+
+        {addingPeriod && day && (
+          <AddSlotModal
+            cycleDay={day.cycle_day}
+            period={addingPeriod}
+            onClose={() => setAddingPeriod(null)}
+            onAdded={(s) => { addSlotLocal(s); setAddingPeriod(null); }}
+          />
+        )}
+      </div>
+    </div>
+  );
+
+}
+
+function AssignmentRow({ slot, onUpdated }: { slot: MenuSlot; onUpdated: (s: MenuSlot) => void }) {
+  const [text, setText] = useState(slot.item_name || '');
+  const [pickedId, setPickedId] = useState<string | null>(slot.item_id || null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const savingRef = useRef(false);
+
+  useEffect(() => {
+    setText(slot.item_name || '');
+    setPickedId(slot.item_id || null);
+    setErr(null);
+  }, [slot.item_id, slot.item_name]);
+
+  async function save(nextText = text, nextId = pickedId) {
+    const clean = nextText.trim();
+    if (!clean || savingRef.current) return;
+    if (clean === (slot.item_name || '') && nextId === (slot.item_id || null)) return;
+    savingRef.current = true;
+    setBusy(true);
+    setErr(null);
+    try {
+      const updated = await api.updateMenuSlot(slot.record_id, nextId ? { item_id: nextId } : { item_name: clean });
+      onUpdated(updated);
+    } catch (e: any) {
+      setErr(e?.message || 'Failed to save');
+    }
+    savingRef.current = false;
+    setBusy(false);
+  }
+
+  async function toggleActive() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const updated = await api.updateMenuSlot(slot.record_id, { active: !slot.active });
+      onUpdated(updated);
+    } catch (e: any) {
+      setErr(e?.message || 'Failed to update slot');
+    }
+    setBusy(false);
+  }
+
+  return (
+    <div className={`cm-assignment-row${slot.active ? '' : ' inactive'}`}>
+      <div className="cm-assignment-label">
+        <span>{slot.slot_name}</span>
+        {SIDE_SLOTS.has(slot.slot_name) && <em>{shortSideLabel(slot.slot_name)}</em>}
+      </div>
+      <div className="cm-assignment-input">
+        <ItemAutocomplete
+          value={text}
+          inputClassName="cm-menu-input"
+          onChange={v => { setText(v); setPickedId(null); }}
+          onPick={item => {
+            setText(item.name);
+            setPickedId(item.id);
+            save(item.name, item.id);
+          }}
+          onCommit={() => save()}
+          placeholder="Search or type menu item"
+        />
+        {err && <span className="cm-assignment-error">{err}</span>}
+      </div>
+      <button className="cm-assignment-toggle" disabled={busy} onClick={toggleActive}>
+        {slot.active ? 'On' : 'Off'}
+      </button>
     </div>
   );
 }
 
-function SlotRow({ slot, onUpdated }: { slot: MenuSlot; onUpdated: (s: MenuSlot) => void }) {
+export function LegacySlotRow({ slot, onUpdated }: { slot: MenuSlot; onUpdated: (s: MenuSlot) => void }) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -464,11 +603,13 @@ function SlotRow({ slot, onUpdated }: { slot: MenuSlot; onUpdated: (s: MenuSlot)
 
 // ── Item autocomplete ───────────────────────────────────────────────────────
 
-function ItemAutocomplete({ value, onChange, onPick, placeholder }: {
+function ItemAutocomplete({ value, onChange, onPick, placeholder, onCommit, inputClassName }: {
   value: string;
   onChange: (v: string) => void;
   onPick: (item: { id: string; name: string }) => void;
   placeholder?: string;
+  onCommit?: () => void;
+  inputClassName?: string;
 }) {
   const [results, setResults] = useState<Array<{ id: string; name: string; active: boolean }>>([]);
   const [open, setOpen] = useState(false);
@@ -489,12 +630,22 @@ function ItemAutocomplete({ value, onChange, onPick, placeholder }: {
   return (
     <div style={{ position: 'relative' }}>
       <input
-        className="ipt sel"
+        className={inputClassName || 'ipt sel'}
         value={value}
         placeholder={placeholder || 'Type a dish name…'}
         onChange={e => { onChange(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onBlur={() => {
+          setTimeout(() => setOpen(false), 150);
+          onCommit?.();
+        }}
+        onKeyDown={e => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            onCommit?.();
+            e.currentTarget.blur();
+          }
+        }}
       />
       {open && results.length > 0 && (
         <div style={{
