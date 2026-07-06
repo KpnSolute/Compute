@@ -472,6 +472,7 @@ function ActivityBar({
     scOpen,
     scCount,
     goTo,
+    allowedScopes,
 }: {
     user: User;
     active: string;
@@ -481,6 +482,7 @@ function ActivityBar({
     scOpen: boolean;
     scCount: number;
     goTo: (k: string) => void;
+    allowedScopes?: string[] | null;
 }) {
     const lvl = ROLE_LEVEL[user.role];
     const [toolsOpen, setToolsOpen] = useState(false);
@@ -492,6 +494,9 @@ function ActivityBar({
     }, [toolsOpen]);
 
     const inGroup = (keys: string[]) => keys.some((k) => active === k);
+    const hasScope = (key: string) => !allowedScopes || allowedScopes.includes(key);
+    const aiKeys = ["ai-usage", "ai-tools", "ai-presets"];
+    const firstAllowedAiKey = aiKeys.find(hasScope) ?? "ai-usage";
 
     return (
         <div className="activity-bar">
@@ -503,43 +508,53 @@ function ActivityBar({
                 >
                     {I.grid({})}
                 </button>
-                <button
-                    className={"ab-btn" + (inGroup(["inventory", "moninv", "pullsheet"]) ? " active" : "")}
-                    onClick={() => goTo("inventory")}
-                    title="Inventory"
-                >
-                    {I.box({})}
-                </button>
-                <button
-                    className={"ab-btn" + (active === "sourcectrl" || scOpen ? " active" : "")}
-                    onClick={() => active === "sourcectrl" ? onToggleSC() : goTo("sourcectrl")}
-                    title="Source Control"
-                >
-                    {I.branch({})}
-                    {scCount > 0 && <span className="ab-badge">{scCount > 9 ? "9+" : scCount}</span>}
-                </button>
-                <button
-                    className={"ab-btn" + (active === "dataentry" ? " active" : "")}
-                    onClick={() => goTo("dataentry")}
-                    title="Data Entry"
-                >
-                    {I.inbox({})}
-                </button>
-                <button
-                    className={"ab-btn" + (inGroup(["events", "menu"]) ? " active" : "")}
-                    onClick={() => goTo("events")}
-                    title="Events & Menu"
-                >
-                    {I.calCheck({})}
-                </button>
-                <button
-                    className={"ab-btn" + (active.startsWith("ai-") ? " active" : "")}
-                    onClick={() => goTo("ai-usage")}
-                    title="AI Studio"
-                >
-                    {I.flame({})}
-                </button>
-                {lvl >= 30 && (
+                {hasScope("inventory") && (
+                    <button
+                        className={"ab-btn" + (inGroup(["inventory", "moninv", "pullsheet"]) ? " active" : "")}
+                        onClick={() => goTo("inventory")}
+                        title="Inventory"
+                    >
+                        {I.box({})}
+                    </button>
+                )}
+                {hasScope("sourcectrl") && (
+                    <button
+                        className={"ab-btn" + (active === "sourcectrl" || scOpen ? " active" : "")}
+                        onClick={() => active === "sourcectrl" ? onToggleSC() : goTo("sourcectrl")}
+                        title="Source Control"
+                    >
+                        {I.branch({})}
+                        {scCount > 0 && <span className="ab-badge">{scCount > 9 ? "9+" : scCount}</span>}
+                    </button>
+                )}
+                {hasScope("dataentry") && (
+                    <button
+                        className={"ab-btn" + (active === "dataentry" ? " active" : "")}
+                        onClick={() => goTo("dataentry")}
+                        title="Data Entry"
+                    >
+                        {I.inbox({})}
+                    </button>
+                )}
+                {(hasScope("events") || hasScope("menu")) && (
+                    <button
+                        className={"ab-btn" + (inGroup(["events", "menu"]) ? " active" : "")}
+                        onClick={() => goTo("events")}
+                        title="Events & Menu"
+                    >
+                        {I.calCheck({})}
+                    </button>
+                )}
+                {aiKeys.some(hasScope) && (
+                    <button
+                        className={"ab-btn" + (active.startsWith("ai-") ? " active" : "")}
+                        onClick={() => goTo(firstAllowedAiKey)}
+                        title="AI Studio"
+                    >
+                        {I.flame({})}
+                    </button>
+                )}
+                {lvl >= 30 && hasScope("reports") && (
                     <button
                         className={"ab-btn" + (active === "reports" ? " active" : "")}
                         onClick={() => goTo("reports")}
@@ -550,10 +565,10 @@ function ActivityBar({
                 )}
             </div>
             <div className="ab-bottom">
-                {lvl >= 40 && (
+                {lvl >= 40 && (hasScope("settings") || hasScope("users")) && (
                     <button
                         className={"ab-btn" + (inGroup(["settings", "users"]) ? " active" : "")}
-                        onClick={() => goTo("settings")}
+                        onClick={() => goTo(hasScope("settings") ? "settings" : "users")}
                         title="Settings"
                     >
                         {I.settings({})}
@@ -5164,6 +5179,7 @@ export function Portal({
                 scOpen={scPanelOpen}
                 scCount={stagedCount}
                 goTo={goTo}
+                allowedScopes={allowedScopes}
             />
             <Sidebar
                 user={user}

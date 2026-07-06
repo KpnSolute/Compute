@@ -88,6 +88,20 @@ Flow = the work protocol: assigning + tracking kitchen work. **Rebrands Daily Op
 
 ---
 
+## [v4.28.3] - 2026-07-06 - Navigator rail icons now scope-gated (closed the last UI/API mismatch)
+
+**Claude:** User did a hands-on scope-management test: logged in as staff (`brissetts.pearline`, PIN reset), then as `jeremiah` removed Staff's `Tools` scope via the Role Scopes grid to confirm it actually blocks AI Studio. It did (Explorer panel correctly dropped the AI Studio group, `PUT /api/users/role-scopes` succeeded) — but the Navigator rail's AI Studio icon stayed visible and just bounced the click with a "Manager access required" toast instead of disappearing. User asked to fix that mismatch so the rail always matches actual access.
+
+**Root cause:** `ActivityBar`'s quick-access icons (Inventory, Source Control, Data Entry, Events & Menu, AI Studio, Reports, Settings) were never wired to `allowedScopes` — only the `Sidebar`/Explorer panel was, per the v4.27.12 "scope is the only gate" change. The rail was still gating on the old fixed `ROLE_LEVEL` floor (or nothing at all for some icons), so a role could see an icon in the rail that Explorer/backend would already refuse.
+
+**Fix (`frontend/src/components/Portal.tsx`):** `ActivityBar` now takes `allowedScopes` (already computed once in `Portal` as `roleScopes?.[user.role]`) and hides each icon whose backing NAV key isn't in scope: Inventory→`inventory`, Source Control→`sourcectrl`, Data Entry→`dataentry`, Events & Menu→`events`/`menu`, AI Studio→any of `ai-usage`/`ai-tools`/`ai-presets` (and now routes to whichever of those three is actually granted, not a hardcoded `ai-usage`), Settings→`settings`/`users` (routes to whichever is granted). Reports keeps its pre-existing `lvl >= 30` floor *and* now also requires the `reports` scope. Explorer, External Tools, and the raw server-logs link are unchanged — they aren't NAV pages.
+
+**Verify:** `npx tsc --noEmit` clean, `npm run build` clean, `npm run lint` 0 errors (same 630 pre-existing warnings). Verified live: staff (`brissetts.pearline`) rail now shows only Explorer/Inventory/Source Control/Events & Menu/External Tools — Data Entry and AI Studio (both correctly ungranted for staff) are gone from the rail, not just blocked on click. Sudo Administrator's rail is unchanged (all 10 icons still present). Confirmed staff can still click through to Inventory (a scope she does have).
+
+**Push:** committed + pushed to main.
+
+---
+
 ## [v4.27.13] - 2026-07-06 - Menu cycle moved to week 4 + LunchVoice API verified
 
 **Codex:** Updated the live `app_settings.menu_cycle_anchor_date` from `2026-06-28` to `2026-06-14` in Supabase `MJCCv1`, so today (`2026-07-06`) resolves to cycle day 23 / cycle week 4 instead of cycle day 9 / week 2.
