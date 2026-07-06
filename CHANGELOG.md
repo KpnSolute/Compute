@@ -14,7 +14,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verify:** `npx tsc --noEmit` clean; `npm run lint -- --quiet` clean; `npm run build` passed with existing Vite chunk/dynamic-import warnings; `python -m pytest backend\tests\test_public_menu_stats.py backend\tests\test_menu_cycle_math.py -q` passed, 7/7; local Vite server running at `http://127.0.0.1:5173/`; prod `/api/public/menu/stats?limit=4` returned 200 with empty stats arrays.
 
-**Push:** pending - not yet pushed.
+**Push:** Codex -> a075945 - 2026-07-05 20:24 -04:00
 
 ---
 
