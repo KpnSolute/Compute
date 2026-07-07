@@ -19,9 +19,11 @@ Manager-facing budgeting/analytics page tracking the monthly government allotmen
 - **Frontend** (`CostManager.tsx`, `ui/Charts.tsx`, new): KPI row, over/near-budget alert banner (with a "Create Flow task" tie-in to the panel above), category breakdown bars, trailing-6-month trend line — hand-built dependency-free SVG, no charting library added. NAV: new "Finance" group, `costmgr` key, manager+.
 - **Permission scopes gap found & fixed**: NAV role-gating is driven by a live `permission_scopes`/`role_permissions` DB table (not just the `VALID_SCOPE_KEYS` constant in `users.py`, which is only the fallback) — `costmgr` had to be inserted into both, or the item silently didn't render for anyone including sudo.
 
-**Verified:** `ruff check`/`format` (0 lint errors; format-only diffs match this repo's pre-existing no-`ruff.toml` 88-vs-120-char gap, not introduced here), `python -c "import backend.main"` clean, `tsc --noEmit` + `npm run build` clean, `npm run lint` 0 new errors. Backend logic hand-traced against real prod data (June 2026: $30,814.01 pulled vs a test $32,000 allotment → 96.3% used, correctly triggers the near-budget amber state) since the new route isn't deployed yet to test the live endpoints directly. Test Flow task and test budget row deleted after verification.
+**Verified:** `ruff check`/`format` (0 lint errors; format-only diffs match this repo's pre-existing no-`ruff.toml` 88-vs-120-char gap, not introduced here), `python -c "import backend.main"` clean, `tsc --noEmit` + `npm run build` clean, `npm run lint` 0 new errors. Backend logic hand-traced against real prod data before deploy (June 2026: $30,814.01 pulled vs a test $32,000 allotment → 96.3% used, correctly triggers the near-budget amber state).
 
-**Push:** pending — commit created, not yet pushed (holding for deploy confirmation).
+**Post-deploy live verification (after push):** Cost Manager renders real July 2026 `monthly_inventory` category totals (Meats $7,081, Frozen Food $3,065, Dry Goods $2,850, etc.) and a real trend chart. Create Budget wizard shows real computed historical averages ($29,393.35/mo trailing-2-mo pull average). Saved a real budget ($32,000) → KPIs updated live (`$32,000.00` / `$0.00` / `$32,000.00` remaining / `0%`), button flipped to "Edit Budget". All test data (Flow task, both test budget rows) deleted after verification.
+
+**Push:** Claude → `25ca242` — 2026-07-07. Render auto-deployed (`dep-d96nr457vvec73dqq5rg`, live in ~45s).
 
 ---
 
