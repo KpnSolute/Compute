@@ -2882,3 +2882,43 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
 .flow-no-role-header .count{font-size:10px;color:#EF4444;font-weight:600}
 .flow-toast{position:fixed;bottom:22px;right:22px;background:var(--navy);color:#fff;padding:10px 16px;border-radius:10px;font-weight:700;font-size:12.5px;z-index:9999;box-shadow:var(--shadow-lg)}
 @media(max-width:900px){.flow-admin-grid{grid-template-columns:1fr}}
+
+/* ── Flow draft card selected state ── */
+.flow-draft-card.selected{
+  border-color:var(--accent);
+  box-shadow:0 0 0 2px rgba(30,115,232,.15);
+}
+.flow-draft-hint{
+  font-size:11px;color:var(--accent);font-weight:600;
+  padding:4px 0 8px;text-align:center;
+}
+
+/* ── Flow org chart tree (vertical pyramid) ── */
+.flow-org-tree{
+  display:flex;flex-direction:column;align-items:center;gap:4px;position:relative;
+}
+.flow-tree-tier{
+  width:100%;display:flex;flex-direction:column;align-items:center;position:relative;padding-top:18px;
+}
+.flow-tree-tier:first-child{padding-top:0}
+.flow-tree-tier[data-tier="sudo"]{max-width:100%}
+.flow-tree-tier[data-tier="admin"]{max-width:94%}
+.flow-tree-tier[data-tier="manager"]{max-width:86%}
+.flow-tree-tier[data-tier="assistant"]{max-width:78%}
+.flow-tree-tier[data-tier="staff"]{max-width:70%}
+.flow-tree-tier[data-tier="no-role"]{max-width:100%}
+.flow-tree-tier-inner{width:100%;position:relative}
+
+/* Vertical connector line between tiers */
+.flow-tree-tier::before{
+  content:'';position:absolute;top:0;left:50%;
+  width:2px;height:18px;background:var(--line);
+  transform:translateX(-50%);z-index:1;
+}
+.flow-tree-tier:first-child::before{display:none}
+
+@media(max-width:900px){
+  .flow-org-tree{align-items:stretch;gap:0}
+  .flow-tree-tier{max-width:100%!important;padding-top:0}
+  .flow-tree-tier::before{display:none}
+}

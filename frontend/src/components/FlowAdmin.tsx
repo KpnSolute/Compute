@@ -55,6 +55,12 @@ export function FlowAdmin({ user: _user }: { user: User }) {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [dragOverRole, setDragOverRole] = useState<string | null>(null);
   const [dragOverPerson, setDragOverPerson] = useState<string | null>(null);
+  const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
+
+  const [dailyLogs, setDailyLogs] = useState<any[]>([]);
+  const [haccpLogs, setHaccpLogs] = useState<any[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logError, setLogError] = useState<string | null>(null);
 
   const toast = (msg: string) => {
     setToastMsg(msg);
@@ -107,6 +113,22 @@ export function FlowAdmin({ user: _user }: { user: User }) {
 
   useEffect(() => { loadData(); }, []);
 
+  useEffect(() => {
+    if (linkType === 'daily_log') {
+      setLogsLoading(true);
+      setLogError(null);
+      api.getDailyLogs(50)
+        .then(data => { setDailyLogs(data); setLogsLoading(false); })
+        .catch(err => { setLogError(err?.message || 'Failed to load logs'); setLogsLoading(false); });
+    } else if (linkType === 'haccp_log') {
+      setLogsLoading(true);
+      setLogError(null);
+      api.getHaccpLogs(50)
+        .then(data => { setHaccpLogs(data); setLogsLoading(false); })
+        .catch(err => { setLogError(err?.message || 'Failed to load logs'); setLogsLoading(false); });
+    }
+  }, [linkType]);
+
   const userMap = new Map(users.map(u => [u.id, u]));
 
   const missingRoleUsers = users.filter(
@@ -155,20 +177,28 @@ export function FlowAdmin({ user: _user }: { user: User }) {
     return body;
   }
 
+  async function assignDraft(draft: DraftTask, extra: Record<string, string>) {
+    try {
+      const created = await api.createFlowAssignment(buildBody(draft, extra) as any);
+      setAssignments(prev => [created, ...prev]);
+      setDrafts(prev => prev.filter(d => d.tempId !== draft.tempId));
+      setSelectedDraftId(null);
+      const targetLabel = extra.assigned_to_role
+        ? (ROLE_LABEL[extra.assigned_to_role as keyof typeof ROLE_LABEL] || extra.assigned_to_role)
+        : (userMap.get(extra.assigned_to)?.display_name || extra.assigned_to);
+      toast(`Assigned "${draft.title}" to ${targetLabel}`);
+    } catch (err: any) {
+      toast(err?.message || 'Failed to create assignment');
+    }
+  }
+
   async function handleRoleDrop(e: React.DragEvent, roleKey: string) {
     e.preventDefault();
     setDragOverRole(null);
     const tempId = e.dataTransfer.getData('text/plain');
     const draft = drafts.find(d => d.tempId === tempId);
     if (!draft) return;
-    try {
-      const created = await api.createFlowAssignment(buildBody(draft, { assigned_to_role: roleKey }) as any);
-      setAssignments(prev => [created, ...prev]);
-      setDrafts(prev => prev.filter(d => d.tempId !== tempId));
-      toast(`Assigned "${draft.title}" to ${ROLE_LABEL[roleKey as keyof typeof ROLE_LABEL] || roleKey}`);
-    } catch (err: any) {
-      toast(err?.message || 'Failed to create assignment');
-    }
+    await assignDraft(draft, { assigned_to_role: roleKey });
   }
 
   async function handlePersonDrop(e: React.DragEvent, userId: string) {
@@ -177,15 +207,25 @@ export function FlowAdmin({ user: _user }: { user: User }) {
     const tempId = e.dataTransfer.getData('text/plain');
     const draft = drafts.find(d => d.tempId === tempId);
     if (!draft) return;
-    const person = userMap.get(userId);
-    try {
-      const created = await api.createFlowAssignment(buildBody(draft, { assigned_to: userId }) as any);
-      setAssignments(prev => [created, ...prev]);
-      setDrafts(prev => prev.filter(d => d.tempId !== tempId));
-      toast(`Assigned "${draft.title}" to ${person?.display_name || userId}`);
-    } catch (err: any) {
-      toast(err?.message || 'Failed to create assignment');
-    }
+    await assignDraft(draft, { assigned_to: userId });
+  }
+
+  function handleDraftClick(d: DraftTask) {
+    setSelectedDraftId(prev => prev === d.tempId ? null : d.tempId);
+  }
+
+  function handleRoleClick(roleKey: string) {
+    if (!selectedDraftId) return;
+    const draft = drafts.find(d => d.tempId === selectedDraftId);
+    if (!draft) return;
+    assignDraft(draft, { assigned_to_role: roleKey });
+  }
+
+  function handlePersonClick(userId: string) {
+    if (!selectedDraftId) return;
+    const draft = drafts.find(d => d.tempId === selectedDraftId);
+    if (!draft) return;
+    assignDraft(draft, { assigned_to: userId });
   }
 
   async function handleDelete(id: string) {
@@ -270,7 +310,12 @@ export function FlowAdmin({ user: _user }: { user: User }) {
                 </div>
                 {linkType !== 'none' && (
                   <div className="field">
-                    <label>{linkType === 'nav_page' ? 'Page' : 'Key (SKU or log ID)'}</label>
+                    <label>
+                      {linkType === 'nav_page' ? 'Page' :
+                       linkType === 'daily_log' ? 'Daily Log' :
+                       linkType === 'haccp_log' ? 'HACCP Log' :
+                       linkType === 'inventory_item' ? 'SKU' : 'Key'}
+                    </label>
                     {linkType === 'nav_page' ? (
                       <select className="ipt sel" value={linkKey} onChange={e => setLinkKey(e.target.value)}>
                         <option value="">Select a page…</option>
@@ -278,6 +323,46 @@ export function FlowAdmin({ user: _user }: { user: User }) {
                           <option key={ni.key} value={ni.key}>{ni.label}</option>
                         ))}
                       </select>
+                    ) : linkType === 'daily_log' ? (
+                      logsLoading ? (
+                        <select className="ipt sel" disabled>
+                          <option>Loading logs…</option>
+                        </select>
+                      ) : dailyLogs.length > 0 ? (
+                        <select className="ipt sel" value={linkKey} onChange={e => setLinkKey(e.target.value)}>
+                          <option value="">Select a daily log…</option>
+                          {dailyLogs.map((log: any) => (
+                            <option key={log.id} value={log.id}>
+                              {log.entry_type} — {log.title} ({new Date(log.created_at).toLocaleDateString()})
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span>
+                          <input className="ipt" value={linkKey} onChange={e => setLinkKey(e.target.value)} placeholder="No existing logs found — enter an ID manually." />
+                          {logError && <div className="hint" style={{ color: 'var(--red)' }}>{logError}</div>}
+                        </span>
+                      )
+                    ) : linkType === 'haccp_log' ? (
+                      logsLoading ? (
+                        <select className="ipt sel" disabled>
+                          <option>Loading logs…</option>
+                        </select>
+                      ) : haccpLogs.length > 0 ? (
+                        <select className="ipt sel" value={linkKey} onChange={e => setLinkKey(e.target.value)}>
+                          <option value="">Select a HACCP log…</option>
+                          {haccpLogs.map((log: any) => (
+                            <option key={log.id} value={log.id}>
+                              {log.location} — {log.temperature}°{log.unit} ({new Date(log.timestamp).toLocaleDateString()})
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span>
+                          <input className="ipt" value={linkKey} onChange={e => setLinkKey(e.target.value)} placeholder="No existing logs found — enter an ID manually." />
+                          {logError && <div className="hint" style={{ color: 'var(--red)' }}>{logError}</div>}
+                        </span>
+                      )
                     ) : (
                       <input className="ipt" value={linkKey} onChange={e => setLinkKey(e.target.value)} placeholder={linkType === 'inventory_item' ? 'SKU-…' : 'Log ID'} />
                     )}
@@ -298,19 +383,25 @@ export function FlowAdmin({ user: _user }: { user: User }) {
                   No drafts yet.<br />Create a task above and drag it onto a person or role group.
                 </div>
               ) : (
-                drafts.map(d => (
-                  <div
-                    key={d.tempId}
-                    className="flow-draft-card"
-                    draggable
-                    onDragStart={e => e.dataTransfer.setData('text/plain', d.tempId)}
-                  >
-                    <span className={'flow-priority-chip ' + d.priority} style={{ fontSize: 9, textTransform: 'uppercase' }}>
-                      {d.priority}
-                    </span>
-                    <span style={{ flex: 1, fontSize: 12, fontWeight: 600 }}>{d.title}</span>
-                  </div>
-                ))
+                <>
+                  {selectedDraftId && (
+                    <div className="flow-draft-hint">Click a person or role to assign, or drag it there.</div>
+                  )}
+                  {drafts.map(d => (
+                    <div
+                      key={d.tempId}
+                      className={'flow-draft-card' + (selectedDraftId === d.tempId ? ' selected' : '')}
+                      draggable
+                      onDragStart={e => e.dataTransfer.setData('text/plain', d.tempId)}
+                      onClick={() => handleDraftClick(d)}
+                    >
+                      <span className={'flow-priority-chip ' + d.priority} style={{ fontSize: 9, textTransform: 'uppercase' }}>
+                        {d.priority}
+                      </span>
+                      <span style={{ flex: 1, fontSize: 12, fontWeight: 600 }}>{d.title}</span>
+                    </div>
+                  ))}
+                </>
               )}
             </div>
           </div>
@@ -319,47 +410,55 @@ export function FlowAdmin({ user: _user }: { user: User }) {
         <div className="card">
           <div className="card-head"><h3>Team</h3></div>
           <div className="card-body" style={{ paddingBottom: 4 }}>
-            <div className="flow-org-rows">
+            <div className="flow-org-tree">
               {missingRoleUsers.length > 0 && (
-                <div className="flow-role-col">
-                  <div className="flow-no-role-header">
-                    <h4>⚠ No Role</h4>
-                    <span className="count">{missingRoleUsers.length} user(s)</span>
-                  </div>
-                  {missingRoleUsers.map(u => (
-                    <div key={u.id} className="flow-person-card flow-no-role-card">
-                      <div className="avatar">{initials(u)}</div>
-                      <span style={{ fontSize: 12, fontWeight: 600 }}>{u.display_name || u.username} {u.last_name}</span>
+                <div className="flow-tree-tier" data-tier="no-role">
+                  <div className="flow-tree-tier-inner">
+                    <div className="flow-no-role-header">
+                      <h4>⚠ No Role</h4>
+                      <span className="count">{missingRoleUsers.length} user(s)</span>
                     </div>
-                  ))}
+                    {missingRoleUsers.map(u => (
+                      <div key={u.id} className="flow-person-card flow-no-role-card"
+                        onClick={() => handlePersonClick(u.id)}
+                      >
+                        <div className="avatar">{initials(u)}</div>
+                        <span style={{ fontSize: 12, fontWeight: 600 }}>{u.display_name || u.username} {u.last_name}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
               {ROLE_ORDER.map(rk => {
                 const roleUsers = usersByRole[rk] || [];
                 if (roleUsers.length === 0) return null;
                 return (
-                  <div key={rk} className="flow-role-col">
-                    <div
-                      className={'flow-role-header' + (dragOverRole === rk ? ' drag-over' : '')}
-                      onDragOver={e => { e.preventDefault(); setDragOverRole(rk); }}
-                      onDragLeave={() => setDragOverRole(null)}
-                      onDrop={e => handleRoleDrop(e, rk)}
-                    >
-                      <h4>{ROLE_LABEL[rk as keyof typeof ROLE_LABEL] || rk}</h4>
-                      <span className="count">{roleUsers.length} member{roleUsers.length !== 1 ? 's' : ''}</span>
-                    </div>
-                    {roleUsers.map(p => (
+                  <div key={rk} className="flow-tree-tier" data-tier={rk}>
+                    <div className="flow-tree-tier-inner">
                       <div
-                        key={p.id}
-                        className={'flow-person-card' + (dragOverPerson === p.id ? ' drag-over' : '')}
-                        onDragOver={e => { e.preventDefault(); setDragOverPerson(p.id); }}
-                        onDragLeave={() => setDragOverPerson(null)}
-                        onDrop={e => handlePersonDrop(e, p.id)}
+                        className={'flow-role-header' + (dragOverRole === rk ? ' drag-over' : '')}
+                        onDragOver={e => { e.preventDefault(); setDragOverRole(rk); }}
+                        onDragLeave={() => setDragOverRole(null)}
+                        onDrop={e => handleRoleDrop(e, rk)}
+                        onClick={() => handleRoleClick(rk)}
                       >
-                        <div className="avatar">{initials(p)}</div>
-                        <span style={{ fontSize: 12, fontWeight: 600 }}>{p.display_name} {p.last_name}</span>
+                        <h4>{ROLE_LABEL[rk as keyof typeof ROLE_LABEL] || rk}</h4>
+                        <span className="count">{roleUsers.length} member{roleUsers.length !== 1 ? 's' : ''}</span>
                       </div>
-                    ))}
+                      {roleUsers.map(p => (
+                        <div
+                          key={p.id}
+                          className={'flow-person-card' + (dragOverPerson === p.id ? ' drag-over' : '')}
+                          onDragOver={e => { e.preventDefault(); setDragOverPerson(p.id); }}
+                          onDragLeave={() => setDragOverPerson(null)}
+                          onDrop={e => handlePersonDrop(e, p.id)}
+                          onClick={() => handlePersonClick(p.id)}
+                        >
+                          <div className="avatar">{initials(p)}</div>
+                          <span style={{ fontSize: 12, fontWeight: 600 }}>{p.display_name} {p.last_name}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 );
               })}
