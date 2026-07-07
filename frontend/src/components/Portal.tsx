@@ -12,10 +12,6 @@ import {
 } from "../lib/constants";
 import { useEscapeClose } from "../lib/useEscapeClose";
 
-const ROUTE_MIN: Record<string, number> = Object.fromEntries(
-    NAV.flatMap((g) => g.items.map((i) => [i.key, i.min || 0])),
-) as Record<string, number>;
-
 // Compact-table cell handlers — module-level so they're not recreated per render
 const cinpFocus = (e: React.FocusEvent<HTMLInputElement>) => e.currentTarget.select();
 const cinpKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -5041,7 +5037,7 @@ export function Portal({
         toast("Refreshing live data…");
     }
 
-    const canAccess = (routeKey: string) => (routeKey === "settings" || lvl >= (ROUTE_MIN[routeKey] ?? 10)) && hasScope(routeKey);
+    const canAccess = (routeKey: string) => routeKey === "settings" || hasScope(routeKey);
     const goTo = (routeKey: string, opts?: { prId?: string }) => {
         setExplorerOpen(false);
         if (routeKey === "sourcectrl") {
@@ -5051,23 +5047,14 @@ export function Portal({
         }
         if (routeKey === "lioncafe") {
             if (!canAccess(routeKey)) {
-                toast("Manager access required for this route.");
+                toast("This page isn't enabled for your role. Ask an administrator to grant it in Role Scopes.");
                 return;
             }
             window.open("https://lunchvoice.com/admin", "_blank", "noopener,noreferrer");
             return;
         }
         if (!canAccess(routeKey)) {
-            const need = ROUTE_MIN[routeKey] ?? 10;
-            const role =
-                need >= 40
-                    ? "Administrator"
-                    : need >= 30
-                      ? "Manager"
-                      : need >= 20
-                        ? "Assistant"
-                        : "Staff";
-            toast(`${role} access required for this route.`);
+            toast("This page isn't enabled for your role. Ask an administrator to grant it in Role Scopes.");
             return;
         }
         setActive(routeKey);

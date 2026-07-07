@@ -102,6 +102,18 @@ Flow = the work protocol: assigning + tracking kitchen work. **Rebrands Daily Op
 
 ---
 
+## [v4.28.4] - 2026-07-06 - Fixed real double-gate bug: scope grants were still blocked by the old fixed role-level floor
+
+**Claude:** User (as `jeremiah`) granted Staff the `Pull Sheet` scope (min level 30) via Role Scopes and tested as staff (`brissetts.pearline`) — got blocked with an access-required toast anyway. Root cause: `canAccess` in `Portal.tsx` (line ~5044) never actually got the v4.27.12 "scope alone gates visibility" fix — it still required `lvl >= ROUTE_MIN[routeKey]` **and** the scope. v4.27.12 only fixed the Explorer/rail *visibility* filter; the underlying `canAccess`/`goTo` gate that runs on every navigation (and blocks direct programmatic `goTo` calls) kept the old dual gate. So a sudo could grant a scope in the UI, see it appear, and staff would still get bounced the moment they clicked it.
+
+**Fix:** `canAccess = (routeKey) => routeKey === "settings" || hasScope(routeKey)` — scope is now the sole gate, matching what the Role Scopes grid's own on-page copy already promised. `routeKey === "settings"` stays special-cased so every user can always reach their own profile (password/PIN change) regardless of scope. Removed the now-fully-unused `ROUTE_MIN` const and the role-name-guessing block in the access-denied toast (its wording implied a role-level problem, which was no longer the actual reason for the block) — replaced with a scope-accurate message: "This page isn't enabled for your role. Ask an administrator to grant it in Role Scopes."
+
+**Verify:** `npx tsc --noEmit` clean, `npm run build` clean, `npm run lint` 0 errors. Verified live: staff granted `Pull Sheet` scope can now open it with zero toast/error (previously blocked by the `min:30` floor despite the grant). Confirmed via direct DOM navigation test, not just visual click.
+
+**Push:** committed + pushed to main.
+
+---
+
 ## [v4.27.13] - 2026-07-06 - Menu cycle moved to week 4 + LunchVoice API verified
 
 **Codex:** Updated the live `app_settings.menu_cycle_anchor_date` from `2026-06-28` to `2026-06-14` in Supabase `MJCCv1`, so today (`2026-07-06`) resolves to cycle day 23 / cycle week 4 instead of cycle day 9 / week 2.
