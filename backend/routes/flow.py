@@ -11,7 +11,7 @@ Endpoints:
 - DELETE /api/flow/assignments/{id} - Delete an assignment
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Depends
@@ -25,6 +25,28 @@ VALID_STATUSES = {"open", "in_progress", "done", "cancelled"}
 VALID_PRIORITIES = {"low", "normal", "high", "urgent"}
 
 router = APIRouter(prefix="/api/flow", tags=["flow"])
+
+
+def _validate_due_date(due_date: str | None) -> None:
+    if due_date is None:
+        return
+    try:
+        date.fromisoformat(due_date)
+    except ValueError:
+        raise HTTPException(
+            status_code=400, detail="due_date must be a valid ISO date (YYYY-MM-DD)"
+        )
+
+
+def _assignee_exists(user_id: str) -> bool:
+    result = (
+        supabase_service.table("user_profiles")
+        .select("id")
+        .eq("id", user_id)
+        .limit(1)
+        .execute()
+    )
+    return bool(result.data)
 
 
 class FlowAssignmentCreate(BaseModel):
@@ -126,6 +148,13 @@ async def create_assignment(
         raise HTTPException(
             status_code=400,
             detail=f"priority must be one of {', '.join(sorted(VALID_PRIORITIES))}",
+        )
+
+    _validate_due_date(entry.due_date)
+
+    if entry.assigned_to and not _assignee_exists(entry.assigned_to):
+        raise HTTPException(
+            status_code=400, detail="assigned_to must reference an existing user"
         )
 
     try:
@@ -332,6 +361,18 @@ async def update_assignment(
                 status_code=400,
                 detail=f"assigned_to_role must be one of {', '.join(sorted(VALID_ROLES))}",
             )
+
+    if "due_date" in update_dict:
+        _validate_due_date(update_dict["due_date"])
+
+    if (
+        "assigned_to" in update_dict
+        and update_dict["assigned_to"] is not None
+        and not _assignee_exists(update_dict["assigned_to"])
+    ):
+        raise HTTPException(
+            status_code=400, detail="assigned_to must reference an existing user"
+        )
 
     now = datetime.now(timezone.utc).isoformat()
     update_dict["updated_at"] = now

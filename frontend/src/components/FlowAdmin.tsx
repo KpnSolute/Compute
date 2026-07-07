@@ -199,6 +199,19 @@ export function FlowAdmin({ user: _user }: { user: User }) {
     }
   }
 
+  async function handleApprove(a: FlowAssignment) {
+    try {
+      await api.deleteFlowAssignment(a.id);
+      setAssignments(prev => prev.filter(x => x.id !== a.id));
+      toast(`Approved "${a.title}" — removed from queue`);
+    } catch (err: any) {
+      toast(err?.message || 'Failed to approve');
+    }
+  }
+
+  const pendingReview = assignments.filter(a => a.status === 'done');
+  const activeAssignments = assignments.filter(a => a.status !== 'done');
+
   if (loading) {
     return (
       <div className="load-wrap">
@@ -355,8 +368,62 @@ export function FlowAdmin({ user: _user }: { user: User }) {
         </div>
       </div>
 
+      {pendingReview.length > 0 && (
+        <div className="card" style={{ marginBottom: 12, borderColor: 'var(--green-chip)' }}>
+          <div className="card-head">
+            <h3>Completed — Pending Review ({pendingReview.length})</h3>
+          </div>
+          <div className="card-body flush">
+            <div className="tbl-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Completed by</th>
+                    <th>Priority</th>
+                    <th style={{ width: 90 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingReview.map(a => {
+                    const completer = a.completed_by ? userMap.get(a.completed_by) : null;
+                    return (
+                      <tr key={a.id}>
+                        <td><span className="flow-table-title" title={a.title}>{a.title}</span></td>
+                        <td>
+                          {completer ? (
+                            <div className="user-cell">
+                              <div className="avatar">{initials(completer)}</div>
+                              {completer.display_name} {completer.last_name}
+                            </div>
+                          ) : (
+                            <span style={{ color: 'var(--faint)' }}>—</span>
+                          )}
+                        </td>
+                        <td><span className={'flow-priority-chip ' + a.priority}>{a.priority}</span></td>
+                        <td style={{ display: 'flex', gap: 6 }}>
+                          <button className="btn primary" onClick={() => handleApprove(a)} title="Approve completion & remove from queue">
+                            ✓ Approve
+                          </button>
+                          <button className="row-del" onClick={() => handleDelete(a.id)} title="Delete without approving">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                            </svg>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="card">
-        <div className="card-head"><h3>All Assignments ({assignments.length})</h3></div>
+        <div className="card-head"><h3>Active Assignments ({activeAssignments.length})</h3></div>
         <div className="card-body flush">
           <div className="tbl-wrap">
             <table className="data">
@@ -371,7 +438,7 @@ export function FlowAdmin({ user: _user }: { user: User }) {
                 </tr>
               </thead>
               <tbody>
-                {assignments.map(a => {
+                {activeAssignments.map(a => {
                   const sp = statusPill(a.status);
                   const assignee = a.assigned_to ? userMap.get(a.assigned_to) : null;
                   return (
@@ -409,8 +476,8 @@ export function FlowAdmin({ user: _user }: { user: User }) {
                 })}
               </tbody>
             </table>
-            {assignments.length === 0 && (
-              <div className="flow-empty-assignments">No assignments yet.</div>
+            {activeAssignments.length === 0 && (
+              <div className="flow-empty-assignments">No active assignments.</div>
             )}
           </div>
         </div>
