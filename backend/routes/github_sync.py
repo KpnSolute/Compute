@@ -4,26 +4,12 @@ import base64
 import httpx
 from datetime import datetime, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
-from backend.routes import jwt_validator
-from supabase import create_client
+from backend.routes import jwt_validator, supabase_service
 from dotenv import load_dotenv
 
 load_dotenv()
 
 router = APIRouter(prefix="/api/github-sync")
-
-_svc = None
-
-
-def _client():
-    global _svc
-    if _svc is None:
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_SERVICE_KEY")
-        if not url or not key:
-            raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set.")
-        _svc = create_client(url, key)
-    return _svc
 
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
@@ -64,7 +50,7 @@ async def _push_to_github(commit_id: str, payload: dict) -> str:
 
 async def _drain_queue():
     """Process pending github_sync_queue rows."""
-    supabase = _client()
+    supabase = supabase_service
     queue_r = (
         supabase.table("github_sync_queue")
         .select("*")
@@ -126,7 +112,7 @@ def _require_admin_or_manager(authorization: str = Header("")) -> dict:
         user_id = token[4:]
         try:
             r = (
-                _client()
+                supabase_service
                 .table("user_profiles")
                 .select("id,role,active")
                 .eq("id", user_id)
@@ -149,7 +135,7 @@ def _require_admin_or_manager(authorization: str = Header("")) -> dict:
         raise HTTPException(status_code=401, detail="Token missing user ID")
     try:
         r = (
-            _client()
+            supabase_service
             .table("user_profiles")
             .select("id,role,active")
             .eq("id", user_id)
@@ -181,11 +167,11 @@ async def sync_status(auth_user: dict = Depends(_require_admin_or_manager)):
     """Return queue counts plus the latest sync rows for archive visibility."""
     try:
         all_r = (
-            _client().table("github_sync_queue").select("attempts,synced_at").execute()
+            supabase_service.table("github_sync_queue").select("attempts,synced_at").execute()
         )
         rows = all_r.data or []
         recent_r = (
-            _client()
+            supabase_service
             .table("github_sync_queue")
             .select("id,operation,commit_id,attempts,last_error,synced_at,created_at")
             .order("created_at", desc=True)

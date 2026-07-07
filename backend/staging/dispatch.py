@@ -1,9 +1,7 @@
 import logging
-import os
 from datetime import datetime, timezone
 
-from supabase import create_client
-
+from backend.routes import supabase_service
 from backend.inventory_identity import (
     get_new_items_category_id,
     resolve_and_write_item,
@@ -11,19 +9,6 @@ from backend.inventory_identity import (
 from backend import inventory_formulas as fi
 
 log = logging.getLogger("mjcc.dispatch")
-
-_svc = None
-
-
-def _client():
-    global _svc
-    if _svc is None:
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_SERVICE_KEY")
-        if not url or not key:
-            raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set.")
-        _svc = create_client(url, key)
-    return _svc
 
 
 def _is_month_published(sup, db_month: int, year: int) -> bool:
@@ -299,7 +284,7 @@ def dispatch_inventory_save(payload: dict) -> dict:
         return {"applied": 0, "error": str(exc)}
 
     db_month = max(0, month - 1)  # Convert 1→0 indexed for monthly_inventory
-    sup = _client()
+    sup = supabase_service
     # Published periods are read-only (also enforced by the DB guard trigger).
     if _is_month_published(sup, db_month, year):
         return {
@@ -596,7 +581,7 @@ def dispatch_monthly_invoice_totals_update(payload: dict) -> dict:
     if month is None or year is None:
         return {"applied": 0, "error": "month and year are required"}
     db_month = max(0, int(month) - 1)
-    sup = _client()
+    sup = supabase_service
     if _is_month_published(sup, db_month, int(year)):
         return {
             "applied": 0,
@@ -629,7 +614,7 @@ def dispatch_item_update(payload: dict) -> dict:
     (the manager moving an item OUT of "New Items"), description/price/par/unit
     edits, and (de)activation. Only the fields present in the payload are written.
     """
-    sup = _client()
+    sup = supabase_service
     sku = (payload.get("sku") or "").strip()
     if not sku:
         return {"applied": 0, "error": "Missing sku"}
@@ -703,7 +688,7 @@ def dispatch_item_delete(payload: dict) -> dict:
     preserve monthly_inventory / source-control history; hard delete only when
     the payload explicitly sets `hard: true`.
     """
-    sup = _client()
+    sup = supabase_service
     sku = (payload.get("sku") or "").strip()
     if not sku:
         return {"applied": 0, "error": "Missing sku"}
@@ -759,7 +744,7 @@ def dispatch_inventory_week(payload: dict) -> dict:
 
     db_month = max(0, month - 1)
     txn_type = direction  # 'received' | 'issued'
-    sup = _client()
+    sup = supabase_service
     if _is_month_published(sup, db_month, year):
         return {
             "applied": 0,
@@ -910,7 +895,7 @@ def dispatch_menu_save(payload: dict) -> dict:
         return {"applied": 0, "error": f"Invalid day {day}"}
 
     cycle_day = legacy_target_cycle_day(day)
-    sup = _client()
+    sup = supabase_service
     now = datetime.now(timezone.utc).isoformat()
     applied = 0
 
@@ -973,7 +958,7 @@ def dispatch_menu_save(payload: dict) -> dict:
 
 
 def dispatch_event_create(payload: dict) -> dict:
-    sup = _client()
+    sup = supabase_service
     staging_id = payload.get("_staging_entry_id")
     clean = {
         k: v for k, v in payload.items() if v is not None and not k.startswith("_")
@@ -994,7 +979,7 @@ def dispatch_event_create(payload: dict) -> dict:
 
 
 def dispatch_haccp_save(payload: dict) -> dict:
-    sup = _client()
+    sup = supabase_service
     staging_id = payload.get("_staging_entry_id")
     if staging_id:
         existing = (
@@ -1022,7 +1007,7 @@ def dispatch_haccp_save(payload: dict) -> dict:
 
 
 def dispatch_daily_log_save(payload: dict) -> dict:
-    sup = _client()
+    sup = supabase_service
     staging_id = payload.get("_staging_entry_id")
     if staging_id:
         existing = (
@@ -1050,7 +1035,7 @@ def dispatch_daily_log_save(payload: dict) -> dict:
 
 
 def dispatch_user_create(payload: dict) -> dict:
-    sup = _client()
+    sup = supabase_service
     # NOTE: user_profiles has NO password column. Auth is Supabase Auth (JWT) for
     # admin/manager, PIN for staff. Never write password to user_profiles.
     row = {
@@ -1067,7 +1052,7 @@ def dispatch_user_create(payload: dict) -> dict:
 
 
 def dispatch_user_update(payload: dict) -> dict:
-    sup = _client()
+    sup = supabase_service
     user_id = payload.get("user_id")
     if not user_id:
         return {"applied": 0, "error": "Missing user_id"}
@@ -1102,7 +1087,7 @@ def dispatch_item_create(payload: dict) -> dict:
     """Insert a new inventory_items row. Resolves category name → id; falls back to
     Uncategorized when absent. Returns {"applied":1,"item_id":<uuid>} on success or
     {"applied":0,"error":"sku_conflict",...} on a unique-constraint violation."""
-    sup = _client()
+    sup = supabase_service
     sku = (payload.get("sku") or "").strip()
     if not sku:
         return {"applied": 0, "error": "Missing sku"}

@@ -12,7 +12,6 @@ import json
 import logging
 import time
 import uuid
-import os
 import hashlib
 import calendar
 from datetime import datetime, timezone
@@ -39,11 +38,9 @@ from backend.ai import mapper
 from backend.ai import parser as file_parser
 from backend.inventory_identity import canonical_sku
 from backend.periods import business_now
-from backend.routes import jwt_validator
+from backend.routes import jwt_validator, supabase_service
 from backend.routes._deps import ensure_pr_for_entries
 from backend.staging.dispatch import _is_month_published
-from supabase import create_client
-
 # Thread pool dedicated to blocking parse work so FastAPI's event loop stays free
 # during multi-minute AI/OCR jobs on large PDFs.
 _parse_executor = concurrent.futures.ThreadPoolExecutor(
@@ -53,19 +50,6 @@ _parse_executor = concurrent.futures.ThreadPoolExecutor(
 log = logging.getLogger("mjcc.data_entry")
 
 router = APIRouter(prefix="/api/data-entry")
-
-_svc = None
-
-
-def _client():
-    global _svc
-    if _svc is None:
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_SERVICE_KEY")
-        if not url or not key:
-            raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set.")
-        _svc = create_client(url, key)
-    return _svc
 
 
 def _safe_parse_error(exc: Exception) -> str:
@@ -133,7 +117,7 @@ def _existing_inventory_scope_count(
 ) -> int:
     """Count existing live rows that would be replaced by an overwrite import."""
     db_month = max(0, month - 1)
-    svc = _client()
+    svc = supabase_service
     query = (
         svc.table("monthly_inventory")
         .select("id", count="exact")
@@ -172,7 +156,7 @@ def _data_entry_period_settings() -> dict:
     }
     try:
         r = (
-            _client()
+            supabase_service
             .table("app_settings")
             .select("setting_value")
             .eq("setting_key", "data_entry")
@@ -233,7 +217,7 @@ def _assert_not_published(month: int, year: int) -> None:
     merge it. Catching it at upload time gives the manager the error while
     they still have the month picker open, not after a multi-minute parse.
     """
-    if _is_month_published(_client(), month - 1, year):
+    if _is_month_published(supabase_service, month - 1, year):
         raise HTTPException(
             status_code=422,
             detail=f"{calendar.month_name[month]} {year} is published and closed. "
@@ -332,7 +316,7 @@ def _stage_entries(
     if not rows:
         return []
 
-    r = _client().table("staging_entries").insert(rows).execute()
+    r = supabase_service.table("staging_entries").insert(rows).execute()
     return r.data or []
 
 
@@ -654,7 +638,7 @@ async def _get_auth_user(authorization: str = Header("")) -> dict:
     if not token:
         raise HTTPException(status_code=401, detail="Missing authorization token")
 
-    svc = _client()
+    svc = supabase_service
 
     if token.startswith("pin_"):
         user_id = token.replace("pin_", "")
@@ -703,7 +687,7 @@ def _resolve_items(
     - no match + allow_new_items           → keep in op; dispatch creates reviewed item
     - no match otherwise                   → queue_rows (caller decides), drop from op
     """
-    svc = _client()
+    svc = supabase_service
 
     # Collect all distinct SKUs across all inventory ops in one pass
     all_skus: list[str] = []
@@ -810,7 +794,7 @@ def _insert_sku_queue(queue_rows: list[dict]) -> int:
     if not queue_rows:
         return 0
     try:
-        _client().table("sku_review_queue").insert(queue_rows).execute()
+        supabase_service.table("sku_review_queue").insert(queue_rows).execute()
         return len(queue_rows)
     except Exception as e:
         log.warning("[RESOLVE] sku_review_queue batch insert failed: %s", e)
@@ -825,7 +809,7 @@ def _supersede_stale_pending(fname: str, user_id: str) -> None:
     (failed parsing must not touch the DB).
     """
     try:
-        svc = _client()
+        svc = supabase_service
         stale = (
             svc.table("staging_entries")
             .select("entry_id, batch_id")
@@ -865,7 +849,7 @@ def _assert_not_duplicate_weekly(
     """
     try:
         dup = (
-            _client()
+            supabase_service
             .table("import_batches")
             .select("batch_id, source_file")
             .eq("source_hash", source_hash)
@@ -913,7 +897,7 @@ def _open_weekly_import_batch(
     """
     if week not in (1, 2, 3) or not inventory_ops:
         return None
-    svc = _client()
+    svc = supabase_service
     db_month = max(0, month - 1)
 
     # Free any prior STAGED batch for this exact scope (a superseded re-upload) so
@@ -992,7 +976,7 @@ def _upsert_invoice_record(
     already exists we return its id without inserting (idempotent re-upload guard).
     Returns (None, False, False) when invoice_number is absent (non-US Foods uploads).
     """
-    svc = _client()
+    svc = supabase_service
     inv_num = (meta.get("invoice_number") or "").strip()
     if not inv_num:
         return None, False, False
@@ -1314,7 +1298,7 @@ async def upload_file(
 
         try:
             item_count_r = (
-                _client()
+                supabase_service
                 .table("inventory_items")
                 .select("id", count="exact")
                 .limit(1)
@@ -1529,7 +1513,7 @@ async def preview_batch(batch_id: str, auth_user: dict = Depends(_get_auth_user)
     Shows exactly which tables and rows will change on commit.
     """
     r = (
-        _client()
+        supabase_service
         .table("staging_entries")
         .select(
             "entry_id,operation,full_payload,entity_type,metadata,status,file_ref,created_at"
@@ -1590,7 +1574,7 @@ class AISettingsBody(BaseModel):
 @router.get("/settings")
 async def get_settings(auth_user: dict = Depends(_get_auth_user)):
     """Get current AI stack configuration from ai_stack_config + ai_provider_keys + ai_providers."""
-    svc = _client()
+    svc = supabase_service
     # Current active stack
     try:
         stack_r = (
@@ -1722,7 +1706,7 @@ async def get_models(provider: str, auth_user: dict = Depends(_get_auth_user)):
         raise HTTPException(status_code=422, detail=f"Unknown provider: {provider}")
 
     # Get active key/url for this provider from DB
-    svc = _client()
+    svc = supabase_service
     api_key: str | None = None
     base_url: str | None = None
     try:
@@ -1837,7 +1821,7 @@ async def create_ai_key(
             status_code=422, detail=f"Unknown provider: {body.provider}"
         )
 
-    svc = _client()
+    svc = supabase_service
     now = _now()
     row: dict = {
         "provider": body.provider,
@@ -1889,7 +1873,7 @@ async def patch_ai_key(
     if auth_user.get("role") != "sudo":
         raise HTTPException(status_code=403, detail="Sudo required")
 
-    svc = _client()
+    svc = supabase_service
     now = _now()
     update_data: dict = {"updated_at": now}
 
@@ -1944,7 +1928,7 @@ async def delete_ai_key(key_id: str, auth_user: dict = Depends(_get_auth_user)):
     if auth_user.get("role") != "sudo":
         raise HTTPException(status_code=403, detail="Sudo required")
 
-    svc = _client()
+    svc = supabase_service
     # Fetch the key to check if it is active + get provider
     try:
         existing = (
@@ -2002,7 +1986,7 @@ async def set_ai_stack(body: AIStackBody, auth_user: dict = Depends(_get_auth_us
         "updated_at": now,
     }
     try:
-        svc = _client()
+        svc = supabase_service
         r = svc.table("ai_stack_config").upsert(row, on_conflict="name").execute()
         return r.data[0] if r.data else row
     except Exception as e:
@@ -2030,7 +2014,7 @@ async def get_ai_keys(auth_user: dict = Depends(_require_sudo_for_ai)):
     """List all AI provider key status. Never returns the actual key string."""
     try:
         result = (
-            _client()
+            supabase_service
             .table("ai_provider_keys")
             .select(
                 "id,provider,label,is_active,is_default,base_url,updated_at,api_key"
@@ -2070,7 +2054,7 @@ async def update_ai_key(
     if provider not in ai_engine.SUPPORTED_PROVIDERS:
         raise HTTPException(status_code=422, detail=f"Unknown provider: {provider}")
 
-    svc = _client()
+    svc = supabase_service
     now = _now()
 
     # Find the active (or first) key row for this provider
@@ -2174,7 +2158,7 @@ async def get_ai_usage(
     days  — rolling window for aggregate stats (default 30)
     limit — number of recent rows to return (default 50, max 200)
     """
-    svc = _client()
+    svc = supabase_service
     from datetime import datetime, timezone, timedelta
 
     since = (datetime.now(timezone.utc) - timedelta(days=min(days, 365))).isoformat()

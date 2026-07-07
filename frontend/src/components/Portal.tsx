@@ -921,7 +921,7 @@ function Dashboard({
             day: "numeric",
         });
 
-    const KPIS = [
+    const ALL_KPIS = [
         {
             key: "val",
             label: "Inventory Value",
@@ -974,6 +974,9 @@ function Dashboard({
             small: true,
         },
     ];
+    const KPIS = lvl < 20
+        ? ALL_KPIS.filter(k => ['low', 'meals', 'evt'].includes(k.key))
+        : ALL_KPIS;
 
     const QUICK = [
         { label: "Log HACCP reading", icon: "thermo", to: "haccp", min: 20 },
@@ -1139,44 +1142,48 @@ function Dashboard({
                         </button>
                     </WinCard>
 
-                    <WinCard title="Inventory value by category" link="Live →" onLink={() => go("inventory")}>
-                        <div className="card-body flush" style={{ margin: "-16px -17px" }}>
-                            {catRows.map((c: any) => (
-                                <div className="cat-row" key={c.name}>
-                                    <span className="cat-dot" style={{ background: c.color }} />
-                                    <span className="cat-nm">{c.name}</span>
-                                    <span className="cat-bar">
-                                        <span className="cat-fill" style={{ width: c.pct + "%", background: c.color }} />
-                                    </span>
-                                    <span className="cat-val">{c.val}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </WinCard>
-
-                    <WinCard title="Inventory alerts">
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: reorderList.length ? 10 : 0 }}>
-                            <StatusPill warn={reorderList.length > 0} style={{ margin: 0 }}>
-                                {I.alert({ style: { width: 13, height: 13 } })} {reorderList.length} below par
-                            </StatusPill>
-                        </div>
-                        {reorderList.length === 0 ? (
-                            <div style={{ fontSize: 12, color: "var(--muted)" }}>All items at or above par level.</div>
-                        ) : (
-                            <div className="alert-chips">
-                                {reorderList.slice(0, 12).map((r: any, i: number) => (
-                                    <span className="alert-chip" key={i}>
-                                        {r.desc}<b>{r.onHand || 0}/{r.par}</b>
-                                    </span>
+                    {lvl >= 20 && (
+                        <WinCard title="Inventory value by category" link="Live →" onLink={() => go("inventory")}>
+                            <div className="card-body flush" style={{ margin: "-16px -17px" }}>
+                                {catRows.map((c: any) => (
+                                    <div className="cat-row" key={c.name}>
+                                        <span className="cat-dot" style={{ background: c.color }} />
+                                        <span className="cat-nm">{c.name}</span>
+                                        <span className="cat-bar">
+                                            <span className="cat-fill" style={{ width: c.pct + "%", background: c.color }} />
+                                        </span>
+                                        <span className="cat-val">{c.val}</span>
+                                    </div>
                                 ))}
-                                {reorderList.length > 12 && (
-                                    <span className="alert-more" onClick={() => go("inventory")}>
-                                        +{reorderList.length - 12} more →
-                                    </span>
-                                )}
                             </div>
-                        )}
-                    </WinCard>
+                        </WinCard>
+                    )}
+
+                    {lvl >= 20 && (
+                        <WinCard title="Inventory alerts">
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: reorderList.length ? 10 : 0 }}>
+                                <StatusPill warn={reorderList.length > 0} style={{ margin: 0 }}>
+                                    {I.alert({ style: { width: 13, height: 13 } })} {reorderList.length} below par
+                                </StatusPill>
+                            </div>
+                            {reorderList.length === 0 ? (
+                                <div style={{ fontSize: 12, color: "var(--muted)" }}>All items at or above par level.</div>
+                            ) : (
+                                <div className="alert-chips">
+                                    {reorderList.slice(0, 12).map((r: any, i: number) => (
+                                        <span className="alert-chip" key={i}>
+                                            {r.desc}<b>{r.onHand || 0}/{r.par}</b>
+                                        </span>
+                                    ))}
+                                    {reorderList.length > 12 && (
+                                        <span className="alert-more" onClick={() => go("inventory")}>
+                                            +{reorderList.length - 12} more →
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                        </WinCard>
+                    )}
                 </div>
 
                 <div
@@ -1197,26 +1204,28 @@ function Dashboard({
                         </div>
                     </WinCard>
 
-                    <WinCard title={`Monthly inventory · ${MONTHS[period[0]]}`} link="Manage →" onLink={() => go("moninv")}>
-                        <div className="mi-mini">
-                            <div className="mim mim-opening">
-                                <span className="mim-l">Opening</span>
-                                <span className="mim-v">{fmtMoney(miSum.open)}</span>
+                    {lvl >= 20 && (
+                        <WinCard title={`Monthly inventory · ${MONTHS[period[0]]}`} link="Manage →" onLink={() => go("moninv")}>
+                            <div className="mi-mini">
+                                <div className="mim mim-opening">
+                                    <span className="mim-l">Opening</span>
+                                    <span className="mim-v">{fmtMoney(miSum.open)}</span>
+                                </div>
+                                <div className="mim mim-received">
+                                    <span className="mim-l">Received</span>
+                                    <span className="mim-v">{fmtMoney(miSum.recv)}</span>
+                                </div>
+                                <div className="mim mim-issued">
+                                    <span className="mim-l">Issued</span>
+                                    <span className="mim-v">{fmtMoney(miSum.iss)}</span>
+                                </div>
+                                <div className="mim mim-closing">
+                                    <span className="mim-l">Closing</span>
+                                    <span className="mim-v">{fmtMoney(miSum.close)}</span>
+                                </div>
                             </div>
-                            <div className="mim mim-received">
-                                <span className="mim-l">Received</span>
-                                <span className="mim-v">{fmtMoney(miSum.recv)}</span>
-                            </div>
-                            <div className="mim mim-issued">
-                                <span className="mim-l">Issued</span>
-                                <span className="mim-v">{fmtMoney(miSum.iss)}</span>
-                            </div>
-                            <div className="mim mim-closing">
-                                <span className="mim-l">Closing</span>
-                                <span className="mim-v">{fmtMoney(miSum.close)}</span>
-                            </div>
-                        </div>
-                    </WinCard>
+                        </WinCard>
+                    )}
 
                     <WinCard title="Upcoming events" link="Calendar →" onLink={() => go("events")}>
                         <div className="card-body flush" style={{ margin: "-16px -17px" }}>
@@ -5037,7 +5046,11 @@ export function Portal({
         toast("Refreshing live data…");
     }
 
-    const canAccess = (routeKey: string) => routeKey === "settings" || hasScope(routeKey);
+    const FINANCIAL_KEYS = ['inventory', 'moninv', 'reports', 'archives', 'pullsheet', 'snackbar', 'dataentry'];
+    const canAccess = (routeKey: string) => {
+        if (lvl < 20 && FINANCIAL_KEYS.includes(routeKey)) return false;
+        return routeKey === "settings" || hasScope(routeKey);
+    };
     const goTo = (routeKey: string, opts?: { prId?: string }) => {
         setExplorerOpen(false);
         if (routeKey === "sourcectrl") {

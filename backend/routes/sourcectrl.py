@@ -1,14 +1,13 @@
 import logging
-import os
 import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from supabase import create_client
 from dotenv import load_dotenv
 from typing import Optional
 import re as _re
+from backend.routes import supabase_service
 from backend.staging.dispatch import replay, validate_payload
 from backend.ai import diff as diff_engine
 from backend.routes._deps import (
@@ -91,7 +90,7 @@ def _granular_commit_changes(
     if skus:
         try:
             rr = (
-                _client()
+                supabase_service
                 .table("inventory_items")
                 .select("id,sku")
                 .in_("sku", list(skus))
@@ -174,19 +173,6 @@ log = logging.getLogger("mjcc.sourcectrl")
 
 router = APIRouter(prefix="/api")
 
-_svc = None
-
-
-def _client():
-    global _svc
-    if _svc is None:
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_SERVICE_KEY")
-        if not url or not key:
-            raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set.")
-        _svc = create_client(url, key)
-    return _svc
-
 
 def _infer_entity_scope(entries: list[dict]) -> str:
     scopes = {entry.get("entity_type") or "unknown" for entry in entries}
@@ -206,7 +192,7 @@ def _select_staging_entries(entry_ids: list[str], columns: str = "*") -> list[di
     rows: list[dict] = []
     for entry_chunk in _chunks(entry_ids):
         r = (
-            _client()
+            supabase_service
             .table("staging_entries")
             .select(columns)
             .in_("entry_id", entry_chunk)
@@ -218,14 +204,14 @@ def _select_staging_entries(entry_ids: list[str], columns: str = "*") -> list[di
 
 def _update_staging_entries(entry_ids: list[str], values: dict) -> None:
     for entry_chunk in _chunks(entry_ids):
-        _client().table("staging_entries").update(values).in_(
+        supabase_service.table("staging_entries").update(values).in_(
             "entry_id", entry_chunk
         ).execute()
 
 
 def _insert_commit_changes(changes: list[dict]) -> None:
     for change_chunk in _chunks(changes):
-        _client().table("commit_changes").insert(change_chunk).execute()
+        supabase_service.table("commit_changes").insert(change_chunk).execute()
 
 
 def _commit_file_ref(entries: list[dict], pr_id: Optional[str] = None) -> str:
@@ -243,7 +229,7 @@ def _commit_file_ref(entries: list[dict], pr_id: Optional[str] = None) -> str:
 
 def _count_commit_changes(commit_id: str) -> int:
     r = (
-        _client()
+        supabase_service
         .table("commit_changes")
         .select("change_id")
         .eq("commit_id", commit_id)
@@ -254,7 +240,7 @@ def _count_commit_changes(commit_id: str) -> int:
 
 def _enqueue_github_sync_once(commit_id: str, message: str, change_count: int) -> None:
     existing = (
-        _client()
+        supabase_service
         .table("github_sync_queue")
         .select("id")
         .eq("operation", "push_archive_snapshot")
@@ -264,7 +250,7 @@ def _enqueue_github_sync_once(commit_id: str, message: str, change_count: int) -
     )
     if existing.data:
         return
-    _client().table("github_sync_queue").insert(
+    supabase_service.table("github_sync_queue").insert(
         {
             "operation": "push_archive_snapshot",
             "payload": {
@@ -314,10 +300,10 @@ def _finalize_pull_request(
     if not pr_id:
         return
     try:
-        _client().table("commits").update({"pull_request_id": pr_id}).eq(
+        supabase_service.table("commits").update({"pull_request_id": pr_id}).eq(
             "commit_id", commit_id
         ).is_("pull_request_id", "null").execute()
-        _client().table("pull_requests").update(
+        supabase_service.table("pull_requests").update(
             {
                 "status": "merged",
                 "commit_id": commit_id,
@@ -354,7 +340,7 @@ def _finalize_applied_entries(
     staging_batch_ids = list({e.get("batch_id") for e in entries if e.get("batch_id")})
     if staging_batch_ids:
         try:
-            _client().table("import_batches").update(
+            supabase_service.table("import_batches").update(
                 {"status": "merged", "merged_at": now}
             ).in_("staging_batch_id", staging_batch_ids).eq(
                 "status", "staged"
@@ -419,7 +405,7 @@ def _assert_inventory_overwrite_allowed(
 
 def _apply_confirmed_inventory_overwrites(entries: list[dict]) -> list[dict]:
     """Clear confirmed Data Entry replacement scopes once per commit merge."""
-    sup = _client()
+    sup = supabase_service
     cleared: list[dict] = []
     seen: set[tuple] = set()
     for entry in entries:
@@ -547,7 +533,7 @@ def _apply_entries(
     file_ref = _commit_file_ref(entries, pr_id)
     commit_month, commit_year = _infer_commit_period(entries)
     existing_commit_r = (
-        _client()
+        supabase_service
         .table("commits")
         .select("*")
         .eq("file_ref", file_ref)
@@ -605,7 +591,7 @@ def _apply_entries(
                 preflight_errors.append((entry["entry_id"], op, err))
     if preflight_errors:
         for entry_id, op, err in preflight_errors:
-            _client().table("staging_entries").update(
+            supabase_service.table("staging_entries").update(
                 {"review_note": f"Validation failed (pre-commit) — {op}: {err}"}
             ).eq("entry_id", entry_id).execute()
         detail = "; ".join(f"{op}: {err}" for _, op, err in preflight_errors)
@@ -703,7 +689,7 @@ def _apply_entries(
                 if err
                 else "Commit aborted (another change in this commit failed) — left pending for retry."
             )
-            _client().table("staging_entries").update({"review_note": note}).eq(
+            supabase_service.table("staging_entries").update({"review_note": note}).eq(
                 "entry_id", r["entry_id"]
             ).execute()
         detail = "; ".join(
@@ -747,7 +733,7 @@ def _apply_entries(
     if pr_id:
         commit_row["pull_request_id"] = pr_id
 
-    commit_r = _client().table("commits").insert(commit_row).execute()
+    commit_r = supabase_service.table("commits").insert(commit_row).execute()
     if not commit_r.data:
         raise HTTPException(status_code=500, detail="Failed to create commit.")
     commit = commit_r.data[0]
@@ -797,7 +783,7 @@ def _apply_entries(
     )
     if staging_batch_ids:
         try:
-            _client().table("import_batches").update(
+            supabase_service.table("import_batches").update(
                 {"status": "merged", "merged_at": now}
             ).in_("staging_batch_id", staging_batch_ids).eq(
                 "status", "staged"
@@ -807,7 +793,7 @@ def _apply_entries(
 
     # 6 — enqueue github sync
     # NOTE: github_sync_queue_operation_check permits push_archive_snapshot, not push_snapshot.
-    _client().table("github_sync_queue").insert(
+    supabase_service.table("github_sync_queue").insert(
         {
             "operation": "push_archive_snapshot",
             "payload": {
@@ -837,7 +823,7 @@ def _apply_entries(
             if isinstance(fp.get("month"), int) and isinstance(fp.get("year"), int)
         }
         for db_m, yr in periods:
-            _client().rpc(
+            supabase_service.rpc(
                 "audit_inventory_period", {"p_month": db_m, "p_year": yr}
             ).execute()
     except Exception as exc:
@@ -864,7 +850,7 @@ async def get_commits(
 ):
     try:
         commits_r = (
-            _client()
+            supabase_service
             .table("commits")
             .select(
                 "commit_id,message,author_id,status,branch,created_at,merged_at,"
@@ -879,7 +865,7 @@ async def get_commits(
 
         commit_ids = [c["commit_id"] for c in commits_r.data]
         counts_r = (
-            _client()
+            supabase_service
             .table("commit_changes")
             .select("commit_id")
             .in_("commit_id", commit_ids)
@@ -893,7 +879,7 @@ async def get_commits(
             {c["author_id"] for c in commits_r.data if c.get("author_id")}
         )
         profiles_r = (
-            _client()
+            supabase_service
             .table("user_profiles")
             .select("id,username,display_name,role")
             .in_("id", author_ids)
@@ -908,7 +894,7 @@ async def get_commits(
         pr_map: dict[str, dict] = {}
         if pr_ids:
             prs_r = (
-                _client()
+                supabase_service
                 .table("pull_requests")
                 .select("pr_id,pr_number,title")
                 .in_("pr_id", pr_ids)
@@ -960,7 +946,7 @@ async def get_transactions(
 ):
     try:
         q = (
-            _client()
+            supabase_service
             .table("commit_changes")
             .select(
                 "change_id,commit_id,item_id,month,year,week_number,field,field_name,"
@@ -985,7 +971,7 @@ async def get_transactions(
         commit_map: dict[str, dict] = {}
         if commit_ids:
             commits_r = (
-                _client()
+                supabase_service
                 .table("commits")
                 .select(
                     "commit_id,message,author_id,status,branch,created_at,merged_at,"
@@ -1000,7 +986,7 @@ async def get_transactions(
         item_map: dict[str, dict] = {}
         if item_ids:
             items_r = (
-                _client()
+                supabase_service
                 .table("inventory_items")
                 .select("id,sku,description,unit_price,unit")
                 .in_("id", item_ids)
@@ -1014,7 +1000,7 @@ async def get_transactions(
         profile_map: dict[str, dict] = {}
         if author_ids:
             profiles_r = (
-                _client()
+                supabase_service
                 .table("user_profiles")
                 .select("id,username,display_name,role")
                 .in_("id", author_ids)
@@ -1063,7 +1049,7 @@ async def get_staging(
 ):
     try:
         q = (
-            _client()
+            supabase_service
             .table("staging_entries")
             .select(
                 "entry_id,entity_type,entity_id,field_name,old_value_text,new_value_text,"
@@ -1087,7 +1073,7 @@ async def get_staging(
             {row["submitted_by"] for row in r.data if row.get("submitted_by")}
         )
         profiles_r = (
-            _client()
+            supabase_service
             .table("user_profiles")
             .select("id,username,display_name,role")
             .in_("id", author_ids)
@@ -1119,7 +1105,7 @@ async def get_my_staging(auth_user: dict = Depends(_get_auth_user)):
     """Return the current user's pending staging entries (not yet linked to a PR)."""
     try:
         r = (
-            _client()
+            supabase_service
             .table("staging_entries")
             .select(
                 "entry_id,operation,entity_type,entity_id,metadata,created_at,pull_request_id"
@@ -1166,7 +1152,7 @@ async def submit_staging(
             if inv_month and inv_year:
                 db_month = max(0, int(inv_month) - 1)
                 ms_r = (
-                    _client()
+                    supabase_service
                     .table("month_status")
                     .select("status")
                     .eq("month", db_month)
@@ -1210,7 +1196,7 @@ async def submit_staging(
                             )
         # Dedup: update existing pending entry rather than stacking duplicates
         existing_r = (
-            _client()
+            supabase_service
             .table("staging_entries")
             .select("entry_id")
             .eq("entity_id", body.entity_id)
@@ -1230,7 +1216,7 @@ async def submit_staging(
                 "full_payload": body.full_payload,
             }
             r = (
-                _client()
+                supabase_service
                 .table("staging_entries")
                 .update(update_fields)
                 .eq("entry_id", entry_id)
@@ -1256,7 +1242,7 @@ async def submit_staging(
             "operation": body.operation,
             "full_payload": body.full_payload,
         }
-        r = _client().table("staging_entries").insert(row).execute()
+        r = supabase_service.table("staging_entries").insert(row).execute()
         if not r.data:
             raise HTTPException(status_code=500, detail="Insert returned no data.")
         entry = r.data[0]
@@ -1330,7 +1316,7 @@ async def reject_staging(
     try:
         now = datetime.now(timezone.utc).isoformat()
         r = (
-            _client()
+            supabase_service
             .table("staging_entries")
             .update(
                 {
@@ -1377,7 +1363,7 @@ async def bulk_unstage(
     try:
         for chunk in _chunks(body.entry_ids, 100):
             r = (
-                _client()
+                supabase_service
                 .table("staging_entries")
                 .update(
                     {
@@ -1411,7 +1397,7 @@ async def open_pull_request(
         if not entry_ids:
             # Default: all caller's own pending, unlinked entries
             r = (
-                _client()
+                supabase_service
                 .table("staging_entries")
                 .select("entry_id")
                 .eq("submitted_by", auth_user["id"])
@@ -1461,7 +1447,7 @@ async def open_pull_request(
 
         scope = _infer_entity_scope(entries)
         opened = (
-            _client()
+            supabase_service
             .table("pull_requests")
             .insert(
                 {
@@ -1496,7 +1482,7 @@ async def list_pull_requests(
     """List PRs scoped by role (mirrors get_staging). Pass status='all' for no status filter."""
     try:
         q = (
-            _client()
+            supabase_service
             .table("pull_requests")
             .select("*")
             .order("created_at", desc=True)
@@ -1516,7 +1502,7 @@ async def list_pull_requests(
 
         author_ids = list({pr["author_id"] for pr in prs if pr.get("author_id")})
         profiles_r = (
-            _client()
+            supabase_service
             .table("user_profiles")
             .select("id,username,display_name,role")
             .in_("id", author_ids)
@@ -1526,7 +1512,7 @@ async def list_pull_requests(
 
         pr_ids = [pr["pr_id"] for pr in prs]
         counts_r = (
-            _client()
+            supabase_service
             .table("staging_entries")
             .select("pull_request_id")
             .in_("pull_request_id", pr_ids)
@@ -1568,7 +1554,7 @@ async def get_pull_request(
     """PR detail: PR row + linked staging entries + linked commit. Staff may only fetch their own."""
     try:
         pr_r = (
-            _client()
+            supabase_service
             .table("pull_requests")
             .select("*")
             .eq("pr_id", pr_id)
@@ -1587,7 +1573,7 @@ async def get_pull_request(
             raise HTTPException(status_code=403, detail="Access denied.")
 
         entries_r = (
-            _client()
+            supabase_service
             .table("staging_entries")
             .select("*")
             .eq("pull_request_id", pr_id)
@@ -1598,7 +1584,7 @@ async def get_pull_request(
         commit = None
         if pr.get("commit_id"):
             c_r = (
-                _client()
+                supabase_service
                 .table("commits")
                 .select("*")
                 .eq("commit_id", pr["commit_id"])
@@ -1609,7 +1595,7 @@ async def get_pull_request(
 
         if pr.get("author_id"):
             p_r = (
-                _client()
+                supabase_service
                 .table("user_profiles")
                 .select("id,username,display_name,role")
                 .eq("id", pr["author_id"])
@@ -1640,7 +1626,7 @@ async def merge_pull_request(
     entry inside it (segregation of duties: proposer and approver must differ)."""
     try:
         pr_r = (
-            _client()
+            supabase_service
             .table("pull_requests")
             .select("*")
             .eq("pr_id", pr_id)
@@ -1665,7 +1651,7 @@ async def merge_pull_request(
 
         # Only pending entries; idempotent — re-merge only replays what's still pending
         entries_r = (
-            _client()
+            supabase_service
             .table("staging_entries")
             .select("*")
             .eq("pull_request_id", pr_id)
@@ -1680,7 +1666,7 @@ async def merge_pull_request(
             )
         if not entries:
             existing_commit_r = (
-                _client()
+                supabase_service
                 .table("commits")
                 .select("*")
                 .eq("pull_request_id", pr_id)
@@ -1691,7 +1677,7 @@ async def merge_pull_request(
             )
             existing_commit = (existing_commit_r.data or [None])[0]
             if existing_commit:
-                _client().rpc(
+                supabase_service.rpc(
                     "sc_finalize_merge",
                     {
                         "p_pr": pr_id,
@@ -1700,7 +1686,7 @@ async def merge_pull_request(
                     },
                 ).execute()
                 updated_pr_r = (
-                    _client()
+                    supabase_service
                     .table("pull_requests")
                     .select("*")
                     .eq("pr_id", pr_id)
@@ -1728,7 +1714,7 @@ async def merge_pull_request(
             pr_id=pr_id,
         )
 
-        _client().rpc(
+        supabase_service.rpc(
             "sc_finalize_merge",
             {
                 "p_pr": pr_id,
@@ -1738,7 +1724,7 @@ async def merge_pull_request(
         ).execute()
 
         updated_pr_r = (
-            _client()
+            supabase_service
             .table("pull_requests")
             .select("*")
             .eq("pr_id", pr_id)
@@ -1762,7 +1748,7 @@ async def close_pull_request(
     """Close a PR. Admin/manager/sudo or the PR's own author."""
     try:
         pr_r = (
-            _client()
+            supabase_service
             .table("pull_requests")
             .select("*")
             .eq("pr_id", pr_id)
@@ -1789,7 +1775,7 @@ async def close_pull_request(
                 detail=f"Pull request is {pr.get('status')} — cannot close.",
             )
 
-        _client().rpc(
+        supabase_service.rpc(
             "sc_close_pull_request",
             {
                 "p_pr": pr_id,
@@ -1799,7 +1785,7 @@ async def close_pull_request(
         ).execute()
 
         updated_pr_r = (
-            _client()
+            supabase_service
             .table("pull_requests")
             .select("*")
             .eq("pr_id", pr_id)

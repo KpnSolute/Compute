@@ -1,12 +1,10 @@
 """MJCC Agent tool registry — real Supabase queries for the ReAct agent loop."""
 
-import os
 import uuid
 from calendar import month_name
 from datetime import datetime, timedelta, timezone
 
-from supabase import create_client
-
+from backend.routes import supabase_service
 from backend import inventory_formulas as fi
 from backend.periods import business_now
 
@@ -34,20 +32,6 @@ TOOL_MIN_ROLE: dict[str, str] = {
     "get_source_control_status": "manager",
     "get_ai_usage": "admin",
 }
-
-_svc = None
-
-
-def _client():
-    global _svc
-    if _svc is None:
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_SERVICE_KEY")
-        if not url or not key:
-            raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set.")
-        _svc = create_client(url, key)
-    return _svc
-
 
 def _role_ok(user_role: str, min_role: str) -> bool:
     return ROLE_LEVEL.get(user_role, 0) >= ROLE_LEVEL.get(min_role, 99)
@@ -130,7 +114,7 @@ def _wrap_in_pr(
 
 def get_dashboard_stats(args: dict, user_role: str) -> dict:
     try:
-        svc = _client()
+        svc = supabase_service
         users_r = (
             svc.table("user_profiles")
             .select("id", count="exact")
@@ -182,7 +166,7 @@ def get_dashboard_stats(args: dict, user_role: str) -> dict:
 def get_inventory(args: dict, user_role: str) -> dict:
     display_month, db_month, year = _period_from_args(args)
     try:
-        svc = _client()
+        svc = supabase_service
         items = (
             svc.table("inventory_items")
             .select(
@@ -257,7 +241,7 @@ def get_inventory(args: dict, user_role: str) -> dict:
 
 def get_events(args: dict, user_role: str) -> dict:
     try:
-        svc = _client()
+        svc = supabase_service
         r = (
             svc.table("events")
             .select("title,date,cat,status,description")
@@ -291,7 +275,7 @@ def get_menu(args: dict, user_role: str) -> dict:
 
 def get_reorders(args: dict, user_role: str) -> dict:
     try:
-        svc = _client()
+        svc = supabase_service
         live = (
             svc.table("live_inventory")
             .select("sku,description,on_hand,par_level,order_qty,unit_price")
@@ -336,7 +320,7 @@ def get_reorders(args: dict, user_role: str) -> dict:
 
 def get_period_status(args: dict, user_role: str) -> dict:
     try:
-        svc = _client()
+        svc = supabase_service
         status = (
             svc.table("month_status")
             .select("month,year,status")
@@ -371,7 +355,7 @@ def get_users(args: dict, user_role: str) -> dict:
     if not _role_ok(user_role, "manager"):
         return {"error": "Requires manager role or above"}
     try:
-        svc = _client()
+        svc = supabase_service
         r = (
             svc.table("user_profiles")
             .select("username,display_name,role,active,job_title")
@@ -398,7 +382,7 @@ def get_haccp_logs(args: dict, user_role: str) -> dict:
         return {"error": "Requires manager role or above"}
     limit = min(int(args.get("limit", 10)), 50)
     try:
-        svc = _client()
+        svc = supabase_service
         r = (
             svc.table("haccp_logs")
             .select("timestamp,location,temperature,unit,checked_by,notes")
@@ -420,7 +404,7 @@ def get_daily_logs(args: dict, user_role: str) -> dict:
         return {"error": "Requires manager role or above"}
     limit = min(int(args.get("limit", 10)), 50)
     try:
-        svc = _client()
+        svc = supabase_service
         r = (
             svc.table("daily_operations_logs")
             .select("entry_type,title,description,severity,created_by,created_at")
@@ -440,7 +424,7 @@ def create_event(args: dict, user_role: str) -> dict:
         if not args.get(f):
             return {"error": f"Missing required field: {f}"}
     try:
-        svc = _client()
+        svc = supabase_service
         payload = {
             "title": args["title"],
             "date": args["date"],
@@ -462,7 +446,7 @@ def get_ai_usage(args: dict, user_role: str) -> dict:
     days = min(int(args.get("days", 7)), 90)
     try:
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-        svc = _client()
+        svc = supabase_service
         r = (
             svc.table("ai_usage_logs")
             .select("provider,tokens_in,tokens_out,cost_usd,success,duration_ms")
@@ -534,7 +518,7 @@ def stage_inventory_save(args: dict, user_role: str) -> dict:
         "expires_at": _expires(),
     }
     try:
-        r = _client().table("staging_entries").insert(row).execute()
+        r = supabase_service.table("staging_entries").insert(row).execute()
         staged = r.data or []
         entry_ids = [x["entry_id"] for x in staged if x.get("entry_id")]
         pr = _wrap_in_pr(
@@ -609,7 +593,7 @@ def stage_inventory_week_update(args: dict, user_role: str) -> dict:
         "expires_at": _expires(),
     }
     try:
-        r = _client().table("staging_entries").insert(row).execute()
+        r = supabase_service.table("staging_entries").insert(row).execute()
         staged = r.data or []
         entry_ids = [x["entry_id"] for x in staged if x.get("entry_id")]
         pr = _wrap_in_pr(
@@ -638,7 +622,7 @@ def get_source_control_status(args: dict, user_role: str) -> dict:
         return {"error": "Requires manager role or above"}
     try:
         user_id = _require_user_id(args)
-        svc = _client()
+        svc = supabase_service
         pending = (
             svc.table("staging_entries")
             .select("entry_id", count="exact")

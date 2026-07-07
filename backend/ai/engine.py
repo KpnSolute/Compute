@@ -14,9 +14,10 @@ Usage is logged to ai_usage_logs after every call (best-effort, never raises).
 import base64
 import json
 import logging
-import os
 import time
 import httpx
+
+from backend.routes import supabase_service
 
 log = logging.getLogger("mjcc.ai")
 
@@ -376,15 +377,8 @@ def is_vision_capable(provider: str, model: str, cfg: dict | None = None) -> boo
 def _get_db_row(provider: str) -> tuple[str | None, str | None]:
     """Query ai_provider_keys for active (api_key, base_url). Returns (None, None) on any error."""
     try:
-        from supabase import create_client
-
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_SERVICE_KEY")
-        if not url or not key:
-            return None, None
-        svc = create_client(url, key)
         r = (
-            svc.table("ai_provider_keys")
+            supabase_service.table("ai_provider_keys")
             .select("api_key,base_url")
             .eq("provider", provider)
             .eq("is_active", True)
@@ -415,14 +409,7 @@ def _log_usage(
         rate = COST_RATES.get(provider, {"in": 0.0, "out": 0.0})
         cost = (tokens_in * rate["in"] + tokens_out * rate["out"]) / 1000.0
 
-        from supabase import create_client
-
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_SERVICE_KEY")
-        if not url or not key:
-            return
-        svc = create_client(url, key)
-        svc.table("ai_usage_logs").insert(
+        supabase_service.table("ai_usage_logs").insert(
             {
                 "provider": provider,
                 "model": model,
@@ -568,15 +555,8 @@ def _get_any_key(provider: str) -> str | None:
     active row). The primary provider uses _get_db_row (is_active only); fallback
     providers aren't marked active, so they need this looser lookup."""
     try:
-        from supabase import create_client
-
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_SERVICE_KEY")
-        if not url or not key:
-            return None
-        svc = create_client(url, key)
         r = (
-            svc.table("ai_provider_keys")
+            supabase_service.table("ai_provider_keys")
             .select("api_key,is_active")
             .eq("provider", provider)
             .order("is_active", desc=True)

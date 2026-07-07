@@ -3,21 +3,7 @@ Row-level diff engine.
 Given staged entries (batch), compute before/after per row against live DB.
 """
 
-import os
-from supabase import create_client
-
-_svc = None
-
-
-def _client():
-    global _svc
-    if _svc is None:
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_SERVICE_KEY")
-        if not url or not key:
-            raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set.")
-        _svc = create_client(url, key)
-    return _svc
+from backend.routes import supabase_service
 
 
 # Payload weekly key → monthly_inventory column name.
@@ -42,7 +28,7 @@ def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dic
     """
     sku = item.get("sku", "")
     r = (
-        _client()
+        supabase_service
         .table("inventory_items")
         .select(
             "id,sku,description,unit_price,par_level,unit,inventory_categories(name)"
@@ -102,7 +88,7 @@ def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dic
     if month is not None and year is not None:
         db_month = month - 1  # convert 1-indexed API month → 0-indexed DB month
         mi_r = (
-            _client()
+            supabase_service
             .table("monthly_inventory")
             .select(
                 "opening_oh,opening_unit_cost,opening_value,received_value,pulled_value,ending_value,"
@@ -208,7 +194,7 @@ def _diff_inventory_week(payload: dict) -> dict:
     year = payload.get("year")
     db_month = (month - 1) if month else None
     items = payload.get("items", [])
-    svc = _client()
+    svc = supabase_service
     rows = []
     for it in items:
         sku = (it.get("sku") or "").strip()
@@ -264,7 +250,7 @@ def _diff_item_update(payload: dict) -> dict:
     """Preview an edit/reassign of a single item identified by SKU."""
     sku = (payload.get("sku") or "").strip()
     r = (
-        _client()
+        supabase_service
         .table("inventory_items")
         .select("sku,description,category_id,unit_price,par_level,unit,active")
         .eq("sku", sku)
@@ -316,7 +302,7 @@ def _diff_item_delete(payload: dict) -> dict:
 def _diff_event_create(payload: dict) -> dict:
     title = payload.get("title", "")
     date = payload.get("date", "")
-    q = _client().table("events").select("id,title,date,cat,status")
+    q = supabase_service.table("events").select("id,title,date,cat,status")
     if title:
         q = q.eq("title", title)
     if date:

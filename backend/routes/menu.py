@@ -72,9 +72,26 @@ def _get_anchor_date() -> date:
     raw = r.data[0]["setting_value"]
     # setting_value is jsonb; supabase-py returns the decoded value (plain 'YYYY-MM-DD'
     # string), but tolerate a JSON-encoded '"YYYY-MM-DD"' from other writers.
-    if isinstance(raw, str) and raw.startswith('"'):
-        raw = json.loads(raw)
-    return date.fromisoformat(raw)
+    if isinstance(raw, str):
+        if raw.startswith('"'):
+            try:
+                raw = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                raise HTTPException(
+                    status_code=500,
+                    detail="menu_cycle_anchor_date has an invalid JSON-encoded value",
+                )
+        try:
+            return date.fromisoformat(raw)
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=500,
+                detail="menu_cycle_anchor_date is not a valid ISO date string",
+            )
+    raise HTTPException(
+        status_code=500,
+        detail="menu_cycle_anchor_date has an unexpected type",
+    )
 
 
 def _cycle_day_for_date(d: date, anchor: date | None = None) -> int:

@@ -117,7 +117,12 @@ def _public_day_for_date(d: date) -> dict:
 
 @router.get("/today")
 async def public_today():
-    return _public_day_for_date(business_now().date())
+    try:
+        return _public_day_for_date(business_now().date())
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Menu data error: {e}")
 
 
 @router.get("/date/{iso_date}")

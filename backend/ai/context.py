@@ -1,8 +1,7 @@
 """Schema context builder — pulls live lookup data for AI prompts."""
 
-import os
 import time
-from supabase import create_client
+from backend.routes import supabase_service
 
 _cache: dict[str, tuple[float, dict]] = {}
 _CACHE_TTL = 60.0
@@ -17,20 +16,6 @@ def _cached(key: str, fetch):
     return data
 
 
-_svc = None
-
-
-def _client():
-    global _svc
-    if _svc is None:
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_SERVICE_KEY")
-        if not url or not key:
-            raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set.")
-        _svc = create_client(url, key)
-    return _svc
-
-
 def get_categories() -> dict[str, int]:
     """Returns {name: id} for all inventory_categories."""
     return _cached(
@@ -38,7 +23,7 @@ def get_categories() -> dict[str, int]:
         lambda: {
             row["name"]: row["id"]
             for row in (
-                _client().table("inventory_categories").select("id,name").execute().data
+                supabase_service.table("inventory_categories").select("id,name").execute().data
                 or []
             )
         },
@@ -52,7 +37,7 @@ def get_vendors() -> dict[str, int]:
         lambda: {
             row["name"]: row["id"]
             for row in (
-                _client().table("vendors").select("id,name").execute().data or []
+                supabase_service.table("vendors").select("id,name").execute().data or []
             )
         },
     )
@@ -62,7 +47,7 @@ def get_ai_config() -> dict:
     """Load AI config from ai_stack_config joined to ai_provider_keys."""
     try:
         r = (
-            _client()
+            supabase_service
             .table("ai_stack_config")
             .select(
                 "provider, model, is_vision, ollama_url, vision_capable, "
@@ -105,7 +90,7 @@ def save_ai_config(config: dict) -> None:
         row["vision_capable"] = config["vision_capable"]
     if "ollama_url" in config:
         row["ollama_url"] = config["ollama_url"]
-    _client().table("ai_stack_config").upsert(row, on_conflict="name").execute()
+    supabase_service.table("ai_stack_config").upsert(row, on_conflict="name").execute()
 
 
 # ── AI tools config ───────────────────────────────────────────────────────────
@@ -133,7 +118,7 @@ def get_ai_tools_config() -> dict[str, bool]:
     """Load AI tool toggles from app_settings. Missing keys fall back to DEFAULT_TOOLS."""
     try:
         r = (
-            _client()
+            supabase_service
             .table("app_settings")
             .select("setting_value")
             .eq("setting_key", "ai_tools_config")
@@ -154,7 +139,7 @@ def save_ai_tools_config(tools: dict[str, bool]) -> None:
     from datetime import datetime, timezone
 
     now = datetime.now(timezone.utc).isoformat()
-    _client().table("app_settings").upsert(
+    supabase_service.table("app_settings").upsert(
         {"setting_key": "ai_tools_config", "setting_value": tools, "updated_at": now},
         on_conflict="setting_key",
     ).execute()

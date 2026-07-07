@@ -4,6 +4,26 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.30.0] — 2026-07-07 — Staff portal role-gating + prod error remediation
+
+**OpenCode:** Staff portal now hides all financial data. Fixed 3 production error classes from Render logs.
+
+### Staff portal role-gating
+- Dashboard: financial KPIs (Inventory Value, Closing Value) removed for `lvl < 20`
+- Dashboard: "Inventory value by category", "Monthly inventory", "Inventory alerts" cards hidden for staff
+- `goTo()` hard-blocks financial pages (`inventory`, `moninv`, `reports`, `archives`, `pullsheet`, `snackbar`, `dataentry`) for staff regardless of role scopes
+- Staff Dashboard now shows only: Today's menu, Meal log, Upcoming events, Quick actions
+
+### Prod error remediation
+- **DB connection pool exhaustion:** Refactored 7 modules (`data_entry.py`, `github_sync.py`, `sourcectrl.py`, `dispatch.py`, `context.py`, `tools.py`, `diff.py`, `engine.py`) to use the shared `supabase_service` singleton from `backend.routes` instead of creating independent Supabase clients. `engine.py` was worst: 3 ephemeral clients per function call. This eliminates redundant connection pools and reduces open connections by ~8x.
+- **Menu today JSON decode:** Hardened `_get_anchor_date()` with typed error handling for malformed jsonb values; wrapped `public_today()` in try/except so corrupt data returns a 500 instead of an unhandled exception.
+- **Auth credential 502:** `_patch_auth_user()` now includes HTTP status code and response body in error detail; auto-re-creates the GoTrue user if 404 (deleted from auth but profile remains).
+
+**Verification:** `npm run lint` → 0 errors. `npx tsc --noEmit` → clean. `ruff check backend/` → clean.
+**Push:** OpenCode →
+
+---
+
 ## [v4.29.1] — 2026-07-07 — Flow production polish: click-to-assign, org chart tree, log picker
 
 **OpenCode (Claude spec):** Implemented all three production-polish items from the spec, tested and shipped.
@@ -30,6 +50,7 @@ This is the **central development memory and discussion board** for development 
 - Zero rows or fetch error → free-text fallback "No existing logs found — enter an ID manually."
 
 **Verification:** `npm run lint` → 0 errors (640 pre-existing warnings). `npx tsc --noEmit` → clean. `npm run build` → clean (existing chunk warnings only).
+**Push:** OpenCode → `f8d0191` — 2026-07-07
 
 ---
 

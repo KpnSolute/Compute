@@ -18,6 +18,7 @@ Endpoints:
 """
 
 import json
+import logging
 import re
 import secrets
 from datetime import datetime, timezone
@@ -33,6 +34,8 @@ from backend.routes import (
     supabase_service,
 )
 from backend.routes._deps import _get_auth_user
+
+log = logging.getLogger("mjcc.users")
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -533,9 +536,35 @@ def _patch_auth_user(user_id: str, payload: dict) -> None:
             json=payload,
             timeout=10,
         )
-        if resp.status_code not in (200, 201):
+        if resp.status_code == 404:
+            log.warning(
+                "Auth user %s not found in GoTrue — creating via admin API", user_id
+            )
+            # Re-create the auth user if missing (e.g. deleted from auth but profile remains)
+            auth_resp = httpx.post(
+                f"{SUPABASE_URL}/auth/v1/admin/users",
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "email": payload.get("email", f"{user_id[:8]}@mjc-cafeteria.com"),
+                    "password": payload.get("password", "TempPass123!"),
+                    "email_confirm": True,
+                    "user_metadata": payload.get("user_metadata", {}),
+                },
+                timeout=10,
+            )
+            if auth_resp.status_code not in (200, 201):
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Auth user re-creation failed ({auth_resp.status_code}): {auth_resp.text[:200]}",
+                )
+        elif resp.status_code not in (200, 201):
             raise HTTPException(
-                status_code=502, detail=f"Auth credential update failed: {resp.text}"
+                status_code=502,
+                detail=f"Auth credential update failed (HTTP {resp.status_code}): {resp.text[:200] or 'empty response'}",
             )
     except HTTPException:
         raise
