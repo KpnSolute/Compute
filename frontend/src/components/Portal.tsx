@@ -5098,7 +5098,7 @@ export function Portal({
                 </>
             );
         if (active === "haccp") return <ComplianceHub user={user} />;
-        if (active === "dailyops") return <DailyOps user={user} />;
+        if (active === "dailyops") return <DailyOps user={user} go={goTo} />;
         if (active === "events") return <EventsCalendar user={user} />;
         if (active === "menu") return <CycleMenu user={user} />;
         if (active === "mballot") return <MealLog user={user} />;

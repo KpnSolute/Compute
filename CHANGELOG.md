@@ -5,6 +5,33 @@ This is the **central development memory and discussion board** for development 
 ---
 
 
+## [v4.29.0] - 2026-07-06 - Flow frontend shipped: staff task list + manager/admin org chart with drag-to-assign
+
+**Claude + OpenCode + Claude (manual, mimo build):** Mimo CLI (v0.1.4) turned out to have a hard bug — it unconditionally `mkdir`s `.git/info` on startup and crashes with `EEXIST` in any repo where that directory already exists (i.e. every real repo, since `git init` creates it). Confirmed via its own log file, retried three times including after opencode fully exited — deterministic, not a race. Cannot be used in this repo until fixed/upgraded. Built the staff task list (`Build 1` of the `[v4.28.8-SPEC]` entry below) directly instead of via CLI, since it was the smaller of the two pieces.
+
+**`frontend/src/components/DailyOps.tsx`** (Claude, direct): added a `MyTasks` card above the opening checklist, showing the caller's own Flow assignments (`api.getFlowAssignments()` — backend auto-scopes to "mine"). Start/Complete buttons PATCH status; a "Go to task →" button appears when `link_type === 'nav_page'`, calling a new optional `go?: (key: string) => void` prop threaded from `Portal.tsx`'s existing `goTo`.
+
+**`frontend/src/components/FlowAdmin.tsx`** (OpenCode, new file — `Build 2` of the spec below): three-panel manager/admin UI — a Create Task form that stages a local (unpersisted) draft card, an org chart grouped by role with native HTML5 drag-and-drop (drop a draft on a person → `assigned_to`; drop on a role-group header → `assigned_to_role`), a full assignments table with delete, and a missing-role banner that auto-files an `urgent` Flow assignment to `assigned_to_role: 'sudo'` (deduped against existing open ones) for any user whose role isn't a valid one.
+
+**Claude review + fixes before wiring in:**
+1. Moved an inline `<style>` CSS-in-JS block into `index.css` (`.flow-*` classes) — this codebase has one stylesheet, no CSS-in-JS anywhere else, and CLAUDE.md explicitly calls out not introducing a third styling pattern. Replaced ad-hoc inline color objects for priority chips with `.flow-priority-chip.{low,normal,high,urgent}` classes.
+2. Type-only imports (`import { type User, ... }` / `import { api, type FlowAssignment }`) to match the rest of the codebase's convention.
+3. **Real bug:** `handleRoleDrop`/`handlePersonDrop` called `api.createFlowAssignment(...)` but discarded the response — the "All Assignments" table never reflected a newly-dropped assignment until a full page reload. Fixed both to push the returned row into `assignments` state.
+
+**Wiring (Claude):** `Portal.tsx`'s `<DailyOps>` call now passes `go={goTo}`. `DailyOps.tsx` renders `<FlowAdmin user={user} />` when `ROLE_LEVEL[user.role] >= 30` (manager+; sudo included since sudo is level 50).
+
+**Verify — full live end-to-end pass against production, no mocks:**
+- `npx tsc --noEmit`, `npm run lint` (0 errors, same 637 pre-existing warnings), `npm run build` all clean.
+- As Jeremiah (sudo): org chart renders all users grouped by role correctly, no missing-role banner (everyone has a valid role right now).
+- Created a draft task, drag-dropped it onto Othniel (person-level assign) — confirmed via toast and a follow-up reload that the assignment persisted (this caught the state-sync bug above).
+- Created a second draft with `link_type: nav_page` / `link_key: haccp`, dropped it on Pearline Brissetts (staff) — logged in as her: **"My Tasks" showed the task immediately**, "Go to task →" navigated to HACCP & Logs, "Start" flipped it to in_progress, "Complete" cleared it from the open-count badge and removed the action buttons, exactly as specced.
+- Delete button confirmed working (verified `window.confirm` auto-dismisses in the automated test harness — a real safety behavior, not a bug — then overrode it to confirm the delete path itself works).
+- Cleaned up all smoke-test assignments before finishing.
+
+**Push:** committed + pushed to main.
+
+---
+
 ## [v4.28.8-SPEC] - 2026-07-06 - Flow frontend: staff task list (Mimo) + manager/admin org chart & drag-assign (OpenCode), built in parallel on separate files
 
 **Claude:** Backend is live and smoke-tested end-to-end against production (create/list/update/delete all confirmed via curl with a real bearer token — see verification note below). `frontend/src/lib/api.ts` already has the client: `api.getFlowAssignments(opts?)`, `api.createFlowAssignment(body)`, `api.updateFlowAssignment(id, body)`, `api.deleteFlowAssignment(id)`, and the `FlowAssignment` interface — **use these, do not hand-roll fetch calls.**

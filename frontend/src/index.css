@@ -2853,3 +2853,32 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
   .cm-adjustment-row label:first-child{grid-column:1/-1}
   .student-menu-row{grid-template-columns:1fr;gap:4px}
 }
+
+/* ── Flow Admin (org chart + drag-to-assign) ── */
+.flow-admin{display:flex;flex-direction:column;gap:16px}
+.flow-admin-grid{display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:start}
+.flow-org-rows{display:flex;gap:16px;overflow-x:auto;padding-bottom:8px}
+.flow-role-col{min-width:190px;flex:1}
+.flow-role-header{padding:10px 12px;border-radius:8px;background:var(--surface-2);border:2px dashed transparent;cursor:default;transition:border-color .12s,background .12s;margin-bottom:8px}
+.flow-role-header.drag-over{border-color:var(--accent);background:var(--accent-soft)}
+.flow-role-header h4{font-size:13px;font-weight:800;margin:0}
+.flow-role-header .count{font-size:10px;color:var(--faint);font-weight:600}
+.flow-person-card{display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);cursor:pointer;margin-bottom:4px;transition:border-color .12s,background .12s}
+.flow-person-card:hover{border-color:var(--accent);background:var(--accent-soft)}
+.flow-person-card.drag-over{border-color:var(--accent);background:var(--accent-chip)}
+.flow-draft-card{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);cursor:grab;margin-bottom:4px;transition:border-color .12s}
+.flow-draft-card:active{cursor:grabbing;border-color:var(--accent);box-shadow:var(--shadow)}
+.flow-empty-drafts{padding:20px;text-align:center;color:var(--faint);font-size:12px;line-height:1.6}
+.flow-empty-assignments{padding:32px;text-align:center;color:var(--faint);font-size:12px}
+.flow-table-title{font-weight:600;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.flow-priority-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:10.5px;font-weight:800}
+.flow-priority-chip.urgent{background:#FEF2F2;color:#DC2626}
+.flow-priority-chip.high{background:#FEF3C7;color:#B45309}
+.flow-priority-chip.low{background:#F1F5F9;color:#94A3B8}
+.flow-priority-chip.normal{background:#EFF5FE;color:#1E40AF}
+.flow-no-role-card{opacity:.75}
+.flow-no-role-header{padding:8px 10px;border-radius:8px;background:#FEF2F2;border:2px dashed #FCA5A5;margin-bottom:8px}
+.flow-no-role-header h4{font-size:13px;font-weight:800;margin:0;color:#B91C1C}
+.flow-no-role-header .count{font-size:10px;color:#EF4444;font-weight:600}
+.flow-toast{position:fixed;bottom:22px;right:22px;background:var(--navy);color:#fff;padding:10px 16px;border-radius:10px;font-weight:700;font-size:12.5px;z-index:9999;box-shadow:var(--shadow-lg)}
+@media(max-width:900px){.flow-admin-grid{grid-template-columns:1fr}}

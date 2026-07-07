@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { I } from '../lib/icons';
 import { type User, ROLE_LEVEL } from '../lib/constants';
-import { api } from '../lib/api';
+import { api, type FlowAssignment } from '../lib/api';
 import { StatusPill } from './ui/StatusPill';
 import { SaveBar } from './ui/ActionBars';
+import { FlowAdmin } from './FlowAdmin';
 
 interface Incident {
   id: string;
@@ -58,7 +59,100 @@ function Loading({ label = 'Loading…' }) {
   return <div className="load-wrap"><div className="spinner"></div><div>{label}</div></div>;
 }
 
-export function DailyOps({ user }: { user: User }) {
+function MyTasks({ go }: { go?: (key: string) => void }) {
+  const [tasks, setTasks] = useState<FlowAssignment[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  async function load() {
+    try {
+      const rows = await api.getFlowAssignments();
+      setTasks(rows);
+    } catch {
+      setTasks([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function setStatus(id: string, status: 'in_progress' | 'done') {
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status } : t)));
+    try {
+      await api.updateFlowAssignment(id, { status });
+    } catch {
+      load();
+    }
+  }
+
+  const active = tasks.filter((t) => t.status === 'open' || t.status === 'in_progress');
+  const closed = tasks.filter((t) => t.status === 'done' || t.status === 'cancelled');
+
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div className="card-head">
+        <h3>My Tasks</h3>
+        {active.length > 0 && <StatusPill warn>{active.length} open</StatusPill>}
+      </div>
+      {loading ? (
+        <div className="card-body" style={{ padding: '20px 17px' }}>
+          <Loading label="Loading tasks…" />
+        </div>
+      ) : tasks.length === 0 ? (
+        <div className="card-body" style={{ padding: '20px 17px', color: 'var(--muted)' }}>
+          No tasks assigned right now.
+        </div>
+      ) : (
+        <div className="card-body flush">
+          {[...active, ...closed].map((t) => {
+            const done = t.status === 'done' || t.status === 'cancelled';
+            return (
+              <div
+                key={t.id}
+                className="check-row"
+                style={{ opacity: done ? 0.55 : 1, alignItems: 'center', gap: 10 }}
+              >
+                <div style={{ flex: 1 }}>
+                  <div style={{ textDecoration: done ? 'line-through' : 'none', fontWeight: 700 }}>
+                    {t.title}
+                  </div>
+                  {t.description && (
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{t.description}</div>
+                  )}
+                </div>
+                <StatusPill warn={t.priority === 'high' || t.priority === 'urgent'}>
+                  {t.priority}
+                </StatusPill>
+                {t.due_date && (
+                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>Due {t.due_date}</span>
+                )}
+                {t.link_type === 'nav_page' && t.link_key && (
+                  <button className="btn" onClick={() => go?.(t.link_key!)}>
+                    Go to task →
+                  </button>
+                )}
+                {t.status === 'open' && (
+                  <button className="btn primary" onClick={() => setStatus(t.id, 'in_progress')}>
+                    Start
+                  </button>
+                )}
+                {t.status === 'in_progress' && (
+                  <button className="btn primary" onClick={() => setStatus(t.id, 'done')}>
+                    Complete
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function DailyOps({ user, go }: { user: User; go?: (key: string) => void }) {
   const lvl = ROLE_LEVEL[user.role] || 0;
   const canEdit = lvl >= 10;
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
@@ -244,6 +338,10 @@ export function DailyOps({ user }: { user: User }) {
           </label>
         </div>
       </div>
+
+      <MyTasks go={go} />
+
+      {lvl >= 30 && <FlowAdmin user={user} />}
 
       <div className="grid-2">
         <div>
