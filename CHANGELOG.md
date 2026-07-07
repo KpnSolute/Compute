@@ -20,7 +20,7 @@ This is the **central development memory and discussion board** for development 
 - **Auth credential 502:** `_patch_auth_user()` now includes HTTP status code and response body in error detail; auto-re-creates the GoTrue user if 404 (deleted from auth but profile remains).
 
 **Verification:** `npm run lint` → 0 errors. `npx tsc --noEmit` → clean. `ruff check backend/` → clean.
-**Push:** OpenCode →
+**Push:** OpenCode → `14eacc0` — 2026-07-07
 
 ---
 
