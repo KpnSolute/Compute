@@ -4,6 +4,27 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.31.0] — 2026-07-07 — Flow quick panel + Cost Manager
+
+**Claude:** Two features, built solo end-to-end (frontend, new route, schema, AI pipeline wiring) — this project's Gemini/OpenCode multi-agent lanes in `AGENTS.md` aren't in active use, confirmed with the user.
+
+### Flow quick panel
+The header "Flow" button (`Portal.tsx`) used to hard-navigate to the full `dailyops` page. It now toggles a popover (`FlowPanel.tsx`, new) showing recent tasks grouped Assigned/Started/Completed via the existing `api.getFlowAssignments()`, with a manager+ "New Task" quick-create form (`api.createFlowAssignment()`) and a "View all in Flow →" link to the full page. `statusPill`/`initials` exported from `FlowAdmin.tsx` for reuse instead of duplicating. Verified live against prod: panel opens without navigating, task creation round-trips (`POST /api/flow/assignments → 201`).
+
+### Cost Manager (new)
+Manager-facing budgeting/analytics page tracking the monthly government allotment against actual spend. Reuses data already tracked elsewhere rather than duplicating it — `monthly_inventory`'s existing `opening_value`/`pulled_value`/`received_value`/`ending_value` columns (per-category, via `inventory_items → inventory_categories` join) plus `invoices.net_total` for reviewable-purchase spend. One new table, `cost_budgets` (migration `033_cost_budgets.sql`, one row per month/year: `gov_allotment` + optional `planned_pull_amount`/`planned_reviewable_amount`), applied live to `MJCCv1`.
+
+- **Backend** (`backend/routes/cost.py`, new): `GET/POST /api/cost/budget`, `GET /api/cost/summary` (category breakdown + spend-vs-budget), `GET /api/cost/trend` (trailing N months), `GET /api/cost/averages` (historical pull/reviewable averages for the create-budget wizard). Registered in `main.py`.
+- **Budget upload**: new `budget` hint added to the existing Data Entry AI pipeline (`ai/context.py` `OPERATION_HINTS`, `routes/data_entry.py` `_extract_ops` branch, `staging/dispatch.py::dispatch_budget_save`) — same upload → AI-parse → stage → commit flow as every other bulk import, not a bespoke importer.
+- **Frontend** (`CostManager.tsx`, `ui/Charts.tsx`, new): KPI row, over/near-budget alert banner (with a "Create Flow task" tie-in to the panel above), category breakdown bars, trailing-6-month trend line — hand-built dependency-free SVG, no charting library added. NAV: new "Finance" group, `costmgr` key, manager+.
+- **Permission scopes gap found & fixed**: NAV role-gating is driven by a live `permission_scopes`/`role_permissions` DB table (not just the `VALID_SCOPE_KEYS` constant in `users.py`, which is only the fallback) — `costmgr` had to be inserted into both, or the item silently didn't render for anyone including sudo.
+
+**Verified:** `ruff check`/`format` (0 lint errors; format-only diffs match this repo's pre-existing no-`ruff.toml` 88-vs-120-char gap, not introduced here), `python -c "import backend.main"` clean, `tsc --noEmit` + `npm run build` clean, `npm run lint` 0 new errors. Backend logic hand-traced against real prod data (June 2026: $30,814.01 pulled vs a test $32,000 allotment → 96.3% used, correctly triggers the near-budget amber state) since the new route isn't deployed yet to test the live endpoints directly. Test Flow task and test budget row deleted after verification.
+
+**Push:** pending — commit created, not yet pushed (holding for deploy confirmation).
+
+---
+
 ## [v4.30.0] — 2026-07-07 — Staff portal role-gating + prod error remediation
 
 **OpenCode:** Staff portal now hides all financial data. Fixed 3 production error classes from Render logs.

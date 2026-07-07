@@ -3,7 +3,7 @@ import { I } from '../lib/icons';
 import { ROLE_LEVEL, MONTHS, loadAIPrefs } from '../lib/constants';
 import { api, type AuditReport } from '../lib/api';
 
-type Hint = '' | 'inventory' | 'events' | 'haccp' | 'menu' | 'log';
+type Hint = '' | 'inventory' | 'events' | 'haccp' | 'menu' | 'log' | 'budget';
 type Direction = 'received' | 'issued' | 'both';
 
 interface ReconciliationStats {
@@ -997,6 +997,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                                     <option value="haccp">HACCP</option>
                                     <option value="menu">Menu</option>
                                     <option value="log">Log</option>
+                                    <option value="budget">Budget</option>
                                 </select>
                             </div>
                         </div>

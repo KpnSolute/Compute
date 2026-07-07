@@ -1006,6 +1006,25 @@ def dispatch_haccp_save(payload: dict) -> dict:
     return {"applied": 1, "log": r.data[0] if r.data else None}
 
 
+def dispatch_budget_save(payload: dict) -> dict:
+    sup = supabase_service
+    month = payload.get("month")
+    year = payload.get("year")
+    gov_allotment = payload.get("gov_allotment")
+    if not month or year is None or gov_allotment is None:
+        return {"applied": 0, "error": "budget_save requires month, year, gov_allotment"}
+    record = {
+        "month": max(0, int(month) - 1),  # 1-indexed payload -> 0-indexed DB
+        "year": int(year),
+        "gov_allotment": gov_allotment,
+        "planned_pull_amount": payload.get("planned_pull_amount"),
+        "planned_reviewable_amount": payload.get("planned_reviewable_amount"),
+        "notes": payload.get("notes"),
+    }
+    r = sup.table("cost_budgets").upsert(record, on_conflict="month,year").execute()
+    return {"applied": 1, "budget": r.data[0] if r.data else None}
+
+
 def dispatch_daily_log_save(payload: dict) -> dict:
     sup = supabase_service
     staging_id = payload.get("_staging_entry_id")
@@ -1161,6 +1180,7 @@ REGISTRY = {
     "event_create": dispatch_event_create,
     "haccp_save": dispatch_haccp_save,
     "daily_log_save": dispatch_daily_log_save,
+    "budget_save": dispatch_budget_save,
     "user_create": dispatch_user_create,
     "user_update": dispatch_user_update,
 }
@@ -1207,6 +1227,9 @@ def validate_payload(operation: str, full_payload: dict) -> str | None:
                 full_payload.get("weekly_invoice_totals") or full_payload
             ):
                 return "No weekly invoice totals supplied"
+        elif operation == "budget_save":
+            if not full_payload.get("month") or full_payload.get("gov_allotment") is None:
+                return "Budget entries require month and gov_allotment"
     except ValueError as exc:
         return str(exc)
     return None

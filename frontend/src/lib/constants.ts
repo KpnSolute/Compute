@@ -93,6 +93,12 @@ export const NAV = [
     ],
   },
   {
+    group: 'Finance',
+    items: [
+      { key: 'costmgr', label: 'Cost Manager', icon: 'dollar', min: 30 },
+    ],
+  },
+  {
     group: 'AI Studio',
     items: [
       { key: 'ai-usage',   label: 'My Usage',   icon: 'trend',    min: 30 },

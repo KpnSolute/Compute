@@ -23,13 +23,13 @@ function genId(): string {
   return Math.random().toString(36).substring(2, 11);
 }
 
-function initials(u: { display_name?: string; last_name?: string; username?: string } | undefined): string {
+export function initials(u: { display_name?: string; last_name?: string; username?: string } | undefined): string {
   if (!u) return '?';
   return ((u.display_name?.[0] || '') + (u.last_name?.[0] || '')).toUpperCase()
     || (u.username || '?').slice(0, 2).toUpperCase();
 }
 
-function statusPill(s: string): { cls: string; label: string } {
+export function statusPill(s: string): { cls: string; label: string } {
   switch (s) {
     case 'open': return { cls: 'warn', label: 'Open' };
     case 'in_progress': return { cls: 'ok', label: 'In Progress' };

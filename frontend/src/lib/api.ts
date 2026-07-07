@@ -322,6 +322,54 @@ export interface FlowAssignment {
   updated_at: string;
 }
 
+export interface CostBudget {
+  id: string;
+  month: number;
+  year: number;
+  gov_allotment: number;
+  planned_pull_amount: number | null;
+  planned_reviewable_amount: number | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CostCategoryBreakdown {
+  category_id: string;
+  name: string;
+  color: string | null;
+  opening_value: number;
+  pulled_value: number;
+  received_value: number;
+  ending_value: number;
+}
+
+export interface CostSummary {
+  budget: CostBudget | null;
+  pct_used: number | null;
+  category_breakdown: CostCategoryBreakdown[];
+  total_starting: number;
+  total_pulled: number;
+  total_received: number;
+  total_ending: number;
+  reviewable_spend: number;
+  total_spend: number;
+}
+
+export interface CostTrendPoint {
+  month: number;
+  year: number;
+  total_spend: number;
+  gov_allotment: number | null;
+}
+
+export interface CostAverages {
+  avg_pull_amount: number;
+  avg_reviewable_amount: number;
+  months_sampled: number;
+}
+
 export interface PublicMenuToday {
   date: string;
   cycle_day: number;
@@ -816,6 +864,34 @@ export const api = {
 
   async deleteFlowAssignment(id: string): Promise<void> {
     await req(`/api/flow/assignments/${id}`, { method: 'DELETE' });
+  },
+
+  // Cost Manager
+  async getCostBudget(month: number, year: number): Promise<CostBudget | null> {
+    return req(`/api/cost/budget?month=${month}&year=${year}`);
+  },
+
+  async saveCostBudget(body: {
+    month: number;
+    year: number;
+    gov_allotment: number;
+    planned_pull_amount?: number;
+    planned_reviewable_amount?: number;
+    notes?: string;
+  }): Promise<CostBudget> {
+    return req('/api/cost/budget', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  async getCostSummary(month: number, year: number): Promise<CostSummary> {
+    return req(`/api/cost/summary?month=${month}&year=${year}`);
+  },
+
+  async getCostTrend(month: number, year: number, months = 6): Promise<CostTrendPoint[]> {
+    return req(`/api/cost/trend?month=${month}&year=${year}&months=${months}`);
+  },
+
+  async getCostAverages(months = 6): Promise<CostAverages> {
+    return req(`/api/cost/averages?months=${months}`);
   },
 
   // Source Control

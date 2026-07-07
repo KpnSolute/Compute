@@ -598,6 +598,38 @@ def _extract_ops(
             events = mapper.ai_extract_events(text, ai_config)
         return [{"operation": "event_create", "payload": ev} for ev in events], {}
 
+    if operation == "budget_save":
+        if rows is not None:
+            from backend.ai.parser import rows_to_text
+
+            text = rows_to_text(rows)
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a data extraction engine for a cafeteria management system. "
+                    "Extract the monthly government food budget from this document. "
+                    "Return ONLY a JSON object with these keys: "
+                    '"month" (1-12 integer), "year" (integer), '
+                    '"gov_allotment" (number, the total monthly allotment/budget amount), '
+                    '"planned_pull_amount" (number or null, planned spend on pulls from existing stock), '
+                    '"planned_reviewable_amount" (number or null, planned spend on reviewable/perishable purchases). '
+                    "Leave planned_pull_amount/planned_reviewable_amount null if the document has no such breakdown."
+                ),
+            },
+            {"role": "user", "content": f"FILE CONTENT:\n{(text or '')[:8000]}"},
+        ]
+        raw = ai_engine.complete(
+            messages, ai_config, operation=operation, called_by=called_by
+        )
+        payload = ai_engine.extract_json(raw)
+        if not isinstance(payload, dict) or not payload.get("month") or payload.get("gov_allotment") is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Could not extract month/gov_allotment from the uploaded budget document.",
+            )
+        return [{"operation": "budget_save", "payload": payload}], {}
+
     # for other operations, send to AI with generic prompt
     if rows is not None:
         from backend.ai.parser import rows_to_text

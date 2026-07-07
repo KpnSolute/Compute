@@ -222,4 +222,5 @@ OPERATION_HINTS = {
     "compliance": "haccp_save",
     "log": "daily_log_save",
     "ops": "daily_log_save",
+    "budget": "budget_save",
 }

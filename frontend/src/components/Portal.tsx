@@ -54,6 +54,8 @@ import { PullSheet } from "./PullSheet";
 import { Settings } from "./Settings";
 import { AgentBubble } from "./AgentBubble";
 import { AIUsageView, AIToolsView, AIPresetsView } from "./AIStudio";
+import { FlowPanel } from "./FlowPanel";
+import { CostManager } from "./CostManager";
 import { getThemePref, applyThemePref } from "../lib/theme";
 
 let toastTimer: ReturnType<typeof setTimeout>;
@@ -264,6 +266,14 @@ function Topbar({
             return () => window.removeEventListener("click", close);
         }
     }, [menu]);
+    const [flowPanel, setFlowPanel] = useState(false);
+    useEffect(() => {
+        const close = () => setFlowPanel(false);
+        if (flowPanel) {
+            window.addEventListener("click", close);
+            return () => window.removeEventListener("click", close);
+        }
+    }, [flowPanel]);
     const [m, y] = period;
 
     return (
@@ -334,14 +344,19 @@ function Topbar({
                     </button>
                 )}
                 {onNav && (
-                    <button
-                        className="tb-flow-btn"
-                        onClick={() => onNav('dailyops')}
-                        title="Flow"
-                        aria-label="Open Flow view"
-                    >
-                        {I.checkSquare({ style: { width: 16, height: 16 } })}
-                    </button>
+                    <div style={{ position: 'relative' }}>
+                        <button
+                            className={"tb-flow-btn" + (flowPanel ? " active" : "")}
+                            onClick={(e) => { e.stopPropagation(); setFlowPanel((v) => !v); }}
+                            title="Flow"
+                            aria-label="Open Flow panel"
+                        >
+                            {I.checkSquare({ style: { width: 16, height: 16 } })}
+                        </button>
+                        {flowPanel && (
+                            <FlowPanel user={user} onNav={onNav} onClose={() => setFlowPanel(false)} />
+                        )}
+                    </div>
                 )}
                 <div
                     className="tb-user"
@@ -5134,6 +5149,8 @@ export function Portal({
             );
         if (active === "reports")
             return <Reports user={user} period={period} />;
+        if (active === "costmgr")
+            return <CostManager user={user} period={period} onNav={goTo} />;
         if (active === "dataentry") return <DataEntry user={user} onNavigate={goTo} />;
         if (active === "users") return <UsersView user={user} />;
         if (active === "archives") return <ArchivesView period={period} />;
