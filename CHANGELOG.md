@@ -4,6 +4,48 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+
+## [v4.28.6-SPEC] - 2026-07-06 - Flow assignments backend API contract (schema live, routes delegated to OpenCode)
+
+**Claude:** Schema landed (entry directly below this one, `flow_assignments` table). This entry is the API contract for the new backend routes — **OpenCode: read this before writing any code.**
+
+### Backend contract — `backend/routes/flow.py` (new file)
+
+Follow `backend/routes/logs.py` exactly for style (docstrings, `supabase_service.table(...)`, `Depends(_get_auth_user)` / `Depends(_require_assistant)` from `backend.routes._deps`, `HTTPException` on error, Pydantic request/response models, `ConfigDict(extra="ignore")` on responses). Router prefix `/api/flow`, tag `flow`.
+
+- `POST /api/flow/assignments` → `_require_assistant`. Body: `title` (required), `description` (default ''), `assigned_to` (uuid, optional), `assigned_to_role` (str, optional — must be one of `staff/assistant/manager/admin/sudo` if given), `priority` (default `normal`), `due_date` (optional ISO date string), `link_type`/`link_key`/`link_params` (all optional). Reject with 400 if both `assigned_to` and `assigned_to_role` are set, or if neither is set. Server sets `created_by = auth_user["id"]`, `status = "open"`. Returns the created row.
+- `GET /api/flow/assignments` → `_get_auth_user`. Query params: `status` (optional filter), `all` (bool, default false). Behavior: if caller's role level < 20 (staff), **always** scope to rows where `assigned_to = caller.id` OR `assigned_to_role = caller.role`, ignoring `all` entirely. If caller's role level >= 20, same "mine" scope by default, but `?all=true` returns everything (for managers reviewing the team). Order by `created_at desc`.
+- `PATCH /api/flow/assignments/{id}` → `_get_auth_user`. Body: any of `status`, `title`, `description`, `priority`, `due_date`, `assigned_to`, `assigned_to_role`. Authorization: the assignee (`assigned_to == caller.id` or `assigned_to_role == caller.role`) may only change `status`, and only to `in_progress` or `done` (not `cancelled`, not reassign, not edit title/description/priority) — 403 otherwise. Assistant+ or the original `created_by` may edit any field including reassignment and setting `cancelled`. When status transitions to `done`, set `completed_at = now()` and `completed_by = auth_user["id"]` server-side — ignore any client-sent value for those two fields. Always set `updated_at = now()` on a successful update. 404 if the id doesn't exist.
+- `DELETE /api/flow/assignments/{id}` → `_require_assistant`. Hard delete. 404 if missing.
+
+Do **not** touch `backend/main.py` — router registration there is Claude's job. Just create the routes file with its `router = APIRouter(...)` export.
+
+**Verify:** `ruff check backend/routes/flow.py && ruff format backend/routes/flow.py` (single quotes, 120-char per AGENTS.md). No test run needed beyond ruff clean — Claude will smoke-test the live endpoints after wiring `main.py` and deploying.
+
+Frontend (staff assignment list in Flow, admin assign-task form, deep-link click-through via the existing `goTo(routeKey, opts)` pattern) is a separate delegated entry, dispatched after these routes are verified live.
+
+**Push:** spec only — routes not yet written.
+
+---
+
+## [v4.28.1] - 2026-07-06 - flow_assignments table migration applied (mjcc-data)
+
+**mjcc-data:** Created `flow_assignments` table in MJCCv1 (`mgvyylvmkxhhataavqjz`) to back the Flow task/assignment feature (v4.28.0 spec).
+
+**Migration:** `20260706190000_create_flow_assignments` — applied via `supabase db query --linked --file` (db push blocked due to remote-only migration history divergence; SQL executed directly then version inserted into `supabase_migrations.schema_migrations`).
+
+**Migration file:** `supabase/migrations/20260706190000_create_flow_assignments.sql`
+
+**Columns (16):** `id` uuid PK, `title` text NOT NULL, `description` text NOT NULL default '', `assigned_to` uuid nullable FK->user_profiles (specific staff target), `assigned_to_role` text nullable (broadcast to a role group — mutually exclusive with assigned_to in practice, no DB constraint), `created_by` uuid NOT NULL FK->user_profiles, `status` text NOT NULL default 'open' check (open/in_progress/done/cancelled), `priority` text NOT NULL default 'normal' check (low/normal/high/urgent), `due_date` date nullable, `link_type` text nullable (nav_page | inventory_item | daily_log | haccp_log), `link_key` text nullable (NAV key / SKU / log id), `link_params` jsonb NOT NULL default '{}', `completed_at` timestamptz nullable, `completed_by` uuid nullable FK->user_profiles, `created_at` timestamptz NOT NULL default now(), `updated_at` timestamptz NOT NULL default now().
+
+**Indexes (4):** btree on `assigned_to`, `assigned_to_role`, `status`, `created_by`.
+
+**RLS:** Enabled. Single policy `service_role_all` FOR ALL TO service_role USING (true) WITH CHECK (true) — identical pattern to `daily_operations_logs` and `haccp_logs`. No anon/authenticated policies; public access default-denied. Backend service role bypasses RLS at Postgres level; access control enforced at FastAPI layer per existing app architecture.
+
+**Verified:** `SELECT * FROM flow_assignments LIMIT 1` returns empty rows, no error. All columns, indexes, and RLS policy confirmed via `pg_policies`, `information_schema.columns`, `pg_indexes`.
+
+**Push:** N/A — schema change applied directly to remote via Supabase CLI db query.
+
 ## [v4.28.0-SPEC] - 2026-07-06 - UI shell naming conventions + FLOW feature spec (build delegated to OpenCode/Mimo, Claude = structural review + push)
 
 **Claude:** User defined the shell element vocabulary and the next major feature ("Flow"). This entry is the canonical spec. **OpenCode and Mimo CLI: read this before writing any code. Be direct, minimal diffs, no new files unless listed below, no new .md files ever.** Claude reviews structure, runs UI checks (tsc/lint/build + chrome-devtools), and pushes when green.
