@@ -4,6 +4,48 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.29.1-SPEC] - 2026-07-07 - Flow production polish: draggable UI fixes, org chart tree redesign, log-entry picker — delegated to OpenCode
+
+**Claude:** User did hands-on testing of `FlowAdmin.tsx` (org chart + drag-to-assign) and flagged production-readiness gaps. This is the spec for the fixes — **OpenCode: edit ONLY `frontend/src/components/FlowAdmin.tsx` and `frontend/src/index.css` (adding classes, not touching existing ones outside the `.flow-*` namespace). Do not touch `DailyOps.tsx`, `Portal.tsx`, `api.ts`, or `backend/`.**
+
+Read the two entries directly below this one first (`[v4.29.0]` and `[v4.28.8-SPEC]`) for full context on what already exists and works: draft creation, native HTML5 drag from a draft card onto a person or role-group header, the "Completed — Pending Review" approve/remove-from-queue table, and the missing-role auto-notify-sudo banner. **Do not rebuild any of that — only the three items below.**
+
+### 1. Draggable UI reliability + click-to-assign fallback
+
+Native HTML5 drag-and-drop (`draggable`, `onDragStart`/`onDragOver`/`onDrop`) is already wired and works when tested with dispatched drag events, but real mouse-drag reliability across browsers/trackpads/touch devices is fragile and hard to verify. Add a **guaranteed-to-work click-based alternative** alongside drag, not replacing it:
+
+- Clicking a draft card in the "Unassigned Drafts" tray selects it (add a `selectedDraftId` state, visually highlight the selected card — e.g. an `.flow-draft-card.selected` class with an accent border, add this class to the `.flow-draft-card` rules already in `index.css`).
+- When a draft is selected, clicking any person card or role-group header assigns it immediately (same `handlePersonDrop`/`handleRoleDrop` logic, just triggered by `onClick` instead of `onDrop` — refactor the body of those two functions into plain async functions that take the draft object directly, so both the drag handler and the click handler can call the same underlying logic without duplicating it).
+- After a click-assign completes, clear `selectedDraftId`.
+- Give the drafts tray a hint text change when a draft is selected: "Click a person or role to assign, or drag it there."
+- Keep all existing drag behavior working exactly as-is — this is additive, not a replacement.
+
+### 2. Org chart "tree" visual redesign
+
+The "Team" panel currently renders flat side-by-side role columns (Sudo | Admin | Manager | Assistant | Staff) with no visual hierarchy. Make it read as an actual organizational tree:
+
+- Keep the same underlying data grouping (role order Sudo → Administrator → Manager → Assistant → Staff) but restructure the layout so each row visually connects to the one above it — e.g. a vertical connecting line running down the left side of the panel with each role tier indented slightly further, or horizontal tiers stacked vertically (Sudo/Admin tier at top spanning full width, Manager tier below it, Assistant tier below that, Staff tier at the bottom, each tier's box row centered and narrower than the one above to suggest a pyramid/org-chart shape) connected by simple CSS border-lines (`::before`/`::after` pseudo-elements with `border-left`/`border-top`, no SVG, no charting library — pure CSS, consistent with "no new dependencies").
+- This needs to remain a genuine **drop target at both the tier level and the individual person level** exactly as it is now — don't lose the existing drag-and-drop behavior while restyling.
+- Keep it responsive: the existing `@media(max-width:900px)` fallback should still stack sensibly (a simple vertical list per tier is fine on narrow screens — the connecting-line visual can degrade to plain stacked sections below 900px, that's acceptable).
+- Match `index.css` tokens (`var(--line)`, `var(--accent)`, `var(--surface-2)`, etc.) — no hardcoded hex colors for the new connector lines.
+
+### 3. Log-entry picker for `daily_log` / `haccp_log` link types (Inspection Sheet integration)
+
+Today, picking `link_type: daily_log` or `haccp_log` in the Create Task form shows a blind free-text input for `link_key` (a raw log id nobody has memorized). Replace with a real picker so tasks can be assigned against **any existing log entry**, including Inspection Sheet entries (the Inspection Sheet page saves to `daily_operations_logs` with `entry_type: 'inspection'` via `POST /api/logs/daily` — confirmed in `backend/routes/logs.py` and `frontend/src/components/Forms.tsx`'s `InspectionSheet` component).
+
+- When `linkType === 'daily_log'`: call `api.getDailyLogs(50)` (already exists in `api.ts`, returns rows with `id`, `entry_type`, `title`, `created_at`) on-demand (when the user switches to this link type, not on every render) and render a `<select>` populated with each row, label formatted as `` `${row.entry_type} — ${row.title} (${new Date(row.created_at).toLocaleDateString()})` ``, value = `row.id`. Add a small filter/highlight so `entry_type === 'inspection'` rows are easy to spot (e.g. prefix with an icon or bold the entry_type — plain text is fine, no need for anything fancy).
+- When `linkType === 'haccp_log'`: call `api.getHaccpLogs(50)` similarly, label `` `${row.location} — ${row.temperature}°${row.unit} (${new Date(row.timestamp).toLocaleDateString()})` ``, value = `row.id`.
+- Keep the existing `nav_page` (NAV key dropdown) and `inventory_item` (free-text SKU) pickers exactly as they are — only `daily_log` and `haccp_log` change.
+- Loading state: show a disabled `<select>` with "Loading logs…" while the fetch is in flight; if the fetch fails or returns zero rows, fall back to the current free-text input with a small note "No existing logs found — enter an ID manually."
+
+Match `index.css` conventions throughout (no new classes needed beyond what's already used for `.field`/`.ipt`/`.ipt.sel`).
+
+**Verify:** `cd frontend && npm run lint && npx tsc --noEmit`. Report the full diff of `FlowAdmin.tsx` and any `index.css` additions, and confirm both commands are clean — do not just say done.
+
+**Push:** spec only, dispatched to OpenCode now. Claude will review, fix any design-system deviations (same as the last round — no inline `<style>` tags, no hardcoded colors), test live against production, and push.
+
+---
+
 
 ## [v4.29.0] - 2026-07-06 - Flow frontend shipped: staff task list + manager/admin org chart with drag-to-assign
 
