@@ -5,6 +5,54 @@ This is the **central development memory and discussion board** for development 
 ---
 
 
+## [v4.28.8-SPEC] - 2026-07-06 - Flow frontend: staff task list (Mimo) + manager/admin org chart & drag-assign (OpenCode), built in parallel on separate files
+
+**Claude:** Backend is live and smoke-tested end-to-end against production (create/list/update/delete all confirmed via curl with a real bearer token — see verification note below). `frontend/src/lib/api.ts` already has the client: `api.getFlowAssignments(opts?)`, `api.createFlowAssignment(body)`, `api.updateFlowAssignment(id, body)`, `api.deleteFlowAssignment(id)`, and the `FlowAssignment` interface — **use these, do not hand-roll fetch calls.**
+
+**Two builds run in parallel, each touching a different file so there's no merge conflict — do not edit the other CLI's file.**
+
+### Build 1 (Mimo) — staff task list, edits ONLY `frontend/src/components/DailyOps.tsx`
+
+Add a new section near the top of `DailyOps`'s render (above the existing opening-checklist card), inside a `WinCard`-style block (match the existing `card`/`card-head` classes already used elsewhere in this file and in `index.css` — do not invent new styling). Title it "My Tasks".
+
+- On mount, call `api.getFlowAssignments()` (no args — backend auto-scopes to the caller's own assigned-to-me-or-my-role assignments, staff can never see others' regardless of params). Show a loading state matching the existing `Loading` component in this file.
+- Render each assignment as a row: `title`, a priority pill (reuse `StatusPill` from `./ui/StatusPill` if its color prop supports arbitrary labels, otherwise a simple colored `<span>` matching `index.css` conventions — check how severity/priority-like values are styled elsewhere in this file, e.g. incident type badges), `due_date` if present, and `status`.
+- Status controls: if `status === 'open'`, a button "Start" that calls `api.updateFlowAssignment(id, { status: 'in_progress' })`. If `status === 'in_progress'`, a button "Complete" that calls `api.updateFlowAssignment(id, { status: 'done' })`. Refresh the list after each update (or optimistically patch local state). Rows with `status === 'done'` or `'cancelled'` show no action buttons, just a muted/struck-through look.
+- If a row has `link_type === 'nav_page'` and a non-empty `link_key`, show a "Go to task →" link/button. `DailyOps` currently only receives a `user` prop — add an optional `go?: (key: string) => void` prop to the `DailyOps` component's signature (Claude will wire the actual callback in `Portal.tsx` separately, you just need the prop to exist and be called on click: `go?.(assignment.link_key)`). Don't wire `Portal.tsx` yourself.
+- Empty state: "No tasks assigned right now." when the list is empty and not loading.
+- Do NOT touch: the existing checklist/meal-schedule/incidents code below in this file, `Portal.tsx`, `frontend/src/lib/api.ts`, or any other component file.
+
+Verify: `cd frontend && npm run lint && npx tsc --noEmit`. Report the diff.
+
+### Build 2 (OpenCode) — manager/admin org chart + drag-to-assign, NEW FILE `frontend/src/components/FlowAdmin.tsx` only
+
+This is a self-contained new component. Do not edit `DailyOps.tsx`, `Portal.tsx`, or `api.ts` — Claude wires it in afterward. Export: `export function FlowAdmin({ user }: { user: User })` (import `User` from `../lib/constants`). Gate nothing internally on role level — the caller (Claude, in `Portal.tsx`/`DailyOps.tsx`) will only render this component for manager+ (level ≥ 30) and sudo, so assume the viewer is already authorized.
+
+**Data needed:** `api.getUsers()` (existing method, returns the full user list with `role`, `display_name`, `last_name`, `id`, `active`) and `api.getFlowAssignments({ all: true })` for every assignment in the system.
+
+**Layout — three panels:**
+
+1. **Left sidebar — Create Task.** A form: `title` (required text input), `description` (textarea), `priority` (select: low/normal/high/urgent, default normal), `due_date` (native `<input type="date">`), and an optional deep-link picker: a select for `link_type` (`none` / `nav_page` / `inventory_item` / `daily_log` / `haccp_log`) that, when set to `nav_page`, shows a second select populated from `NAV` (import from `../lib/constants`, flatten `NAV.flatMap(g => g.items)`, use `.key` as value and `.label` as display) to set `link_key`; for the other link types just show a plain text input for `link_key` (a SKU or log id — free text, no validation needed for this iteration). Submitting the form does **not** call the API yet — it creates a **local draft** (an object with a temporary client-side id, held in React state, not persisted) and adds it to a "Unassigned drafts" tray directly below the form. Each draft card shows its title/priority and is `draggable={true}` with `onDragStart` storing the draft's temp id (e.g. via `e.dataTransfer.setData('text/plain', tempId)`).
+
+2. **Center — Org chart.** Group `api.getUsers()` results by role into columns/rows ordered Sudo → Administrator → Manager → Assistant → Staff (use the existing `ROLE_LABEL` and role ordering conventions from `../lib/constants` — check how `ROLE_LEVEL`/`ROLE_LABEL` are keyed). Each role group is a **drop target** (its header/container has `onDragOver={e => e.preventDefault()}` and `onDrop` that reads the dragged draft's temp id, then calls `api.createFlowAssignment({ ...draft, assigned_to_role: theRoleKey })`, removing the draft from the tray and showing a toast/inline confirmation on success). Each individual person card inside a role group is *also* its own drop target — dropping a draft directly on a person calls `api.createFlowAssignment({ ...draft, assigned_to: person.id })` instead (specific-person assignment takes priority over role-broadcast). Person cards show `display_name last_name` and a small avatar-style initials badge (reuse whatever pattern exists — check `Portal.tsx`'s `Avatar` component usage as reference, but don't import cross-component internals that aren't exported; a simple initials circle is fine if `Avatar` isn't exported).
+
+   **Missing-role check:** if any user from `api.getUsers()` has a `role` that is falsy, empty, or not one of `staff/assistant/manager/admin/sudo`, render a prominent red/urgent banner above the chart: "N user(s) have no role assigned — see below" listing their names, and render those users in their own "⚠ No Role" column instead of silently dropping them. Additionally, on mount, if this banner condition is true, check `api.getFlowAssignments({ all: true })` for an existing **open** assignment with `link_type === 'user_missing_role'` whose `link_key` matches that user's id; if none exists for a given affected user, call `api.createFlowAssignment({ title: '<name> has no role assigned', description: 'Assign a role in Users & Access.', assigned_to_role: 'sudo', priority: 'urgent', link_type: 'user_missing_role', link_key: user.id })` once per affected user so sudo gets it in their own Flow task list automatically (dedupe so reopening this screen doesn't spam duplicate assignments).
+
+3. **Right (or below) — All assignments table.** List every row from `api.getFlowAssignments({ all: true })`: title, assignee (resolve `assigned_to` to a display name via the users list, or show `assigned_to_role` as a role-broadcast pill if `assigned_to` is null), status, priority, due date. A delete icon/button per row calling `api.deleteFlowAssignment(id)` with a confirm step (a simple `window.confirm` is fine for this iteration — no need for a custom modal).
+
+Match `index.css` design system conventions throughout (card/table/pill classes already in use elsewhere — grep the codebase for `.card`, `.pill`, `.nav-item` etc. before inventing new class names). No new npm dependencies (no drag-and-drop library — native HTML5 drag/drop events are sufficient and already specified above).
+
+Verify: `cd frontend && npm run lint && npx tsc --noEmit`. Report the full file contents and confirm both commands are clean.
+
+### Wiring (Claude does this after both land)
+Import `FlowAdmin` into `DailyOps.tsx` (or have it rendered as a sibling from `Portal.tsx` — Claude decides at integration time based on how Mimo's change actually lands), gated to `ROLE_LEVEL[user.role] >= 30`. Wire the `go` prop through from `Portal.tsx`'s existing `goTo` function. Smoke-test drag-and-drop and the missing-role auto-assignment against production before pushing.
+
+**Verify (backend, already done):** full CRUD smoke-tested against `https://mjcc-managements.onrender.com` with a real Jeremiah (sudo) bearer token — create (`201`), list with `?all=true` (`200`, row present), `PATCH` to `done` (auto-set `completed_at`/`completed_by` confirmed), `DELETE` (`204`), and confirmed gone on re-list. No mocks.
+
+**Push:** frontend spec only, dispatched to CLIs now.
+
+---
+
 ## [v4.28.6-SPEC] - 2026-07-06 - Flow assignments backend API contract (schema live, routes delegated to OpenCode)
 
 **Claude:** Schema landed (entry directly below this one, `flow_assignments` table). This entry is the API contract for the new backend routes — **OpenCode: read this before writing any code.**

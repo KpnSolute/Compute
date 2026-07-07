@@ -303,6 +303,25 @@ export interface PublicMenuServiceStatus {
   periods: PublicMealPeriod[];
 }
 
+export interface FlowAssignment {
+  id: string;
+  title: string;
+  description: string;
+  assigned_to: string | null;
+  assigned_to_role: string | null;
+  created_by: string;
+  status: 'open' | 'in_progress' | 'done' | 'cancelled';
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  due_date: string | null;
+  link_type: string | null;
+  link_key: string | null;
+  link_params: Record<string, unknown>;
+  completed_at: string | null;
+  completed_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface PublicMenuToday {
   date: string;
   cycle_day: number;
@@ -758,6 +777,45 @@ export const api = {
 
   async getCompliance(): Promise<any> {
     return req('/api/logs/compliance');
+  },
+
+  // Flow (task assignments)
+  async getFlowAssignments(opts?: { status?: string; all?: boolean }): Promise<FlowAssignment[]> {
+    const params = new URLSearchParams();
+    if (opts?.status) params.set('status', opts.status);
+    if (opts?.all) params.set('all', 'true');
+    const qs = params.toString();
+    return req(`/api/flow/assignments${qs ? '?' + qs : ''}`);
+  },
+
+  async createFlowAssignment(body: {
+    title: string;
+    description?: string;
+    assigned_to?: string;
+    assigned_to_role?: string;
+    priority?: 'low' | 'normal' | 'high' | 'urgent';
+    due_date?: string;
+    link_type?: string;
+    link_key?: string;
+    link_params?: Record<string, unknown>;
+  }): Promise<FlowAssignment> {
+    return req('/api/flow/assignments', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  async updateFlowAssignment(id: string, body: Partial<{
+    title: string;
+    description: string;
+    priority: 'low' | 'normal' | 'high' | 'urgent';
+    due_date: string;
+    assigned_to: string;
+    assigned_to_role: string;
+    status: 'open' | 'in_progress' | 'done' | 'cancelled';
+  }>): Promise<FlowAssignment> {
+    return req(`/api/flow/assignments/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+  },
+
+  async deleteFlowAssignment(id: string): Promise<void> {
+    await req(`/api/flow/assignments/${id}`, { method: 'DELETE' });
   },
 
   // Source Control
