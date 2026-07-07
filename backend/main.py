@@ -38,6 +38,7 @@ from backend.routes.auth import router as auth_router
 from backend.routes.users import router as users_router
 from backend.routes.inventory import router as inventory_router
 from backend.routes.logs import router as logs_router
+from backend.routes.flow import router as flow_router
 from backend.routes.events import router as events_router
 from backend.routes.menu import router as menu_router
 from backend.routes.public_menu import router as public_menu_router
@@ -178,6 +179,7 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(inventory_router)
 app.include_router(logs_router)
+app.include_router(flow_router)
 app.include_router(events_router)
 app.include_router(menu_router)
 app.include_router(public_menu_router)
