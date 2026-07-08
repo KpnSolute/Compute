@@ -327,8 +327,12 @@ export interface CostBudget {
   month: number;
   year: number;
   gov_allotment: number;
-  planned_pull_amount: number | null;
-  planned_reviewable_amount: number | null;
+  w1_planned_pull: number | null;
+  w2_planned_pull: number | null;
+  w3_planned_pull: number | null;
+  w1_planned_renewable: number | null;
+  w2_planned_renewable: number | null;
+  w3_planned_renewable: number | null;
   notes: string | null;
   created_by: string | null;
   created_at: string;
@@ -876,8 +880,12 @@ export const api = {
     month: number;
     year: number;
     gov_allotment: number;
-    planned_pull_amount?: number;
-    planned_reviewable_amount?: number;
+    w1_planned_pull?: number;
+    w2_planned_pull?: number;
+    w3_planned_pull?: number;
+    w1_planned_renewable?: number;
+    w2_planned_renewable?: number;
+    w3_planned_renewable?: number;
     notes?: string;
   }): Promise<CostBudget> {
     return req('/api/cost/budget', { method: 'POST', body: JSON.stringify(body) });

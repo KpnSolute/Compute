@@ -41,8 +41,12 @@ class CostBudgetIn(BaseModel):
     month: int = Field(..., ge=1, le=12)
     year: int
     gov_allotment: float = Field(..., ge=0)
-    planned_pull_amount: Optional[float] = None
-    planned_reviewable_amount: Optional[float] = None
+    w1_planned_pull: Optional[float] = None
+    w2_planned_pull: Optional[float] = None
+    w3_planned_pull: Optional[float] = None
+    w1_planned_renewable: Optional[float] = None
+    w2_planned_renewable: Optional[float] = None
+    w3_planned_renewable: Optional[float] = None
     notes: Optional[str] = None
 
 
@@ -51,8 +55,12 @@ class CostBudgetResponse(BaseModel):
     month: int
     year: int
     gov_allotment: float
-    planned_pull_amount: Optional[float] = None
-    planned_reviewable_amount: Optional[float] = None
+    w1_planned_pull: Optional[float] = None
+    w2_planned_pull: Optional[float] = None
+    w3_planned_pull: Optional[float] = None
+    w1_planned_renewable: Optional[float] = None
+    w2_planned_renewable: Optional[float] = None
+    w3_planned_renewable: Optional[float] = None
     notes: Optional[str] = None
     created_by: Optional[str] = None
     created_at: str
@@ -175,8 +183,12 @@ async def save_budget(
         "month": to_db_month(body.month),
         "year": body.year,
         "gov_allotment": body.gov_allotment,
-        "planned_pull_amount": body.planned_pull_amount,
-        "planned_reviewable_amount": body.planned_reviewable_amount,
+        "w1_planned_pull": body.w1_planned_pull,
+        "w2_planned_pull": body.w2_planned_pull,
+        "w3_planned_pull": body.w3_planned_pull,
+        "w1_planned_renewable": body.w1_planned_renewable,
+        "w2_planned_renewable": body.w2_planned_renewable,
+        "w3_planned_renewable": body.w3_planned_renewable,
         "notes": body.notes,
         "created_by": auth_user["id"],
     }

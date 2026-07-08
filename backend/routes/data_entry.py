@@ -612,9 +612,11 @@ def _extract_ops(
                     "Return ONLY a JSON object with these keys: "
                     '"month" (1-12 integer), "year" (integer), '
                     '"gov_allotment" (number, the total monthly allotment/budget amount), '
-                    '"planned_pull_amount" (number or null, planned spend on pulls from existing stock), '
-                    '"planned_reviewable_amount" (number or null, planned spend on reviewable/perishable purchases). '
-                    "Leave planned_pull_amount/planned_reviewable_amount null if the document has no such breakdown."
+                    '"w1_planned_pull", "w2_planned_pull", "w3_planned_pull" (number or null each, planned '
+                    "per-week spend on pulls from existing stock), "
+                    '"w1_planned_renewable", "w2_planned_renewable", "w3_planned_renewable" (number or null each, '
+                    "planned per-week spend on renewable/perishable purchases). "
+                    "Leave any planned_* field null if the document has no such weekly breakdown."
                 ),
             },
             {"role": "user", "content": f"FILE CONTENT:\n{(text or '')[:8000]}"},

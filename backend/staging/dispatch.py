@@ -1017,8 +1017,12 @@ def dispatch_budget_save(payload: dict) -> dict:
         "month": max(0, int(month) - 1),  # 1-indexed payload -> 0-indexed DB
         "year": int(year),
         "gov_allotment": gov_allotment,
-        "planned_pull_amount": payload.get("planned_pull_amount"),
-        "planned_reviewable_amount": payload.get("planned_reviewable_amount"),
+        "w1_planned_pull": payload.get("w1_planned_pull"),
+        "w2_planned_pull": payload.get("w2_planned_pull"),
+        "w3_planned_pull": payload.get("w3_planned_pull"),
+        "w1_planned_renewable": payload.get("w1_planned_renewable"),
+        "w2_planned_renewable": payload.get("w2_planned_renewable"),
+        "w3_planned_renewable": payload.get("w3_planned_renewable"),
         "notes": payload.get("notes"),
     }
     r = sup.table("cost_budgets").upsert(record, on_conflict="month,year").execute()

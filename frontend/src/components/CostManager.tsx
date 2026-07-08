@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { I } from '../lib/icons';
 import { type User, ROLE_LEVEL, MONTHS } from '../lib/constants';
 import { fmtMoney } from '../lib/supabase';
-import { api, type CostBudget, type CostSummary, type CostTrendPoint, type CostAverages } from '../lib/api';
+import { api, type CostBudget, type CostSummary, type CostTrendPoint, type CostAverages, type SourceTransaction } from '../lib/api';
 import { useEscapeClose } from '../lib/useEscapeClose';
-import { SvgLineChart, CategoryBars } from './ui/Charts';
+import { SvgLineChart, CategoryDonut } from './ui/Charts';
 
 const toast = (msg: string) => (window as any).toast?.(msg);
+const num = (v: string) => (v ? parseFloat(v) || 0 : 0);
 
 function Loading() {
   return <div className="load-wrap"><div className="spinner" /><div>Loading…</div></div>;
@@ -35,6 +36,40 @@ function KpiCard({ k }: { k: Kpi }) {
   );
 }
 
+function WeeklyField({
+  label,
+  values,
+  onChange,
+}: {
+  label: string;
+  values: [string, string, string];
+  onChange: (idx: 0 | 1 | 2, v: string) => void;
+}) {
+  const total = values.reduce((s, v) => s + num(v), 0);
+  return (
+    <div className="field">
+      <label>{label} <span style={{ fontWeight: 400, color: 'var(--faint)' }}>(optional per-week target)</span></label>
+      <div style={{ display: 'flex', gap: 6 }}>
+        {(['Wk1', 'Wk2', 'Wk3'] as const).map((wk, i) => (
+          <input
+            key={wk}
+            className="ipt"
+            type="number"
+            min={0}
+            step="0.01"
+            value={values[i]}
+            onChange={(e) => onChange(i as 0 | 1 | 2, e.target.value)}
+            placeholder={wk}
+            aria-label={`${label} ${wk}`}
+            style={{ flex: 1 }}
+          />
+        ))}
+      </div>
+      {total > 0 && <div className="hint" style={{ marginTop: 3 }}>Total: {fmtMoney(total)}</div>}
+    </div>
+  );
+}
+
 function BudgetWizard({
   month,
   year,
@@ -49,10 +84,16 @@ function BudgetWizard({
   onSaved: () => void;
 }) {
   const [govAllotment, setGovAllotment] = useState(String(initial?.gov_allotment ?? ''));
-  const [plannedPull, setPlannedPull] = useState(initial?.planned_pull_amount != null ? String(initial.planned_pull_amount) : '');
-  const [plannedReviewable, setPlannedReviewable] = useState(
-    initial?.planned_reviewable_amount != null ? String(initial.planned_reviewable_amount) : ''
-  );
+  const [pull, setPull] = useState<[string, string, string]>([
+    initial?.w1_planned_pull != null ? String(initial.w1_planned_pull) : '',
+    initial?.w2_planned_pull != null ? String(initial.w2_planned_pull) : '',
+    initial?.w3_planned_pull != null ? String(initial.w3_planned_pull) : '',
+  ]);
+  const [renewable, setRenewable] = useState<[string, string, string]>([
+    initial?.w1_planned_renewable != null ? String(initial.w1_planned_renewable) : '',
+    initial?.w2_planned_renewable != null ? String(initial.w2_planned_renewable) : '',
+    initial?.w3_planned_renewable != null ? String(initial.w3_planned_renewable) : '',
+  ]);
   const [notes, setNotes] = useState(initial?.notes ?? '');
   const [averages, setAverages] = useState<CostAverages | null>(null);
   const [saving, setSaving] = useState(false);
@@ -65,8 +106,17 @@ function BudgetWizard({
 
   function useAverages() {
     if (!averages) return;
-    setPlannedPull(String(averages.avg_pull_amount));
-    setPlannedReviewable(String(averages.avg_reviewable_amount));
+    const pullWk = Math.round((averages.avg_pull_amount / 3) * 100) / 100;
+    const renewWk = Math.round((averages.avg_reviewable_amount / 3) * 100) / 100;
+    setPull([String(pullWk), String(pullWk), String(pullWk)]);
+    setRenewable([String(renewWk), String(renewWk), String(renewWk)]);
+  }
+
+  function setPullWeek(idx: 0 | 1 | 2, v: string) {
+    setPull((prev) => { const next = [...prev] as [string, string, string]; next[idx] = v; return next; });
+  }
+  function setRenewableWeek(idx: 0 | 1 | 2, v: string) {
+    setRenewable((prev) => { const next = [...prev] as [string, string, string]; next[idx] = v; return next; });
   }
 
   async function save() {
@@ -84,8 +134,12 @@ function BudgetWizard({
         month,
         year,
         gov_allotment: allotment,
-        planned_pull_amount: plannedPull ? parseFloat(plannedPull) : undefined,
-        planned_reviewable_amount: plannedReviewable ? parseFloat(plannedReviewable) : undefined,
+        w1_planned_pull: pull[0] ? num(pull[0]) : undefined,
+        w2_planned_pull: pull[1] ? num(pull[1]) : undefined,
+        w3_planned_pull: pull[2] ? num(pull[2]) : undefined,
+        w1_planned_renewable: renewable[0] ? num(renewable[0]) : undefined,
+        w2_planned_renewable: renewable[1] ? num(renewable[1]) : undefined,
+        w3_planned_renewable: renewable[2] ? num(renewable[2]) : undefined,
         notes: notes.trim() || undefined,
       });
       toast(`Budget saved for ${MONTHS[month - 1]} ${year}`);
@@ -124,20 +178,15 @@ function BudgetWizard({
             <div className="banner" style={{ marginTop: 4, marginBottom: 4 }}>
               <span>
                 Trailing {averages.months_sampled}-mo. average: {fmtMoney(averages.avg_pull_amount)} pulls,{' '}
-                {fmtMoney(averages.avg_reviewable_amount)} reviewable/mo.
+                {fmtMoney(averages.avg_reviewable_amount)} renewable/mo.
               </span>
               <span className="bx" onClick={useAverages}>Use these</span>
             </div>
           )}
 
-          <div className="field">
-            <label>Planned pull spend <span style={{ fontWeight: 400, color: 'var(--faint)' }}>(stock drawn from inventory — optional target)</span></label>
-            <input className="ipt" type="number" min={0} step="0.01" value={plannedPull} onChange={(e) => setPlannedPull(e.target.value)} placeholder="0.00" />
-          </div>
-          <div className="field">
-            <label>Planned reviewable spend <span style={{ fontWeight: 400, color: 'var(--faint)' }}>(fresh purchases — optional target)</span></label>
-            <input className="ipt" type="number" min={0} step="0.01" value={plannedReviewable} onChange={(e) => setPlannedReviewable(e.target.value)} placeholder="0.00" />
-          </div>
+          <WeeklyField label="Planned pull spend (stock drawn from inventory)" values={pull} onChange={setPullWeek} />
+          <WeeklyField label="Planned renewable spend (fresh purchases)" values={renewable} onChange={setRenewableWeek} />
+
           <div className="field">
             <label>Notes <span style={{ fontWeight: 400, color: 'var(--faint)' }}>(optional)</span></label>
             <textarea className="ipt" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. includes summer program surge" />
@@ -148,6 +197,48 @@ function BudgetWizard({
           <button className="btn primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save Budget'}</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ActivityFeed({ month, year, onNav }: { month: number; year: number; onNav?: (k: string) => void }) {
+  const [rows, setRows] = useState<SourceTransaction[] | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    api.getTransactions({ month: month - 1, year, limit: 120 })
+      .then((data) => {
+        if (!alive) return;
+        const filtered = (data || []).filter((r) => r.field === 'pulled_value' || r.field === 'received_value').slice(0, 15);
+        setRows(filtered);
+      })
+      .catch(() => alive && setRows([]));
+    return () => { alive = false; };
+  }, [month, year]);
+
+  if (rows === null) return <div style={{ color: 'var(--muted)', fontSize: 12 }}>Loading…</div>;
+  if (rows.length === 0) {
+    return <div style={{ color: 'var(--muted)', fontSize: 12 }}>No pulls or receipts committed through Source Control for this period yet.</div>;
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {rows.map((t) => {
+          const isReceived = t.field === 'received_value';
+          const delta = Math.abs((t.new_value ?? 0) - (t.old_value ?? 0));
+          const date = t.created_at ? new Date(t.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—';
+          return (
+            <div key={t.change_id} className="cm-activity-row">
+              <span className="cm-activity-date">{date}</span>
+              <span className="cm-activity-desc" title={t.description || t.sku || undefined}>{t.description || t.sku || 'Item'}</span>
+              <span className="cm-activity-tag">{isReceived ? 'Received' : 'Pulled'}</span>
+              <span className={'cm-activity-amt ' + (isReceived ? 'in' : 'out')}>{isReceived ? '+' : '−'}{fmtMoney(delta)}</span>
+            </div>
+          );
+        })}
+      </div>
+      <button className="btn" style={{ marginTop: 12 }} onClick={() => onNav?.('sourcectrl')}>View all in Source Control →</button>
     </div>
   );
 }
@@ -205,6 +296,8 @@ export function CostManager({ user, period, onNav }: { user: User; period: [numb
   const nearBudget = pctUsed != null && pctUsed >= 90 && pctUsed < 100;
   const remaining = summary?.budget ? summary.budget.gov_allotment - (summary?.total_spend || 0) : null;
   const budget = summary?.budget;
+  const plannedPull = budget ? (budget.w1_planned_pull ?? 0) + (budget.w2_planned_pull ?? 0) + (budget.w3_planned_pull ?? 0) : 0;
+  const plannedRenewable = budget ? (budget.w1_planned_renewable ?? 0) + (budget.w2_planned_renewable ?? 0) + (budget.w3_planned_renewable ?? 0) : 0;
 
   // Shared 3-tier budget-health color, used by every KPI tile that reflects spend status.
   const statusColors = overBudget
@@ -218,7 +311,7 @@ export function CostManager({ user, period, onNav }: { user: User; period: [numb
     {
       key: 'spent', label: 'Total Spent', icon: 'trend', tint: 'var(--amber)', bg: 'var(--amber-bg)',
       val: fmtMoney(summary?.total_spend || 0),
-      sub: summary ? `${fmtMoney(summary.total_pulled)} pulled + ${fmtMoney(summary.reviewable_spend)} reviewable` : undefined,
+      sub: summary ? `${fmtMoney(summary.total_pulled)} pulled + ${fmtMoney(summary.reviewable_spend)} renewable` : undefined,
     },
     { key: 'remaining', label: 'Remaining', icon: 'checkCircle', ...statusColors, val: remaining != null ? fmtMoney(remaining) : '—' },
     { key: 'pct', label: '% Used', icon: overBudget ? 'up' : 'down', ...statusColors, val: pctUsed != null ? `${pctUsed}%` : '—' },
@@ -228,12 +321,12 @@ export function CostManager({ user, period, onNav }: { user: User; period: [numb
     {
       key: 'pulled', label: 'Pulled', icon: 'box', tint: '#6D28D9', bg: '#EDE9FE',
       val: fmtMoney(summary.total_pulled),
-      sub: budget?.planned_pull_amount != null ? `vs ${fmtMoney(budget.planned_pull_amount)} planned` : 'stock drawn from inventory',
+      sub: plannedPull > 0 ? `vs ${fmtMoney(plannedPull)} planned` : 'stock drawn from inventory',
     },
     {
-      key: 'reviewable', label: 'Reviewable', icon: 'inbox', tint: '#0E7490', bg: '#ECFEFF',
+      key: 'renewable', label: 'Renewable', icon: 'inbox', tint: '#0E7490', bg: '#ECFEFF',
       val: fmtMoney(summary.reviewable_spend),
-      sub: budget?.planned_reviewable_amount != null ? `vs ${fmtMoney(budget.planned_reviewable_amount)} planned` : 'fresh purchases this period',
+      sub: plannedRenewable > 0 ? `vs ${fmtMoney(plannedRenewable)} planned` : 'fresh purchases this period',
     },
     { key: 'starting', label: 'Starting Value', icon: 'fileText', tint: '#475569', bg: '#F1F5F9', val: fmtMoney(summary.total_starting), sub: 'opening inventory' },
     { key: 'ending', label: 'Ending Value', icon: 'fileText', tint: '#475569', bg: '#F1F5F9', val: fmtMoney(summary.total_ending), sub: 'closing inventory' },
@@ -245,7 +338,7 @@ export function CostManager({ user, period, onNav }: { user: User; period: [numb
         <div>
           <h2>Cost Manager {refreshing && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--faint)' }}>· updating…</span>}</h2>
           <div className="ph-sub">
-            {MONTHS[month - 1]} {year} · <b>Pulled</b> = stock drawn from inventory · <b>Reviewable</b> = fresh purchases against the allotment
+            {MONTHS[month - 1]} {year} · <b>Pulled</b> = stock drawn from inventory · <b>Renewable</b> = fresh purchases against the allotment
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -293,10 +386,10 @@ export function CostManager({ user, period, onNav }: { user: User; period: [numb
       )}
 
       <div className="card" style={{ marginTop: 16 }}>
-        <div className="card-head"><h3>Category breakdown</h3></div>
+        <div className="card-head"><h3>Where it went — category breakdown</h3></div>
         <div className="card-body">
           {summary && summary.category_breakdown.length > 0 ? (
-            <CategoryBars
+            <CategoryDonut
               rows={summary.category_breakdown.map((c) => ({
                 key: c.category_id,
                 name: c.name,
@@ -330,6 +423,13 @@ export function CostManager({ user, period, onNav }: { user: User; period: [numb
               The trend fills in as budgets and inventory data accumulate across months.
             </div>
           )}
+        </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-head"><h3>Recent activity</h3></div>
+        <div className="card-body">
+          <ActivityFeed month={month} year={year} onNav={onNav} />
         </div>
       </div>
 

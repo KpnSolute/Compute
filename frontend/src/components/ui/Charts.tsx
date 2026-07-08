@@ -2,6 +2,8 @@
 // existing CSS-variable palette. No charting library needed at this scale
 // (a handful of months / categories).
 
+import { useState } from 'react';
+
 function fmtCompact(v: number): string {
   if (v >= 1000) return '$' + (v / 1000).toFixed(v % 1000 === 0 ? 0 : 1) + 'k';
   return '$' + Math.round(v);
@@ -62,10 +64,31 @@ export function SvgLineChart({
       .filter(Boolean)
       .join(' ');
 
+  const areaPath =
+    points.length > 0
+      ? `M ${x(0)} ${y(0)} ` + points.map((p, i) => `L ${x(i)} ${y(p.value)}`).join(' ') + ` L ${x(points.length - 1)} ${y(0)} Z`
+      : '';
+
   const hasReference = points.some((p) => p.reference != null);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  function handleMove(e: React.MouseEvent<SVGSVGElement>) {
+    if (points.length === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relX = ((e.clientX - rect.left) / rect.width) * width;
+    let nearest = 0;
+    let best = Infinity;
+    points.forEach((_, i) => {
+      const d = Math.abs(x(i) - relX);
+      if (d < best) { best = d; nearest = i; }
+    });
+    setHoverIdx(nearest);
+  }
+
+  const hoverPoint = hoverIdx != null ? points[hoverIdx] : null;
 
   return (
-    <div>
+    <div style={{ position: 'relative' }}>
       <div className="chart-legend">
         <span className="chart-legend-item">
           <span className="chart-legend-swatch" style={{ background: 'var(--accent)' }} />
@@ -78,7 +101,18 @@ export function SvgLineChart({
           </span>
         )}
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height, overflow: 'visible' }}>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        style={{ width: '100%', height, overflow: 'visible', cursor: points.length > 0 ? 'crosshair' : 'default' }}
+        onMouseMove={handleMove}
+        onMouseLeave={() => setHoverIdx(null)}
+      >
+        <defs>
+          <linearGradient id="cmSpendFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.22" />
+            <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
         {Array.from({ length: gridCount + 1 }).map((_, i) => {
           const v = (niceMax / gridCount) * i;
           const yy = y(v);
@@ -91,20 +125,81 @@ export function SvgLineChart({
             </g>
           );
         })}
+        <path d={areaPath} fill="url(#cmSpendFill)" stroke="none" />
         {hasReference && (
           <path d={line('reference')} fill="none" stroke="var(--amber)" strokeWidth={1.5} strokeDasharray="4 4" />
         )}
         <path d={line('value')} fill="none" stroke="var(--accent)" strokeWidth={2.5} />
         {points.map((p, i) => (
-          <circle key={i} cx={x(i)} cy={y(p.value)} r={3.5} fill="var(--accent)" />
+          <circle key={i} cx={x(i)} cy={y(p.value)} r={hoverIdx === i ? 5 : 3.5} fill="var(--accent)" />
         ))}
+        {hoverIdx != null && (
+          <line x1={x(hoverIdx)} x2={x(hoverIdx)} y1={padTop} y2={padTop + innerH} stroke="var(--line)" strokeWidth={1} strokeDasharray="3 3" />
+        )}
         {points.map((p, i) => (
           <text key={i} x={x(i)} y={height - 6} fontSize={10} fill="var(--muted)" textAnchor="middle">
             {p.label}
           </text>
         ))}
       </svg>
+      {hoverPoint && hoverIdx != null && (
+        <div className="chart-tooltip" style={{ left: `${(x(hoverIdx) / width) * 100}%` }}>
+          <div className="chart-tooltip-label">{hoverPoint.label}</div>
+          <div className="chart-tooltip-val">{fmtDollar(hoverPoint.value)}</div>
+          {hoverPoint.reference != null && <div className="chart-tooltip-ref">{referenceLabel}: {fmtDollar(hoverPoint.reference)}</div>}
+        </div>
+      )}
     </div>
+  );
+}
+
+export interface DonutSlice {
+  key: string;
+  label: string;
+  value: number;
+  color?: string | null;
+}
+
+export function DonutChart({ slices, size = 148, thickness = 24 }: { slices: DonutSlice[]; size?: number; thickness?: number }) {
+  const total = slices.reduce((s, x) => s + x.value, 0);
+  const radius = (size - thickness) / 2;
+  const cx = size / 2;
+  const cy = size / 2;
+  const circumference = 2 * Math.PI * radius;
+  let offset = 0;
+
+  return (
+    <svg viewBox={`0 0 ${size} ${size}`} style={{ width: size, height: size, flexShrink: 0 }}>
+      <circle cx={cx} cy={cy} r={radius} fill="none" stroke="var(--line-soft)" strokeWidth={thickness} />
+      {total > 0 &&
+        slices.map((s) => {
+          if (s.value <= 0) return null;
+          const frac = s.value / total;
+          const dash = frac * circumference;
+          const el = (
+            <circle
+              key={s.key}
+              cx={cx}
+              cy={cy}
+              r={radius}
+              fill="none"
+              stroke={s.color || 'var(--accent)'}
+              strokeWidth={thickness}
+              strokeDasharray={`${dash} ${circumference - dash}`}
+              strokeDashoffset={-offset}
+              transform={`rotate(-90 ${cx} ${cy})`}
+            />
+          );
+          offset += dash;
+          return el;
+        })}
+      <text x={cx} y={cy - 6} textAnchor="middle" fontSize={10} fill="var(--muted)" fontWeight={600}>
+        Pulled
+      </text>
+      <text x={cx} y={cy + 13} textAnchor="middle" fontSize={16} fill="var(--ink)" fontWeight={800}>
+        {fmtCompact(total)}
+      </text>
+    </svg>
   );
 }
 
@@ -123,41 +218,19 @@ function isEmojiIcon(icon?: string | null): boolean {
   return !!icon && icon.length <= 4;
 }
 
-export function CategoryBars({ rows }: { rows: CategoryRow[] }) {
-  const max = Math.max(1, ...rows.map((r) => Math.max(r.pulled, r.received)));
+export function CategoryDonut({ rows }: { rows: CategoryRow[] }) {
+  const sorted = [...rows].sort((a, b) => b.pulled - a.pulled);
   return (
-    <div>
-      <div className="chart-legend" style={{ marginBottom: 12 }}>
-        <span className="chart-legend-item">
-          <span className="chart-legend-swatch" style={{ background: 'var(--ink)' }} />
-          Pulled
-        </span>
-        <span className="chart-legend-item">
-          <span className="chart-legend-swatch" style={{ background: 'var(--line)' }} />
-          Received
-        </span>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {rows.map((r) => (
-          <div key={r.key}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 700, marginBottom: 5 }}>
-              {isEmojiIcon(r.icon) && <span aria-hidden>{r.icon}</span>}
-              <span>{r.name}</span>
-            </div>
-            <div className="cat-bar-row">
-              <span className="cat-bar-label">Pulled</span>
-              <div className="prog-track">
-                <div className="prog-bar2" style={{ width: `${(r.pulled / max) * 100}%`, background: r.color || 'var(--accent)' }} />
-              </div>
-              <span className="cat-bar-val">{fmtDollar(r.pulled)}</span>
-            </div>
-            <div className="cat-bar-row">
-              <span className="cat-bar-label">Received</span>
-              <div className="prog-track">
-                <div className="prog-bar2" style={{ width: `${(r.received / max) * 100}%`, background: 'var(--line)' }} />
-              </div>
-              <span className="cat-bar-val">{fmtDollar(r.received)}</span>
-            </div>
+    <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
+      <DonutChart slices={sorted.map((r) => ({ key: r.key, label: r.name, value: r.pulled, color: r.color }))} />
+      <div style={{ flex: 1, minWidth: 220, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {sorted.map((r) => (
+          <div key={r.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+            <span className="chart-legend-swatch" style={{ background: r.color || 'var(--accent)', flexShrink: 0 }} />
+            {isEmojiIcon(r.icon) && <span aria-hidden>{r.icon}</span>}
+            <span style={{ flex: 1, fontWeight: 600 }}>{r.name}</span>
+            <span style={{ fontWeight: 700, fontFamily: 'var(--mono)' }}>{fmtDollar(r.pulled)}</span>
+            <span style={{ color: 'var(--faint)', fontSize: 10.5, width: 84, textAlign: 'right' }}>+{fmtDollar(r.received)} recv</span>
           </div>
         ))}
       </div>
