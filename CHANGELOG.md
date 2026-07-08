@@ -4,6 +4,31 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.32.0] — 2026-07-08 — Weekly budgets, line-item tracking, inventory-financials sync fix
+
+**Claude:** User attached the org's real external "Department Budget Report" (Task ID line items, annual + monthly budget/actual/variance/status, Nov-Oct fiscal year) and asked to internalize that structure, add revenue tracking, and add weekly (Wk1/Wk2/Wk3) budget targets. Also flagged — twice — that Cost Manager numbers must be verifiably synced to real inventory data, not fabricated.
+
+### Weekly budget targets + terminology
+`cost_budgets`: `planned_pull_amount`/`planned_reviewable_amount` (single monthly figures) replaced with `w1/w2/w3_planned_pull` and `w1/w2/w3_planned_renewable` (table had zero real rows, applied directly). "Reviewable" renamed to "Renewable" in all user-facing copy per user correction — internal field/column names left as `reviewable`/`renewable_spend` to avoid unnecessary churn.
+
+### Visual pass (category donut, trend tooltip, activity feed)
+Category breakdown replaced with a donut chart (pulled-value share) + legend list, category icons wired in (`inventory_categories.icon`, real emoji). Trend chart gained a legend, y-axis gridlines, and a mouse-tracked hover tooltip with a gradient area fill. New "Recent Activity" card sourced directly from Source Control's `commit_changes` ledger via the existing `GET /api/transactions` (filtered client-side to `pulled_value`/`received_value` field changes) — no new backend endpoint needed.
+
+### Customizable line-item budget system (internalizing the external tracker)
+New tables `budget_line_items` (Task ID, description, cost/revenue type, annual budget, optional `auto_source`, scoped to a Nov-Oct fiscal year) and `budget_line_actuals` (manual monthly entries for line items without a live data source). Monthly budget = annual/12 — verified this matches the reference report's figures exactly. Line items can link to `pulled`, `renewable`, or `snack_bar_revenue` as an auto-computed actual instead of manual entry. New `frontend/src/components/BudgetLineItems.tsx`: separate Operating Costs / Revenue tables with manager+ add/edit/delete and click-to-edit actuals, matching the reference report's columns.
+
+**Snack Bar revenue.** Daily cash reconciliation was a JSON blob in `daily_operations_logs.description` — write-only, unreadable back, not summable. Restructured into a real `snack_bar_sales` table (`business_date, opening_cash, register_sales, closing_cash`) via new `GET/POST /api/logs/snack-bar-sales`; `SnackBar.tsx` now also loads and displays the selected date's existing entry instead of being fire-and-forget.
+
+### Two real data-accuracy bugs found and fixed (not cosmetic — actual wrong numbers)
+1. **`ending_value` was reading a stale/NULL-prone stored column.** `monthly_inventory.ending_value` doesn't always get recomputed; confirmed live it lagged the true value by $2,903 for one period. `GET /api/inventory` (the Dashboard's data source) never trusts this column blindly — it falls back to `backend/inventory_formulas.py`'s canonical per-item helpers whenever the stored value is NULL. Cost Manager's `_period_totals()` was doing a plain `sum(ending_value)`, silently treating NULL rows as $0.
+2. **Same root cause affected `opening_value`/`received_value`/`pulled_value`.** Confirmed live 42/333 `monthly_inventory` rows had NULL `opening_value` for one period (no numeric impact that period since those items happened to have zero opening quantity, but would undercount in any period where that's not true). `cost.py` now replicates `inventory.py::_flatten_rows`'s exact per-item fallback for all four dollar fields, using the same `inventory_formulas` functions as the Dashboard — Cost Manager cannot diverge from official inventory financials by construction anymore, not by coincidence.
+
+**Verified live**, KPI-by-KPI against the Dashboard's own "Monthly inventory" widget (the undisputed ground truth): Starting Value $9,505.58 = Opening, Ending Value $30,372.50 = Closing, Pulled $0.00 = Issued — exact match, not approximate. Full line-item CRUD round-trip tested via direct authenticated API calls (create → monthly_budget computed correctly as annual/12 → set actual → variance/status computed correctly → delete cascades) since the browser session kept timing out mid-click-sequence during this verification pass. Fiscal-year math confirmed: July 2026 correctly resolves to `fy_start_year: 2025` (Nov 2025 – Oct 2026). Snack Bar sales endpoint confirmed responding correctly. All test data cleaned up after verification — no fabricated test rows left in production.
+
+**Push:** Claude → `5d5dd09` — 2026-07-08. Render auto-deployed across 3 commits (`9bd5490`, `4e61ef4`, `b450edb`, `5d5dd09`), each verified live before the next.
+
+---
+
 ## [v4.31.1] — 2026-07-08 — Cost Manager: surface hidden data + design pass
 
 **Claude:** User feedback: "the graphic ui look horrid... missing info... not detailed enough." Ran `/impeccable critique` against `CostManager.tsx` before touching anything — real finding, not vibes: the backend's `_period_totals()` already computed `total_starting`/`total_pulled`/`total_received`/`total_ending`/`reviewable_spend` as five separate numbers, and the frontend was collapsing almost all of it into one opaque "Total Spent" KPI. Design Health Score 21/40 ("Acceptable" — real gaps, not a rebuild).
