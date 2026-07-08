@@ -29,9 +29,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cost", tags=["cost"])
 
 _INV_JOIN_SELECT = (
-    "opening_value, pulled_value, received_value, ending_value, "
+    "opening_value, pulled_value, received_value, "
     "inventory_items!inner(category_id, inventory_categories!inner(id, name, color, icon))"
 )
+# ending_value is intentionally NOT read from monthly_inventory here — it's a
+# stored/precomputed column that can drift stale (confirmed live: it lagged
+# opening+received-pulled by $2,903 for one period). Ending value is always
+# derived live as opening + received - pulled, matching how the Dashboard's
+# "Closing" figure is computed, so this page never shows stale inventory data.
 
 # How many trailing months /trend and /averages look back by default.
 _DEFAULT_TREND_MONTHS = 6
@@ -120,7 +125,7 @@ def _period_totals(db_month: int, year: int) -> dict:
         opening = float(row.get("opening_value") or 0)
         pulled = float(row.get("pulled_value") or 0)
         received = float(row.get("received_value") or 0)
-        ending = float(row.get("ending_value") or 0)
+        ending = opening + received - pulled
         bucket["opening_value"] += opening
         bucket["pulled_value"] += pulled
         bucket["received_value"] += received
