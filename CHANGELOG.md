@@ -4,6 +4,21 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.32.1] — 2026-07-08 — Total Spend formula correction
+
+**Claude:** User correction: "the cost manager is for the inventory — whatever is being received and pulled is taken out [of] the set gov budget." The prior formula (`pulled + invoice net_total`) was concretely wrong — for July 2026 it showed Total Spent as **$0.00** even though $20,866.92 of inventory had been received that period, because no invoices happened to post that specific period.
+
+- `cost.py`: `total_spend = total_received + total_pulled` (both live-computed from `monthly_inventory`, per the v4.32.0 canonical-formula fix). `reviewable_spend` (invoice total) still computed/returned — Budget Line Items can still auto-track it as its own line item — it no longer feeds the top-level ceiling math.
+- Added `'received'` as a third `auto_source` option for budget line items (DB check constraint widened).
+- Frontend: Total Spent subtext, breakdown KPI row (now Received / Pulled / Starting Value / Ending Value, dropped the top-level Renewable card), page-head copy, and the category donut (sized by received+pulled, center label "Spend") all updated to match.
+- Revenue-type line items now label their description field "Revenue Source" instead of "Description" — a revenue line describes where money comes from, not what it's spent on.
+
+**Verified live**: `GET /api/cost/summary?month=7&year=2026` → `total_spend: 20866.92` = `total_received: 20866.92` + `total_pulled: 0`, exact.
+
+**Push:** Claude → `8d45ae9` — 2026-07-08.
+
+---
+
 ## [v4.32.0] — 2026-07-08 — Weekly budgets, line-item tracking, inventory-financials sync fix
 
 **Claude:** User attached the org's real external "Department Budget Report" (Task ID line items, annual + monthly budget/actual/variance/status, Nov-Oct fiscal year) and asked to internalize that structure, add revenue tracking, and add weekly (Wk1/Wk2/Wk3) budget targets. Also flagged — twice — that Cost Manager numbers must be verifiably synced to real inventory data, not fabricated.
