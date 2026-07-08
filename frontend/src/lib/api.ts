@@ -387,7 +387,7 @@ export interface CostAverages {
 }
 
 export type BudgetLineType = 'cost' | 'revenue';
-export type BudgetLineAutoSource = 'pulled' | 'renewable' | 'snack_bar_revenue';
+export type BudgetLineAutoSource = 'pulled' | 'received' | 'renewable' | 'snack_bar_revenue';
 export type BudgetLineStatus = 'pending' | 'on_track' | 'over_budget' | 'under_budget';
 
 export interface BudgetLineItem {

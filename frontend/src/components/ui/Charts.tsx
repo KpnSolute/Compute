@@ -160,7 +160,7 @@ export interface DonutSlice {
   color?: string | null;
 }
 
-export function DonutChart({ slices, size = 148, thickness = 24 }: { slices: DonutSlice[]; size?: number; thickness?: number }) {
+export function DonutChart({ slices, size = 148, thickness = 24, centerLabel = 'Total' }: { slices: DonutSlice[]; size?: number; thickness?: number; centerLabel?: string }) {
   const total = slices.reduce((s, x) => s + x.value, 0);
   const radius = (size - thickness) / 2;
   const cx = size / 2;
@@ -194,7 +194,7 @@ export function DonutChart({ slices, size = 148, thickness = 24 }: { slices: Don
           return el;
         })}
       <text x={cx} y={cy - 6} textAnchor="middle" fontSize={10} fill="var(--muted)" fontWeight={600}>
-        Pulled
+        {centerLabel}
       </text>
       <text x={cx} y={cy + 13} textAnchor="middle" fontSize={16} fill="var(--ink)" fontWeight={800}>
         {fmtCompact(total)}
@@ -219,18 +219,23 @@ function isEmojiIcon(icon?: string | null): boolean {
 }
 
 export function CategoryDonut({ rows }: { rows: CategoryRow[] }) {
-  const sorted = [...rows].sort((a, b) => b.pulled - a.pulled);
+  // Spend per category = received + pulled, matching the same "taken out of
+  // the allotment" definition used for the page's Total Spent figure.
+  const sorted = [...rows].sort((a, b) => (b.pulled + b.received) - (a.pulled + a.received));
   return (
     <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
-      <DonutChart slices={sorted.map((r) => ({ key: r.key, label: r.name, value: r.pulled, color: r.color }))} />
+      <DonutChart
+        centerLabel="Spend"
+        slices={sorted.map((r) => ({ key: r.key, label: r.name, value: r.pulled + r.received, color: r.color }))}
+      />
       <div style={{ flex: 1, minWidth: 220, display: 'flex', flexDirection: 'column', gap: 8 }}>
         {sorted.map((r) => (
           <div key={r.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
             <span className="chart-legend-swatch" style={{ background: r.color || 'var(--accent)', flexShrink: 0 }} />
             {isEmojiIcon(r.icon) && <span aria-hidden>{r.icon}</span>}
             <span style={{ flex: 1, fontWeight: 600 }}>{r.name}</span>
-            <span style={{ fontWeight: 700, fontFamily: 'var(--mono)' }}>{fmtDollar(r.pulled)}</span>
-            <span style={{ color: 'var(--faint)', fontSize: 10.5, width: 84, textAlign: 'right' }}>+{fmtDollar(r.received)} recv</span>
+            <span style={{ fontWeight: 700, fontFamily: 'var(--mono)' }}>{fmtDollar(r.pulled + r.received)}</span>
+            <span style={{ color: 'var(--faint)', fontSize: 10.5, width: 100, textAlign: 'right' }}>{fmtDollar(r.pulled)} pulled</span>
           </div>
         ))}
       </div>

@@ -167,7 +167,12 @@ def _period_totals(db_month: int, year: int) -> dict:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
     reviewable_spend = sum(float(r.get("net_total") or 0) for r in (inv_totals_r.data or []))
-    total_spend = total_pulled + reviewable_spend
+    # What's actually taken out of the government allotment is inventory activity
+    # itself — whatever is received (delivered/bought this period) plus whatever
+    # is pulled (drawn from stock and used) — not the separate invoices table.
+    # reviewable_spend is still returned (Budget Line Items can auto-track it
+    # as its own line item), it just no longer feeds the top-level ceiling math.
+    total_spend = total_received + total_pulled
 
     return {
         "category_breakdown": sorted(categories.values(), key=lambda c: c["name"]),
@@ -203,6 +208,8 @@ def _auto_actual(auto_source: str, db_month: int, year: int) -> float:
     """Live-computed actual for a line item linked to an existing data source."""
     if auto_source == "pulled":
         return _period_totals(db_month, year)["total_pulled"]
+    if auto_source == "received":
+        return _period_totals(db_month, year)["total_received"]
     if auto_source == "renewable":
         return _period_totals(db_month, year)["reviewable_spend"]
     if auto_source == "snack_bar_revenue":
@@ -340,7 +347,7 @@ class BudgetLineItemIn(BaseModel):
     description: str = Field(..., min_length=1)
     line_type: str = Field("cost", pattern="^(cost|revenue)$")
     annual_budget: float = Field(..., ge=0)
-    auto_source: Optional[str] = Field(None, pattern="^(pulled|renewable|snack_bar_revenue)$")
+    auto_source: Optional[str] = Field(None, pattern="^(pulled|received|renewable|snack_bar_revenue)$")
     sort_order: int = 0
 
 

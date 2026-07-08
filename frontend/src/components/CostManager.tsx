@@ -298,7 +298,6 @@ export function CostManager({ user, period, onNav }: { user: User; period: [numb
   const remaining = summary?.budget ? summary.budget.gov_allotment - (summary?.total_spend || 0) : null;
   const budget = summary?.budget;
   const plannedPull = budget ? (budget.w1_planned_pull ?? 0) + (budget.w2_planned_pull ?? 0) + (budget.w3_planned_pull ?? 0) : 0;
-  const plannedRenewable = budget ? (budget.w1_planned_renewable ?? 0) + (budget.w2_planned_renewable ?? 0) + (budget.w3_planned_renewable ?? 0) : 0;
 
   // Shared 3-tier budget-health color, used by every KPI tile that reflects spend status.
   const statusColors = overBudget
@@ -312,22 +311,22 @@ export function CostManager({ user, period, onNav }: { user: User; period: [numb
     {
       key: 'spent', label: 'Total Spent', icon: 'trend', tint: 'var(--amber)', bg: 'var(--amber-bg)',
       val: fmtMoney(summary?.total_spend || 0),
-      sub: summary ? `${fmtMoney(summary.total_pulled)} pulled + ${fmtMoney(summary.reviewable_spend)} renewable` : undefined,
+      sub: summary ? `${fmtMoney(summary.total_received)} received + ${fmtMoney(summary.total_pulled)} pulled` : undefined,
     },
     { key: 'remaining', label: 'Remaining', icon: 'checkCircle', ...statusColors, val: remaining != null ? fmtMoney(remaining) : '—' },
     { key: 'pct', label: '% Used', icon: overBudget ? 'up' : 'down', ...statusColors, val: pctUsed != null ? `${pctUsed}%` : '—' },
   ];
 
+  // Received + Pulled are the two things actually taken out of the government
+  // allotment (both sourced live from monthly_inventory) — Total Spent above
+  // is their sum. Starting/Ending Value are informational inventory context,
+  // not part of that spend total.
   const breakdownKpis: Kpi[] = summary ? [
+    { key: 'received', label: 'Received', icon: 'inbox', tint: '#0E7490', bg: '#ECFEFF', val: fmtMoney(summary.total_received), sub: 'delivered this period' },
     {
       key: 'pulled', label: 'Pulled', icon: 'box', tint: '#6D28D9', bg: '#EDE9FE',
       val: fmtMoney(summary.total_pulled),
-      sub: plannedPull > 0 ? `vs ${fmtMoney(plannedPull)} planned` : 'stock drawn from inventory',
-    },
-    {
-      key: 'renewable', label: 'Renewable', icon: 'inbox', tint: '#0E7490', bg: '#ECFEFF',
-      val: fmtMoney(summary.reviewable_spend),
-      sub: plannedRenewable > 0 ? `vs ${fmtMoney(plannedRenewable)} planned` : 'fresh purchases this period',
+      sub: plannedPull > 0 ? `vs ${fmtMoney(plannedPull)} planned` : 'drawn from stock and used',
     },
     { key: 'starting', label: 'Starting Value', icon: 'fileText', tint: '#475569', bg: '#F1F5F9', val: fmtMoney(summary.total_starting), sub: 'opening inventory' },
     { key: 'ending', label: 'Ending Value', icon: 'fileText', tint: '#475569', bg: '#F1F5F9', val: fmtMoney(summary.total_ending), sub: 'closing inventory' },
@@ -339,7 +338,7 @@ export function CostManager({ user, period, onNav }: { user: User; period: [numb
         <div>
           <h2>Cost Manager {refreshing && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--faint)' }}>· updating…</span>}</h2>
           <div className="ph-sub">
-            {MONTHS[month - 1]} {year} · <b>Pulled</b> = stock drawn from inventory · <b>Renewable</b> = fresh purchases against the allotment
+            {MONTHS[month - 1]} {year} · Inventory <b>received</b> + <b>pulled</b> this period = what's taken out of the government allotment
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>

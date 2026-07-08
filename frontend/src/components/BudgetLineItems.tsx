@@ -7,6 +7,7 @@ const toast = (msg: string) => (window as any).toast?.(msg);
 
 const AUTO_SOURCE_LABEL: Record<BudgetLineAutoSource, string> = {
   pulled: 'Auto: Pulled total',
+  received: 'Auto: Received total',
   renewable: 'Auto: Renewable total',
   snack_bar_revenue: 'Auto: Snack Bar sales',
 };
@@ -59,6 +60,7 @@ function LineItemForm({
       <input className="ipt" type="number" min={0} step="0.01" placeholder="Annual $" value={annual} onChange={(e) => setAnnual(e.target.value)} style={{ width: 110 }} />
       <select className="ipt sel" value={autoSource} onChange={(e) => setAutoSource(e.target.value as BudgetLineAutoSource | '')} style={{ width: 170 }}>
         <option value="">Manual entry</option>
+        <option value="received">Auto: Received total</option>
         <option value="pulled">Auto: Pulled total</option>
         <option value="renewable">Auto: Renewable total</option>
         <option value="snack_bar_revenue">Auto: Snack Bar sales</option>
