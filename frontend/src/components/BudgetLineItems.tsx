@@ -52,7 +52,13 @@ function LineItemForm({
   return (
     <form className="li-form" onSubmit={submit}>
       <input className="ipt" placeholder="Task ID (optional)" value={taskId} onChange={(e) => setTaskId(e.target.value)} style={{ width: 130 }} />
-      <input className="ipt" placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} style={{ flex: 1, minWidth: 160 }} />
+      <input
+        className="ipt"
+        placeholder={lineType === 'revenue' ? 'Revenue Source' : 'Description'}
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        style={{ flex: 1, minWidth: 160 }}
+      />
       <select className="ipt sel" value={lineType} onChange={(e) => setLineType(e.target.value as BudgetLineType)} style={{ width: 100 }}>
         <option value="cost">Cost</option>
         <option value="revenue">Revenue</option>
@@ -119,6 +125,7 @@ function ActualCell({ item, month, year, onSaved }: { item: BudgetLineItem; mont
 
 function LineItemTable({
   title,
+  descriptionLabel = 'Description',
   rows,
   month,
   year,
@@ -127,6 +134,7 @@ function LineItemTable({
   onEdit,
 }: {
   title: string;
+  descriptionLabel?: string;
   rows: BudgetLineItem[];
   month: number;
   year: number;
@@ -161,7 +169,7 @@ function LineItemTable({
             <thead>
               <tr>
                 <th>Task ID</th>
-                <th>Description</th>
+                <th>{descriptionLabel}</th>
                 <th>Annual</th>
                 <th>Month Budget</th>
                 <th>Month Actual</th>
@@ -260,7 +268,7 @@ export function BudgetLineItems({ user, month, year }: { user: User; month: numb
       )}
 
       <LineItemTable title="Operating Costs" rows={costRows} month={month} year={year} canManage={canManage} onReload={load} onEdit={(it) => { setEditing(it); setShowForm(true); }} />
-      <LineItemTable title="Revenue" rows={revenueRows} month={month} year={year} canManage={canManage} onReload={load} onEdit={(it) => { setEditing(it); setShowForm(true); }} />
+      <LineItemTable title="Revenue" descriptionLabel="Revenue Source" rows={revenueRows} month={month} year={year} canManage={canManage} onReload={load} onEdit={(it) => { setEditing(it); setShowForm(true); }} />
 
       {items.length === 0 && (
         <div className="card" style={{ marginTop: 16 }}>
