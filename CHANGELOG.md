@@ -4,6 +4,24 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.31.1] — 2026-07-08 — Cost Manager: surface hidden data + design pass
+
+**Claude:** User feedback: "the graphic ui look horrid... missing info... not detailed enough." Ran `/impeccable critique` against `CostManager.tsx` before touching anything — real finding, not vibes: the backend's `_period_totals()` already computed `total_starting`/`total_pulled`/`total_received`/`total_ending`/`reviewable_spend` as five separate numbers, and the frontend was collapsing almost all of it into one opaque "Total Spent" KPI. Design Health Score 21/40 ("Acceptable" — real gaps, not a rebuild).
+
+- Two KPI rows now: top summary (Allotment/Spent/Remaining/%) + a breakdown row (Pulled, Reviewable, Starting Value, Ending Value) with planned-vs-actual subtext once a budget exists.
+- Category breakdown: separate labeled Pulled/Received bars per category (was silently summing two opposite-direction numbers into one bar) + category icon (`inventory_categories.icon`, newly selected in `cost.py`'s join) + legend. Defensive icon guard (`icon.length <= 4`) skips the one bad data row (`"sparkles"` stored as literal text instead of an emoji for "New Items").
+- Trend chart: added a legend + y-axis gridlines/scale (was two unlabeled lines).
+- Budget wizard: added the `notes` field (API had it, UI never exposed it), confirm-before-overwrite when editing an existing budget, Esc-to-close (`useEscapeClose`).
+- Status colors (over/near/under budget) switched from hardcoded hex to this app's own `--red`/`--amber`/`--green` tokens.
+- Added a Print button — `PRODUCT.md` states print is "first-class, not an afterthought" for this app; the page had none.
+- Empty states rewritten to say what will appear, not "nothing here."
+
+**Verified live** (commit `ed34e0c`, Render deploy `dep-d96rmduk1jcs73dhhc7g`, live in ~50s): all 8 KPI cards render with real July 2026 numbers (Starting Value $9,505.58 → Ending Value $27,469.37), category bars split correctly per category (e.g. Meats: Pulled $0 / Received $7,081), trend chart shows a real $0–$50k y-axis scale across Feb–Jul 2026, category icons render as real emoji.
+
+**Push:** Claude → `ed34e0c` — 2026-07-08.
+
+---
+
 ## [v4.31.0] — 2026-07-07 — Flow quick panel + Cost Manager
 
 **Claude:** Two features, built solo end-to-end (frontend, new route, schema, AI pipeline wiring) — this project's Gemini/OpenCode multi-agent lanes in `AGENTS.md` aren't in active use, confirmed with the user.
