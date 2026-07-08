@@ -116,6 +116,17 @@ export interface SourceTransaction {
   unit?: string | null;
 }
 
+export interface SnackBarSale {
+  id: string;
+  business_date: string;
+  opening_cash: number;
+  register_sales: number;
+  closing_cash: number;
+  recorded_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface StagingEntry {
   entry_id: string;
   entity_type: string;
@@ -373,6 +384,38 @@ export interface CostAverages {
   avg_pull_amount: number;
   avg_reviewable_amount: number;
   months_sampled: number;
+}
+
+export type BudgetLineType = 'cost' | 'revenue';
+export type BudgetLineAutoSource = 'pulled' | 'renewable' | 'snack_bar_revenue';
+export type BudgetLineStatus = 'pending' | 'on_track' | 'over_budget' | 'under_budget';
+
+export interface BudgetLineItem {
+  id: string;
+  fy_start_year: number;
+  task_id: string | null;
+  description: string;
+  line_type: BudgetLineType;
+  annual_budget: number;
+  auto_source: BudgetLineAutoSource | null;
+  sort_order: number;
+  active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  monthly_budget: number;
+  monthly_actual: number | null;
+  variance: number | null;
+  status: BudgetLineStatus;
+}
+
+export interface BudgetLineItemInput {
+  task_id?: string;
+  description: string;
+  line_type: BudgetLineType;
+  annual_budget: number;
+  auto_source?: BudgetLineAutoSource;
+  sort_order?: number;
 }
 
 export interface PublicMenuToday {
@@ -828,6 +871,19 @@ export const api = {
     return req('/api/logs/daily', { method: 'POST', body: JSON.stringify(body) });
   },
 
+  async getSnackBarSales(params?: { start?: string; end?: string; limit?: number }): Promise<SnackBarSale[]> {
+    const p = new URLSearchParams();
+    if (params?.start) p.set('start', params.start);
+    if (params?.end) p.set('end', params.end);
+    if (params?.limit !== undefined) p.set('limit', String(params.limit));
+    const qs = p.toString();
+    return req(`/api/logs/snack-bar-sales${qs ? '?' + qs : ''}`);
+  },
+
+  async saveSnackBarSale(body: { business_date: string; opening_cash: number; register_sales: number; closing_cash: number }): Promise<SnackBarSale> {
+    return req('/api/logs/snack-bar-sales', { method: 'POST', body: JSON.stringify(body) });
+  },
+
   async getCompliance(): Promise<any> {
     return req('/api/logs/compliance');
   },
@@ -901,6 +957,29 @@ export const api = {
 
   async getCostAverages(months = 6): Promise<CostAverages> {
     return req(`/api/cost/averages?months=${months}`);
+  },
+
+  async getLineItems(month: number, year: number): Promise<BudgetLineItem[]> {
+    return req(`/api/cost/line-items?month=${month}&year=${year}`);
+  },
+
+  async createLineItem(month: number, year: number, body: BudgetLineItemInput): Promise<BudgetLineItem> {
+    return req(`/api/cost/line-items?month=${month}&year=${year}`, { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  async updateLineItem(id: string, body: BudgetLineItemInput): Promise<BudgetLineItem> {
+    return req(`/api/cost/line-items/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+  },
+
+  async deleteLineItem(id: string): Promise<void> {
+    await req(`/api/cost/line-items/${id}`, { method: 'DELETE' });
+  },
+
+  async setLineItemActual(id: string, month: number, year: number, actualAmount: number): Promise<void> {
+    await req(`/api/cost/line-items/${id}/actual?month=${month}&year=${year}`, {
+      method: 'PUT',
+      body: JSON.stringify({ actual_amount: actualAmount }),
+    });
   },
 
   // Source Control

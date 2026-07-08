@@ -88,12 +88,26 @@ export function SnackBar({ user }: { user: User }) {
           ? 'neg'
           : 'pos';
 
+  useEffect(() => {
+    let alive = true;
+    api.getSnackBarSales({ start: date, end: date, limit: 1 }).then((rows) => {
+      if (!alive) return;
+      const row = rows[0];
+      setOpen(row ? String(row.opening_cash) : '');
+      setSales(row ? String(row.register_sales) : '');
+      setClose(row ? String(row.closing_cash) : '');
+      setSaved(true);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [date]);
+
   async function handleSave() {
     try {
-      await api.saveDailyLog({
-        entry_type: 'other',
-        title: `Snack bar reconciliation - ${date}`,
-        description: JSON.stringify({ open, sales, close }),
+      await api.saveSnackBarSale({
+        business_date: date,
+        opening_cash: o || 0,
+        register_sales: s || 0,
+        closing_cash: c || 0,
       });
       setSaved(true);
       setSavedAt(new Date());

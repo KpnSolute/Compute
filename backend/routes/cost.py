@@ -12,8 +12,14 @@ Endpoints:
 - GET /api/cost/summary - Category breakdown + spend-vs-budget for a period
 - GET /api/cost/trend - Trailing N months of total spend vs. budget
 - GET /api/cost/averages - Historical average pull cost / reviewable spend
+- GET/POST/PATCH/DELETE /api/cost/line-items - Customizable Task-ID budget
+  line items (cost or revenue), internalizing the org's external
+  "Department Budget Report" format, scoped to a Nov-Oct fiscal year.
+- PUT /api/cost/line-items/{id}/actual - Manual monthly actual entry
+  for line items without an auto_source.
 """
 
+import calendar
 import logging
 from typing import Optional
 
@@ -167,6 +173,40 @@ def _walk_back(db_month: int, year: int) -> tuple[int, int]:
     return db_month - 1, year
 
 
+def _fy_start_year(ui_month: int, year: int) -> int:
+    """This org's fiscal year runs Nov-Oct. Returns the calendar year it starts in."""
+    return year if ui_month >= 11 else year - 1
+
+
+def _month_date_range(db_month: int, year: int) -> tuple[str, str]:
+    """First/last calendar date (YYYY-MM-DD) for a 0-indexed db_month/year."""
+    ui_month = to_ui_month(db_month)
+    last_day = calendar.monthrange(year, ui_month)[1]
+    return f"{year:04d}-{ui_month:02d}-01", f"{year:04d}-{ui_month:02d}-{last_day:02d}"
+
+
+def _auto_actual(auto_source: str, db_month: int, year: int) -> float:
+    """Live-computed actual for a line item linked to an existing data source."""
+    if auto_source == "pulled":
+        return _period_totals(db_month, year)["total_pulled"]
+    if auto_source == "renewable":
+        return _period_totals(db_month, year)["reviewable_spend"]
+    if auto_source == "snack_bar_revenue":
+        start, end = _month_date_range(db_month, year)
+        try:
+            r = (
+                supabase_service.table("snack_bar_sales")
+                .select("register_sales")
+                .gte("business_date", start)
+                .lte("business_date", end)
+                .execute()
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        return sum(float(row.get("register_sales") or 0) for row in (r.data or []))
+    return 0.0
+
+
 @router.get("/budget", response_model=Optional[CostBudgetResponse])
 async def get_budget(
     month: int = Query(..., ge=1, le=12),
@@ -279,3 +319,227 @@ async def get_averages(
         "avg_reviewable_amount": avg_reviewable,
         "months_sampled": len(pull_values),
     }
+
+
+class BudgetLineItemIn(BaseModel):
+    task_id: Optional[str] = None
+    description: str = Field(..., min_length=1)
+    line_type: str = Field("cost", pattern="^(cost|revenue)$")
+    annual_budget: float = Field(..., ge=0)
+    auto_source: Optional[str] = Field(None, pattern="^(pulled|renewable|snack_bar_revenue)$")
+    sort_order: int = 0
+
+
+class BudgetLineItemResponse(BaseModel):
+    id: str
+    fy_start_year: int
+    task_id: Optional[str] = None
+    description: str
+    line_type: str
+    annual_budget: float
+    auto_source: Optional[str] = None
+    sort_order: int
+    active: bool
+    created_by: Optional[str] = None
+    created_at: str
+    updated_at: str
+
+
+class LineItemActualIn(BaseModel):
+    actual_amount: float = Field(..., ge=0)
+
+
+@router.get("/line-items")
+async def get_line_items(
+    month: int = Query(..., ge=1, le=12),
+    year: int = Query(...),
+    auth_user: dict = Depends(_get_auth_user),
+):
+    """
+    List active budget line items for the fiscal year (Nov-Oct) containing month/year,
+    each enriched with the current period's monthly_budget (annual/12), monthly_actual
+    (auto-computed for linked line items, manually entered otherwise), variance, and status.
+    """
+    db_month = to_db_month(month)
+    fy = _fy_start_year(month, year)
+    try:
+        r = (
+            supabase_service.table("budget_line_items")
+            .select("*")
+            .eq("fy_start_year", fy)
+            .eq("active", True)
+            .order("line_type")
+            .order("sort_order")
+            .execute()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    items = r.data or []
+    if not items:
+        return []
+
+    manual_ids = [it["id"] for it in items if not it.get("auto_source")]
+    actuals_map: dict[str, float] = {}
+    if manual_ids:
+        try:
+            ar = (
+                supabase_service.table("budget_line_actuals")
+                .select("line_item_id, actual_amount")
+                .in_("line_item_id", manual_ids)
+                .eq("month", db_month)
+                .eq("year", year)
+                .execute()
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        actuals_map = {row["line_item_id"]: float(row["actual_amount"]) for row in (ar.data or [])}
+
+    results = []
+    for it in items:
+        monthly_budget = round(float(it["annual_budget"]) / 12, 2)
+        auto_source = it.get("auto_source")
+        if auto_source:
+            actual = round(_auto_actual(auto_source, db_month, year), 2)
+        elif it["id"] in actuals_map:
+            actual = round(actuals_map[it["id"]], 2)
+        else:
+            actual = None
+
+        if actual is None:
+            variance = None
+            status = "pending"
+        else:
+            variance = round(actual - monthly_budget, 2)
+            if monthly_budget <= 0:
+                status = "on_track"
+            elif actual > monthly_budget * 1.10:
+                status = "over_budget"
+            elif actual < monthly_budget * 0.5:
+                status = "under_budget"
+            else:
+                status = "on_track"
+
+        results.append({
+            **it,
+            "monthly_budget": monthly_budget,
+            "monthly_actual": actual,
+            "variance": variance,
+            "status": status,
+        })
+    return results
+
+
+@router.post("/line-items", response_model=BudgetLineItemResponse, status_code=201)
+async def create_line_item(
+    body: BudgetLineItemIn,
+    month: int = Query(..., ge=1, le=12),
+    year: int = Query(...),
+    auth_user: dict = Depends(_require_admin_or_manager),
+):
+    """Create a budget line item in the fiscal year containing month/year. Manager+ only."""
+    record = {
+        "fy_start_year": _fy_start_year(month, year),
+        "task_id": body.task_id,
+        "description": body.description,
+        "line_type": body.line_type,
+        "annual_budget": body.annual_budget,
+        "auto_source": body.auto_source,
+        "sort_order": body.sort_order,
+        "created_by": auth_user["id"],
+    }
+    try:
+        result = supabase_service.table("budget_line_items").insert(record).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    row = result.data[0] if result.data else None
+    if not row:
+        raise HTTPException(status_code=500, detail="Failed to create line item")
+    return row
+
+
+@router.patch("/line-items/{item_id}", response_model=BudgetLineItemResponse)
+async def update_line_item(
+    item_id: str,
+    body: BudgetLineItemIn,
+    auth_user: dict = Depends(_require_admin_or_manager),
+):
+    """Update a budget line item. Manager+ only."""
+    record = {
+        "task_id": body.task_id,
+        "description": body.description,
+        "line_type": body.line_type,
+        "annual_budget": body.annual_budget,
+        "auto_source": body.auto_source,
+        "sort_order": body.sort_order,
+    }
+    try:
+        result = (
+            supabase_service.table("budget_line_items")
+            .update(record)
+            .eq("id", item_id)
+            .execute()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    row = result.data[0] if result.data else None
+    if not row:
+        raise HTTPException(status_code=404, detail="Line item not found")
+    return row
+
+
+@router.delete("/line-items/{item_id}", status_code=204)
+async def delete_line_item(
+    item_id: str,
+    auth_user: dict = Depends(_require_admin_or_manager),
+):
+    """Delete a budget line item and its manual actuals (cascade). Manager+ only."""
+    try:
+        supabase_service.table("budget_line_items").delete().eq("id", item_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@router.put("/line-items/{item_id}/actual")
+async def set_line_item_actual(
+    item_id: str,
+    body: LineItemActualIn,
+    month: int = Query(..., ge=1, le=12),
+    year: int = Query(...),
+    auth_user: dict = Depends(_require_admin_or_manager),
+):
+    """Set/update a manual line item's actual spend for a month. Manager+ only."""
+    try:
+        item_r = (
+            supabase_service.table("budget_line_items")
+            .select("auto_source")
+            .eq("id", item_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    item_row = item_r.data[0] if item_r.data else None
+    if not item_row:
+        raise HTTPException(status_code=404, detail="Line item not found")
+    if item_row.get("auto_source"):
+        raise HTTPException(status_code=400, detail="This line item is auto-computed and cannot be manually edited")
+
+    record = {
+        "line_item_id": item_id,
+        "month": to_db_month(month),
+        "year": year,
+        "actual_amount": body.actual_amount,
+        "updated_by": auth_user["id"],
+    }
+    try:
+        result = (
+            supabase_service.table("budget_line_actuals")
+            .upsert(record, on_conflict="line_item_id,month,year")
+            .execute()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    row = result.data[0] if result.data else None
+    if not row:
+        raise HTTPException(status_code=500, detail="Failed to save actual")
+    return row

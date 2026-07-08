@@ -5,6 +5,7 @@ import { fmtMoney } from '../lib/supabase';
 import { api, type CostBudget, type CostSummary, type CostTrendPoint, type CostAverages, type SourceTransaction } from '../lib/api';
 import { useEscapeClose } from '../lib/useEscapeClose';
 import { SvgLineChart, CategoryDonut } from './ui/Charts';
+import { BudgetLineItems } from './BudgetLineItems';
 
 const toast = (msg: string) => (window as any).toast?.(msg);
 const num = (v: string) => (v ? parseFloat(v) || 0 : 0);
@@ -384,6 +385,8 @@ export function CostManager({ user, period, onNav }: { user: User; period: [numb
           {breakdownKpis.map((k) => <KpiCard key={k.key} k={k} />)}
         </div>
       )}
+
+      <BudgetLineItems user={user} month={month} year={year} />
 
       <div className="card" style={{ marginTop: 16 }}>
         <div className="card-head"><h3>Where it went — category breakdown</h3></div>

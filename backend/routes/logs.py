@@ -333,3 +333,73 @@ async def get_compliance_status(auth_user: dict = Depends(_get_auth_user)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+class SnackBarSaleIn(BaseModel):
+    """Daily snack bar cash reconciliation entry."""
+
+    business_date: str
+    opening_cash: float = Field(..., ge=0)
+    register_sales: float = Field(..., ge=0)
+    closing_cash: float = Field(..., ge=0)
+
+
+class SnackBarSaleResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    business_date: str
+    opening_cash: float
+    register_sales: float
+    closing_cash: float
+    recorded_by: str | None = None
+    created_at: str
+    updated_at: str
+
+
+@router.get("/snack-bar-sales", response_model=list[SnackBarSaleResponse])
+async def get_snack_bar_sales(
+    start: str = Query(None),
+    end: str = Query(None),
+    limit: int = Query(60, ge=1, le=200),
+    auth_user: dict = Depends(_get_auth_user),
+):
+    """List snack bar daily reconciliation entries, optionally within a date range."""
+    try:
+        q = supabase_service.table("snack_bar_sales").select("*")
+        if start:
+            q = q.gte("business_date", start)
+        if end:
+            q = q.lte("business_date", end)
+        result = q.order("business_date", desc=True).limit(limit).execute()
+        return result.data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@router.post("/snack-bar-sales", response_model=SnackBarSaleResponse, status_code=201)
+async def save_snack_bar_sale(
+    body: SnackBarSaleIn,
+    auth_user: dict = Depends(_get_auth_user),
+):
+    """Upsert a day's snack bar reconciliation (one row per business_date). Any authenticated staff may record."""
+    record = {
+        "business_date": body.business_date,
+        "opening_cash": body.opening_cash,
+        "register_sales": body.register_sales,
+        "closing_cash": body.closing_cash,
+        "recorded_by": auth_user["id"],
+    }
+    try:
+        result = (
+            supabase_service.table("snack_bar_sales")
+            .upsert(record, on_conflict="business_date")
+            .execute()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+    row = result.data[0] if result.data else None
+    if not row:
+        raise HTTPException(status_code=500, detail="Failed to save snack bar sale")
+    return row
