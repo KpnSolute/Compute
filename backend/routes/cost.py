@@ -26,6 +26,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from backend import inventory_formulas as fi
 from backend.periods import to_db_month, to_ui_month
 from backend.routes import supabase_service
 from backend.routes._deps import _get_auth_user, _require_admin_or_manager
@@ -35,14 +36,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cost", tags=["cost"])
 
 _INV_JOIN_SELECT = (
-    "opening_value, pulled_value, received_value, "
+    "opening_oh, w1_received, w2_received, w3_received, w1_pulled, w2_pulled, w3_pulled, "
+    "unit_price, opening_unit_cost, opening_value, received_value, pulled_value, "
     "inventory_items!inner(category_id, inventory_categories!inner(id, name, color, icon))"
 )
-# ending_value is intentionally NOT read from monthly_inventory here — it's a
-# stored/precomputed column that can drift stale (confirmed live: it lagged
-# opening+received-pulled by $2,903 for one period). Ending value is always
-# derived live as opening + received - pulled, matching how the Dashboard's
-# "Closing" figure is computed, so this page never shows stale inventory data.
+# Per-item dollar values are computed the exact same way GET /api/inventory does
+# (backend/routes/inventory.py::_flatten_rows): trust the stored *_value column
+# when present, otherwise fall back to the canonical inventory_formulas.py
+# helpers. Confirmed live that 42/333 rows had a NULL opening_value (and
+# therefore ending_value) for one period — a plain `sum(opening_value)` silently
+# counted those as $0 instead of their real computed value, undercounting
+# Cost Manager's totals against the Dashboard's own figures. Never trust a
+# nullable stored column without this fallback.
 
 # How many trailing months /trend and /averages look back by default.
 _DEFAULT_TREND_MONTHS = 6
@@ -128,10 +133,19 @@ def _period_totals(db_month: int, year: int) -> dict:
                 "ending_value": 0.0,
             },
         )
-        opening = float(row.get("opening_value") or 0)
-        pulled = float(row.get("pulled_value") or 0)
-        received = float(row.get("received_value") or 0)
-        ending = opening + received - pulled
+        oh = max(0, int(fi.num(row.get("opening_oh"))))
+        total_recv_qty = fi.total_received(row.get("w1_received"), row.get("w2_received"), row.get("w3_received"))
+        total_pull_qty = fi.total_pulled(row.get("w1_pulled"), row.get("w2_pulled"), row.get("w3_pulled"))
+        price = fi.num(row.get("unit_price"))
+        opening_unit_cost = fi.num(row.get("opening_unit_cost")) or price
+
+        stored_opening = row.get("opening_value")
+        opening = float(stored_opening) if stored_opening is not None else fi.opening_value(oh, opening_unit_cost)
+        stored_received = row.get("received_value")
+        received = float(stored_received) if stored_received is not None else fi.received_value(total_recv_qty, price)
+        stored_pulled = row.get("pulled_value")
+        pulled = float(stored_pulled) if stored_pulled is not None else fi.pulled_value(total_pull_qty, price)
+        ending = fi.ending_value(opening, received, pulled)
         bucket["opening_value"] += opening
         bucket["pulled_value"] += pulled
         bucket["received_value"] += received
