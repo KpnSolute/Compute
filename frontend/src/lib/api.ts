@@ -339,6 +339,7 @@ export interface CostCategoryBreakdown {
   category_id: string;
   name: string;
   color: string | null;
+  icon: string | null;
   opening_value: number;
   pulled_value: number;
   received_value: number;

@@ -2877,6 +2877,14 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
 .flow-priority-chip.high{background:#FEF3C7;color:#B45309}
 .flow-priority-chip.low{background:#F1F5F9;color:#94A3B8}
 .flow-priority-chip.normal{background:#EFF5FE;color:#1E40AF}
+.chart-legend{display:flex;gap:16px;margin-bottom:8px}
+.chart-legend-item{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);font-weight:600}
+.chart-legend-swatch{width:10px;height:10px;border-radius:3px}
+.chart-legend-swatch.dashed{width:14px;height:0;border-top:2px dashed var(--amber);border-radius:0}
+.cat-bar-row{display:flex;align-items:center;gap:8px;margin-bottom:3px}
+.cat-bar-row:last-child{margin-bottom:0}
+.cat-bar-label{font-size:10px;color:var(--faint);width:52px;flex-shrink:0}
+.cat-bar-val{font-size:11px;font-weight:700;width:74px;flex-shrink:0;text-align:right;font-family:var(--mono)}
 .flow-panel{width:320px;max-height:70vh;overflow-y:auto}
 .flow-panel-new{padding:8px 12px 12px;border-bottom:1px solid var(--line-soft);margin-bottom:6px}
 .flow-panel-group{padding:2px 12px 8px}

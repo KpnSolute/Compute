@@ -30,7 +30,7 @@ router = APIRouter(prefix="/api/cost", tags=["cost"])
 
 _INV_JOIN_SELECT = (
     "opening_value, pulled_value, received_value, ending_value, "
-    "inventory_items!inner(category_id, inventory_categories!inner(id, name, color))"
+    "inventory_items!inner(category_id, inventory_categories!inner(id, name, color, icon))"
 )
 
 # How many trailing months /trend and /averages look back by default.
@@ -102,6 +102,7 @@ def _period_totals(db_month: int, year: int) -> dict:
                 "category_id": cat_id,
                 "name": cat.get("name") or "Uncategorized",
                 "color": cat.get("color"),
+                "icon": cat.get("icon"),
                 "opening_value": 0.0,
                 "pulled_value": 0.0,
                 "received_value": 0.0,
