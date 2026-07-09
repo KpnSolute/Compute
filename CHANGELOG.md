@@ -4,6 +4,26 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.35.1] — 2026-07-09 — Pull Sheet: fix pulls disappearing after staging
+
+**Claude:** User report: "the pull system is delayed for some managers... everything that's pulled in the pull sheet [must] stay in it, every time a pull is inputted, on refresh it disappears in UI."
+
+### Fact-check on "delayed for some managers"
+Not a bug — by design (`backend/routes/sourcectrl.py` — segregation of duties). A manager who stages a pull cannot commit/merge their own staging entry (`approve_commit`, `merge_pull_request` both 403 on `submitted_by == auth_user["id"]`); it must sit pending until a *different* manager/admin/sudo reviews it in Source Control. Turnaround varies with who else is online — that's the "delay," and it's intentional.
+
+### Real bug: `PullSheet.tsx` wiped its own draft on successful stage
+`confirmPull()` called `localStorage.removeItem(draftKey); setQtys({})` (and the compact-mode equivalent) right after `api.stageWeeklyPull()` succeeded. But staging only writes a pending `staging_entries` row — it never touches `monthly_inventory`. `pullQtyFor()` falls back to `it.w{week}p`, which `GET /api/inventory` (`backend/routes/inventory.py`) reads straight off `monthly_inventory` — untouched until another manager commits the PR. Net effect: the instant a pull was staged, the sheet's own local memory of it was destroyed and the fallback showed the still-uncommitted (old/zero) value — the pull visually vanished, worse the longer review took, and a refresh had nothing left to restore since the localStorage backup was already gone.
+
+Fix: stop clearing the draft on stage success in both regular and compact modes (`frontend/src/components/PullSheet.tsx`). The draft now persists until superseded, which is harmless once committed data catches up to match it. Toast copy updated to say "Pending manager review in Source Control" so the state is legible instead of looking like data loss.
+
+**Known limitation (not fixed, edge case):** if a staged pull is later *rejected/unstaged* instead of committed, the stale local draft lingers until the user overwrites it — not the reported failure mode, left as-is.
+
+**Verified live** (prod `mjcc-managements.onrender.com`, logged in as sudo): staged a real 1-item W2 pull → `POST /api/staging → 201` confirmed in network log → Pull Sheet still showed "$118.00 staged · 1 item" immediately after (previously reset to $0) → full browser reload → still showed correctly, Source Control panel confirmed it as "1 pending... in review... yours — needs another reviewer." `tsc --noEmit` clean, no console errors. Test staging entry unstaged/cleaned up after verification — no fabricated data left in production.
+
+**Push:** Claude → pending commit — 2026-07-09.
+
+---
+
 ## [v4.35.0] — 2026-07-08 — Revenue-tracking alert monitor + Net Position KPI
 
 **Claude:** User reviewed the live v4.34.0 numbers and correctly flagged a real gap: "your Monthly Revenue is currently sitting at $0.00, and all your individual revenue line items are marked as Pending... on paper, you're currently operating at a total loss for the month." Asked to "get the alert monitors setup" for this.
@@ -22,7 +42,9 @@ New top-level **Net Position** KPI (6th card, grid switched `kpi5` → `kpi6`), 
 
 **Verified**: `ruff check`/`py_compile` clean, `tsc --noEmit` clean, `npm run build` succeeds. Pre-deploy browser pass against the still-old prod backend confirmed graceful degradation — Net Position defaults to `+$0.00` and the new banner stays hidden (no `revenue_pending_count` field yet), no crash, no console errors.
 
-**Push:** pending user confirmation.
+**Post-deploy live check**: `net_position: -20866.92`, `revenue_actual: 0`, `revenue_pending_count: 4` from `/api/cost/summary` — exactly as predicted. Banner renders: "4 of 4 revenue line items still pending — $20,866.92 spent but only $0.00 recorded. On paper this shows a $20,866.92 loss until actuals are set below." Net Position KPI shows −$20,866.92 in red. No console errors.
+
+**Push:** Claude → `362e292` — 2026-07-08.
 
 ---
 

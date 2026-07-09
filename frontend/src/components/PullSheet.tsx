@@ -375,12 +375,15 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
             })),
             note: `Pull sheet W${group.week} - ${MONTHS[month - 1]} ${year}`,
           });
-          localStorage.removeItem(draftKeyForWeek(group.week));
         }
-        setCompactQtys({});
-        setQtys({});
+        // ponytail: keep the draft (don't clear qtys/localStorage) — staging only
+        // creates a pending staging_entries row, monthly_inventory isn't updated
+        // until another manager commits it in Source Control. Clearing here made
+        // the sheet fall back to the still-uncommitted live value and the pull
+        // looked like it vanished. The draft is harmless once committed data
+        // catches up to match it.
         setShowConfirm(false);
-        t(`Pull sheet staged - ${stagedItemCount} item${stagedItemCount !== 1 ? 's' : ''} across ${compactStagedByWeek.length} week${compactStagedByWeek.length !== 1 ? 's' : ''}, ${fmt(compactTotalValue)} total.`);
+        t(`Pull sheet staged - ${stagedItemCount} item${stagedItemCount !== 1 ? 's' : ''} across ${compactStagedByWeek.length} week${compactStagedByWeek.length !== 1 ? 's' : ''}, ${fmt(compactTotalValue)} total. Pending manager review in Source Control.`);
         window.dispatchEvent(new CustomEvent('mjcc:staging-changed'));
         window.dispatchEvent(new CustomEvent('mjcc:open-sc'));
         onStagingDone?.();
@@ -408,11 +411,9 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
         })),
         note: `Pull sheet W${week} · ${MONTHS[month - 1]} ${year}`,
       });
-      // Clear draft
-      localStorage.removeItem(draftKey);
-      setQtys({});
+      // ponytail: keep the draft — see compact-mode comment above, same reason.
       setShowConfirm(false);
-      t(`Pull sheet staged - ${stagedItems.length} item${stagedItems.length !== 1 ? 's' : ''}, ${fmt(totalValue)} total.`);
+      t(`Pull sheet staged - ${stagedItems.length} item${stagedItems.length !== 1 ? 's' : ''}, ${fmt(totalValue)} total. Pending manager review in Source Control.`);
       window.dispatchEvent(new CustomEvent('mjcc:staging-changed'));
       window.dispatchEvent(new CustomEvent('mjcc:open-sc'));
       onStagingDone?.();
