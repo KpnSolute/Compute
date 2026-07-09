@@ -20,7 +20,7 @@ Fix: stop clearing the draft on stage success in both regular and compact modes 
 
 **Verified live** (prod `mjcc-managements.onrender.com`, logged in as sudo): staged a real 1-item W2 pull → `POST /api/staging → 201` confirmed in network log → Pull Sheet still showed "$118.00 staged · 1 item" immediately after (previously reset to $0) → full browser reload → still showed correctly, Source Control panel confirmed it as "1 pending... in review... yours — needs another reviewer." `tsc --noEmit` clean, no console errors. Test staging entry unstaged/cleaned up after verification — no fabricated data left in production.
 
-**Push:** Claude → pending commit — 2026-07-09.
+**Push:** Claude → `96d692c` — 2026-07-09.
 
 ---
 
