@@ -18,9 +18,9 @@ No schema change — `cost_budgets` keeps its `gov_allotment` column and the wiz
 
 **Current Value stays isolated** — confirmed by design, no change: it's a "what do we have on hand right now" figure (live `live_inventory` view), deliberately excluded from Gov Allotment / Total Spent / Remaining math. It answers "what's our purchasing power," a different question than "how much of our allotment is left."
 
-**Verified live**: queried `budget_line_items` directly — FY2025 (Nov 2025–Oct 2026, contains July 2026) Revenue line items sum to $431.08 + $21,073.17 + $3,049.75 + $8,468.42 = **$33,022.42**, exact match to the Revenue table's own header total, confirming `_resolve_gov_allotment(7, 2026, ...)` will resolve correctly. `ruff check`/`py_compile` clean, frontend `tsc --noEmit` clean, `npm run build` succeeds.
+**Verified live**: queried `budget_line_items` directly — FY2025 (Nov 2025–Oct 2026, contains July 2026) Revenue line items sum to $431.08 + $21,073.17 + $3,049.75 + $8,468.42 = **$33,022.42**, exact match to the Revenue table's own header total, confirming `_resolve_gov_allotment(7, 2026, ...)` will resolve correctly. `ruff check`/`py_compile` clean, frontend `tsc --noEmit` clean, `npm run build` succeeds. Pre-deploy browser pass against still-old prod backend confirmed graceful fallback: "No allotment" banner + "—" KPI (no crash on the missing `gov_allotment` field), Total Spent unaffected at $20,866.92. **Post-deploy live check**: Gov Allotment now shows $33,022.42, Remaining $12,155.50, % Used 63.2% — all computed correctly, no console errors.
 
-**Push:** pending user confirmation.
+**Push:** Claude → `cad73b2` — 2026-07-08.
 
 ---
 
@@ -46,7 +46,7 @@ New `frontend/src/components/SnackBarShop.tsx`, mounted inside the existing `Sna
 
 **Verified**: backend `ruff check` clean, `py_compile` clean on all three touched files; frontend `tsc --noEmit` clean, `npm run lint` 0 errors (all warnings pre-existing, unrelated files), `npm run build` succeeds. Live browser pass against prod-pointed dev server: Snack Bar page renders New Sale / Recent Sales / Products / Rates panels correctly for a sudo-admin login, all four `/api/snackbar/*` calls fire with valid payloads (404s confirmed expected — this is pre-deploy, Render is still running the prior backend build).
 
-**Push:** pending user confirmation.
+**Push:** Claude → `cad73b2` — 2026-07-08 (bundled with v4.34.0, same commit).
 
 ---
 
