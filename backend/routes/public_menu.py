@@ -134,6 +134,34 @@ async def public_date(iso_date: str):
     return _public_day_for_date(d)
 
 
+def _fetch_all_cycle_slots() -> list[dict]:
+    """All menu_cycle_slots rows, paginated past PostgREST's default 1000-row cap.
+
+    A single unbounded .select() silently truncated the response once the table
+    passed 1000 rows (currently ~1215 across 28 days), cutting off the tail cycle
+    days entirely — this is what made Days 25-28 render empty on the 28-Day Menu.
+    """
+    rows: list[dict] = []
+    page = 1000
+    offset = 0
+    while True:
+        r = (
+            supabase_service.table("menu_cycle_slots")
+            .select("*")
+            .order("cycle_day")
+            .order("service_order")
+            .order("slot_order")
+            .range(offset, offset + page - 1)
+            .execute()
+        )
+        batch = r.data or []
+        rows.extend(batch)
+        if len(batch) < page:
+            break
+        offset += page
+    return rows
+
+
 @router.get("/cycle")
 async def public_cycle(include_stats: bool = False):
     anchor = _get_anchor_date()
@@ -144,15 +172,7 @@ async def public_cycle(include_stats: bool = False):
         .execute()
     )
     days_by_num = {d["cycle_day"]: d for d in (days_r.data or [])}
-    slots_r = (
-        supabase_service.table("menu_cycle_slots")
-        .select("*")
-        .order("cycle_day")
-        .order("service_order")
-        .order("slot_order")
-        .execute()
-    )
-    slots = slots_r.data or []
+    slots = _fetch_all_cycle_slots()
     item_names = _fetch_item_names({s["item_id"] for s in slots if s.get("item_id")})
 
     slots_by_day: dict[int, list[dict]] = {}
