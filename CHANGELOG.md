@@ -4,6 +4,22 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.35.2] — 2026-07-09 — 28-Day Menu: Days 25-28 rendering empty
+
+**Claude:** User attached a screenshot of the 28-Day Menu page's Week 4 — Sunday-Monday rendered normally, Tuesday showed only a Breakfast slot, and Wednesday through Saturday (including "Today") rendered completely empty despite the Dashboard's own "Today's menu" widget showing real data for the same day.
+
+### Root cause
+`GET /api/public/menu/cycle` (`backend/routes/public_menu.py`) read `menu_cycle_slots` with an unbounded `.select("*")` — no `.range()`/`.limit()`. PostgREST silently caps unbounded reads at 1000 rows. Queried live: the table has grown to 1215 rows (28 days x ~44 slots each), and the running total crosses 1000 mid-Tuesday (cycle_day 24, at row 999 of 1043) — so PostgREST returned the first 1000 rows and dropped the rest, truncating Day 24 to one slot and dropping Days 25-28 entirely. This endpoint is the sole unbounded full-table read of `menu_cycle_slots`; every other caller (`menu.py::_fetch_day_slots`, used by `/today` and `/cycle/day/{n}`) filters `.eq("cycle_day", n)` and stays well under the cap — which is exactly why the Dashboard's per-day "Today's menu" widget worked while the 28-Day Menu overview grid didn't.
+
+### Fix
+New `_fetch_all_cycle_slots()` pages through the table in batches of 1000 via `.range()` until a short page is returned. Single call site (`public_cycle()`) swapped over.
+
+**Verified live**: confirmed the bug directly against prod before the fix — `GET /api/public/menu/cycle` returned 0 meal items for cycle days 25-28 and 1 item for day 24. Queried `menu_cycle_slots` row counts directly (1215 total, cumulative crosses 1000 at day 24) to pin the exact cause before writing the fix. `ruff check` clean, `py_compile` clean. Pushed and polled prod post-deploy: days 24-28 now return 44/44/44/44/40 items respectively, matching the DB's real per-day slot counts.
+
+**Push:** Claude → `c332f17` — 2026-07-09.
+
+---
+
 ## [v4.35.1] — 2026-07-09 — Pull Sheet: fix pulls disappearing after staging
 
 **Claude:** User report: "the pull system is delayed for some managers... everything that's pulled in the pull sheet [must] stay in it, every time a pull is inputted, on refresh it disappears in UI."
