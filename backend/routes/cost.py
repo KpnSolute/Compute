@@ -369,12 +369,29 @@ async def get_summary(
     monthly_revenue = round(_snack_bar_revenue(db_month, year), 2)
     current_inventory_value = round(_current_inventory_value(), 2)
 
+    # Revenue-tracking gap: spend is tracked automatically from real inventory
+    # data, but Revenue line items without an auto_source (Student Meals,
+    # Staff Reimbursement, etc.) need someone to click "Set actual" each
+    # month. Until that happens they sit at status="pending" and don't count
+    # toward revenue_actual, which can make the period look like a loss on
+    # paper even when meals are actually being served/reimbursed.
+    revenue_items = [
+        li for li in _line_items_for_period(month, year) if li["line_type"] == "revenue"
+    ]
+    revenue_actual = round(sum(li["monthly_actual"] or 0 for li in revenue_items), 2)
+    revenue_pending_count = sum(1 for li in revenue_items if li["status"] == "pending")
+    net_position = round(revenue_actual - totals["total_spend"], 2)
+
     return {
         "budget": _budget_response(budget_row) if budget_row else None,
         "gov_allotment": round(gov_allotment, 2),
         "pct_used": pct_used,
         "monthly_revenue": monthly_revenue,
         "current_inventory_value": current_inventory_value,
+        "revenue_actual": revenue_actual,
+        "revenue_pending_count": revenue_pending_count,
+        "revenue_line_item_count": len(revenue_items),
+        "net_position": net_position,
         **totals,
     }
 
@@ -468,16 +485,13 @@ class LineItemActualIn(BaseModel):
     actual_amount: float = Field(..., ge=0)
 
 
-@router.get("/line-items")
-async def get_line_items(
-    month: int = Query(..., ge=1, le=12),
-    year: int = Query(...),
-    auth_user: dict = Depends(_get_auth_user),
-):
+def _line_items_for_period(month: int, year: int) -> list[dict]:
     """
-    List active budget line items for the fiscal year (Nov-Oct) containing month/year,
+    Active budget line items for the fiscal year (Nov-Oct) containing month/year,
     each enriched with the current period's monthly_budget (annual/12), monthly_actual
     (auto-computed for linked line items, manually entered otherwise), variance, and status.
+    Shared by GET /line-items and the summary's revenue-tracking alert data, so both
+    always agree on what's pending and what's been recorded.
     """
     db_month = to_db_month(month)
     fy = _fy_start_year(month, year)
@@ -550,6 +564,15 @@ async def get_line_items(
             }
         )
     return results
+
+
+@router.get("/line-items")
+async def get_line_items(
+    month: int = Query(..., ge=1, le=12),
+    year: int = Query(...),
+    auth_user: dict = Depends(_get_auth_user),
+):
+    return _line_items_for_period(month, year)
 
 
 @router.post("/line-items", response_model=BudgetLineItemResponse, status_code=201)

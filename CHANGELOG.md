@@ -4,6 +4,28 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.35.0] — 2026-07-08 — Revenue-tracking alert monitor + Net Position KPI
+
+**Claude:** User reviewed the live v4.34.0 numbers and correctly flagged a real gap: "your Monthly Revenue is currently sitting at $0.00, and all your individual revenue line items are marked as Pending... on paper, you're currently operating at a total loss for the month." Asked to "get the alert monitors setup" for this.
+
+### Root cause
+Gov Allotment (v4.34.0) reads Revenue line items' *budgeted* amount, which exists as soon as a line item is created. But the *actual* — what was really reimbursed/served — only populates when someone clicks "Set actual" (for line items without an `auto_source`) or when an `auto_source` resolves a real number. Nothing was surfacing that gap: spend tracks automatically from real inventory data every day, revenue tracking requires a manual step that's easy to forget.
+
+### Backend
+Extracted `_line_items_for_period()` out of `GET /line-items` into a shared helper (`cost.py`) so the summary endpoint's alert data and the line-items table always agree on what's pending — no separate/divergent computation. `GET /api/cost/summary` now also returns:
+- `revenue_actual` — sum of Month Actual across Revenue line items (only counts items with an actual recorded)
+- `revenue_pending_count` / `revenue_line_item_count` — how many Revenue line items still have no actual entered this period
+- `net_position` — `revenue_actual - total_spend`; negative means "on paper, operating at a loss" exactly as the user described
+
+### Frontend
+New top-level **Net Position** KPI (6th card, grid switched `kpi5` → `kpi6`), green/red by sign. New warning banner — shown only when there's real spend (`total_spend > 0`) and at least one Revenue line item is still Pending — spelling out exactly what's missing ("N of M revenue line items still pending — $X spent but only $Y recorded... on paper this shows a $Z loss") with a manager+ "Create Flow task" action, matching the existing over-budget alert pattern.
+
+**Verified**: `ruff check`/`py_compile` clean, `tsc --noEmit` clean, `npm run build` succeeds. Pre-deploy browser pass against the still-old prod backend confirmed graceful degradation — Net Position defaults to `+$0.00` and the new banner stays hidden (no `revenue_pending_count` field yet), no crash, no console errors.
+
+**Push:** pending user confirmation.
+
+---
+
 ## [v4.34.0] — 2026-07-08 — Gov Allotment is now derived from Revenue line items, not typed in
 
 **Claude:** User: "direct input for line items is what makes the gov allotment... all of the numbers in the month budget col must show in the gov allotment... remaining is total spent - gov allotment... the starting value [Current Value] doesn't tie into the budget manager because we're trying to identify our purchasing power." Confirmed via AskUserQuestion: keep the wizard's manual figure as a **fallback** (no schema change) rather than removing it outright.

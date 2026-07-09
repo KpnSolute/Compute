@@ -410,6 +410,10 @@ export interface CostSummary {
   pct_used: number | null;
   monthly_revenue: number;
   current_inventory_value: number;
+  revenue_actual: number;
+  revenue_pending_count: number;
+  revenue_line_item_count: number;
+  net_position: number;
   category_breakdown: CostCategoryBreakdown[];
   total_starting: number;
   total_pulled: number;

@@ -290,6 +290,21 @@ export function CostManager({ user, period, onNav }: { user: User; period: [numb
     }
   }
 
+  async function createRevenueReminderTask() {
+    try {
+      await api.createFlowAssignment({
+        title: `Record revenue actuals — ${MONTHS[month - 1]} ${year}`,
+        description: `${summary?.revenue_pending_count} of ${summary?.revenue_line_item_count} revenue line items still pending. ${fmtMoney(summary?.total_spend || 0)} spent so far but only ${fmtMoney(summary?.revenue_actual || 0)} recorded.`,
+        priority: 'normal',
+        assigned_to_role: 'manager',
+        link_type: 'cost_alert',
+      });
+      toast('Flow task created');
+    } catch (err: any) {
+      toast(err?.message || 'Failed to create task');
+    }
+  }
+
   if (loading && !summary) return <Loading />;
 
   const pctUsed = summary?.pct_used ?? null;
@@ -300,6 +315,10 @@ export function CostManager({ user, period, onNav }: { user: User; period: [numb
   const remaining = hasAllotment ? govAllotment - (summary?.total_spend || 0) : null;
   const budget = summary?.budget;
   const plannedPull = budget ? (budget.w1_planned_pull ?? 0) + (budget.w2_planned_pull ?? 0) + (budget.w3_planned_pull ?? 0) : 0;
+  const netPosition = summary?.net_position ?? 0;
+  const revenuePendingCount = summary?.revenue_pending_count ?? 0;
+  const revenueLineItemCount = summary?.revenue_line_item_count ?? 0;
+  const showRevenueAlert = (summary?.total_spend || 0) > 0 && revenuePendingCount > 0;
 
   // Shared 3-tier budget-health color, used by every KPI tile that reflects spend status.
   const statusColors = overBudget
@@ -321,6 +340,13 @@ export function CostManager({ user, period, onNav }: { user: User; period: [numb
       key: 'revenue', label: 'Monthly Revenue', icon: 'inbox', tint: 'var(--green)', bg: 'var(--green-bg)',
       val: fmtMoney(summary?.monthly_revenue || 0),
       sub: 'Snack Bar',
+    },
+    {
+      key: 'net', label: 'Net Position', icon: netPosition >= 0 ? 'up' : 'down',
+      tint: netPosition >= 0 ? 'var(--green)' : 'var(--red)',
+      bg: netPosition >= 0 ? 'var(--green-bg)' : 'var(--red-bg)',
+      val: (netPosition >= 0 ? '+' : '−') + fmtMoney(Math.abs(netPosition)),
+      sub: 'revenue recorded − spend',
     },
   ];
 
@@ -376,13 +402,23 @@ export function CostManager({ user, period, onNav }: { user: User; period: [numb
         </div>
       )}
 
+      {showRevenueAlert && (
+        <div className="banner warn" style={{ marginBottom: 16 }}>
+          {I.alert()}
+          <span>
+            {revenuePendingCount} of {revenueLineItemCount} revenue line items still pending — {fmtMoney(summary?.total_spend || 0)} spent but only {fmtMoney(summary?.revenue_actual || 0)} recorded. On paper this shows a {fmtMoney(Math.abs(netPosition))} loss until actuals are set below.
+          </span>
+          {canManage && <span className="bx" onClick={createRevenueReminderTask}>Create Flow task</span>}
+        </div>
+      )}
+
       {budget?.notes && (
         <div className="banner" style={{ marginBottom: 16 }}>
           <span>Note: {budget.notes}</span>
         </div>
       )}
 
-      <div className="stat-grid kpi5">
+      <div className="stat-grid kpi6">
         {topKpis.map((k) => <KpiCard key={k.key} k={k} />)}
       </div>
 
