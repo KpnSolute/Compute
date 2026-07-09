@@ -9,6 +9,7 @@ import {
   endingQty as fEndingQty,
 } from '../lib/inventoryFormulas';
 import { matchesInventoryQuery, parseInventoryQuery } from '../lib/inventorySearch';
+import { SnackBarShop } from './SnackBarShop';
 
 const SNACK_HOURS = [
   { day: 'Monday – Friday', lunch: '11:00 AM – 1:30 PM', eve: '' },
@@ -250,6 +251,8 @@ export function SnackBar({ user }: { user: User }) {
           </div>
         </div>
       </div>
+
+      <SnackBarShop user={user} />
 
       <div className="formbar">
         {<div className="formbar-note">

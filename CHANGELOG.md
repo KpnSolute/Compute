@@ -4,6 +4,52 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.34.0] — 2026-07-08 — Gov Allotment is now derived from Revenue line items, not typed in
+
+**Claude:** User: "direct input for line items is what makes the gov allotment... all of the numbers in the month budget col must show in the gov allotment... remaining is total spent - gov allotment... the starting value [Current Value] doesn't tie into the budget manager because we're trying to identify our purchasing power." Confirmed via AskUserQuestion: keep the wizard's manual figure as a **fallback** (no schema change) rather than removing it outright.
+
+### Gov Allotment source flipped: computed, not manually entered
+New `_revenue_line_items_budget(month, year)`: sums active Revenue-type `budget_line_items`' Month Budget (`annual_budget / 12`) for the fiscal year containing the period — this is the same total already shown in the Revenue table's header. New `_resolve_gov_allotment()`: returns that sum when any Revenue line items exist for the period's fiscal year; falls back to the Budget Wizard's manually-typed `cost_budgets.gov_allotment` only when none do. `get_summary()` and `get_trend()` both switched from reading `budget_row["gov_allotment"]` directly to this resolver. New `gov_allotment` field added directly to the `/api/cost/summary` response (previously only nested inside the possibly-null `budget` object) so the KPI, Remaining, and % Used never depend on a `cost_budgets` row existing at all once Revenue line items are set up.
+
+No schema change — `cost_budgets` keeps its `gov_allotment` column and the wizard keeps the field, just relabeled "Fallback allotment (only used when this fiscal year has no Revenue line items)".
+
+### Frontend rewiring
+`CostManager.tsx`: Gov Allotment KPI, Remaining, over/near-budget banners, and the "no allotment" empty state all switched from reading `summary.budget.gov_allotment` to the new `summary.gov_allotment`. Page-head subtitle corrected — it still said "received + pulled" from before the v4.33.0 formula fix, now says "received = spend, pulled only affects on-hand value."
+
+**Current Value stays isolated** — confirmed by design, no change: it's a "what do we have on hand right now" figure (live `live_inventory` view), deliberately excluded from Gov Allotment / Total Spent / Remaining math. It answers "what's our purchasing power," a different question than "how much of our allotment is left."
+
+**Verified live**: queried `budget_line_items` directly — FY2025 (Nov 2025–Oct 2026, contains July 2026) Revenue line items sum to $431.08 + $21,073.17 + $3,049.75 + $8,468.42 = **$33,022.42**, exact match to the Revenue table's own header total, confirming `_resolve_gov_allotment(7, 2026, ...)` will resolve correctly. `ruff check`/`py_compile` clean, frontend `tsc --noEmit` clean, `npm run build` succeeds.
+
+**Push:** pending user confirmation.
+
+---
+
+## [v4.33.0] — 2026-07-08 — Pulled ≠ spend, live Current Value KPI, Monthly Revenue, Snack Bar POS backend
+
+**Claude:** Two more user corrections on the same thread as v4.32.1, plus a new feature request: "pulls are just from the inventory so it wont affect the expenses it only affect total inventory value so we will chage the starting value to ui element to current item value and at the top we will have monthly revune this routes mainly to snack bar the snack bar will be a shopbackend where we track who bought what."
+
+### Total Spend formula, corrected again (this is the final formula)
+`_period_totals()`: `total_spend = total_received` (was `received + pulled` from v4.32.1). Pulled is inventory *movement* — stock leaving the shelf into service — not new money leaving the government allotment. It still only affects `ending_value = opening + received - pulled`. `reviewable_spend` (invoice total) is unchanged, still available as its own line-item auto_source.
+
+### Starting Value → Current Value (live)
+New `_current_inventory_value()` queries the `live_inventory` view's `sub_total` column, independent of whatever period the page is showing — resolves the currently-open month itself. Replaces the old "Starting Value" (period-opening snapshot) KPI, which the user pointed out isn't actually useful for "what do we have right now."
+
+### Monthly Revenue (new top-level KPI)
+New `_snack_bar_revenue(month, year)` sums `snack_bar_transactions.total_amount` for the period. Surfaced as a 5th top KPI card (`stat-grid kpi5`) alongside Allotment/Spent/Remaining/%. Also wired as the `snack_bar_revenue` auto_source for Budget Line Items (single source of truth — the top KPI and any revenue line item using this source always agree).
+
+### Snack Bar shop backend (new feature — real POS, not a JSON blob)
+New tables (migration `037_snack_bar_shop.sql`, applied live): `snack_bar_products` (name/price/stock_qty/active), `snack_bar_entity_rates` (per-entity-type tax_pct/discount_pct, seeded student/staff rows), `snack_bar_transactions` + `snack_bar_transaction_items` (snapshotted product name/price at time of sale, so catalog price changes don't rewrite history).
+
+New `backend/routes/snack_bar.py`: `GET/POST/PATCH/DELETE /api/snackbar/products` (manager+ writes, soft-delete via `active=false`), `GET/PUT /api/snackbar/rates` (manager+ writes), `POST/GET /api/snackbar/transactions` (any staff — "jot who bought what" is meant to be fast, not gated). Server computes subtotal from live product prices × qty, applies the entity's tax/discount rate, best-effort decrements stock (non-blocking if it fails — recording the sale takes priority over inventory bookkeeping).
+
+New `frontend/src/components/SnackBarShop.tsx`, mounted inside the existing `SnackBar` page (`Operations.tsx`) alongside daily cash reconciliation, not replacing it: New Sale quick-entry (entity type + name, repeatable product/qty rows, live subtotal preview), Recent Sales list, Products mini-table (manager+ add/deactivate), Tax & Discount rate editor (manager+).
+
+**Verified**: backend `ruff check` clean, `py_compile` clean on all three touched files; frontend `tsc --noEmit` clean, `npm run lint` 0 errors (all warnings pre-existing, unrelated files), `npm run build` succeeds. Live browser pass against prod-pointed dev server: Snack Bar page renders New Sale / Recent Sales / Products / Rates panels correctly for a sudo-admin login, all four `/api/snackbar/*` calls fire with valid payloads (404s confirmed expected — this is pre-deploy, Render is still running the prior backend build).
+
+**Push:** pending user confirmation.
+
+---
+
 ## [v4.32.1] — 2026-07-08 — Total Spend formula correction
 
 **Claude:** User correction: "the cost manager is for the inventory — whatever is being received and pulled is taken out [of] the set gov budget." The prior formula (`pulled + invoice net_total`) was concretely wrong — for July 2026 it showed Total Spent as **$0.00** even though $20,866.92 of inventory had been received that period, because no invoices happened to post that specific period.

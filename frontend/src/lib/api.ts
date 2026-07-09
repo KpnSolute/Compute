@@ -127,6 +127,49 @@ export interface SnackBarSale {
   updated_at: string;
 }
 
+export interface SnackBarProduct {
+  id: string;
+  name: string;
+  price: number;
+  stock_qty: number;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type SnackBarEntityType = 'student' | 'staff';
+
+export interface SnackBarEntityRate {
+  entity_type: SnackBarEntityType;
+  tax_pct: number;
+  discount_pct: number;
+  updated_by: string | null;
+  updated_at: string;
+}
+
+export interface SnackBarTransactionItem {
+  id: string;
+  product_id: string | null;
+  product_name: string;
+  unit_price: number;
+  qty: number;
+  line_total: number;
+}
+
+export interface SnackBarTransaction {
+  id: string;
+  entity_type: SnackBarEntityType;
+  entity_name: string;
+  subtotal: number;
+  discount_amount: number;
+  tax_amount: number;
+  total_amount: number;
+  business_date: string;
+  recorded_by: string | null;
+  created_at: string;
+  items: SnackBarTransactionItem[];
+}
+
 export interface StagingEntry {
   entry_id: string;
   entity_type: string;
@@ -363,7 +406,10 @@ export interface CostCategoryBreakdown {
 
 export interface CostSummary {
   budget: CostBudget | null;
+  gov_allotment: number;
   pct_used: number | null;
+  monthly_revenue: number;
+  current_inventory_value: number;
   category_breakdown: CostCategoryBreakdown[];
   total_starting: number;
   total_pulled: number;
@@ -882,6 +928,49 @@ export const api = {
 
   async saveSnackBarSale(body: { business_date: string; opening_cash: number; register_sales: number; closing_cash: number }): Promise<SnackBarSale> {
     return req('/api/logs/snack-bar-sales', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  // Snack Bar shop
+  async getSnackBarProducts(includeInactive = false): Promise<SnackBarProduct[]> {
+    return req(`/api/snackbar/products${includeInactive ? '?include_inactive=true' : ''}`);
+  },
+
+  async createSnackBarProduct(body: { name: string; price: number; stock_qty: number }): Promise<SnackBarProduct> {
+    return req('/api/snackbar/products', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  async updateSnackBarProduct(id: string, body: { name: string; price: number; stock_qty: number }): Promise<SnackBarProduct> {
+    return req(`/api/snackbar/products/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+  },
+
+  async deactivateSnackBarProduct(id: string): Promise<void> {
+    await req(`/api/snackbar/products/${id}`, { method: 'DELETE' });
+  },
+
+  async getSnackBarRates(): Promise<SnackBarEntityRate[]> {
+    return req('/api/snackbar/rates');
+  },
+
+  async updateSnackBarRate(entityType: SnackBarEntityType, body: { tax_pct: number; discount_pct: number }): Promise<SnackBarEntityRate> {
+    return req(`/api/snackbar/rates/${entityType}`, { method: 'PUT', body: JSON.stringify(body) });
+  },
+
+  async createSnackBarTransaction(body: {
+    entity_type: SnackBarEntityType;
+    entity_name: string;
+    business_date?: string;
+    items: { product_id: string; qty: number }[];
+  }): Promise<SnackBarTransaction> {
+    return req('/api/snackbar/transactions', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  async getSnackBarTransactions(params?: { start?: string; end?: string; limit?: number }): Promise<SnackBarTransaction[]> {
+    const p = new URLSearchParams();
+    if (params?.start) p.set('start', params.start);
+    if (params?.end) p.set('end', params.end);
+    if (params?.limit !== undefined) p.set('limit', String(params.limit));
+    const qs = p.toString();
+    return req(`/api/snackbar/transactions${qs ? '?' + qs : ''}`);
   },
 
   async getCompliance(): Promise<any> {

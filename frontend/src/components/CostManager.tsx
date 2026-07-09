@@ -162,7 +162,7 @@ function BudgetWizard({
         </div>
         <div className="modal-body">
           <div className="field">
-            <label>Government allotment (total monthly ceiling) *</label>
+            <label>Fallback allotment <span style={{ fontWeight: 400, color: 'var(--faint)' }}>(only used when this fiscal year has no Revenue line items)</span></label>
             <input
               className="ipt"
               type="number"
@@ -279,7 +279,7 @@ export function CostManager({ user, period, onNav }: { user: User; period: [numb
     try {
       await api.createFlowAssignment({
         title: `Budget over limit — ${MONTHS[month - 1]} ${year}`,
-        description: `Total spend ${fmtMoney(summary?.total_spend || 0)} vs. allotment ${fmtMoney(summary?.budget?.gov_allotment || 0)}.`,
+        description: `Total spend ${fmtMoney(summary?.total_spend || 0)} vs. allotment ${fmtMoney(summary?.gov_allotment || 0)}.`,
         priority: 'high',
         assigned_to_role: 'manager',
         link_type: 'cost_alert',
@@ -295,7 +295,9 @@ export function CostManager({ user, period, onNav }: { user: User; period: [numb
   const pctUsed = summary?.pct_used ?? null;
   const overBudget = pctUsed != null && pctUsed >= 100;
   const nearBudget = pctUsed != null && pctUsed >= 90 && pctUsed < 100;
-  const remaining = summary?.budget ? summary.budget.gov_allotment - (summary?.total_spend || 0) : null;
+  const govAllotment = summary?.gov_allotment ?? 0;
+  const hasAllotment = govAllotment > 0;
+  const remaining = hasAllotment ? govAllotment - (summary?.total_spend || 0) : null;
   const budget = summary?.budget;
   const plannedPull = budget ? (budget.w1_planned_pull ?? 0) + (budget.w2_planned_pull ?? 0) + (budget.w3_planned_pull ?? 0) : 0;
 
@@ -307,29 +309,34 @@ export function CostManager({ user, period, onNav }: { user: User; period: [numb
       : { tint: 'var(--green)', bg: 'var(--green-bg)' };
 
   const topKpis: Kpi[] = [
-    { key: 'allot', label: 'Gov Allotment', icon: 'dollar', tint: '#1D4ED8', bg: '#EFF6FF', val: budget ? fmtMoney(budget.gov_allotment) : '—' },
+    { key: 'allot', label: 'Gov Allotment', icon: 'dollar', tint: '#1D4ED8', bg: '#EFF6FF', val: hasAllotment ? fmtMoney(govAllotment) : '—', sub: 'sum of Revenue line items' },
     {
       key: 'spent', label: 'Total Spent', icon: 'trend', tint: 'var(--amber)', bg: 'var(--amber-bg)',
       val: fmtMoney(summary?.total_spend || 0),
-      sub: summary ? `${fmtMoney(summary.total_received)} received + ${fmtMoney(summary.total_pulled)} pulled` : undefined,
+      sub: 'inventory received this period',
     },
     { key: 'remaining', label: 'Remaining', icon: 'checkCircle', ...statusColors, val: remaining != null ? fmtMoney(remaining) : '—' },
     { key: 'pct', label: '% Used', icon: overBudget ? 'up' : 'down', ...statusColors, val: pctUsed != null ? `${pctUsed}%` : '—' },
+    {
+      key: 'revenue', label: 'Monthly Revenue', icon: 'inbox', tint: 'var(--green)', bg: 'var(--green-bg)',
+      val: fmtMoney(summary?.monthly_revenue || 0),
+      sub: 'Snack Bar',
+    },
   ];
 
-  // Received + Pulled are the two things actually taken out of the government
-  // allotment (both sourced live from monthly_inventory) — Total Spent above
-  // is their sum. Starting/Ending Value are informational inventory context,
-  // not part of that spend total.
+  // Received is what's actually taken out of the government allotment
+  // (Total Spent above = this figure). Pulled only affects inventory value
+  // (Current Value = live on-hand value right now, via live_inventory) — it
+  // never counts as spend against the allotment.
   const breakdownKpis: Kpi[] = summary ? [
-    { key: 'received', label: 'Received', icon: 'inbox', tint: '#0E7490', bg: '#ECFEFF', val: fmtMoney(summary.total_received), sub: 'delivered this period' },
+    { key: 'received', label: 'Received', icon: 'inbox', tint: '#0E7490', bg: '#ECFEFF', val: fmtMoney(summary.total_received), sub: 'delivered this period — counts as spend' },
     {
       key: 'pulled', label: 'Pulled', icon: 'box', tint: '#6D28D9', bg: '#EDE9FE',
       val: fmtMoney(summary.total_pulled),
-      sub: plannedPull > 0 ? `vs ${fmtMoney(plannedPull)} planned` : 'drawn from stock and used',
+      sub: plannedPull > 0 ? `vs ${fmtMoney(plannedPull)} planned` : 'used from stock — not counted as spend',
     },
-    { key: 'starting', label: 'Starting Value', icon: 'fileText', tint: '#475569', bg: '#F1F5F9', val: fmtMoney(summary.total_starting), sub: 'opening inventory' },
-    { key: 'ending', label: 'Ending Value', icon: 'fileText', tint: '#475569', bg: '#F1F5F9', val: fmtMoney(summary.total_ending), sub: 'closing inventory' },
+    { key: 'current', label: 'Current Value', icon: 'fileText', tint: '#475569', bg: '#F1F5F9', val: fmtMoney(summary.current_inventory_value), sub: 'on-hand inventory right now' },
+    { key: 'ending', label: 'Ending Value', icon: 'fileText', tint: '#475569', bg: '#F1F5F9', val: fmtMoney(summary.total_ending), sub: 'closing inventory this period' },
   ] : [];
 
   return (
@@ -338,7 +345,7 @@ export function CostManager({ user, period, onNav }: { user: User; period: [numb
         <div>
           <h2>Cost Manager {refreshing && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--faint)' }}>· updating…</span>}</h2>
           <div className="ph-sub">
-            {MONTHS[month - 1]} {year} · Inventory <b>received</b> + <b>pulled</b> this period = what's taken out of the government allotment
+            {MONTHS[month - 1]} {year} · Inventory <b>received</b> this period = spend against the allotment · <b>Pulled</b> only affects on-hand value
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -352,20 +359,20 @@ export function CostManager({ user, period, onNav }: { user: User; period: [numb
         </div>
       </div>
 
-      {(overBudget || nearBudget) && budget && (
+      {(overBudget || nearBudget) && hasAllotment && (
         <div className={'banner ' + (overBudget ? 'danger' : 'warn')} style={{ marginBottom: 16 }}>
           {I.alert()}
           <span>
-            {overBudget ? 'Over budget' : 'Approaching budget limit'} — {pctUsed}% of {fmtMoney(budget.gov_allotment)} spent.
+            {overBudget ? 'Over budget' : 'Approaching budget limit'} — {pctUsed}% of {fmtMoney(govAllotment)} spent.
           </span>
           {canManage && <span className="bx" onClick={createOverBudgetTask}>Create Flow task</span>}
         </div>
       )}
 
-      {!budget && (
+      {!hasAllotment && (
         <div className="banner" style={{ marginBottom: 16 }}>
-          <span>No budget set for {MONTHS[month - 1]} {year} yet.</span>
-          {canManage && <span className="bx" onClick={() => setShowWizard(true)}>Create one</span>}
+          <span>No allotment for {MONTHS[month - 1]} {year} yet — add Revenue line items below, or set a fallback in the budget wizard.</span>
+          {canManage && <span className="bx" onClick={() => setShowWizard(true)}>Open budget wizard</span>}
         </div>
       )}
 
@@ -375,7 +382,7 @@ export function CostManager({ user, period, onNav }: { user: User; period: [numb
         </div>
       )}
 
-      <div className="stat-grid">
+      <div className="stat-grid kpi5">
         {topKpis.map((k) => <KpiCard key={k.key} k={k} />)}
       </div>
 

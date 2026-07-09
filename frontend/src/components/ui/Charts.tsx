@@ -219,14 +219,15 @@ function isEmojiIcon(icon?: string | null): boolean {
 }
 
 export function CategoryDonut({ rows }: { rows: CategoryRow[] }) {
-  // Spend per category = received + pulled, matching the same "taken out of
-  // the allotment" definition used for the page's Total Spent figure.
-  const sorted = [...rows].sort((a, b) => (b.pulled + b.received) - (a.pulled + a.received));
+  // Spend per category = received only (what's actually taken out of the
+  // allotment). Pulled is shown alongside for context but doesn't size the
+  // donut — it's inventory movement, not new spend.
+  const sorted = [...rows].sort((a, b) => b.received - a.received);
   return (
     <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
       <DonutChart
-        centerLabel="Spend"
-        slices={sorted.map((r) => ({ key: r.key, label: r.name, value: r.pulled + r.received, color: r.color }))}
+        centerLabel="Received"
+        slices={sorted.map((r) => ({ key: r.key, label: r.name, value: r.received, color: r.color }))}
       />
       <div style={{ flex: 1, minWidth: 220, display: 'flex', flexDirection: 'column', gap: 8 }}>
         {sorted.map((r) => (
@@ -234,7 +235,7 @@ export function CategoryDonut({ rows }: { rows: CategoryRow[] }) {
             <span className="chart-legend-swatch" style={{ background: r.color || 'var(--accent)', flexShrink: 0 }} />
             {isEmojiIcon(r.icon) && <span aria-hidden>{r.icon}</span>}
             <span style={{ flex: 1, fontWeight: 600 }}>{r.name}</span>
-            <span style={{ fontWeight: 700, fontFamily: 'var(--mono)' }}>{fmtDollar(r.pulled + r.received)}</span>
+            <span style={{ fontWeight: 700, fontFamily: 'var(--mono)' }}>{fmtDollar(r.received)}</span>
             <span style={{ color: 'var(--faint)', fontSize: 10.5, width: 100, textAlign: 'right' }}>{fmtDollar(r.pulled)} pulled</span>
           </div>
         ))}

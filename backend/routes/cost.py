@@ -134,17 +134,33 @@ def _period_totals(db_month: int, year: int) -> dict:
             },
         )
         oh = max(0, int(fi.num(row.get("opening_oh"))))
-        total_recv_qty = fi.total_received(row.get("w1_received"), row.get("w2_received"), row.get("w3_received"))
-        total_pull_qty = fi.total_pulled(row.get("w1_pulled"), row.get("w2_pulled"), row.get("w3_pulled"))
+        total_recv_qty = fi.total_received(
+            row.get("w1_received"), row.get("w2_received"), row.get("w3_received")
+        )
+        total_pull_qty = fi.total_pulled(
+            row.get("w1_pulled"), row.get("w2_pulled"), row.get("w3_pulled")
+        )
         price = fi.num(row.get("unit_price"))
         opening_unit_cost = fi.num(row.get("opening_unit_cost")) or price
 
         stored_opening = row.get("opening_value")
-        opening = float(stored_opening) if stored_opening is not None else fi.opening_value(oh, opening_unit_cost)
+        opening = (
+            float(stored_opening)
+            if stored_opening is not None
+            else fi.opening_value(oh, opening_unit_cost)
+        )
         stored_received = row.get("received_value")
-        received = float(stored_received) if stored_received is not None else fi.received_value(total_recv_qty, price)
+        received = (
+            float(stored_received)
+            if stored_received is not None
+            else fi.received_value(total_recv_qty, price)
+        )
         stored_pulled = row.get("pulled_value")
-        pulled = float(stored_pulled) if stored_pulled is not None else fi.pulled_value(total_pull_qty, price)
+        pulled = (
+            float(stored_pulled)
+            if stored_pulled is not None
+            else fi.pulled_value(total_pull_qty, price)
+        )
         ending = fi.ending_value(opening, received, pulled)
         bucket["opening_value"] += opening
         bucket["pulled_value"] += pulled
@@ -166,13 +182,16 @@ def _period_totals(db_month: int, year: int) -> dict:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
-    reviewable_spend = sum(float(r.get("net_total") or 0) for r in (inv_totals_r.data or []))
-    # What's actually taken out of the government allotment is inventory activity
-    # itself — whatever is received (delivered/bought this period) plus whatever
-    # is pulled (drawn from stock and used) — not the separate invoices table.
-    # reviewable_spend is still returned (Budget Line Items can auto-track it
-    # as its own line item), it just no longer feeds the top-level ceiling math.
-    total_spend = total_received + total_pulled
+    reviewable_spend = sum(
+        float(r.get("net_total") or 0) for r in (inv_totals_r.data or [])
+    )
+    # What's actually taken out of the government allotment is inventory
+    # received (delivered/bought this period). Pulled is inventory movement,
+    # not new spend — it only affects total inventory value (ending_value =
+    # opening + received - pulled), never the allotment. reviewable_spend is
+    # still returned (Budget Line Items can auto-track it as its own line
+    # item), it just doesn't feed the top-level ceiling math either.
+    total_spend = total_received
 
     return {
         "category_breakdown": sorted(categories.values(), key=lambda c: c["name"]),
@@ -183,6 +202,18 @@ def _period_totals(db_month: int, year: int) -> dict:
         "reviewable_spend": round(reviewable_spend, 2),
         "total_spend": round(total_spend, 2),
     }
+
+
+def _current_inventory_value() -> float:
+    """Live total value of on-hand inventory right now, via the live_inventory
+    view (backend/migrations/023_audited_live_inventory_values.sql) — resolves
+    the currently-open period itself, independent of whatever month/year the
+    Cost Manager page happens to be showing."""
+    try:
+        r = supabase_service.table("live_inventory").select("sub_total").execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    return sum(float(row.get("sub_total") or 0) for row in (r.data or []))
 
 
 def _walk_back(db_month: int, year: int) -> tuple[int, int]:
@@ -197,11 +228,68 @@ def _fy_start_year(ui_month: int, year: int) -> int:
     return year if ui_month >= 11 else year - 1
 
 
+def _revenue_line_items_budget(ui_month: int, year: int) -> Optional[float]:
+    """Sum of active Revenue line items' Month Budget (annual_budget / 12) for
+    the fiscal year containing this period. Revenue line items ARE the funding
+    streams (meal reimbursements, snack sales, etc.) that compose the
+    government allotment now, not just informational tracking. Returns None
+    when no revenue line items exist yet for that fiscal year, so callers know
+    to fall back to the manually-entered cost_budgets.gov_allotment instead."""
+    fy = _fy_start_year(ui_month, year)
+    try:
+        r = (
+            supabase_service.table("budget_line_items")
+            .select("annual_budget")
+            .eq("fy_start_year", fy)
+            .eq("line_type", "revenue")
+            .eq("active", True)
+            .execute()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    rows = r.data or []
+    if not rows:
+        return None
+    return sum(float(row["annual_budget"]) / 12 for row in rows)
+
+
+def _resolve_gov_allotment(
+    ui_month: int, year: int, budget_row: Optional[dict]
+) -> float:
+    """Gov Allotment = sum of Revenue line items' Month Budget when any exist
+    for the period's fiscal year; otherwise falls back to the Budget Wizard's
+    manually-entered cost_budgets.gov_allotment (e.g. before revenue line
+    items have been set up yet)."""
+    computed = _revenue_line_items_budget(ui_month, year)
+    if computed is not None:
+        return computed
+    return float(budget_row["gov_allotment"]) if budget_row else 0.0
+
+
 def _month_date_range(db_month: int, year: int) -> tuple[str, str]:
     """First/last calendar date (YYYY-MM-DD) for a 0-indexed db_month/year."""
     ui_month = to_ui_month(db_month)
     last_day = calendar.monthrange(year, ui_month)[1]
     return f"{year:04d}-{ui_month:02d}-01", f"{year:04d}-{ui_month:02d}-{last_day:02d}"
+
+
+def _snack_bar_revenue(db_month: int, year: int) -> float:
+    """Total Snack Bar revenue for a period, from the shop's per-transaction
+    ledger (backend/routes/snack_bar.py) — single source of truth used both
+    as the top-level Monthly Revenue figure and as the 'snack_bar_revenue'
+    auto_source for Budget Line Items, so both always agree."""
+    start, end = _month_date_range(db_month, year)
+    try:
+        r = (
+            supabase_service.table("snack_bar_transactions")
+            .select("total_amount")
+            .gte("business_date", start)
+            .lte("business_date", end)
+            .execute()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    return sum(float(row.get("total_amount") or 0) for row in (r.data or []))
 
 
 def _auto_actual(auto_source: str, db_month: int, year: int) -> float:
@@ -213,18 +301,7 @@ def _auto_actual(auto_source: str, db_month: int, year: int) -> float:
     if auto_source == "renewable":
         return _period_totals(db_month, year)["reviewable_spend"]
     if auto_source == "snack_bar_revenue":
-        start, end = _month_date_range(db_month, year)
-        try:
-            r = (
-                supabase_service.table("snack_bar_sales")
-                .select("register_sales")
-                .gte("business_date", start)
-                .lte("business_date", end)
-                .execute()
-            )
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-        return sum(float(row.get("register_sales") or 0) for row in (r.data or []))
+        return _snack_bar_revenue(db_month, year)
     return 0.0
 
 
@@ -259,7 +336,11 @@ async def save_budget(
         "created_by": auth_user["id"],
     }
     try:
-        result = supabase_service.table("cost_budgets").upsert(record, on_conflict="month,year").execute()
+        result = (
+            supabase_service.table("cost_budgets")
+            .upsert(record, on_conflict="month,year")
+            .execute()
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
@@ -279,12 +360,21 @@ async def get_summary(
     db_month = to_db_month(month)
     totals = _period_totals(db_month, year)
     budget_row = _get_budget_row(db_month, year)
-    gov_allotment = float(budget_row["gov_allotment"]) if budget_row else 0.0
-    pct_used = round((totals["total_spend"] / gov_allotment) * 100, 1) if gov_allotment > 0 else None
+    gov_allotment = _resolve_gov_allotment(month, year, budget_row)
+    pct_used = (
+        round((totals["total_spend"] / gov_allotment) * 100, 1)
+        if gov_allotment > 0
+        else None
+    )
+    monthly_revenue = round(_snack_bar_revenue(db_month, year), 2)
+    current_inventory_value = round(_current_inventory_value(), 2)
 
     return {
         "budget": _budget_response(budget_row) if budget_row else None,
+        "gov_allotment": round(gov_allotment, 2),
         "pct_used": pct_used,
+        "monthly_revenue": monthly_revenue,
+        "current_inventory_value": current_inventory_value,
         **totals,
     }
 
@@ -302,12 +392,14 @@ async def get_trend(
     for _ in range(months):
         totals = _period_totals(db_month, cur_year)
         budget_row = _get_budget_row(db_month, cur_year)
+        ui_month = to_ui_month(db_month)
+        gov_allotment = _resolve_gov_allotment(ui_month, cur_year, budget_row)
         points.append(
             {
-                "month": to_ui_month(db_month),
+                "month": ui_month,
                 "year": cur_year,
                 "total_spend": totals["total_spend"],
-                "gov_allotment": float(budget_row["gov_allotment"]) if budget_row else None,
+                "gov_allotment": round(gov_allotment, 2) if gov_allotment > 0 else None,
             }
         )
         db_month, cur_year = _walk_back(db_month, cur_year)
@@ -334,7 +426,11 @@ async def get_averages(
         db_month, cur_year = _walk_back(db_month, cur_year)
 
     avg_pull = round(sum(pull_values) / len(pull_values), 2) if pull_values else 0.0
-    avg_reviewable = round(sum(reviewable_values) / len(reviewable_values), 2) if reviewable_values else 0.0
+    avg_reviewable = (
+        round(sum(reviewable_values) / len(reviewable_values), 2)
+        if reviewable_values
+        else 0.0
+    )
     return {
         "avg_pull_amount": avg_pull,
         "avg_reviewable_amount": avg_reviewable,
@@ -347,7 +443,9 @@ class BudgetLineItemIn(BaseModel):
     description: str = Field(..., min_length=1)
     line_type: str = Field("cost", pattern="^(cost|revenue)$")
     annual_budget: float = Field(..., ge=0)
-    auto_source: Optional[str] = Field(None, pattern="^(pulled|received|renewable|snack_bar_revenue)$")
+    auto_source: Optional[str] = Field(
+        None, pattern="^(pulled|received|renewable|snack_bar_revenue)$"
+    )
     sort_order: int = 0
 
 
@@ -413,7 +511,9 @@ async def get_line_items(
             )
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-        actuals_map = {row["line_item_id"]: float(row["actual_amount"]) for row in (ar.data or [])}
+        actuals_map = {
+            row["line_item_id"]: float(row["actual_amount"]) for row in (ar.data or [])
+        }
 
     results = []
     for it in items:
@@ -440,13 +540,15 @@ async def get_line_items(
             else:
                 status = "on_track"
 
-        results.append({
-            **it,
-            "monthly_budget": monthly_budget,
-            "monthly_actual": actual,
-            "variance": variance,
-            "status": status,
-        })
+        results.append(
+            {
+                **it,
+                "monthly_budget": monthly_budget,
+                "monthly_actual": actual,
+                "variance": variance,
+                "status": status,
+            }
+        )
     return results
 
 
@@ -543,7 +645,10 @@ async def set_line_item_actual(
     if not item_row:
         raise HTTPException(status_code=404, detail="Line item not found")
     if item_row.get("auto_source"):
-        raise HTTPException(status_code=400, detail="This line item is auto-computed and cannot be manually edited")
+        raise HTTPException(
+            status_code=400,
+            detail="This line item is auto-computed and cannot be manually edited",
+        )
 
     record = {
         "line_item_id": item_id,
