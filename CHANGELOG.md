@@ -16,7 +16,7 @@ The app shell (`.portal`) is `height:100vh; overflow:hidden` by design — that'
 
 **Verified**: `tsc --noEmit` clean, `npm run build` succeeds. Since no available tool can trigger the OS print dialog or a real multi-page PDF from this environment, verified at the computed-style/layout level instead — the more direct proof anyway: on screen, confirmed `.portal` computed `height:946px` (=1 viewport) with `overflow:hidden`, the exact constraint described. Injected the actual (verbatim, extracted from the built CSS) print rule block as an active stylesheet with a real "Full Cycle" (28-day) print job loaded: `html`/`.portal` computed height grew to `20709px` (≈22 viewport-heights) with `overflow:visible` — fully unclipped, all 28 day-cards present in the DOM. Before this fix that same content would have been hard-capped to the 946px viewport and ~95% of it silently dropped, exactly matching the reported symptom.
 
-**Push:** Claude → pending commit — 2026-07-09.
+**Push:** Claude → `7888809` — 2026-07-09.
 
 ---
 
