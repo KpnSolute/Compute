@@ -1454,6 +1454,57 @@ function AIManagementPanel() {
 
 
 
+// ── What's New popup toggle (admin/sudo only, applies to everyone) ─────────────
+
+function WhatsNewAdminPanel() {
+    const [enabled, setEnabled] = useState<boolean | null>(null);
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        api.getWhatsNewSettings()
+            .then((r) => setEnabled(r.enabled))
+            .catch(() => setEnabled(null));
+    }, []);
+
+    const toggle = async () => {
+        if (enabled === null) return;
+        const next = !enabled;
+        setEnabled(next);
+        setSaving(true);
+        try {
+            await api.updateWhatsNewSettings(next);
+        } catch {
+            setEnabled(!next);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="card" style={{ marginTop: 14 }}>
+            <div className="card-head">
+                <h3>What's New Popup</h3>
+                {saving && <span className="ph-sub">Saving…</span>}
+            </div>
+            <div className="card-body">
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: enabled === null ? 'default' : 'pointer', fontSize: 12 }}>
+                    <input
+                        type="checkbox"
+                        checked={!!enabled}
+                        disabled={enabled === null}
+                        onChange={toggle}
+                    />
+                    Show the "What's New" popup to everyone on their next login after an update
+                </label>
+                <div style={{ marginTop: 10, fontSize: 11, color: 'var(--muted)' }}>
+                    Pulled automatically from the latest <code style={{ fontSize: 10.5 }}>CHANGELOG.md</code> entry,
+                    filtered to each user's role. Each account only sees a given update once.
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // ── main Settings component ────────────────────────────────────────────────────
 
 export function Settings({ user }: { user: any }) {
@@ -1564,6 +1615,9 @@ export function Settings({ user }: { user: any }) {
 
             {/* ── AI Management — sudo only ─────────────────────────────────── */}
             {user.role === 'sudo' && <AIManagementPanel />}
+
+            {/* ── What's New popup toggle — admin/sudo only ────────────────── */}
+            {(user.role === 'admin' || user.role === 'sudo') && <WhatsNewAdminPanel />}
 
             {/* ── Developer info — always ──────────────────────────────────── */}
             <DevPanel user={user} />

@@ -50,6 +50,7 @@ from backend.routes.agent import router as agent_router
 from backend.routes.sku_review import router as sku_review_router
 from backend.routes.cost import router as cost_router
 from backend.routes.snack_bar import router as snack_bar_router
+from backend.routes.changelog import router as changelog_router
 from backend.routes.health import router as health_router
 from backend.routes.health import collect_system_status, render_status_page
 from backend.routes.api_logs import (
@@ -193,6 +194,7 @@ app.include_router(agent_router)
 app.include_router(sku_review_router)
 app.include_router(cost_router)
 app.include_router(snack_bar_router)
+app.include_router(changelog_router)
 app.include_router(health_router)
 app.include_router(api_logs_router)
 

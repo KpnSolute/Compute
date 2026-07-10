@@ -4,6 +4,33 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.36.0] — 2026-07-10 — Admin/sudo self-commit + "What's New" login popup
+
+**Claude:** Two related requests in one session. (1) "the sudo and admin should be able to commit their own changes only staff need approval" and (2) "make sure admin and sudo are able to edit items in the inventory their price name sku etc" — the latter turned out to be blocked by the former, since item edits (price/desc/sku/par/category/unit/active) always route through staging → PR → merge, and the segregation-of-duties rule was blocking self-merge unconditionally, even for admin/sudo.
+
+### `backend/routes/sourcectrl.py`
+The "you cannot approve your own staged changes" guard on `POST /api/commits` and `POST /api/pulls/{id}/merge` now exempts `admin`/`sudo` (staff/assistant/manager still require another reviewer — staff can't reach these endpoints at all, they're below the assistant role threshold). This is what actually unblocks admin/sudo self-service item edits end-to-end: stage via `PATCH /api/inventory/items/{sku}` (already role-gated correctly), then commit/merge without a second reviewer.
+
+### `frontend/src/components/SourceControl.tsx`
+Matching frontend gate: added `isSelfExempt = lvl >= ROLE_LEVEL.admin`, applied to the per-entry Commit button's `isOwn` disable/label logic so admin/sudo no longer see their own staged item edits stuck as "yours — needs another reviewer."
+
+### What's New popup (Discord-style update notice)
+User: "a cool feature we can add is a popup when there is an update... once a user logs in it will show new fixes/features pertaining to their role... show it once after an update... only the latest update... admin should be able to toggle this on/off in settings." Confirmed via question: pull content from `CHANGELOG.md` itself (no new authoring UI), toggle is admin/sudo-only and global (not per-user).
+
+**`backend/routes/changelog.py` (new)** — parses the top-most `## [vX.Y.Z] — date — title` entry straight out of `CHANGELOG.md` (newest entry is always first). Role targeting is an opt-in inline tag on the title line, e.g. `{roles:manager,admin,sudo}` — untagged entries show to everyone. No new tables: the global toggle lives at `app_settings.setting_key='whats_new_enabled'`, and each user's last-seen version rides inside their existing `user_prefs_<id>` blob (the same row Settings' theme preference already uses). `GET /api/changelog/whats-new` returns `{show:false}` once the toggle is off, the entry isn't role-visible, or the user has already seen that version; `GET/PUT /api/changelog/settings` is the admin/sudo toggle (PUT 403s below admin).
+
+**`backend/routes/users.py`** — `UserPrefsRequest` gained `last_seen_changelog_version`, merged into the same upsert path `PUT /api/users/me/preferences` already uses for theme.
+
+**`frontend/src/components/Portal.tsx`** — new `WhatsNewPopup` component, mounted once at the portal root next to `CredentialBanner`. Fetches on mount; if `show`, renders a dismissible modal (reusing the existing `overlay`/`modal` classes); dismiss writes `last_seen_changelog_version` back so it won't reappear until the next tagged entry.
+
+**`frontend/src/components/Settings.tsx`** — new `WhatsNewAdminPanel`, gated to `admin`/`sudo`, a single checkbox against `GET/PUT /api/changelog/settings`.
+
+**Verified**: `ruff check`/`ruff format --check` clean on all touched backend files. `tsc --noEmit` and `npm run build` clean (frontend). Confirmed the changelog entry-title regex against the live file's real `— ` (em dash) separator format via a standalone parse of `CHANGELOG.md`'s first heading — correctly extracted `('v4.35.6', '2026-07-09', '28-Day Menu print: ...')`. Could not exercise the live endpoints in this sandbox — no `.env`/Supabase credentials available locally (by design, `.env` is forbidden to read/create per `AGENTS.md` §0); this needs a live-session smoke test on prod after deploy (log in as staff vs admin, confirm role-gated visibility and the once-per-version dismissal).
+
+**Push:** Claude → *(pending)* — 2026-07-10.
+
+---
+
 ## [v4.35.6] — 2026-07-09 — 28-Day Menu print: real week-sectioned pages, not one long scroll
 
 **Claude:** User, after the pagination fix: "make sure these pages are ui not just long lists." Caught a real gap while investigating: the Print modal's own copy already claimed Full Cycle "Prints all 28 days, grouped by week" — but `PrintModal.confirm()` never actually grouped anything; it just flattened all 28 days into one undifferentiated list. The pagination fix (v4.35.5) meant that list could now flow across many pages, but each page break landed wherever the content happened to run out, not at a meaningful boundary.

@@ -102,6 +102,7 @@ class UserSelfUpdateRequest(BaseModel):
 
 class UserPrefsRequest(BaseModel):
     theme: str | None = None
+    last_seen_changelog_version: str | None = None
 
 
 class RoleScopesRequest(BaseModel):
@@ -840,6 +841,8 @@ async def update_user_preferences(
     prefs: dict = {}
     if req.theme is not None:
         prefs["theme"] = req.theme
+    if req.last_seen_changelog_version is not None:
+        prefs["last_seen_changelog_version"] = req.last_seen_changelog_version
 
     try:
         existing = (

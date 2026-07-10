@@ -4768,6 +4768,62 @@ export interface PortalProps {
  * true. It does not nag on the Dashboard, other modules, or while viewing a
  * different month.
  */
+function WhatsNewPopup({ user }: { user: User }) {
+    const [entry, setEntry] = useState<{ version: string; date: string; title: string } | null>(null);
+    const [busy, setBusy] = useState(false);
+    useEscapeClose(!!entry, () => setEntry(null), busy);
+
+    useEffect(() => {
+        let alive = true;
+        api.getWhatsNew()
+            .then((r) => {
+                if (alive && r.show && r.version && r.title) {
+                    setEntry({ version: r.version, date: r.date || "", title: r.title });
+                }
+            })
+            .catch(() => {});
+        return () => {
+            alive = false;
+        };
+    }, [user.id]);
+
+    if (!entry) return null;
+
+    const dismiss = async () => {
+        setBusy(true);
+        try {
+            await api.updateUserPreferences({ last_seen_changelog_version: entry.version });
+        } catch {
+            // non-fatal — popup just reappears next login
+        } finally {
+            setBusy(false);
+            setEntry(null);
+        }
+    };
+
+    return (
+        <div className="overlay" onClick={dismiss}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-head">
+                    <h3>{I.bell()} What's New</h3>
+                    <div className="sub">{entry.version}{entry.date ? ` · ${entry.date}` : ""}</div>
+                    <button className="modal-x" onClick={dismiss} aria-label="Close">
+                        {I.x()}
+                    </button>
+                </div>
+                <div style={{ padding: "0 16px 16px" }}>
+                    <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>{entry.title}</p>
+                </div>
+                <div className="modal-foot">
+                    <button className="btn primary" disabled={busy} onClick={dismiss}>
+                        Got it
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function CredentialBanner({ user }: { user: User }) {
     const needsPassword = !!user.must_change_password;
     const needsPin = !needsPassword && !!user.must_change_pin;
@@ -5216,6 +5272,7 @@ export function Portal({
                     onClick={() => setExplorerOpen(false)}
                 />
             )}
+            <WhatsNewPopup user={user} />
             <main className="main">
                 <CredentialBanner user={user} />
                 <RolloverBanner

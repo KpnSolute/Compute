@@ -1263,12 +1263,25 @@ export const api = {
   },
 
   // User preferences (theme, etc.) — saved per-user in Supabase app_settings
-  async getUserPreferences(): Promise<{ theme?: string }> {
+  async getUserPreferences(): Promise<{ theme?: string; last_seen_changelog_version?: string }> {
     return req('/api/users/me/preferences');
   },
 
-  async updateUserPreferences(prefs: { theme?: string }): Promise<any> {
+  async updateUserPreferences(prefs: { theme?: string; last_seen_changelog_version?: string }): Promise<any> {
     return req('/api/users/me/preferences', { method: 'PUT', body: JSON.stringify(prefs) });
+  },
+
+  // What's New popup — latest CHANGELOG.md entry, role-filtered, shown once per version
+  async getWhatsNew(): Promise<{ show: boolean; version?: string; date?: string; title?: string }> {
+    return req('/api/changelog/whats-new');
+  },
+
+  async getWhatsNewSettings(): Promise<{ enabled: boolean }> {
+    return req('/api/changelog/settings');
+  },
+
+  async updateWhatsNewSettings(enabled: boolean): Promise<{ enabled: boolean }> {
+    return req('/api/changelog/settings', { method: 'PUT', body: JSON.stringify({ enabled }) });
   },
 
   // Self-service profile
