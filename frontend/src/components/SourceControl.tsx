@@ -396,6 +396,7 @@ function SCChangesView({
     const lvl = ROLE_LEVEL[user.role] || 0;
     const canReview = lvl >= 20; // assistant, manager, admin, sudo
     const canCommit = lvl >= 20;
+    const isSelfExempt = lvl >= ROLE_LEVEL.admin; // admin/sudo may commit their own changes
 
     const [draftChanges, setDraftChanges] = useState<DraftChange[]>([]);
     const [changesOpen, setChangesOpen] = useState(true);
@@ -1295,7 +1296,7 @@ function SCChangesView({
                         const summary = stagedSummary(ch);
                         const inPR = !!(ch as any).pull_request_id;
                         const isSelected = selectedIds.has(ch.entry_id);
-                        const isOwn = ch.submitted_by === user.id;
+                        const isOwn = ch.submitted_by === user.id && !isSelfExempt;
                         return (
                             <div key={ch.entry_id}
                                 className={"sc-vsc-file-row" + (isSelected ? " sc-row-selected" : "")}
