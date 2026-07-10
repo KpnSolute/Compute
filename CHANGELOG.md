@@ -27,7 +27,7 @@ User: "a cool feature we can add is a popup when there is an update... once a us
 
 **Verified**: `ruff check`/`ruff format --check` clean on all touched backend files. `tsc --noEmit` and `npm run build` clean (frontend). Confirmed the changelog entry-title regex against the live file's real `— ` (em dash) separator format via a standalone parse of `CHANGELOG.md`'s first heading — correctly extracted `('v4.35.6', '2026-07-09', '28-Day Menu print: ...')`. Could not exercise the live endpoints in this sandbox — no `.env`/Supabase credentials available locally (by design, `.env` is forbidden to read/create per `AGENTS.md` §0); this needs a live-session smoke test on prod after deploy (log in as staff vs admin, confirm role-gated visibility and the once-per-version dismissal).
 
-**Push:** Claude → *(pending)* — 2026-07-10.
+**Push:** Claude → `f823f98` — 2026-07-10.
 
 ---
 
