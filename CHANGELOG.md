@@ -4,6 +4,22 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.35.6] — 2026-07-09 — 28-Day Menu print: real week-sectioned pages, not one long scroll
+
+**Claude:** User, after the pagination fix: "make sure these pages are ui not just long lists." Caught a real gap while investigating: the Print modal's own copy already claimed Full Cycle "Prints all 28 days, grouped by week" — but `PrintModal.confirm()` never actually grouped anything; it just flattened all 28 days into one undifferentiated list. The pagination fix (v4.35.5) meant that list could now flow across many pages, but each page break landed wherever the content happened to run out, not at a meaningful boundary.
+
+### `CycleMenu.tsx`
+New `PrintSection` type (`{ label, entries }`) and `groupIntoWeeks()`, which splits a flat entry list into Sunday-start calendar-week sections — starts a new section whenever it hits a `Sunday` entry. Applied to **Full Cycle** (always exactly 4 sections, Week 1-4) and **Month** (real calendar weeks, so a month starting mid-week correctly gets a short first section, matching how a wall calendar reads). Day/Week scope stay as a single unlabeled section — they're already one printed page, sectioning would be noise. `PrintSheet` now renders one `.cm-print-section` per group, each repeating the page title with a "WEEK N" badge, so every physical page is self-contained and legible on its own instead of being an arbitrary slice of a continuous scroll.
+
+### `index.css`
+`.cm-print-section { break-after:page }` (with `:last-child` reset to `auto` so there's no trailing blank page) forces each week onto its own printed page. Added `.cm-print-week-label` badge styling.
+
+**Verified**: `tsc --noEmit` clean, `npm run build` succeeds. Live browser pass: Full Cycle print produced exactly 4 sections (Week 1: Jun 14-20, Week 2: Jun 21-27, Week 3: Jun 28-Jul 4, Week 4: Jul 5-11 — clean 7-day Sunday-Saturday spans, no gaps/overlaps), confirmed `break-after: page` computed on sections 1-3 and `auto` on the 4th. Visual pass confirms tinted day cards + week badge render correctly per section. No console errors.
+
+**Push:** Claude → pending commit — 2026-07-09.
+
+---
+
 ## [v4.35.5] — 2026-07-09 — Fixed print cutting off past one page (app-wide, not just menu)
 
 **Claude:** User: "the weekly menus monthly menus any menu should be mulitple pages why is it cutting off it needs to be a file or page."

@@ -141,7 +141,7 @@ export function CycleMenu({ user: _user }: { user: User }) {
   }
 
   const [printOpen, setPrintOpen] = useState(false);
-  const [printJob, setPrintJob] = useState<{ title: string; entries: PrintEntry[] } | null>(null);
+  const [printJob, setPrintJob] = useState<{ title: string; sections: PrintSection[] } | null>(null);
   useEffect(() => {
     if (!printJob) return;
     const id = requestAnimationFrame(() => window.print());
@@ -277,12 +277,12 @@ export function CycleMenu({ user: _user }: { user: User }) {
         <PrintModal
           overview={overview}
           onClose={() => setPrintOpen(false)}
-          onPrint={(title, entries) => { setPrintJob({ title, entries }); setPrintOpen(false); }}
+          onPrint={(title, sections) => { setPrintJob({ title, sections }); setPrintOpen(false); }}
         />
       )}
     </div>
     {printJob && (
-      <PrintSheet title={printJob.title} entries={printJob.entries} mealsByDay={mealsByDay} />
+      <PrintSheet title={printJob.title} sections={printJob.sections} mealsByDay={mealsByDay} />
     )}
     </>
   );
@@ -424,6 +424,25 @@ function DayCard({ day, meals, feedback, isToday, anchorDate, onClick }: {
 // ── Print ────────────────────────────────────────────────────────────────────
 
 interface PrintEntry { cycleDay: number; dow: string; dateLabel: string; zone?: number }
+interface PrintSection { label: string; entries: PrintEntry[] }
+
+// Split a flat entry list into calendar-week sections (Sunday-start, matching
+// day 1 of the rotation) so a multi-week print reads as distinct pages with
+// their own "Week N" header instead of one undifferentiated scroll — each
+// section gets its own printed page via CSS break-before.
+function groupIntoWeeks(entries: PrintEntry[]): PrintSection[] {
+  const sections: PrintSection[] = [];
+  let current: PrintEntry[] = [];
+  for (const entry of entries) {
+    if (entry.dow === 'Sunday' && current.length) {
+      sections.push({ label: `Week ${sections.length + 1}`, entries: current });
+      current = [];
+    }
+    current.push(entry);
+  }
+  if (current.length) sections.push({ label: `Week ${sections.length + 1}`, entries: current });
+  return sections;
+}
 
 function buildDayEntry(overview: MenuCycleOverview, cycleDay: number, dateLabel?: string): PrintEntry {
   const meta = overview.days.find(d => d.cycle_day === cycleDay);
@@ -454,7 +473,7 @@ function monthEntries(overview: MenuCycleOverview, year: number, month: number):
 function PrintModal({ overview, onClose, onPrint }: {
   overview: MenuCycleOverview;
   onClose: () => void;
-  onPrint: (title: string, entries: PrintEntry[]) => void;
+  onPrint: (title: string, sections: PrintSection[]) => void;
 }) {
   type Scope = 'day' | 'week' | 'cycle' | 'month';
   const [scope, setScope] = useState<Scope>('week');
@@ -467,16 +486,17 @@ function PrintModal({ overview, onClose, onPrint }: {
   function confirm() {
     if (scope === 'day') {
       const meta = overview.days.find(d => d.cycle_day === day);
-      onPrint(`Day ${day} Menu — ${meta?.day_of_week || ''}`, [buildDayEntry(overview, day)]);
+      onPrint(`Day ${day} Menu — ${meta?.day_of_week || ''}`, [{ label: '', entries: [buildDayEntry(overview, day)] }]);
     } else if (scope === 'week') {
       const entries = overview.days.filter(d => d.cycle_week === week).map(d => buildDayEntry(overview, d.cycle_day));
-      onPrint(`Week ${week} Menu`, entries);
+      onPrint(`Week ${week} Menu`, [{ label: '', entries }]);
     } else if (scope === 'cycle') {
-      onPrint('Full 28-Day Cycle Menu', overview.days.map(d => buildDayEntry(overview, d.cycle_day)));
+      const entries = overview.days.map(d => buildDayEntry(overview, d.cycle_day));
+      onPrint('Full 28-Day Cycle Menu', groupIntoWeeks(entries));
     } else {
       const [y, m] = month.split('-').map(Number);
       const label = new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-      onPrint(`${label} Menu`, monthEntries(overview, y, m));
+      onPrint(`${label} Menu`, groupIntoWeeks(monthEntries(overview, y, m)));
     }
   }
 
@@ -546,62 +566,71 @@ function PrintModal({ overview, onClose, onPrint }: {
   );
 }
 
-function PrintSheet({ title, entries, mealsByDay }: {
+function PrintDay({ entry, mealsByDay }: { entry: PrintEntry; mealsByDay: Map<number, PublicMenuCycleDay> }) {
+  const meals = mealsByDay.get(entry.cycleDay);
+  const periods = meals ? PERIOD_ORDER.filter(p => (meals.meals[p]?.length || 0) > 0) : [];
+  return (
+    <div className="cm-print-day">
+      <div className="cm-print-day-head">
+        <div>
+          <span className="cm-print-day-kicker">Day {entry.cycleDay}</span>
+          <h3>{entry.dow}{entry.dateLabel ? ` · ${entry.dateLabel}` : ''}</h3>
+        </div>
+        {entry.zone === 2 && <span className="cm-print-badge">Zone 2</span>}
+      </div>
+      {periods.length === 0 && <p className="cm-print-empty">No menu set.</p>}
+      <div className="cm-print-periods">
+        {periods.map(period => {
+          const items = meals!.meals[period];
+          const entrees = items.filter(s => !SIDE_SLOTS.has(s.slot_name));
+          const sides = items.filter(s => SIDE_SLOTS.has(s.slot_name));
+          const tint = TINT_FOR_PERIOD[period] || 'morning';
+          return (
+            <div className={`cm-print-period ${tint}`} key={period}>
+              <div className="cm-print-period-head">
+                <span>{period}</span>
+                <span>{items.length}</span>
+              </div>
+              <div className="cm-print-dishes">
+                {entrees.map(s => <div className="cm-print-dish" key={s.slot_name}>{s.item_name}</div>)}
+              </div>
+              {sides.length > 0 && (
+                <div className="cm-print-sides">
+                  {sides.map(s => (
+                    <span className="cm-print-side-chip" key={s.slot_name}>
+                      <span className="cm-print-side-kind">{shortSideLabel(s.slot_name)}</span>
+                      {s.item_name}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PrintSheet({ title, sections, mealsByDay }: {
   title: string;
-  entries: PrintEntry[];
+  sections: PrintSection[];
   mealsByDay: Map<number, PublicMenuCycleDay>;
 }) {
   return (
     <div className="cm-print-only">
-      <div className="cm-print-head">
-        <h2>{title}</h2>
-        <span>MJCC Cafeteria — printed {new Date().toLocaleDateString()}</span>
-      </div>
-      {entries.map((entry, i) => {
-        const meals = mealsByDay.get(entry.cycleDay);
-        const periods = meals ? PERIOD_ORDER.filter(p => (meals.meals[p]?.length || 0) > 0) : [];
-        return (
-          <div className="cm-print-day" key={`${entry.cycleDay}-${entry.dateLabel}-${i}`}>
-            <div className="cm-print-day-head">
-              <div>
-                <span className="cm-print-day-kicker">Day {entry.cycleDay}</span>
-                <h3>{entry.dow}{entry.dateLabel ? ` · ${entry.dateLabel}` : ''}</h3>
-              </div>
-              {entry.zone === 2 && <span className="cm-print-badge">Zone 2</span>}
-            </div>
-            {periods.length === 0 && <p className="cm-print-empty">No menu set.</p>}
-            <div className="cm-print-periods">
-              {periods.map(period => {
-                const items = meals!.meals[period];
-                const entrees = items.filter(s => !SIDE_SLOTS.has(s.slot_name));
-                const sides = items.filter(s => SIDE_SLOTS.has(s.slot_name));
-                const tint = TINT_FOR_PERIOD[period] || 'morning';
-                return (
-                  <div className={`cm-print-period ${tint}`} key={period}>
-                    <div className="cm-print-period-head">
-                      <span>{period}</span>
-                      <span>{items.length}</span>
-                    </div>
-                    <div className="cm-print-dishes">
-                      {entrees.map(s => <div className="cm-print-dish" key={s.slot_name}>{s.item_name}</div>)}
-                    </div>
-                    {sides.length > 0 && (
-                      <div className="cm-print-sides">
-                        {sides.map(s => (
-                          <span className="cm-print-side-chip" key={s.slot_name}>
-                            <span className="cm-print-side-kind">{shortSideLabel(s.slot_name)}</span>
-                            {s.item_name}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+      {sections.map((section, si) => (
+        <div className="cm-print-section" key={section.label || si}>
+          <div className="cm-print-head">
+            <h2>{title}</h2>
+            {section.label && <span className="cm-print-week-label">{section.label}</span>}
+            <span>MJCC Cafeteria — printed {new Date().toLocaleDateString()}</span>
           </div>
-        );
-      })}
+          {section.entries.map((entry, i) => (
+            <PrintDay entry={entry} mealsByDay={mealsByDay} key={`${entry.cycleDay}-${entry.dateLabel}-${i}`} />
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
