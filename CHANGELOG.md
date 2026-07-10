@@ -22,7 +22,7 @@ New `.cm-print-only` block, hidden on screen and shown only inside the existing 
 
 **Verified**: `tsc --noEmit` clean, `npm run lint` 0 new warnings (all pre-existing, unrelated lines), `npm run build` succeeds. Live browser pass (sudo login): Print modal opens correctly, all four scopes tested — Day defaults to today (Day 26 — Thursday) and renders full untruncated content (20+ breakfast items that show as "+20 more" on-screen all present); Month (July 2026) correctly produces all 31 real calendar dates with correct wrap-around (Day 28 → Day 1 spans Jul 11 → Jul 12, Zone 2 badges preserved); Full Cycle produces exactly 28 day blocks. Confirmed `.cm-print-only` computed `display:none` on screen. Confirmed no regression to normal on-screen `.page-head` styling after fixing the brace bug. No console errors.
 
-**Push:** Claude → pending commit — 2026-07-09.
+**Push:** Claude → `5e73314` — 2026-07-09.
 
 ---
 
