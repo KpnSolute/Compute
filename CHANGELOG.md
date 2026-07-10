@@ -16,7 +16,7 @@ New `PrintSection` type (`{ label, entries }`) and `groupIntoWeeks()`, which spl
 
 **Verified**: `tsc --noEmit` clean, `npm run build` succeeds. Live browser pass: Full Cycle print produced exactly 4 sections (Week 1: Jun 14-20, Week 2: Jun 21-27, Week 3: Jun 28-Jul 4, Week 4: Jul 5-11 — clean 7-day Sunday-Saturday spans, no gaps/overlaps), confirmed `break-after: page` computed on sections 1-3 and `auto` on the 4th. Visual pass confirms tinted day cards + week badge render correctly per section. No console errors.
 
-**Push:** Claude → pending commit — 2026-07-09.
+**Push:** Claude → `7c6ab7d` — 2026-07-09.
 
 ---
 
