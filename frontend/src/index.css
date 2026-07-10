@@ -2555,11 +2555,24 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
   .modal-foot .btn{min-height:44px}
 }
 
+.cm-print-only { display:none }
+
 @media print {
   .activity-bar,.topbar,.sidebar,.sidebar-overlay,.status-bar { display:none !important }
   .portal { display:block !important }
   .main { grid-column:1/-1 !important; grid-row:1/-1 !important; padding:6px 0 !important; overflow:visible !important; background:white !important }
   .page-head .ph-actions,.view-toggle,.card-head,.banner,.no-print,.save-bar,.page-toolbar { display:none !important }
+  .cm-print-only { display:block !important; color:#111; background:white }
+  .cm-print-head { border-bottom:2px solid #111; padding-bottom:8px; margin-bottom:12px }
+  .cm-print-head h2 { margin:0 0 3px; font-size:18px }
+  .cm-print-head span { font-size:10.5px; color:#555 }
+  .cm-print-day { page-break-inside:avoid; break-inside:avoid; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #ccc }
+  .cm-print-day h3 { margin:0 0 4px; font-size:13px }
+  .cm-print-period { margin:0 0 5px }
+  .cm-print-period h4 { margin:0 0 1px; font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:#333 }
+  .cm-print-items { margin:0; padding-left:16px; font-size:11px; line-height:1.45 }
+  .cm-print-side { color:#444 }
+  .cm-print-empty { margin:0; font-size:11px; font-style:italic; color:#777 }
   .page-head { border-bottom:1px solid #ccc; padding-bottom:6px; margin-bottom:8px }
   .page-head h2 { font-size:15px !important }
   .card { box-shadow:none !important; border:none !important; border-radius:0 !important }

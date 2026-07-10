@@ -4,6 +4,28 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.35.3] — 2026-07-09 — 28-Day Menu: print by Day / Week / Cycle / Month
+
+**Claude:** User: "the 28 day menu needs to be printable by week, cycle, month or day."
+
+### Frontend (`CycleMenu.tsx`, new)
+New **Print** button in the page header opens a scope picker (Day / Week / Full Cycle / Month), defaulting to today's day/week:
+- **Day** — one cycle day, selected from a dropdown.
+- **Week** — one of the 4 rotation weeks.
+- **Full Cycle** — all 28 days.
+- **Month** — real calendar dates for the chosen month (native `<input type="month">`), each mapped to its cycle day via the same date math `jumpToDate` already used for "Jump to date" (extracted into a shared `cycleDayForDate` helper). A 28-day rotation doesn't line up with calendar months, so this walks actual dates rather than reusing the "current rotation" reconstruction the other three scopes use — a month can legitimately show the same cycle day twice near the wrap point.
+
+The print sheet renders every item per meal period in full — the on-screen day cards intentionally truncate to "primary + secondary + N more" for browsing; print needs the whole list, so it splits each period into entrees vs. sides (reusing the existing `SIDE_SLOTS` constant) with no truncation.
+
+### CSS
+New `.cm-print-only` block, hidden on screen and shown only inside the existing global `@media print` rule; the on-screen page content got wrapped in `no-print` so only the print sheet shows when printing. Caught and fixed a self-inflicted bug before pushing: an early edit accidentally closed the `@media print` block one rule short, leaking the tail of the *pre-existing* print rules (`.page-head`, `.card`, `.pill`, etc.) out as unconditional top-level rules — `npm run build` failed on it (lightningcss "Invalid empty selector"), which is exactly why build is part of the verify step and not just `tsc`.
+
+**Verified**: `tsc --noEmit` clean, `npm run lint` 0 new warnings (all pre-existing, unrelated lines), `npm run build` succeeds. Live browser pass (sudo login): Print modal opens correctly, all four scopes tested — Day defaults to today (Day 26 — Thursday) and renders full untruncated content (20+ breakfast items that show as "+20 more" on-screen all present); Month (July 2026) correctly produces all 31 real calendar dates with correct wrap-around (Day 28 → Day 1 spans Jul 11 → Jul 12, Zone 2 badges preserved); Full Cycle produces exactly 28 day blocks. Confirmed `.cm-print-only` computed `display:none` on screen. Confirmed no regression to normal on-screen `.page-head` styling after fixing the brace bug. No console errors.
+
+**Push:** Claude → pending commit — 2026-07-09.
+
+---
+
 ## [v4.35.2] — 2026-07-09 — 28-Day Menu: Days 25-28 rendering empty
 
 **Claude:** User attached a screenshot of the 28-Day Menu page's Week 4 — Sunday-Monday rendered normally, Tuesday showed only a Breakfast slot, and Wednesday through Saturday (including "Today") rendered completely empty despite the Dashboard's own "Today's menu" widget showing real data for the same day.

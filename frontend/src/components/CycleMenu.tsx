@@ -137,12 +137,16 @@ export function CycleMenu({ user: _user }: { user: User }) {
 
   function jumpToDate(dateStr: string) {
     if (!dateStr || !overview?.anchor_date) return;
-    const anchor = new Date(overview.anchor_date + 'T00:00:00');
-    const target = new Date(dateStr + 'T00:00:00');
-    const diffDays = Math.round((target.getTime() - anchor.getTime()) / 86400000);
-    const cycleDay = (((diffDays % 28) + 28) % 28) + 1;
-    setSelectedDay(cycleDay);
+    setSelectedDay(cycleDayForDate(dateStr, overview.anchor_date));
   }
+
+  const [printOpen, setPrintOpen] = useState(false);
+  const [printJob, setPrintJob] = useState<{ title: string; entries: PrintEntry[] } | null>(null);
+  useEffect(() => {
+    if (!printJob) return;
+    const id = requestAnimationFrame(() => window.print());
+    return () => cancelAnimationFrame(id);
+  }, [printJob]);
 
   const newSuggestions = suggestions.length;
   const feedbackRows = feedbackStats?.rows || [];
@@ -157,7 +161,8 @@ export function CycleMenu({ user: _user }: { user: User }) {
   const topFeedback = feedbackStats?.top_meals?.[0] || null;
 
   return (
-    <div className="fade-in">
+    <>
+    <div className="fade-in no-print">
       <div className="cm-hero">
         <div className="cm-hero-row">
           <div>
@@ -170,6 +175,9 @@ export function CycleMenu({ user: _user }: { user: User }) {
               {I.inbox()} Suggestions
               {newSuggestions > 0 && <span className="pill warn" style={{ marginLeft: 6 }}>{newSuggestions}</span>}
             </button>
+            {overview && (
+              <button className="btn" onClick={() => setPrintOpen(true)}>{I.printer()} Print</button>
+            )}
             <button className="btn" onClick={() => setSettingsOpen(true)}>{I.settings()} Settings</button>
           </div>
         </div>
@@ -265,13 +273,32 @@ export function CycleMenu({ user: _user }: { user: User }) {
           onBack={() => setSelectedDay(null)}
         />
       )}
+      {printOpen && overview && (
+        <PrintModal
+          overview={overview}
+          onClose={() => setPrintOpen(false)}
+          onPrint={(title, entries) => { setPrintJob({ title, entries }); setPrintOpen(false); }}
+        />
+      )}
     </div>
+    {printJob && (
+      <PrintSheet title={printJob.title} entries={printJob.entries} mealsByDay={mealsByDay} />
+    )}
+    </>
   );
 }
 
 function dowFromOverview(overview: MenuCycleOverview): string {
   const d = overview.days.find(d => d.cycle_day === overview.today.cycle_day);
   return d?.day_of_week || '';
+}
+
+// 1-28 cycle day for any calendar date, given the rotation's anchor (Day 1) date.
+function cycleDayForDate(dateStr: string, anchorDate: string): number {
+  const anchor = new Date(anchorDate + 'T00:00:00');
+  const target = new Date(dateStr + 'T00:00:00');
+  const diffDays = Math.round((target.getTime() - anchor.getTime()) / 86400000);
+  return (((diffDays % 28) + 28) % 28) + 1;
 }
 
 // Calendar date this cycle day occurs on in the current 4-week rotation
@@ -391,6 +418,174 @@ function DayCard({ day, meals, feedback, isToday, anchorDate, onClick }: {
         );
       })}
     </button>
+  );
+}
+
+// ── Print ────────────────────────────────────────────────────────────────────
+
+interface PrintEntry { cycleDay: number; dow: string; dateLabel: string; zone?: number }
+
+function buildDayEntry(overview: MenuCycleOverview, cycleDay: number, dateLabel?: string): PrintEntry {
+  const meta = overview.days.find(d => d.cycle_day === cycleDay);
+  return {
+    cycleDay,
+    dow: meta?.day_of_week || '',
+    dateLabel: dateLabel ?? calendarDateFor(cycleDay, overview.anchor_date),
+    zone: meta?.zone,
+  };
+}
+
+// Real calendar dates in `year-month`, each mapped to whichever cycle day it
+// falls on — unlike week/day/cycle scope (which reads "current rotation" via
+// calendarDateFor), a month view walks actual dates since a 28-day rotation
+// doesn't line up with calendar months and may repeat its first few days.
+function monthEntries(overview: MenuCycleOverview, year: number, month: number): PrintEntry[] {
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const entries: PrintEntry[] = [];
+  for (let day = 1; day <= daysInMonth; day++) {
+    const iso = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const cycleDay = cycleDayForDate(iso, overview.anchor_date);
+    const dateLabel = new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    entries.push(buildDayEntry(overview, cycleDay, dateLabel));
+  }
+  return entries;
+}
+
+function PrintModal({ overview, onClose, onPrint }: {
+  overview: MenuCycleOverview;
+  onClose: () => void;
+  onPrint: (title: string, entries: PrintEntry[]) => void;
+}) {
+  type Scope = 'day' | 'week' | 'cycle' | 'month';
+  const [scope, setScope] = useState<Scope>('week');
+  const [day, setDay] = useState(overview.today.cycle_day);
+  const todayWeek = overview.days.find(d => d.cycle_day === overview.today.cycle_day)?.cycle_week || 1;
+  const [week, setWeek] = useState(todayWeek);
+  const now = new Date();
+  const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+
+  function confirm() {
+    if (scope === 'day') {
+      const meta = overview.days.find(d => d.cycle_day === day);
+      onPrint(`Day ${day} Menu — ${meta?.day_of_week || ''}`, [buildDayEntry(overview, day)]);
+    } else if (scope === 'week') {
+      const entries = overview.days.filter(d => d.cycle_week === week).map(d => buildDayEntry(overview, d.cycle_day));
+      onPrint(`Week ${week} Menu`, entries);
+    } else if (scope === 'cycle') {
+      onPrint('Full 28-Day Cycle Menu', overview.days.map(d => buildDayEntry(overview, d.cycle_day)));
+    } else {
+      const [y, m] = month.split('-').map(Number);
+      const label = new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      onPrint(`${label} Menu`, monthEntries(overview, y, m));
+    }
+  }
+
+  return (
+    <div className="overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal mid">
+        <div className="modal-head">
+          <div><h3>{I.printer()} Print menu</h3><div className="sub">Choose what to print, then send to your printer.</div></div>
+          <button className="modal-x" onClick={onClose}>{I.x()}</button>
+        </div>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {(['day', 'week', 'cycle', 'month'] as const).map(s => (
+              <button
+                key={s}
+                type="button"
+                className={'sc-nav-btn' + (scope === s ? ' active' : '')}
+                onClick={() => setScope(s)}
+              >
+                {s === 'day' ? 'Day' : s === 'week' ? 'Week' : s === 'cycle' ? 'Full Cycle' : 'Month'}
+              </button>
+            ))}
+          </div>
+          {scope === 'day' && (
+            <div className="ft-field">
+              <span>Day</span>
+              <select className="ipt sel" value={day} onChange={e => setDay(Number(e.target.value))}>
+                {overview.days.map(d => (
+                  <option key={d.cycle_day} value={d.cycle_day}>Day {d.cycle_day} — {d.day_of_week}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          {scope === 'week' && (
+            <div className="ft-field">
+              <span>Week</span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {[1, 2, 3, 4].map(w => (
+                  <button
+                    key={w}
+                    type="button"
+                    className={'sc-nav-btn' + (week === w ? ' active' : '')}
+                    onClick={() => setWeek(w)}
+                  >
+                    Week {w}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {scope === 'month' && (
+            <div className="ft-field">
+              <span>Month</span>
+              <input className="ipt sel" type="month" value={month} onChange={e => setMonth(e.target.value)} />
+            </div>
+          )}
+          {scope === 'cycle' && (
+            <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>Prints all 28 days, grouped by week.</p>
+          )}
+        </div>
+        <div className="modal-foot">
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn primary" onClick={confirm}>{I.printer({ style: { width: 13, height: 13 } })} Print</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PrintSheet({ title, entries, mealsByDay }: {
+  title: string;
+  entries: PrintEntry[];
+  mealsByDay: Map<number, PublicMenuCycleDay>;
+}) {
+  return (
+    <div className="cm-print-only">
+      <div className="cm-print-head">
+        <h2>{title}</h2>
+        <span>MJCC Cafeteria — printed {new Date().toLocaleDateString()}</span>
+      </div>
+      {entries.map((entry, i) => {
+        const meals = mealsByDay.get(entry.cycleDay);
+        const periods = meals ? PERIOD_ORDER.filter(p => (meals.meals[p]?.length || 0) > 0) : [];
+        return (
+          <div className="cm-print-day" key={`${entry.cycleDay}-${entry.dateLabel}-${i}`}>
+            <h3>
+              Day {entry.cycleDay} — {entry.dow}
+              {entry.dateLabel ? ` · ${entry.dateLabel}` : ''}
+              {entry.zone === 2 ? ' · Zone 2' : ''}
+            </h3>
+            {periods.length === 0 && <p className="cm-print-empty">No menu set.</p>}
+            {periods.map(period => {
+              const items = meals!.meals[period];
+              const entrees = items.filter(s => !SIDE_SLOTS.has(s.slot_name));
+              const sides = items.filter(s => SIDE_SLOTS.has(s.slot_name));
+              return (
+                <div className="cm-print-period" key={period}>
+                  <h4>{period}</h4>
+                  <ul className="cm-print-items">
+                    {entrees.map(s => <li key={s.slot_name}>{s.item_name}</li>)}
+                    {sides.map(s => <li key={s.slot_name} className="cm-print-side">{shortSideLabel(s.slot_name)}: {s.item_name}</li>)}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
