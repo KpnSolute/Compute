@@ -4,6 +4,22 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.35.5] — 2026-07-09 — Fixed print cutting off past one page (app-wide, not just menu)
+
+**Claude:** User: "the weekly menus monthly menus any menu should be mulitple pages why is it cutting off it needs to be a file or page."
+
+### Root cause
+The app shell (`.portal`) is `height:100vh; overflow:hidden` by design — that's what makes the on-screen UI scroll internally instead of growing the page, standard for a dashboard shell. The existing `@media print` block only relaxed `.main`'s own `overflow`, never the ancestor chain (`html`, `body`, `#root`, `.portal`) that actually enforces the 100vh cap. A browser can only paginate content it can measure the full height of — with an ancestor still clipped to one viewport, anything past page 1 was silently discarded, not deferred to a second page. This affected every print feature in the app (Cost Manager's Print button included), not just the new menu print from v4.35.3/v4.35.4.
+
+### Fix
+`html, body, #root, .portal, .main { height:auto !important; min-height:0 !important; overflow:visible !important }` added at the top of the print media block, so the browser can measure and paginate the full document.
+
+**Verified**: `tsc --noEmit` clean, `npm run build` succeeds. Since no available tool can trigger the OS print dialog or a real multi-page PDF from this environment, verified at the computed-style/layout level instead — the more direct proof anyway: on screen, confirmed `.portal` computed `height:946px` (=1 viewport) with `overflow:hidden`, the exact constraint described. Injected the actual (verbatim, extracted from the built CSS) print rule block as an active stylesheet with a real "Full Cycle" (28-day) print job loaded: `html`/`.portal` computed height grew to `20709px` (≈22 viewport-heights) with `overflow:visible` — fully unclipped, all 28 day-cards present in the DOM. Before this fix that same content would have been hard-capped to the 946px viewport and ~95% of it silently dropped, exactly matching the reported symptom.
+
+**Push:** Claude → pending commit — 2026-07-09.
+
+---
+
 ## [v4.35.4] — 2026-07-09 — 28-Day Menu print sheet: match the on-screen design
 
 **Claude:** User attached a printed Week 2 sheet — v4.35.3's print output was a dense, plain black-and-white bulleted list, nothing like the site. "the ui for the print looks to compact we need some ui like the same way it looks on the site."

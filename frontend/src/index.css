@@ -2558,9 +2558,17 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
 .cm-print-only { display:none }
 
 @media print {
+  /* The app shell is a fixed height:100vh + overflow:hidden layout (.portal) so
+     the on-screen UI scrolls internally instead of growing the page. Print needs
+     the opposite: the browser can only paginate content it can measure the full
+     height of, so every ancestor's height/overflow constraint has to be lifted
+     here or printing silently clips to one viewport-height and never starts a
+     second page — this was cutting off every multi-page print in the app, not
+     just the menu. */
+  html, body, #root, .portal, .main { height:auto !important; min-height:0 !important; overflow:visible !important }
   .activity-bar,.topbar,.sidebar,.sidebar-overlay,.status-bar { display:none !important }
   .portal { display:block !important }
-  .main { grid-column:1/-1 !important; grid-row:1/-1 !important; padding:6px 0 !important; overflow:visible !important; background:white !important }
+  .main { grid-column:1/-1 !important; grid-row:1/-1 !important; padding:6px 0 !important; background:white !important }
   .page-head .ph-actions,.view-toggle,.card-head,.banner,.no-print,.save-bar,.page-toolbar { display:none !important }
   .cm-print-only { display:block !important; color:#111; background:white; -webkit-print-color-adjust:exact; print-color-adjust:exact }
   .cm-print-head { border-bottom:2px solid #0f1b33; padding-bottom:8px; margin-bottom:14px }
