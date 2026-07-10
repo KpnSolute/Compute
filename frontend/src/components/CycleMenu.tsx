@@ -562,26 +562,43 @@ function PrintSheet({ title, entries, mealsByDay }: {
         const periods = meals ? PERIOD_ORDER.filter(p => (meals.meals[p]?.length || 0) > 0) : [];
         return (
           <div className="cm-print-day" key={`${entry.cycleDay}-${entry.dateLabel}-${i}`}>
-            <h3>
-              Day {entry.cycleDay} — {entry.dow}
-              {entry.dateLabel ? ` · ${entry.dateLabel}` : ''}
-              {entry.zone === 2 ? ' · Zone 2' : ''}
-            </h3>
+            <div className="cm-print-day-head">
+              <div>
+                <span className="cm-print-day-kicker">Day {entry.cycleDay}</span>
+                <h3>{entry.dow}{entry.dateLabel ? ` · ${entry.dateLabel}` : ''}</h3>
+              </div>
+              {entry.zone === 2 && <span className="cm-print-badge">Zone 2</span>}
+            </div>
             {periods.length === 0 && <p className="cm-print-empty">No menu set.</p>}
-            {periods.map(period => {
-              const items = meals!.meals[period];
-              const entrees = items.filter(s => !SIDE_SLOTS.has(s.slot_name));
-              const sides = items.filter(s => SIDE_SLOTS.has(s.slot_name));
-              return (
-                <div className="cm-print-period" key={period}>
-                  <h4>{period}</h4>
-                  <ul className="cm-print-items">
-                    {entrees.map(s => <li key={s.slot_name}>{s.item_name}</li>)}
-                    {sides.map(s => <li key={s.slot_name} className="cm-print-side">{shortSideLabel(s.slot_name)}: {s.item_name}</li>)}
-                  </ul>
-                </div>
-              );
-            })}
+            <div className="cm-print-periods">
+              {periods.map(period => {
+                const items = meals!.meals[period];
+                const entrees = items.filter(s => !SIDE_SLOTS.has(s.slot_name));
+                const sides = items.filter(s => SIDE_SLOTS.has(s.slot_name));
+                const tint = TINT_FOR_PERIOD[period] || 'morning';
+                return (
+                  <div className={`cm-print-period ${tint}`} key={period}>
+                    <div className="cm-print-period-head">
+                      <span>{period}</span>
+                      <span>{items.length}</span>
+                    </div>
+                    <div className="cm-print-dishes">
+                      {entrees.map(s => <div className="cm-print-dish" key={s.slot_name}>{s.item_name}</div>)}
+                    </div>
+                    {sides.length > 0 && (
+                      <div className="cm-print-sides">
+                        {sides.map(s => (
+                          <span className="cm-print-side-chip" key={s.slot_name}>
+                            <span className="cm-print-side-kind">{shortSideLabel(s.slot_name)}</span>
+                            {s.item_name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         );
       })}

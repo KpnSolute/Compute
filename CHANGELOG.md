@@ -4,6 +4,22 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.35.4] — 2026-07-09 — 28-Day Menu print sheet: match the on-screen design
+
+**Claude:** User attached a printed Week 2 sheet — v4.35.3's print output was a dense, plain black-and-white bulleted list, nothing like the site. "the ui for the print looks to compact we need some ui like the same way it looks on the site."
+
+### `CycleMenu.tsx` — `PrintSheet` rebuilt around `DayCard`'s visual language
+Each day is now a bordered card with a header (Day N kicker, weekday + date, Zone 2 badge). Meal periods render as tinted boxes reusing the same `TINT_FOR_PERIOD` map the on-screen cards use (Breakfast/Brunch = blue, Short Order/Lunch = amber, Dinner = red), each with a period label + item count. Entrees list as bold dish lines; sides render as small chips with a "Veg/Starch/Sauce" kind label — the same `SIDE_SLOTS`/`shortSideLabel` split already used on screen — instead of a flat "Veg: X" bullet. Still fully untruncated (no "+N more") since that's the entire point of a print view.
+
+### `index.css`
+Replaced the plain `.cm-print-*` rules with card/grid/chip styles matching `.cm-day-card`/`.cm-meal`/`.cm-side-chip`. Added `print-color-adjust:exact` (+ `-webkit-` prefix) on `.cm-print-only` so the tinted period backgrounds actually print instead of getting stripped by the browser's default background-graphics setting.
+
+**Verified**: `tsc --noEmit` clean, `npm run build` succeeds. Live browser pass: injected the same print CSS into a normal (non-print-media) screen render to screenshot it directly — confirmed tinted Brunch/Short Order/Dinner cards, Zone 2 badge, side chips, and day-card borders all render correctly, matching the on-screen design system. No console errors.
+
+**Push:** Claude → pending commit — 2026-07-09.
+
+---
+
 ## [v4.35.3] — 2026-07-09 — 28-Day Menu: print by Day / Week / Cycle / Month
 
 **Claude:** User: "the 28 day menu needs to be printable by week, cycle, month or day."
