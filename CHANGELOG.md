@@ -16,7 +16,7 @@ Replaced the plain `.cm-print-*` rules with card/grid/chip styles matching `.cm-
 
 **Verified**: `tsc --noEmit` clean, `npm run build` succeeds. Live browser pass: injected the same print CSS into a normal (non-print-media) screen render to screenshot it directly — confirmed tinted Brunch/Short Order/Dinner cards, Zone 2 badge, side chips, and day-card borders all render correctly, matching the on-screen design system. No console errors.
 
-**Push:** Claude → pending commit — 2026-07-09.
+**Push:** Claude → `a1409b4` — 2026-07-09.
 
 ---
 
