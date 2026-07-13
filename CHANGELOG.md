@@ -4,6 +4,16 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [Unreleased]
+
+### Added
+
+**Codex:** Added a repository `commit-msg` hook that rejects commits without a
+`Co-Authored-By:` trailer, enforcing the project commit protocol before the
+release gate or push can run.
+
+---
+
 ## [v4.36.4] — 2026-07-13 — Shared Claude/Codex Frontline Governor
 
 **Codex:** Defined one shared Frontline Governor contract for Claude and Codex in `AGENTS.md` and mirrored the Claude-specific operating rules in `CLAUDE.md`. `CHANGELOG.md` remains durable project memory; KpnRelay may invoke either manager runtime as a scoped project pawn and exchange verified results through its manager review, MainSynthesisAgent, TrainingSession artifacts, and this ledger. The Governor has standing authority to branch, commit, and push verified automated work without another confirmation, while force-pushes, history rewrites, secret exposure, unverified claims, and branch-protection bypasses remain forbidden. Routine mechanical work must be delegated to OpenCode first, Mimo second, then another allowlisted worker, with manager review and no default worker/co-author credit.

@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+commit_message="$1"
+
+if ! grep -qi '^Co-Authored-By:' "$commit_message"; then
+  echo "Commit rejected: the message must end with a Co-Authored-By: trailer." >&2
+  echo "Example: Co-Authored-By: Codex <codex@openai.com>" >&2
+  exit 1
+fi
