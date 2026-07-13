@@ -4,6 +4,18 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.36.4] — 2026-07-13 — Shared Claude/Codex Frontline Governor
+
+**Codex:** Defined one shared Frontline Governor contract for Claude and Codex in `AGENTS.md` and mirrored the Claude-specific operating rules in `CLAUDE.md`. `CHANGELOG.md` remains durable project memory; KpnRelay may invoke either manager runtime as a scoped project pawn and exchange verified results through its manager review, MainSynthesisAgent, TrainingSession artifacts, and this ledger. The Governor has standing authority to branch, commit, and push verified automated work without another confirmation, while force-pushes, history rewrites, secret exposure, unverified claims, and branch-protection bypasses remain forbidden. Routine mechanical work must be delegated to OpenCode first, Mimo second, then another allowlisted worker, with manager review and no default worker/co-author credit.
+
+**Codex:** Extended `.claude/settings.json` so Claude can invoke the configured manager/routine-worker CLIs and perform verified `git push` / `git ls-remote` operations without repetitive local prompts. Updated KpnRelay's clean `workers.json` and `managers.json` policy files to name the Frontline Governor, prefer OpenCode/Mimo for routine execution, remove the separate human-approval requirement for code changes, require manager review, and record the verified-push standing authority. KpnRelay's existing `.env` already has execution and automatic verified push enabled; its concurrently modified orchestration source was deliberately left untouched.
+
+**Verification:** Shared `v0.0.1` release gate passed: Ruff lint/format clean, pytest 63 passed / 14 skipped / 0 failed, frontend lint 0 errors, and production build succeeded. KpnRelay manager/worker JSON parsed with the expected Governor policy, its Python orchestration modules compiled, and provider detection confirmed Claude, Codex, OpenCode, Mimo, and AGY are installed. Repaired KpnRelay's ignored local `.venv` from its committed requirements after provider startup exposed a missing `python-dotenv` dependency. Runtime flags were checked without reading secrets: dry-run is off, agent execution is on, and automatic verified push is on.
+
+**Push:** pending — not yet pushed
+
+---
+
 ## [v4.36.3] — 2026-07-11 — Release gate blockers fixed
 
 **Codex:** Updated 14 stale backend tests to patch the concrete `supabase_service` binding used by each consumer module (`backend.ai.diff`, `backend.staging.dispatch`, and `backend.routes.sourcectrl`) instead of the removed `_client` factory. The fake client is now injected directly rather than as a mock return value; production Supabase code was not changed. Applied Ruff's deterministic formatter across the backend, resolving every format-gate failure.
