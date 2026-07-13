@@ -4,6 +4,36 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v4.36.3] — 2026-07-11 — Release gate blockers fixed
+
+**Codex:** Updated 14 stale backend tests to patch the concrete `supabase_service` binding used by each consumer module (`backend.ai.diff`, `backend.staging.dispatch`, and `backend.routes.sourcectrl`) instead of the removed `_client` factory. The fake client is now injected directly rather than as a mock return value; production Supabase code was not changed. Applied Ruff's deterministic formatter across the backend, resolving every format-gate failure.
+
+**Verification:** The shared `scripts/verify_release.py` gate is fully green for `v0.0.1`: Ruff lint passed, all 51 backend files pass Ruff format check, pytest reports 63 passed / 14 skipped / 0 failed, frontend ESLint reports 0 errors (659 existing warnings), and the Vite production build succeeds. The local Git pre-commit hook now permits a commit when this green state is maintained.
+
+**Push:** pending — not yet pushed
+
+---
+
+## [v4.36.2] — 2026-07-11 — Automated Git versioning, pre-commit gate, and GitHub releases
+
+**Codex:** Added `VERSION` as the release source of truth, starting at `0.0.1`, and synchronized the frontend package/lockfile versions. Added a cross-platform release validator that enforces numeric `x.y.z`, classifies every `x.x.9` as a prerelease, every `x.9.x` as the stable/latest release, and rejects ambiguous `x.9.9`. Added a repository pre-commit hook that runs backend Ruff lint/format checks, the complete backend pytest suite, frontend ESLint, and the production frontend build before allowing a commit. Replaced the Python-only GitHub workflow with the same full shared gate for pull requests and `main`, followed by an annotated `vX.Y.Z` Git tag and generated GitHub Release only after all checks succeed. Ordinary versions publish without moving `latest`; patch-9 versions publish as prereleases; minor-9 versions publish as stable/latest releases. The release job has least-privilege `contents: write` only after the read-only verification job passes.
+
+**Verification:** Version policy accepts and classifies `0.0.1` as an ordinary release. Existing tags remain untouched. The complete release gate intentionally remains red on the cloned baseline because 8 backend files fail Ruff's format check and 14 backend tests patch a removed `_client` symbol; those existing failures now correctly prevent both local commits and automated tags instead of allowing an untested release.
+
+**Push:** pending — not yet pushed
+
+---
+
+## [v4.36.1] — 2026-07-11 — Local development environment and Supabase CLI scaffold
+
+**Codex:** Cloned the source repository into the KpnCompute workspace and verified `origin` remains `muttyman2000/MJCC-Managements-`. Created the ignored root `.venv` with Python 3.14.6 and installed `backend/requirements.txt` plus `backend/requirements-dev.txt`. Installed the frontend from its committed `package-lock.json` with `npm ci` (0 reported vulnerabilities). Initialized the existing `supabase/` tree with Supabase CLI 2.109.1, adding the standard `supabase/config.toml` and `supabase/.gitignore` while preserving all committed migrations and Edge Functions. This project uses hosted Supabase rather than a Docker-hosted local stack. Linked the repository's CLI metadata to the active `MJCCv1` project (`mgvyylvmkxhhataavqjz`) and verified remote access by listing its three active Edge Functions; the inactive `MJCCv2` project was not touched.
+
+**Verification:** Confirmed global Git 2.55.0, GitHub CLI 2.96.0 (authenticated as `KpnWorld`), Node 24.18.0, npm/npx 12.0.1, Python 3.14.6, Supabase CLI 2.109.1, and Render CLI 2.21.0 (authenticated). Project-local Ruff 0.15.21, pytest 9.1.1, and ESLint are available through `.venv`/`frontend`. Frontend lint completed with 0 errors and 659 existing warnings; the production frontend build succeeded. Backend Ruff lint passed, while `ruff format --check` identified 8 pre-existing files that would be reformatted. Backend import succeeded with non-secret placeholder Supabase environment values. Backend tests completed with 49 passed, 14 skipped, and 14 failed; all failures are pre-existing mocks that patch a removed `_client` symbol in `backend.ai.diff`, `backend.staging.dispatch`, or `backend.routes.sourcectrl`. No unrelated application code was changed.
+
+**Push:** pending — not yet pushed
+
+---
+
 ## [v4.36.0] — 2026-07-10 — Admin/sudo self-commit + "What's New" login popup
 
 **Claude:** Two related requests in one session. (1) "the sudo and admin should be able to commit their own changes only staff need approval" and (2) "make sure admin and sudo are able to edit items in the inventory their price name sku etc" — the latter turned out to be blocked by the former, since item edits (price/desc/sku/par/category/unit/active) always route through staging → PR → merge, and the segregation-of-duties rule was blocking self-merge unconditionally, even for admin/sudo.

@@ -112,8 +112,7 @@ def _require_admin_or_manager(authorization: str = Header("")) -> dict:
         user_id = token[4:]
         try:
             r = (
-                supabase_service
-                .table("user_profiles")
+                supabase_service.table("user_profiles")
                 .select("id,role,active")
                 .eq("id", user_id)
                 .eq("active", True)
@@ -135,8 +134,7 @@ def _require_admin_or_manager(authorization: str = Header("")) -> dict:
         raise HTTPException(status_code=401, detail="Token missing user ID")
     try:
         r = (
-            supabase_service
-            .table("user_profiles")
+            supabase_service.table("user_profiles")
             .select("id,role,active")
             .eq("id", user_id)
             .eq("active", True)
@@ -167,12 +165,13 @@ async def sync_status(auth_user: dict = Depends(_require_admin_or_manager)):
     """Return queue counts plus the latest sync rows for archive visibility."""
     try:
         all_r = (
-            supabase_service.table("github_sync_queue").select("attempts,synced_at").execute()
+            supabase_service.table("github_sync_queue")
+            .select("attempts,synced_at")
+            .execute()
         )
         rows = all_r.data or []
         recent_r = (
-            supabase_service
-            .table("github_sync_queue")
+            supabase_service.table("github_sync_queue")
             .select("id,operation,commit_id,attempts,last_error,synced_at,created_at")
             .order("created_at", desc=True)
             .limit(25)

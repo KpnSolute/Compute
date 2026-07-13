@@ -223,7 +223,7 @@ def test_total_pulled_raw_writes_week3_transaction_and_column():
             }
         ],
     }
-    with patch("backend.staging.dispatch._client", return_value=sup):
+    with patch("backend.staging.dispatch.supabase_service", sup):
         result = dispatch_inventory_save(payload)
 
     assert result["applied"] == 1, result
@@ -268,7 +268,7 @@ def test_resave_with_different_staging_id_replaces_not_accumulates_ledger():
         ],
     }
 
-    with patch("backend.staging.dispatch._client", return_value=sup):
+    with patch("backend.staging.dispatch.supabase_service", sup):
         dispatch_inventory_save({**base_payload, "_staging_entry_id": "pass-1"})
         dispatch_inventory_save({**base_payload, "_staging_entry_id": "pass-2"})
         dispatch_inventory_save({**base_payload, "_staging_entry_id": "pass-3"})
@@ -311,7 +311,7 @@ def test_total_pulled_raw_retry_is_idempotent():
             }
         ],
     }
-    with patch("backend.staging.dispatch._client", return_value=sup):
+    with patch("backend.staging.dispatch.supabase_service", sup):
         result = dispatch_inventory_save(payload)
 
     assert result["applied"] == 1
@@ -348,7 +348,7 @@ def test_other_staging_entry_txns_preserved():
             }
         ],
     }
-    with patch("backend.staging.dispatch._client", return_value=sup):
+    with patch("backend.staging.dispatch.supabase_service", sup):
         dispatch_inventory_save(payload)
 
     txns = sup.txns
@@ -373,7 +373,7 @@ def test_no_total_pulled_raw_no_transaction():
             {"sku": "DRY-001", "desc": "Rice", "category": "Dry Goods", "onHand": 100}
         ],
     }
-    with patch("backend.staging.dispatch._client", return_value=sup):
+    with patch("backend.staging.dispatch.supabase_service", sup):
         result = dispatch_inventory_save(payload)
 
     assert result["applied"] == 1
@@ -443,7 +443,7 @@ def test_full_month_upload_does_not_auto_rollover_missing_prior_skus():
         ],
     }
 
-    with patch("backend.staging.dispatch._client", return_value=sup):
+    with patch("backend.staging.dispatch.supabase_service", sup):
         result = dispatch_inventory_save(payload)
 
     assert result["applied"] == 1, result
@@ -531,7 +531,7 @@ def test_dashboard_save_does_not_reinsert_missing_prior_skus_when_month_exists()
         ],
     }
 
-    with patch("backend.staging.dispatch._client", return_value=sup):
+    with patch("backend.staging.dispatch.supabase_service", sup):
         result = dispatch_inventory_save(payload)
 
     assert result["applied"] == 1, result
@@ -616,7 +616,7 @@ def test_established_month_save_does_not_overwrite_other_items_zero_opening():
         ],
     }
 
-    with patch("backend.staging.dispatch._client", return_value=sup):
+    with patch("backend.staging.dispatch.supabase_service", sup):
         result = dispatch_inventory_save(payload)
 
     assert result["applied"] == 1, result
@@ -667,7 +667,7 @@ def test_inventory_save_unresolved_sku_blocks_whole_batch_before_write():
         return real_resolve(sup_arg, sku=sku, **kwargs)
 
     with (
-        patch("backend.staging.dispatch._client", return_value=sup),
+        patch("backend.staging.dispatch.supabase_service", sup),
         patch(
             "backend.staging.dispatch.resolve_and_write_item",
             side_effect=_fake_resolve,
@@ -705,7 +705,7 @@ def test_weekly_cells_write_week_1_to_3_ledger_rows():
             }
         ],
     }
-    with patch("backend.staging.dispatch._client", return_value=sup):
+    with patch("backend.staging.dispatch.supabase_service", sup):
         result = dispatch_inventory_save(payload)
 
     assert result["applied"] == 1
@@ -757,7 +757,7 @@ def test_inventory_save_retry_replaces_weekly_and_week0_rows_for_same_staging_id
             }
         ],
     }
-    with patch("backend.staging.dispatch._client", return_value=sup):
+    with patch("backend.staging.dispatch.supabase_service", sup):
         result = dispatch_inventory_save(payload)
 
     assert result["applied"] == 1
@@ -787,7 +787,7 @@ def test_zero_total_pulled_raw_no_transaction():
             }
         ],
     }
-    with patch("backend.staging.dispatch._client", return_value=sup):
+    with patch("backend.staging.dispatch.supabase_service", sup):
         result = dispatch_inventory_save(payload)
 
     assert result["applied"] == 1
@@ -826,7 +826,7 @@ def test_granular_commit_changes_total_pulled_raw():
         {"sku": "DRY-001", "id": ITEM_ID}
     ]
 
-    with patch("backend.routes.sourcectrl._client", return_value=mock_sup):
+    with patch("backend.routes.sourcectrl.supabase_service", mock_sup):
         changes = _granular_commit_changes("commit-1", diffs)
 
     assert len(changes) == 1, f"Expected 1 change row, got {changes}"

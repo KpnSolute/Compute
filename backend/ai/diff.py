@@ -28,8 +28,7 @@ def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dic
     """
     sku = item.get("sku", "")
     r = (
-        supabase_service
-        .table("inventory_items")
+        supabase_service.table("inventory_items")
         .select(
             "id,sku,description,unit_price,par_level,unit,inventory_categories(name)"
         )
@@ -88,8 +87,7 @@ def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dic
     if month is not None and year is not None:
         db_month = month - 1  # convert 1-indexed API month → 0-indexed DB month
         mi_r = (
-            supabase_service
-            .table("monthly_inventory")
+            supabase_service.table("monthly_inventory")
             .select(
                 "opening_oh,opening_unit_cost,opening_value,received_value,pulled_value,ending_value,"
                 "w1_received,w2_received,w3_received,w1_pulled,w2_pulled,w3_pulled"
@@ -250,8 +248,7 @@ def _diff_item_update(payload: dict) -> dict:
     """Preview an edit/reassign of a single item identified by SKU."""
     sku = (payload.get("sku") or "").strip()
     r = (
-        supabase_service
-        .table("inventory_items")
+        supabase_service.table("inventory_items")
         .select("sku,description,category_id,unit_price,par_level,unit,active")
         .eq("sku", sku)
         .limit(1)

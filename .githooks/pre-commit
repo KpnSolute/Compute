@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+if [ -x ".venv/Scripts/python.exe" ]; then
+  python_cmd=".venv/Scripts/python.exe"
+elif [ -x ".venv/bin/python" ]; then
+  python_cmd=".venv/bin/python"
+else
+  echo "Release gate: create .venv and install backend requirements before committing." >&2
+  exit 1
+fi
+
+"$python_cmd" scripts/verify_release.py

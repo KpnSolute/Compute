@@ -218,7 +218,12 @@ async def get_daily_logs(
 
 #: entry_types below assistant-only (dailyops/inspection) NAV pages — meal_log and
 #: food_request are staff-accessible (NAV min 10) and share this endpoint.
-ASSISTANT_ONLY_ENTRY_TYPES = {"inspection", "checklist_state", "meal_schedule", "incident"}
+ASSISTANT_ONLY_ENTRY_TYPES = {
+    "inspection",
+    "checklist_state",
+    "meal_schedule",
+    "incident",
+}
 
 
 @router.post("/daily", response_model=DailyLogResponse, status_code=201)
@@ -247,12 +252,11 @@ async def record_daily_log(
         403: Entry type requires assistant role or higher
         500: Database error
     """
-    if entry.entry_type in ASSISTANT_ONLY_ENTRY_TYPES and ROLE_LEVEL.get(
-        auth_user.get("role"), 0
-    ) < 20:
-        raise HTTPException(
-            status_code=403, detail="Assistant role or higher required"
-        )
+    if (
+        entry.entry_type in ASSISTANT_ONLY_ENTRY_TYPES
+        and ROLE_LEVEL.get(auth_user.get("role"), 0) < 20
+    ):
+        raise HTTPException(status_code=403, detail="Assistant role or higher required")
     try:
         now = datetime.now(timezone.utc).isoformat()
         result = (

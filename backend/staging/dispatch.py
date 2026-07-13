@@ -1012,7 +1012,10 @@ def dispatch_budget_save(payload: dict) -> dict:
     year = payload.get("year")
     gov_allotment = payload.get("gov_allotment")
     if not month or year is None or gov_allotment is None:
-        return {"applied": 0, "error": "budget_save requires month, year, gov_allotment"}
+        return {
+            "applied": 0,
+            "error": "budget_save requires month, year, gov_allotment",
+        }
     record = {
         "month": max(0, int(month) - 1),  # 1-indexed payload -> 0-indexed DB
         "year": int(year),
@@ -1232,7 +1235,10 @@ def validate_payload(operation: str, full_payload: dict) -> str | None:
             ):
                 return "No weekly invoice totals supplied"
         elif operation == "budget_save":
-            if not full_payload.get("month") or full_payload.get("gov_allotment") is None:
+            if (
+                not full_payload.get("month")
+                or full_payload.get("gov_allotment") is None
+            ):
                 return "Budget entries require month and gov_allotment"
     except ValueError as exc:
         return str(exc)

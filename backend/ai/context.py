@@ -23,7 +23,10 @@ def get_categories() -> dict[str, int]:
         lambda: {
             row["name"]: row["id"]
             for row in (
-                supabase_service.table("inventory_categories").select("id,name").execute().data
+                supabase_service.table("inventory_categories")
+                .select("id,name")
+                .execute()
+                .data
                 or []
             )
         },
@@ -47,8 +50,7 @@ def get_ai_config() -> dict:
     """Load AI config from ai_stack_config joined to ai_provider_keys."""
     try:
         r = (
-            supabase_service
-            .table("ai_stack_config")
+            supabase_service.table("ai_stack_config")
             .select(
                 "provider, model, is_vision, ollama_url, vision_capable, "
                 "ai_provider_keys(api_key, base_url, model_override)"
@@ -118,8 +120,7 @@ def get_ai_tools_config() -> dict[str, bool]:
     """Load AI tool toggles from app_settings. Missing keys fall back to DEFAULT_TOOLS."""
     try:
         r = (
-            supabase_service
-            .table("app_settings")
+            supabase_service.table("app_settings")
             .select("setting_value")
             .eq("setting_key", "ai_tools_config")
             .limit(1)

@@ -79,8 +79,8 @@ def test_value_fields_absent_from_payload_are_not_flagged_as_changed():
     }
 
     with patch(
-        "backend.ai.diff._client",
-        return_value=_fake_client(item_row, monthly_row),
+        "backend.ai.diff.supabase_service",
+        _fake_client(item_row, monthly_row),
     ):
         result = _diff_inventory_item(payload_item, month=6, year=2026)
 

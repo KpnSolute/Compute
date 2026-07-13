@@ -58,7 +58,9 @@ class ServSafeUpdate(BaseModel):
 
 @router.put("/servsafe/{cert_id}")
 async def update_servsafe(
-    cert_id: str, body: ServSafeUpdate, auth_user: dict = Depends(_require_admin_or_manager)
+    cert_id: str,
+    body: ServSafeUpdate,
+    auth_user: dict = Depends(_require_admin_or_manager),
 ):
     update = body.model_dump(exclude_none=True)
     if not update:

@@ -33,6 +33,7 @@ TOOL_MIN_ROLE: dict[str, str] = {
     "get_ai_usage": "admin",
 }
 
+
 def _role_ok(user_role: str, min_role: str) -> bool:
     return ROLE_LEVEL.get(user_role, 0) >= ROLE_LEVEL.get(min_role, 99)
 

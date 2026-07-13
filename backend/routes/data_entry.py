@@ -41,6 +41,7 @@ from backend.periods import business_now
 from backend.routes import jwt_validator, supabase_service
 from backend.routes._deps import ensure_pr_for_entries
 from backend.staging.dispatch import _is_month_published
+
 # Thread pool dedicated to blocking parse work so FastAPI's event loop stays free
 # during multi-minute AI/OCR jobs on large PDFs.
 _parse_executor = concurrent.futures.ThreadPoolExecutor(
@@ -156,8 +157,7 @@ def _data_entry_period_settings() -> dict:
     }
     try:
         r = (
-            supabase_service
-            .table("app_settings")
+            supabase_service.table("app_settings")
             .select("setting_value")
             .eq("setting_key", "data_entry")
             .limit(1)
@@ -625,7 +625,11 @@ def _extract_ops(
             messages, ai_config, operation=operation, called_by=called_by
         )
         payload = ai_engine.extract_json(raw)
-        if not isinstance(payload, dict) or not payload.get("month") or payload.get("gov_allotment") is None:
+        if (
+            not isinstance(payload, dict)
+            or not payload.get("month")
+            or payload.get("gov_allotment") is None
+        ):
             raise HTTPException(
                 status_code=422,
                 detail="Could not extract month/gov_allotment from the uploaded budget document.",
@@ -883,8 +887,7 @@ def _assert_not_duplicate_weekly(
     """
     try:
         dup = (
-            supabase_service
-            .table("import_batches")
+            supabase_service.table("import_batches")
             .select("batch_id, source_file")
             .eq("source_hash", source_hash)
             .eq("month", db_month)
@@ -1332,8 +1335,7 @@ async def upload_file(
 
         try:
             item_count_r = (
-                supabase_service
-                .table("inventory_items")
+                supabase_service.table("inventory_items")
                 .select("id", count="exact")
                 .limit(1)
                 .execute()
@@ -1547,8 +1549,7 @@ async def preview_batch(batch_id: str, auth_user: dict = Depends(_get_auth_user)
     Shows exactly which tables and rows will change on commit.
     """
     r = (
-        supabase_service
-        .table("staging_entries")
+        supabase_service.table("staging_entries")
         .select(
             "entry_id,operation,full_payload,entity_type,metadata,status,file_ref,created_at"
         )
@@ -2048,8 +2049,7 @@ async def get_ai_keys(auth_user: dict = Depends(_require_sudo_for_ai)):
     """List all AI provider key status. Never returns the actual key string."""
     try:
         result = (
-            supabase_service
-            .table("ai_provider_keys")
+            supabase_service.table("ai_provider_keys")
             .select(
                 "id,provider,label,is_active,is_default,base_url,updated_at,api_key"
             )
