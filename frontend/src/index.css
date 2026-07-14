@@ -2577,27 +2577,22 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
   .cm-print-head h2 { margin:0 3px 0 0; font-size:19px; color:#0f1b33 }
   .cm-print-week-label { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.05em; color:#1e5fc4; border:1px solid #1e5fc4; border-radius:20px; padding:1px 9px }
   .cm-print-head span:last-child { margin-left:auto; font-size:10.5px; color:#666 }
-  .cm-print-day { page-break-inside:avoid; break-inside:avoid; margin-bottom:16px; border:1px solid #ddd; border-radius:10px; padding:11px 13px }
-  .cm-print-day-head { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; border-bottom:1px solid #ddd; padding-bottom:6px; margin-bottom:8px }
-  .cm-print-day-kicker { display:block; font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#888 }
-  .cm-print-day-head h3 { margin:2px 0 0; font-size:14.5px; font-weight:800; color:#0f1b33 }
-  .cm-print-badge { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#b45309; border:1px solid #b45309; border-radius:20px; padding:1px 8px; flex-shrink:0 }
-  .cm-print-periods { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px }
-  .cm-print-period { border-radius:8px; padding:6px 9px 7px; border:1px solid #ddd }
-  .cm-print-period.morning { background:rgba(30,115,232,.07); border-color:rgba(30,115,232,.3) }
-  .cm-print-period.midday { background:rgba(217,119,6,.08); border-color:rgba(217,119,6,.3) }
-  .cm-print-period.evening { background:rgba(220,38,38,.07); border-color:rgba(220,38,38,.3) }
-  .cm-print-period-head { display:flex; justify-content:space-between; gap:6px; margin-bottom:3px; font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.05em }
-  .cm-print-period.morning .cm-print-period-head { color:#1e5fc4 }
-  .cm-print-period.midday .cm-print-period-head { color:#b45309 }
-  .cm-print-period.evening .cm-print-period-head { color:#dc2626 }
-  .cm-print-period-head span:last-child { opacity:.65; font-weight:600 }
-  .cm-print-dishes { margin:0 0 4px; font-size:11px; line-height:1.4 }
-  .cm-print-dish { font-weight:600; color:#111 }
-  .cm-print-sides { display:flex; flex-wrap:wrap; gap:3px; margin-top:2px }
-  .cm-print-side-chip { display:inline-flex; align-items:center; gap:3px; padding:1px 6px; border-radius:5px; background:rgba(0,0,0,.05); border:1px solid rgba(0,0,0,.12); font-size:9.5px; color:#333 }
-  .cm-print-side-kind { font-weight:800; text-transform:uppercase; opacity:.65; font-size:8px }
-  .cm-print-empty { margin:0; font-size:11px; font-style:italic; color:#777 }
+  /* Compact spreadsheet/table layout: one row per day, one column per meal
+     period, instead of a card per day — cuts a 28-day print from many pages
+     of padded cards down to a handful of dense table pages. */
+  .cm-print-table { width:100%; border-collapse:collapse; table-layout:fixed }
+  .cm-print-table th, .cm-print-table td { border:.5px solid #999; padding:3px 5px; font-size:9.5px; line-height:1.3; vertical-align:top; text-align:left; word-break:break-word }
+  .cm-print-table th { background:#0f1b33; color:#fff; font-size:8.5px; font-weight:700; text-transform:uppercase; letter-spacing:.03em }
+  .cm-print-table tr { page-break-inside:avoid; break-inside:avoid }
+  .cm-print-table tbody tr:nth-child(even) td { background:#f6f7fa }
+  .cm-print-col-day { width:92px }
+  .cm-print-daycell { line-height:1.25 }
+  .cm-print-day-kicker { display:block; font-size:7.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:#888 }
+  .cm-print-daycell strong { display:block; font-size:10.5px; color:#0f1b33 }
+  .cm-print-daycell span { display:block; font-size:8.5px; color:#555 }
+  .cm-print-badge { display:inline-block; margin-top:2px; font-size:7px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:#b45309; border:1px solid #b45309; border-radius:10px; padding:0 5px }
+  .cm-print-sides-line { margin-top:2px; font-size:8.5px; font-style:italic; color:#555 }
+  .cm-print-empty-cell { text-align:center; color:#aaa }
   .page-head { border-bottom:1px solid #ccc; padding-bottom:6px; margin-bottom:8px }
   .page-head h2 { font-size:15px !important }
   .card { box-shadow:none !important; border:none !important; border-radius:0 !important }

@@ -1,10 +1,11 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { I } from '../lib/icons';
 import { type User, MONTHS, ROLE_LEVEL, MEAL_LOG_TYPES } from '../lib/constants';
-import { api } from '../lib/api';
+import { api, type PublicMenuCycle } from '../lib/api';
 import { itemTotals } from '../lib/inventoryFormulas';
 import { TemplatesPanel } from './Templates';
 import { StatusPill } from './ui/StatusPill';
+import { cycleDayForDate, PERIOD_ORDER, SIDE_SLOTS, shortSideLabel } from './CycleMenu';
 
 type ReportColumn = { label: string; key?: string; get?: (r: any) => any };
 type ReviewCellType = 'text' | 'number' | 'money';
@@ -313,6 +314,33 @@ function buildMealLogRows(mealLogs: any[], period: [number, number]) {
   return rows.sort((a, b) => (a.date || '').localeCompare(b.date || '') || a.name.localeCompare(b.name));
 }
 
+// PublicMenuCycleDay only carries cycle_day/day_of_week/meals — never a
+// calendar date — so every date in the report is derived from the cycle's
+// anchor_date + cycleDayForDate, the same math CycleMenu.tsx uses for print.
+function buildMenuScheduleRows(menuCycle: PublicMenuCycle | null, period: [number, number]) {
+  if (!menuCycle) return [];
+  const [monthIdx, year] = period;
+  const daysInMonth = new Date(year, monthIdx + 1, 0).getDate();
+  const dayMap = new Map(menuCycle.days.map((d) => [d.cycle_day, d]));
+  const rows: Array<{ date: string; dow: string; cycleDay: number; cells: Record<string, string> }> = [];
+  for (let day = 1; day <= daysInMonth; day++) {
+    const iso = `${year}-${String(monthIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const cycleDay = cycleDayForDate(iso, menuCycle.anchor_date);
+    const meals = dayMap.get(cycleDay);
+    const dow = new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short' });
+    const cells: Record<string, string> = {};
+    for (const p of PERIOD_ORDER) {
+      const items = meals?.meals[p] || [];
+      if (!items.length) { cells[p] = ''; continue; }
+      const entrees = items.filter((s) => !SIDE_SLOTS.has(s.slot_name)).map((s) => s.item_name);
+      const sides = items.filter((s) => SIDE_SLOTS.has(s.slot_name)).map((s) => `${shortSideLabel(s.slot_name)}: ${s.item_name}`);
+      cells[p] = [entrees.join(', '), sides.join(', ')].filter(Boolean).join(' — ');
+    }
+    rows.push({ date: iso, dow, cycleDay, cells });
+  }
+  return rows;
+}
+
 function ReportPeriodSelect({
   value,
   onChange,
@@ -381,7 +409,7 @@ function ReportPeriodSelect({
   );
 }
 
-function buildReports(period: [number, number], invItems: any[], events: any[], commits: any[], mealLogs: any[], inventoryMeta: any) {
+function buildReports(period: [number, number], invItems: any[], events: any[], commits: any[], mealLogs: any[], inventoryMeta: any, menuCycle: PublicMenuCycle | null) {
   const periodLbl = MONTHS[period[0]] + ' ' + period[1];
   const invoiceSchedule = weeklyInvoiceSchedule(inventoryMeta);
 
@@ -616,6 +644,20 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
       build: () => [],
     },
     {
+      id: 'menu',
+      name: 'Menu Schedule',
+      group: 'Programs',
+      icon: 'calendar',
+      period: periodLbl,
+      columns: [
+        { key: 'date', label: 'Date', get: (r: any) => r.date },
+        { key: 'dow', label: 'Day', get: (r: any) => r.dow },
+        { key: 'cycleDay', label: 'Cycle Day', get: (r: any) => r.cycleDay },
+        ...PERIOD_ORDER.map((p) => ({ key: p, label: p, get: (r: any) => r.cells[p] || '' })),
+      ],
+      build: () => buildMenuScheduleRows(menuCycle, period),
+    },
+    {
       id: 'events',
       name: 'Events & Programs',
       group: 'Programs',
@@ -682,6 +724,7 @@ export function Reports({
   const [events, setEvents] = useState<any[]>([]);
   const [commits, setCommits] = useState<any[]>([]);
   const [mealLogs, setMealLogs] = useState<any[]>([]);
+  const [menuCycle, setMenuCycle] = useState<PublicMenuCycle | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [liveTick, setLiveTick] = useState(0);
@@ -699,11 +742,12 @@ export function Reports({
     setLoadErr(null);
     async function load() {
       try {
-        const [invData, evData, cmData, mealData] = await Promise.all([
+        const [invData, evData, cmData, mealData, menuData] = await Promise.all([
           api.getInventory(period[0] + 1, period[1]),
           api.getEvents().catch(() => []),
           api.getCommits().catch(() => []),
           api.getDailyLogs(500, 'meal_log').catch(() => []),
+          api.getPublicMenuCycle().catch(() => null),
         ]);
         if (!alive) return;
         setInvItems(invData?.items || []);
@@ -711,6 +755,7 @@ export function Reports({
         setEvents(evData);
         setCommits(cmData);
         setMealLogs(mealData);
+        setMenuCycle(menuData);
       } catch {
         if (alive) {
           setInvItems([]);
@@ -718,6 +763,7 @@ export function Reports({
           setEvents([]);
           setCommits([]);
           setMealLogs([]);
+          setMenuCycle(null);
           setLoadErr('Report data could not be loaded from the production API.');
         }
       }
@@ -738,8 +784,8 @@ export function Reports({
   }, []);
 
   const reports = useMemo(
-    () => buildReports(period, invItems, events, commits, mealLogs, inventoryMeta),
-    [period, invItems, events, commits, mealLogs, inventoryMeta],
+    () => buildReports(period, invItems, events, commits, mealLogs, inventoryMeta, menuCycle),
+    [period, invItems, events, commits, mealLogs, inventoryMeta, menuCycle],
   );
   const canSeeAllReports = ROLE_LEVEL[user.role] >= 30;
   const availableReports = useMemo(

@@ -4,6 +4,16 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v0.0.2] — 2026-07-13 — Menu Print and Reports Export
+
+**Codex + Claude:** Rebuilt the 28-Day Menu print workflow as a compact spreadsheet table, with Day, Week, Full Cycle, and Custom date-range scopes plus selectable Breakfast, Brunch, Short Order, Lunch, and Dinner columns. Added separate Print and genuine Download PDF actions; the PDF is generated client-side by the dependency-free `frontend/src/lib/pdfTable.ts` writer rather than relying on the browser print dialog.
+
+**Codex + Claude:** Added a live `Menu Schedule` report to the Reports system using the existing production `GET /api/public/menu/cycle` endpoint. Calendar dates are derived from the returned `anchor_date` and `cycle_day`; the code does not read a fictional `day.date` field or query Supabase directly from the browser.
+
+**Verify:** The combined `scripts/verify_release.py` gate passed for `v0.0.2`: Ruff lint/format clean, backend tests 63 passed and 14 skipped, frontend lint 0 errors with 663 existing warnings, and the TypeScript production build passed. A separate `npx.cmd tsc --noEmit` check passed. A generated PDF byte probe confirmed `%PDF-1.4`, a page object, escaped PDF text, xref/trailer, `startxref`, and `%%EOF`. The production public-menu endpoint returned 28 days anchored at `2026-06-14` with the expected `cycle_day`, `day_of_week`, and `meals` shape and no `date` property. Claude's mandatory final review returned `APPROVE`.
+
+**Push:** pending — not yet pushed
+
 ## [Unreleased]
 
 ### Added
