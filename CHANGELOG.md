@@ -4,6 +4,20 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v0.0.3] — 2026-07-14 — US Foods Invoice Integrity and July W2 Recovery
+
+**Codex + Claude:** Repaired the weekly US Foods ingestion path after invoice `2140189` (`Julywk2.pdf`) was accepted with 84 receipt rows / 165 pieces even though its printed delivery recap says 82 shipped items / 155 delivered pieces. The root cause was falsy-default normalization that converted `SHP=0` to a receipt and could confuse the printed `ORD` and `SHP` columns. Vision and native-text/OCR parsing now preserve zero exactly, default unreadable shipped quantities to zero, and extract Product Total plus the two delivery-recap controls. US Foods uploads fail closed before staging unless positive-shipment rows and shipped-piece totals match both printed controls.
+
+**Single source of truth:** Invoice headers and every parsed line now persist in `invoices` / `invoice_items`, including zero-ship substitution and out-of-stock lines. Lines have stable invoice line numbers and optional inventory-item relationships; merge finalization links them by immutable invoice UUID. Invoice identity is vendor-scoped with exact canonical vendor resolution that fails closed for missing, unknown, or ambiguous vendors. The production schema now accepts pending/rejected lifecycle states, references `user_profiles` for `applied_by`, and includes source-hash and delivery-control fields.
+
+**Check and balance:** Weekly source-control replay groups compatible entries into one dispatch while retaining each staging entry's idempotency key, so a retry clears/replaces the full grouped receipt without erasing unrelated rows. Financial reconciliation remains mandatory, and the new quantity reconciliation is an independent acceptance control.
+
+**Production recovery:** Preserved original commits `86f94d85` and `d4b822a2` as incident evidence. Compensating commit `f252e084-2c0f-4ff0-87d0-23ae2bc49b63` records 84 reverts. The invalid import and all 84 staging entries are rejected, exactly 84 bad ledger transactions / 165 pieces were removed, affected weekly totals were recomputed, and July's monthly snapshot was refreshed. Verification returned zero remaining transactions for the bad source hash; valid catalog identities were retained for the corrected re-import.
+
+**Verification:** The shared v0.0.3 release gate passed with Ruff lint/format clean, 68 backend tests passed and 14 skipped, frontend lint at 0 errors (663 existing warnings), and the TypeScript/Vite production build successful. Targeted incident tests also cover zero-ship vision normalization, deterministic recap extraction, item/piece mismatch rejection, grouped retry idempotency, and exact/unknown/ambiguous vendor identity. Claude independently reconciled the eight invoice pages to 85 product lines, 82 positive-ship rows, 155 pieces, `$7,792.62` Product Total, and `$7,686.53` net; after iterative blocking reviews, Claude returned `APPROVE` on the final code, tests, and migrations.
+
+**Push:** pending — release commit and remote verification follow this ledger update.
+
 ## [v0.0.2] — 2026-07-13 — Menu Print and Reports Export
 
 **Codex + Claude:** Rebuilt the 28-Day Menu print workflow as a compact spreadsheet table, with Day, Week, Full Cycle, and Custom date-range scopes plus selectable Breakfast, Brunch, Short Order, Lunch, and Dinner columns. Added separate Print and genuine Download PDF actions; the PDF is generated client-side by the dependency-free `frontend/src/lib/pdfTable.ts` writer rather than relying on the browser print dialog.

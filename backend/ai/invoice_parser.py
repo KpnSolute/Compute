@@ -293,6 +293,14 @@ META_PATTERNS: list[tuple[str, re.Pattern]] = [
         ),
     ),
     (
+        "total_items_shipped",
+        re.compile(r"TOTAL\s+ITEMS\s+SHIPPED\s*:?\s*(\d+)", re.IGNORECASE),
+    ),
+    (
+        "total_pieces_delivered",
+        re.compile(r"TOTAL\s+PIECES\s+DELIVERED\s*:?\s*(\d+)", re.IGNORECASE),
+    ),
+    (
         "order_number",
         re.compile(
             r"ORDER\s*(?:#|NO\.?|NUMBER)?\s*[:\s]\s*([A-Z0-9\-]+)", re.IGNORECASE
@@ -379,6 +387,10 @@ INVOICE_EXTRACTION_TOOLS: list[dict] = [
                     "invoice_date": {"type": "string", "description": "MM/DD/YYYY"},
                     "account_number": {"type": "string"},
                     "subtotal": {"type": "number"},
+                    "product_total": {
+                        "type": "number",
+                        "description": "Product Total before credits, fuel, and tax",
+                    },
                     "vizient_discount": {
                         "type": "number",
                         "description": "Vizient/GPO member discount (store as positive; sign applied by system)",
@@ -387,6 +399,14 @@ INVOICE_EXTRACTION_TOOLS: list[dict] = [
                     "net_total": {
                         "type": "number",
                         "description": "Final net amount due",
+                    },
+                    "total_items_shipped": {
+                        "type": "integer",
+                        "description": "TOTAL ITEMS SHIPPED from the delivery recap",
+                    },
+                    "total_pieces_delivered": {
+                        "type": "integer",
+                        "description": "TOTAL PIECES DELIVERED from the delivery recap",
                     },
                 },
                 "required": ["net_total"],
@@ -1018,6 +1038,17 @@ def reconcile_and_adjust(items: list[dict], meta: dict) -> tuple[list[dict], dic
     if fuel:
         meta["fuel_surcharge"] = f"{fuel:.2f}"
 
+    shipped_items = [item for item in adjusted if _int(item.get("qty_shipped")) > 0]
+    parsed_item_count = len(shipped_items)
+    parsed_piece_count = sum(_int(item.get("qty_shipped")) for item in shipped_items)
+    stated_item_count = _int(meta.get("total_items_shipped"))
+    stated_piece_count = _int(meta.get("total_pieces_delivered"))
+    quantity_controls_present = stated_item_count > 0 and stated_piece_count > 0
+    quantity_reconciled = not quantity_controls_present or (
+        parsed_item_count == stated_item_count
+        and parsed_piece_count == stated_piece_count
+    )
+
     stats: dict = {
         "computed_subtotal": computed_subtotal,
         "stated_subtotal": stated_subtotal,
@@ -1032,7 +1063,12 @@ def reconcile_and_adjust(items: list[dict], meta: dict) -> tuple[list[dict], dic
         "delta": delta,
         "delta_pct": delta_pct,
         "reconciled": delta_pct < 1.0,
-        "item_count": len(adjusted),
+        "item_count": parsed_item_count,
+        "piece_count": parsed_piece_count,
+        "stated_item_count": stated_item_count,
+        "stated_piece_count": stated_piece_count,
+        "quantity_controls_present": quantity_controls_present,
+        "quantity_reconciled": quantity_reconciled,
     }
     return adjusted, stats
 
@@ -1310,8 +1346,12 @@ Rules:
   Multi-Flow codes like F00072501 or F00321005, or FE997); fall back to a slug from the description
 - If multiple separate invoices appear in this image, extract ALL line items from ALL of them
 - For LB-priced items: unit_price = ext_price / qty_shipped (per-case cost)
-- qty_shipped: numeric quantity delivered; use 1 if not shown
+- qty_shipped: numeric quantity delivered; use 0 if SHP is blank or unreadable
 - Include EVERY product line item visible — skip subtotal/header/address/fuel-surcharge lines
+- ORD and SHP are different columns. qty_shipped MUST come from SHP, never ORD.
+- Preserve a printed SHP value of 0 exactly as 0. Never replace zero with one.
+- On the invoice-summary page, extract Product Total, TOTAL ITEMS SHIPPED, and
+  TOTAL PIECES DELIVERED exactly. These are mandatory controls for US Foods.
 - If this page has NO product line items (e.g. it's a cover/summary/blank page),
   return "items": []  — do not invent items.
 - Any field you cannot find (vendor, invoice_number, totals, etc.): use null / 0.0, do not guess.
@@ -1352,6 +1392,48 @@ def _extract_vision_page(
         )
         return None
     return data
+
+
+def _normalize_vision_items(items: list[dict]) -> list[dict]:
+    """Normalize vision output without turning missing or zero SHP into receipts."""
+    normalized = []
+    for item in items:
+        sku = str(item.get("sku") or "").strip()
+        desc = str(item.get("description") or sku).strip()
+        unit = str(item.get("unit") or "CS").upper()
+        qty_raw = item.get("qty_shipped")
+        qty = int(float(qty_raw)) if qty_raw not in (None, "") else 0
+        unit_price = float(item.get("unit_price") or 0)
+        ext_price_raw = item.get("ext_price")
+        ext_price = (
+            float(ext_price_raw)
+            if ext_price_raw not in (None, "")
+            else qty * unit_price
+        )
+        if unit == "LB" and qty > 0 and unit_price > 0:
+            unit_price = round(ext_price / qty, 4)
+        normalized.append(
+            {
+                "category": str(item.get("category") or ""),
+                "sku": sku,
+                "description": desc,
+                "label": str(item.get("label") or desc),
+                "pack_size": str(item.get("pack_size") or ""),
+                "unit": unit,
+                "qty_ordered": int(
+                    float(item.get("qty_ordered"))
+                    if item.get("qty_ordered") not in (None, "")
+                    else qty
+                ),
+                "qty_shipped": qty,
+                "qty_adj": int(float(item.get("qty_adj") or 0)),
+                "unit_price": round(unit_price, 4),
+                "ext_price": round(ext_price, 2),
+                "weight_lbs": float(item.get("weight_lbs") or 0),
+                "raw": str(item),
+            }
+        )
+    return normalized
 
 
 def extract_invoice_vision(
@@ -1411,9 +1493,12 @@ def extract_invoice_vision(
             "invoice_number",
             "invoice_date",
             "subtotal",
+            "product_total",
             "vizient_discount",
             "fuel_surcharge",
             "net_total",
+            "total_items_shipped",
+            "total_pieces_delivered",
         ):
             val = data.get(key)
             if val not in (None, "", 0, 0.0) and not merged_meta.get(key):
@@ -1455,39 +1540,16 @@ def extract_invoice_vision(
         "invoice_number": merged_meta.get("invoice_number"),
         "invoice_date": merged_meta.get("invoice_date"),
         "subtotal": merged_meta.get("subtotal"),
+        "product_total": merged_meta.get("product_total")
+        or merged_meta.get("subtotal"),
         "vizient_discount": merged_meta.get("vizient_discount"),
         "fuel_surcharge": merged_meta.get("fuel_surcharge"),
         "net_total": merged_meta.get("net_total"),
+        "total_items_shipped": merged_meta.get("total_items_shipped"),
+        "total_pieces_delivered": merged_meta.get("total_pieces_delivered"),
     }
 
-    norm_items = []
-    for it in items:
-        sku = str(it.get("sku") or "").strip()
-        desc = str(it.get("description") or sku).strip()
-        unit = str(it.get("unit") or "CS").upper()
-        qty = int(float(it.get("qty_shipped") or 1))
-        unit_price = float(it.get("unit_price") or 0)
-        ext_price = float(it.get("ext_price") or (qty * unit_price))
-        # Normalise weight-priced items from vision path
-        if unit == "LB" and qty > 0 and unit_price > 0:
-            unit_price = round(ext_price / qty, 4)
-        norm_items.append(
-            {
-                "category": str(it.get("category") or ""),
-                "sku": sku,
-                "description": desc,
-                "label": str(it.get("label") or desc),
-                "pack_size": str(it.get("pack_size") or ""),
-                "unit": unit,
-                "qty_ordered": int(float(it.get("qty_ordered") or qty)),
-                "qty_shipped": qty,
-                "qty_adj": int(float(it.get("qty_adj") or 0)),
-                "unit_price": round(unit_price, 4),
-                "ext_price": round(ext_price, 2),
-                "weight_lbs": float(it.get("weight_lbs") or 0),
-                "raw": str(it),
-            }
-        )
+    norm_items = _normalize_vision_items(items)
 
     # Apply Vizient discount proportionally so stored prices = what was paid.
     # This mirrors what parse_invoice_bytes_pdf does for OCR-parsed invoices.

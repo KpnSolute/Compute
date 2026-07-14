@@ -345,6 +345,7 @@ def _extract_ops(
     if kind == "invoice_items":
         parsed = data  # {'meta': {...}, 'items': [...]}
         meta = parsed.get("meta", {})
+        meta["_invoice_items"] = parsed.get("items", [])
         categories = ctx.get_categories()
         ops = invoice_parser.invoice_items_to_ops(
             parsed["items"],
@@ -374,6 +375,7 @@ def _extract_ops(
             if not parsed.get("items"):
                 return None
             merged_meta = {**src_meta, **parsed.get("meta", {})}
+            merged_meta["_invoice_items"] = parsed.get("items", [])
             cats = ctx.get_categories()
             ops = invoice_parser.invoice_items_to_ops(
                 parsed["items"], merged_meta, month, year, week, direction, cats
@@ -1018,26 +1020,35 @@ def _upsert_invoice_record(
     if not inv_num:
         return None, False, False
 
+    vendor_name = str(meta.get("vendor_name") or meta.get("vendor") or "").strip()
+    vendor_rows = (
+        svc.table("vendors").select("id,name").order("name").execute().data or []
+    )
+    vendor_id = _resolve_invoice_vendor_id(vendor_name, vendor_rows)
+
     # Idempotency check — only block re-upload when a data-entry-created (status=pending)
     # record already exists.  Pre-existing verified/applied rows were entered manually
     # and should be updatable; we upsert those in-place rather than returning 409.
+    existing_id: Optional[str] = None
     try:
-        existing = (
-            svc.table("invoices")
-            .select("id, status")
-            .eq("invoice_number", inv_num)
-            .limit(1)
-            .execute()
+        existing_query = (
+            svc.table("invoices").select("id, status").eq("invoice_number", inv_num)
         )
+        if vendor_id:
+            existing_query = existing_query.eq("vendor_id", vendor_id)
+        else:
+            existing_query = existing_query.is_("vendor_id", "null")
+        existing = existing_query.limit(1).execute()
         if existing.data:
             row_data = existing.data[0]
             if row_data.get("status") == "pending":
                 # Genuinely in-flight data-entry record — block duplicate staging
                 return row_data["id"], True, True
-            # Pre-existing verified/applied invoice — allow re-import (will overwrite w{N})
-            return row_data["id"], False, True
-    except Exception:
-        pass
+            existing_id = row_data["id"]
+    except Exception as exc:
+        raise RuntimeError(
+            f"Invoice duplicate check failed for {inv_num}: {exc}"
+        ) from exc
 
     # Parse invoice_date — accept MM/DD/YYYY or YYYY-MM-DD
     inv_date_raw = (meta.get("invoice_date") or "").strip()
@@ -1065,6 +1076,7 @@ def _upsert_invoice_record(
 
     row: dict = {
         "invoice_number": inv_num,
+        "vendor_id": vendor_id,
         "invoice_date": inv_date,
         "month": month,
         "year": year,
@@ -1073,6 +1085,7 @@ def _upsert_invoice_record(
         "applied_by": submitter_id,
         "created_at": _now(),
         "updated_at": _now(),
+        "source_hash": meta.get("source_hash"),
     }
     for field, key in [
         ("subtotal", "subtotal"),
@@ -1093,12 +1106,100 @@ def _upsert_invoice_record(
                 else str(val)
             )
 
+    reconciliation = meta.get("reconciliation") or {}
+    row["total_items_shipped"] = reconciliation.get("stated_item_count") or None
+    row["total_pieces_delivered"] = reconciliation.get("stated_piece_count") or None
+    row["total"] = _to_dec(meta.get("net_total")) or 0
+
     try:
-        r = svc.table("invoices").insert(row).execute()
-        invoice_id = r.data[0]["id"] if r.data else None
-        return invoice_id, False, False
-    except Exception:
-        return None, False, False
+        if existing_id:
+            row.pop("created_at", None)
+            r = svc.table("invoices").update(row).eq("id", existing_id).execute()
+            invoice_id = existing_id
+        else:
+            r = svc.table("invoices").insert(row).execute()
+            invoice_id = r.data[0]["id"] if r.data else None
+        if not invoice_id:
+            raise RuntimeError("database returned no invoice id")
+        _replace_invoice_items(invoice_id, meta.get("_invoice_items") or [])
+        return invoice_id, False, bool(existing_id)
+    except Exception as exc:
+        raise RuntimeError(f"Invoice persistence failed for {inv_num}: {exc}") from exc
+
+
+def _canonical_vendor_name(value: str) -> str:
+    key = "".join(ch for ch in value.lower() if ch.isalnum())
+    for suffix in ("incorporated", "company", "corporation", "corp", "inc", "llc"):
+        if key.endswith(suffix):
+            key = key[: -len(suffix)]
+            break
+    return key
+
+
+def _resolve_invoice_vendor_id(vendor_name: str, vendor_rows: list[dict]) -> str:
+    """Resolve only an exact canonical vendor name; unknown/ambiguous is unsafe."""
+    key = _canonical_vendor_name(vendor_name)
+    matches = [
+        row
+        for row in vendor_rows
+        if key and _canonical_vendor_name(str(row.get("name") or "")) == key
+    ]
+    if len(matches) != 1:
+        reason = "unknown" if not matches else "ambiguous"
+        raise RuntimeError(
+            f"Invoice vendor is {reason}: {vendor_name or '(missing)'}. "
+            "Nothing was staged; add or correct the canonical vendor first."
+        )
+    return str(matches[0]["id"])
+
+
+def _replace_invoice_items(invoice_id: str, items: list[dict]) -> None:
+    """Upsert the complete parsed line set without deleting the old set first."""
+    svc = supabase_service
+    skus = sorted(
+        {
+            canonical_sku(item.get("sku"))
+            for item in items
+            if canonical_sku(item.get("sku"))
+        }
+    )
+    inventory_ids: dict[str, str] = {}
+    if skus:
+        result = (
+            svc.table("inventory_items").select("id,sku").in_("sku", skus).execute()
+        )
+        inventory_ids = {row["sku"]: row["id"] for row in (result.data or [])}
+
+    rows = []
+    for line_number, item in enumerate(items, start=1):
+        sku = canonical_sku(item.get("sku")) or None
+        rows.append(
+            {
+                "invoice_id": invoice_id,
+                "line_number": line_number,
+                "inventory_item_id": inventory_ids.get(sku or ""),
+                "sku": sku,
+                "description": str(item.get("description") or sku or "Unknown item"),
+                "category": str(item.get("category") or "Uncategorized"),
+                "label": str(item.get("label") or "") or None,
+                "pack_size": str(item.get("pack_size") or "") or None,
+                "unit": str(item.get("unit") or "CS"),
+                "quantity_ordered": item.get("qty_ordered") or 0,
+                "quantity_shipped": item.get("qty_shipped") or 0,
+                "quantity_adjusted": item.get("qty_adj") or 0,
+                "unit_price": item.get("unit_price") or 0,
+                "extended_price": item.get("ext_price") or 0,
+                "pricing_unit": str(item.get("pricing_unit") or "") or None,
+                "weight": item.get("weight_lbs") or None,
+            }
+        )
+    if rows:
+        svc.table("invoice_items").upsert(
+            rows, on_conflict="invoice_id,line_number"
+        ).execute()
+    svc.table("invoice_items").delete().eq("invoice_id", invoice_id).gt(
+        "line_number", len(rows)
+    ).execute()
 
 
 # ── routes ────────────────────────────────────────────────────────────────────
@@ -1269,8 +1370,42 @@ async def upload_file(
             op.get("operation") in ("inventory_save", "inventory_week_update")
             for op in ops
         ):
+            recon = reconciliation
+            vendor_name = str(parsed_meta.get("vendor_name") or "").lower()
+            is_usfoods = "us food" in vendor_name or "us food" in fname.lower()
+            if is_usfoods and week > 0:
+                if not recon.get("quantity_controls_present"):
+                    yield _err(
+                        422,
+                        {
+                            "error": "invoice_quantity_controls_missing",
+                            "message": (
+                                "US Foods invoice summary controls were not read. "
+                                "Nothing was staged; re-scan the complete invoice."
+                            ),
+                            "reconciliation": recon,
+                        },
+                    )
+                    return
+                if not recon.get("quantity_reconciled"):
+                    yield _err(
+                        422,
+                        {
+                            "error": "invoice_quantity_reconciliation_failed",
+                            "message": (
+                                "Parsed delivery does not match the US Foods recap: "
+                                f"{recon.get('item_count')} items / "
+                                f"{recon.get('piece_count')} pieces parsed versus "
+                                f"{recon.get('stated_item_count')} items / "
+                                f"{recon.get('stated_piece_count')} pieces stated. "
+                                "Nothing was staged."
+                            ),
+                            "reconciliation": recon,
+                        },
+                    )
+                    return
+
             if reconciliation and reconciliation.get("net_total", 0) > 0:
-                recon = reconciliation
                 log.info(
                     "[DATA-ENTRY] Reconcile | file=%s subtotal=%.2f net_total=%.2f "
                     "vizient=%.2f factor=%.4f delta_pct=%.2f%% ok=%s",
@@ -1423,9 +1558,20 @@ async def upload_file(
         invoice_is_pending_dup = False
         invoice_found_existing = False
         if inventory_ops:
-            invoice_id, invoice_is_pending_dup, invoice_found_existing = (
-                _upsert_invoice_record(parsed_meta, month, year, week, auth_user["id"])
-            )
+            parsed_meta["source_hash"] = source_hash
+            try:
+                invoice_id, invoice_is_pending_dup, invoice_found_existing = (
+                    _upsert_invoice_record(
+                        parsed_meta, month, year, week, auth_user["id"]
+                    )
+                )
+            except RuntimeError as exc:
+                message = str(exc)
+                status = 422 if message.startswith("Invoice vendor is ") else 500
+                yield _err(
+                    status, {"error": "invoice_persistence_failed", "message": message}
+                )
+                return
             if invoice_is_pending_dup and invoice_id:
                 log.warning(
                     "[DATA-ENTRY] BLOCKED duplicate_invoice (nothing written) | file=%s invoice=%s",
@@ -1444,6 +1590,9 @@ async def upload_file(
                     },
                 )
                 return
+            if invoice_id:
+                for op in inventory_ops:
+                    op.setdefault("payload", {})["invoice_id"] = invoice_id
 
         _supersede_stale_pending(fname, auth_user["id"])
         batch_id = str(uuid.uuid4())

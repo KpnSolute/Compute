@@ -754,6 +754,7 @@ def dispatch_inventory_week(payload: dict) -> dict:
     # Audit metadata threaded from the upload (data_entry) so every ledger row is
     # traceable back to its source file / batch.
     staging_entry_id = payload.get("_staging_entry_id")
+    batch_staging_ids = payload.get("_batch_staging_ids") or []
     source_file = payload.get("source_file")
     source_hash = payload.get("source_hash")
     invoice_number = payload.get("invoice_number")
@@ -815,7 +816,7 @@ def dispatch_inventory_week(payload: dict) -> dict:
                 "source_hash": source_hash,
                 "invoice_number": invoice_number,
                 "batch_id": batch_id,
-                "staging_entry_id": staging_entry_id,
+                "staging_entry_id": item.get("_staging_entry_id") or staging_entry_id,
                 "txn_date": txn_date,
                 "created_by": created_by,
             }
@@ -843,9 +844,13 @@ def dispatch_inventory_week(payload: dict) -> dict:
     # (a retried commit), then insert. The unique index on staging_entry_id is the
     # backstop. Then recompute the derived weekly columns from the full ledger so
     # repeat invoices in the same week ACCUMULATE.
-    if staging_entry_id:
-        sup.table("inventory_transactions").delete().eq(
-            "staging_entry_id", staging_entry_id
+    staging_ids = {
+        row.get("staging_entry_id") for row in txn_rows if row.get("staging_entry_id")
+    }
+    staging_ids.update(sid for sid in batch_staging_ids if sid)
+    if staging_ids:
+        sup.table("inventory_transactions").delete().in_(
+            "staging_entry_id", sorted(staging_ids)
         ).execute()
     if txn_rows:
         sup.table("inventory_transactions").insert(txn_rows).execute()

@@ -201,6 +201,66 @@ class FakeSup:
 # ── dispatch tests ────────────────────────────────────────────────────────────
 
 
+def test_inventory_week_batch_preserves_per_entry_ids_and_replaces_all_retries():
+    from backend.staging.dispatch import dispatch_inventory_week
+
+    stage_a = "stage-a"
+    stage_b = "stage-b"
+    stage_c = "stage-unrelated"
+    sup = FakeSup(
+        items=[
+            {"id": "item-a", "sku": "A", "description": "Item A"},
+            {"id": "item-b", "sku": "B", "description": "Item B"},
+        ],
+        txns=[
+            {"txn_id": "old-a", "staging_entry_id": stage_a, "quantity": 99},
+            {"txn_id": "old-b", "staging_entry_id": stage_b, "quantity": 99},
+            {"txn_id": "keep-c", "staging_entry_id": stage_c, "quantity": 7},
+        ],
+    )
+    payload = {
+        "month": 7,
+        "year": 2026,
+        "week": 2,
+        "direction": "received",
+        "_staging_entry_id": stage_a,
+        "_batch_staging_ids": [stage_a, stage_b],
+        "items": [
+            {
+                "sku": "A",
+                "desc": "Item A",
+                "category": "Dry Goods",
+                "qty": 2,
+                "price": 10,
+                "_staging_entry_id": stage_a,
+            },
+            {
+                "sku": "B",
+                "desc": "Item B",
+                "category": "Dry Goods",
+                "qty": 3,
+                "price": 20,
+                "_staging_entry_id": stage_b,
+            },
+        ],
+    }
+
+    with patch("backend.staging.dispatch.supabase_service", sup):
+        result = dispatch_inventory_week(payload)
+
+    assert result["applied"] == 2, result
+    assert next(row for row in sup.txns if row.get("txn_id") == "keep-c")
+    batch_rows = [
+        row for row in sup.txns if row.get("staging_entry_id") in {stage_a, stage_b}
+    ]
+    assert {
+        (row["sku"], row["staging_entry_id"], row["quantity"]) for row in batch_rows
+    } == {
+        ("A", stage_a, 2.0),
+        ("B", stage_b, 3.0),
+    }
+
+
 def test_total_pulled_raw_writes_week3_transaction_and_column():
     """An item with total_pulled_raw gets a week_number=3 issued transaction AND
     its verified monthly pull is written into the w3_pulled column so the stored

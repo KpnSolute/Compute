@@ -1,4 +1,9 @@
-from backend.ai.invoice_parser import invoice_items_to_ops, parse_invoice_text_pages
+from backend.ai.invoice_parser import (
+    _normalize_vision_items,
+    invoice_items_to_ops,
+    parse_invoice_text_pages,
+    reconcile_and_adjust,
+)
 
 
 def test_usfoods_hazard_summary_repeat_does_not_double_count_item():
@@ -62,6 +67,8 @@ PRODUCT TOTAL $100.00
 FUEL SURCHARGE $5.00
 SALES TAX $7.00
 NET TOTAL $112.00
+TOTAL ITEMS SHIPPED 1
+TOTAL PIECES DELIVERED 2
 """
 
     parsed = parse_invoice_text_pages([page], "usfoods-tax.txt")
@@ -75,6 +82,9 @@ NET TOTAL $112.00
     assert recon["fuel_surcharge"] == 5.00
     assert recon["tax"] == 7.00
     assert recon["net_total"] == 112.00
+    assert recon["stated_item_count"] == 1
+    assert recon["stated_piece_count"] == 2
+    assert recon["quantity_reconciled"] is True
 
     ops = invoice_items_to_ops(items, parsed["meta"], 7, 2026, 1, "received", {})
     staged_value = sum(
@@ -82,3 +92,61 @@ NET TOTAL $112.00
         for op in ops
     )
     assert staged_value == 100.00
+
+
+def test_vision_zero_shipped_stays_zero_and_is_not_staged():
+    items = _normalize_vision_items(
+        [
+            {
+                "sku": "NOT-SHIPPED",
+                "description": "Ordered but unavailable",
+                "qty_ordered": 5,
+                "qty_shipped": 0,
+                "unit_price": 10,
+                "ext_price": 0,
+            },
+            {
+                "sku": "DELIVERED",
+                "description": "Delivered item",
+                "qty_ordered": 2,
+                "qty_shipped": 2,
+                "unit_price": 10,
+                "ext_price": 20,
+            },
+        ]
+    )
+
+    assert items[0]["qty_shipped"] == 0
+    assert items[0]["ext_price"] == 0
+    ops = invoice_items_to_ops(items, {}, 7, 2026, 2, "received", {})
+    assert [op["payload"]["items"][0]["sku"] for op in ops] == ["DELIVERED"]
+
+
+def test_usfoods_delivery_recap_controls_items_and_pieces():
+    items = [
+        {"sku": "A", "qty_shipped": 3, "ext_price": 30, "unit_price": 10},
+        {"sku": "B", "qty_shipped": 0, "ext_price": 0, "unit_price": 10},
+        {"sku": "C", "qty_shipped": 2, "ext_price": 20, "unit_price": 10},
+    ]
+    _, matched = reconcile_and_adjust(
+        items,
+        {
+            "product_total": 50,
+            "total_items_shipped": 2,
+            "total_pieces_delivered": 5,
+        },
+    )
+    _, mismatched = reconcile_and_adjust(
+        items,
+        {
+            "product_total": 50,
+            "total_items_shipped": 3,
+            "total_pieces_delivered": 6,
+        },
+    )
+
+    assert matched["item_count"] == 2
+    assert matched["piece_count"] == 5
+    assert matched["quantity_controls_present"] is True
+    assert matched["quantity_reconciled"] is True
+    assert mismatched["quantity_reconciled"] is False

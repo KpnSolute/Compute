@@ -344,6 +344,27 @@ def _finalize_applied_entries(
         except Exception as exc:
             log.warning("[COMMIT] import_batches merge flip failed: %s", exc)
 
+    invoice_ids = {
+        str((entry.get("full_payload") or {}).get("invoice_id") or "").strip()
+        for entry in entries
+    }
+    invoice_ids.discard("")
+    for invoice_id in sorted(invoice_ids):
+        try:
+            supabase_service.table("invoices").update(
+                {"status": "verified", "applied_by": author_id, "updated_at": now}
+            ).eq("id", invoice_id).execute()
+            supabase_service.rpc(
+                "link_invoice_items_by_id",
+                {"p_invoice_id": invoice_id},
+            ).execute()
+        except Exception as exc:
+            log.error(
+                "[COMMIT] invoice finalize failed | invoice_id=%s error=%s",
+                invoice_id,
+                exc,
+            )
+
     _enqueue_github_sync_once(commit_id, message, change_count)
     _finalize_pull_request(
         pr_id=pr_id, commit_id=commit_id, author_id=author_id, now=now
@@ -624,6 +645,7 @@ def _apply_entries(
     # queries (month_status, categories, new_items_cat) run once per period instead of
     # once per entry. 266 entries → 1 dispatch call; items carry per-item _staging_entry_id.
     _inv_save_groups: dict[tuple, list] = {}
+    _inv_week_groups: dict[tuple, list] = {}
     _other_entries = []
     for entry in entries:
         op = entry.get("operation")
@@ -633,6 +655,25 @@ def _apply_entries(
         if op == "inventory_save":
             key = (fp.get("month"), fp.get("year"))
             _inv_save_groups.setdefault(key, []).append(entry)
+        elif op == "inventory_week_update":
+            key = tuple(
+                fp.get(field)
+                for field in (
+                    "month",
+                    "year",
+                    "week",
+                    "direction",
+                    "review_new",
+                    "source_file",
+                    "source_hash",
+                    "invoice_number",
+                    "import_batch_id",
+                    "_author_id",
+                    "created_by",
+                    "txn_date",
+                )
+            )
+            _inv_week_groups.setdefault(key, []).append(entry)
         else:
             _other_entries.append(entry)
 
@@ -657,6 +698,32 @@ def _apply_entries(
                 {
                     "entry_id": e["entry_id"],
                     "operation": "inventory_save",
+                    "result": result,
+                }
+            )
+
+    for group in _inv_week_groups.values():
+        first_fp = group[0]["full_payload"]
+        merged_items = [
+            {**item, "_staging_entry_id": entry["entry_id"]}
+            for entry in group
+            for item in (entry["full_payload"].get("items") or [])
+        ]
+        merged_payload = {
+            **first_fp,
+            "items": merged_items,
+            "_staging_entry_id": group[0]["entry_id"],
+            "_batch_staging_ids": [entry["entry_id"] for entry in group],
+            "review_new": any(
+                entry["full_payload"].get("review_new") for entry in group
+            ),
+        }
+        result = replay("inventory_week_update", merged_payload)
+        for entry in group:
+            replay_results.append(
+                {
+                    "entry_id": entry["entry_id"],
+                    "operation": "inventory_week_update",
                     "result": result,
                 }
             )
