@@ -12,7 +12,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verify:** The combined `scripts/verify_release.py` gate passed for `v0.0.2`: Ruff lint/format clean, backend tests 63 passed and 14 skipped, frontend lint 0 errors with 663 existing warnings, and the TypeScript production build passed. A separate `npx.cmd tsc --noEmit` check passed. A generated PDF byte probe confirmed `%PDF-1.4`, a page object, escaped PDF text, xref/trailer, `startxref`, and `%%EOF`. The production public-menu endpoint returned 28 days anchored at `2026-06-14` with the expected `cycle_day`, `day_of_week`, and `meals` shape and no `date` property. Claude's mandatory final review returned `APPROVE`.
 
-**Push:** pending — not yet pushed
+**Push:** Codex → `a8760d23` — 2026-07-13 20:57:07 -04:00 (release commit; remote verification follows the ledger update)
 
 ## [Unreleased]
 
