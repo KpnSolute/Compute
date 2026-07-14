@@ -70,6 +70,21 @@ async function req<T>(path: string, opts?: RequestInit): Promise<T> {
   return data;
 }
 
+async function reqForm<T>(path: string, form: FormData): Promise<T> {
+  const token = getBackendToken();
+  const res = await fetch(BASE + path, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new ApiError(res.status, body.detail || body);
+  }
+  window.dispatchEvent(new CustomEvent('mjcc:live-data-changed', { detail: { path } }));
+  return res.json() as Promise<T>;
+}
+
 export interface Commit {
   commit_id: string;
   message: string;
@@ -114,6 +129,23 @@ export interface SourceTransaction {
   author_role?: string | null;
   unit_price?: number | null;
   unit?: string | null;
+}
+
+export interface ArchivedFile {
+  id: string;
+  category: 'invoice' | 'menu' | 'recipe' | 'report' | 'document' | 'other';
+  original_filename: string;
+  content_type: string;
+  size_bytes: number;
+  sha256: string;
+  source: string;
+  description?: string | null;
+  period_month?: number | null;
+  period_year?: number | null;
+  week_number?: number | null;
+  uploaded_at: string;
+  uploaded_by: string;
+  deduplicated?: boolean;
 }
 
 export interface SnackBarSale {
@@ -894,6 +926,39 @@ export const api = {
   },
   async getArchiveDetail(year: number, month: number): Promise<any> {
     return req(`/api/archives/${year}/${month}`);
+  },
+
+  async getArchivedFiles(params?: { category?: string; search?: string }): Promise<{ files: ArchivedFile[]; storage_ready: boolean }> {
+    const query = new URLSearchParams();
+    if (params?.category) query.set('category', params.category);
+    if (params?.search) query.set('search', params.search);
+    return req(`/api/file-archive${query.size ? `?${query}` : ''}`);
+  },
+
+  async uploadArchivedFile(file: File, category: string, description?: string): Promise<ArchivedFile> {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('category', category);
+    if (description) form.append('description', description);
+    return reqForm('/api/file-archive', form);
+  },
+
+  async downloadArchivedFile(file: ArchivedFile): Promise<void> {
+    const token = getBackendToken();
+    const res = await fetch(`${BASE}/api/file-archive/${file.id}/download`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    const url = URL.createObjectURL(await res.blob());
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = file.original_filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  },
+
+  async deleteArchivedFile(id: string): Promise<void> {
+    return req(`/api/file-archive/${id}`, { method: 'DELETE' });
   },
 
   // Logs

@@ -46,6 +46,7 @@ from backend.routes.sourcectrl import router as sourcectrl_router
 from backend.routes.github_sync import router as github_sync_router
 from backend.routes.data import router as data_router
 from backend.routes.data_entry import router as data_entry_router
+from backend.routes.file_archive import router as file_archive_router
 from backend.routes.agent import router as agent_router
 from backend.routes.sku_review import router as sku_review_router
 from backend.routes.cost import router as cost_router
@@ -190,6 +191,7 @@ app.include_router(sourcectrl_router)
 app.include_router(github_sync_router)
 app.include_router(data_router)
 app.include_router(data_entry_router)
+app.include_router(file_archive_router)
 app.include_router(agent_router)
 app.include_router(sku_review_router)
 app.include_router(cost_router)

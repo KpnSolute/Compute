@@ -36,6 +36,11 @@ from backend.ai import engine as ai_engine
 from backend.ai import invoice_parser
 from backend.ai import mapper
 from backend.ai import parser as file_parser
+from backend.archive_storage import (
+    archive_file_bytes,
+    archive_is_configured,
+    archive_is_required,
+)
 from backend.inventory_identity import canonical_sku
 from backend.periods import business_now
 from backend.routes import jwt_validator, supabase_service
@@ -1086,6 +1091,7 @@ def _upsert_invoice_record(
         "created_at": _now(),
         "updated_at": _now(),
         "source_hash": meta.get("source_hash"),
+        "archive_file_id": meta.get("archive_file_id"),
     }
     for field, key in [
         ("subtotal", "subtotal"),
@@ -1280,6 +1286,45 @@ async def upload_file(
             status_code=413,
             detail=f"File too large (max {max_file_size_mb:g} MB).",
         )
+
+    hint_lower = (hint or "").lower()
+    archive_category = (
+        "invoice"
+        if week and direction == "received"
+        else next(
+            (
+                name
+                for name in ("invoice", "menu", "recipe", "report")
+                if name in hint_lower
+            ),
+            "document",
+        )
+    )
+    archived_row: dict | None = None
+    if archive_is_configured() or archive_is_required():
+        try:
+            archived_row = archive_file_bytes(
+                content=content,
+                filename=fname,
+                content_type=file.content_type,
+                category=archive_category,
+                uploaded_by=auth_user["id"],
+                source="data_entry",
+                description=description,
+                linked_entity_type="data_entry_source",
+                linked_entity_id=source_hash,
+                month=month,
+                year=year,
+                week=week,
+                metadata={"direction": direction, "hint": hint or ""},
+            )
+        except Exception as exc:
+            log.exception("[DATA-ENTRY] Original-file archive failed | file=%s", fname)
+            if archive_is_required():
+                raise HTTPException(
+                    status_code=503,
+                    detail="The original file could not be archived; parsing was stopped safely.",
+                ) from exc
 
     ai_config = ctx.get_ai_config()
     tools_cfg = ctx.get_ai_tools_config()
@@ -1559,6 +1604,9 @@ async def upload_file(
         invoice_found_existing = False
         if inventory_ops:
             parsed_meta["source_hash"] = source_hash
+            parsed_meta["archive_file_id"] = (
+                archived_row.get("id") if archived_row else None
+            )
             try:
                 invoice_id, invoice_is_pending_dup, invoice_found_existing = (
                     _upsert_invoice_record(

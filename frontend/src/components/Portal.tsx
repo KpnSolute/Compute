@@ -56,6 +56,7 @@ import { AgentBubble } from "./AgentBubble";
 import { AIUsageView, AIToolsView, AIPresetsView } from "./AIStudio";
 import { FlowPanel } from "./FlowPanel";
 import { CostManager } from "./CostManager";
+import { FileVault } from "./FileVault";
 import { getThemePref, applyThemePref } from "../lib/theme";
 
 let toastTimer: ReturnType<typeof setTimeout>;
@@ -5210,6 +5211,7 @@ export function Portal({
         if (active === "dataentry") return <DataEntry user={user} onNavigate={goTo} />;
         if (active === "users") return <UsersView user={user} />;
         if (active === "archives") return <ArchivesView period={period} />;
+        if (active === "filevault") return <FileVault />;
         if (active === "settings") return <Settings user={user} />;
         if (active === "ai-usage")   return <AIUsageView user={user} />;
         if (active === "ai-tools")   return <AIToolsView user={user} />;

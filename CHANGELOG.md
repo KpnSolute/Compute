@@ -4,6 +4,20 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## [v0.0.4] — 2026-07-14 — Manager File Vault and Durable Source Archives
+
+**Codex + Claude:** Added a separate manager-only File Vault for invoices, menus, recipes, reports, and other operational files. Browser clients never receive Garage credentials: authenticated FastAPI routes proxy upload, listing, download, and logical removal, while downloads are attachment-only, non-cacheable, and streamed with guaranteed body cleanup. Logical removal hides a record without physically erasing its retained blob.
+
+**Source integrity:** Data Entry now archives each original upload before parsing whenever the archive environment is configured or required. Every upload receives an immutable audit row even when its bytes match an earlier upload. Weekly received files are classified as invoices, their SHA-256 and source period are recorded, and parsed invoice rows directly reference the archived original.
+
+**Database and storage:** Applied the `archived_files` metadata schema to Supabase project `mgvyylvmkxhhataavqjz` with RLS enabled, browser roles revoked, service-role-only access, indexed audit fields, and an indexed `invoices.archive_file_id` relationship. Garage remains on the dedicated Proxmox archive container and 2 TB blob mount. Production activation is intentionally pending an authenticated HTTPS tunnel because Render cannot safely reach the current LAN-only endpoint.
+
+**Verification:** Supabase confirmed the service-role policy and the post-migration advisor identified no File Vault RLS error; its one new missing-FK-index notice was fixed in a follow-up migration. The shared v0.0.4 release gate passed with 74 backend tests passed / 14 skipped, frontend lint at 0 errors (663 existing warnings), and a successful TypeScript/Vite production build. Additional archive tests cover safe filenames, HTTPS enforcement, explicit LAN development opt-in, and independent audit rows for identical uploads. The independent review findings were resolved, and Claude's final diff review returned `APPROVE`.
+
+**Push:** pending — final review, commit, and remote verification follow this ledger update.
+
+---
+
 ## [v0.0.3] — 2026-07-14 — US Foods Invoice Integrity and July W2 Recovery
 
 **Codex + Claude:** Repaired the weekly US Foods ingestion path after invoice `2140189` (`Julywk2.pdf`) was accepted with 84 receipt rows / 165 pieces even though its printed delivery recap says 82 shipped items / 155 delivered pieces. The root cause was falsy-default normalization that converted `SHP=0` to a receipt and could confuse the printed `ORD` and `SHP` columns. Vision and native-text/OCR parsing now preserve zero exactly, default unreadable shipped quantities to zero, and extract Product Total plus the two delivery-recap controls. US Foods uploads fail closed before staging unless positive-shipment rows and shipped-piece totals match both printed controls.
