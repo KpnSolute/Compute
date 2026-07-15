@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 import time
+import traceback
 
 # Configure root logging BEFORE any module-level `logging.getLogger(...)` calls
 # happen on import (engine.py, data_entry.py, etc.) -- otherwise those loggers
@@ -61,6 +62,7 @@ from backend.routes.api_logs import (
     router as api_logs_router,
     _token_user_hint,
 )
+from backend.error_log import record_error
 from fastapi.responses import HTMLResponse
 
 load_dotenv()
@@ -162,6 +164,17 @@ async def logged_http_exception_handler(request: Request, exc: StarletteHTTPExce
             exc.status_code,
             exc.detail,
         )
+    # Durably persist server errors and actionable staff-facing 4xx so they can
+    # be assessed after the fact (the live tail is in-memory and lost on deploy).
+    if exc.status_code >= 500 or exc.status_code not in _QUIET_STATUSES:
+        record_error(
+            method=request.method,
+            path=request.url.path,
+            status_code=exc.status_code,
+            error_type="HTTPException",
+            detail=exc.detail,
+            user_hint=_token_user_hint(request.headers.get("authorization")),
+        )
     return await http_exception_handler(request, exc)
 
 
@@ -175,6 +188,17 @@ async def logged_unhandled_exception_handler(request: Request, exc: Exception):
         request.method,
         request.url.path,
         exc,
+    )
+    record_error(
+        method=request.method,
+        path=request.url.path,
+        status_code=500,
+        error_type=type(exc).__name__,
+        detail=str(exc),
+        traceback_str="".join(
+            traceback.format_exception(type(exc), exc, exc.__traceback__)
+        ),
+        user_hint=_token_user_hint(request.headers.get("authorization")),
     )
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 

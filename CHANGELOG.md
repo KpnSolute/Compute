@@ -4,6 +4,18 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## 🩺 2026-07-15 — Durable error logging (assess staff errors after the fact)
+
+**Claude:** The existing logging is a good live tail but the capture is an in-memory `deque(maxlen=1000)` (routes/api_logs.py) — **lost on every restart/redeploy** (we did several today) and rolls off after 1000 events. So when Othniel or another staff member hits an error, the record could be gone before anyone looks. Added a durable sink so we're always ready to assess.
+
+- **Migration 039 `error_logs`** (applied live + tracked + mirrored): id, created_at, method, path, status_code, error_type, detail, traceback, user_hint, request_id. RLS on, service-role only, browser roles revoked, indexed by time + status. No FKs (embed-safe, per the PGRST201 lesson).
+- **`backend/error_log.py`** — best-effort, non-blocking `record_error()` on a 2-thread pool: an error being logged never adds latency, never raises, never recurses. Fields capped (detail 4k, traceback 8k).
+- **Wired into both FastAPI exception handlers** (`main.py`): every 5xx (with traceback + exception type) and every actionable staff-facing 4xx (400/409/422/… — e.g. an invoice reconciliation rejection) is persisted with a best-effort `user_hint` (email/sub from the token). Routine 401/403/404 stay noise-free, unchanged.
+- **`GET /api/system/logs/errors`** (manager+) — the review surface: persisted errors newest-first, filterable by min status and lookback window. This is what you open after "it errored earlier," vs the live tail for real-time.
+- Verified live: a real insert round-trips through the table (then cleaned up). Tests: `test_error_log.py` (3 — row shape, field caps, never-raises). Gate green.
+
+**Push:** pending — see branch below.
+
 ## ✨ 2026-07-15 — Paste-text invoice input (Data Entry)
 
 **Claude:** New input mode so staff can copy-paste an invoice's text (e.g. a Multi-Flow invoice from email) instead of scanning/photographing it — far more reliable than vision on a clean text invoice. Deliberately DRY: a `.txt` paste is now detected in `parser.detect_and_parse` and run through the existing deterministic invoice text parser (`parse_invoice_text_pages`), returning the same `invoice_items` shape as PDFs — so it reuses the **entire** existing pipeline (structured items, fee separation, reconciliation gate, staging, archive) with no new endpoint or API call. Frontend adds an "Upload file / Paste text" toggle to the Data Entry card; the paste box wraps the text as a `pasted-invoice.txt` File and runs the existing `doUpload()` flow.
