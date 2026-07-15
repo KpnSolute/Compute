@@ -12,6 +12,8 @@ authoritative MJCC access decision.
   access is rechecked against the live role-permission matrix at exchange time.
 - Added mirrored migration 040 for the service-role-only SSO handoff table; the
   additive migration was transaction-tested and applied to MJCCv1.
+- Added mirrored migration 041 to cover the handoff user foreign key after the
+  post-deploy Supabase performance advisor identified the missing index.
 - Routed both LionCafe portal entry points through the authenticated SSO launch
   instead of opening Lunchvoice directly. The button is visible only when the
   current role has the LionCafe scope.
