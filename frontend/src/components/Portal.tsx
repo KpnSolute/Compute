@@ -1447,6 +1447,26 @@ function InventoryView({
             unit: row.unit || "",
             active: row.active !== false,
         });
+        // For a New-Items row, fetch the parser's advisory category guess and
+        // pre-fill the dropdown so confirming is one click (non-blocking).
+        if ((row.cat || "") === "New Items" && row.sku) {
+            api.getInventoryItems({ sku: String(row.sku) })
+                .then((res) => {
+                    const suggested = res?.[0]?.suggested_category || "";
+                    if (!suggested) return;
+                    setEditTarget((prev: any) =>
+                        prev && prev.sku === row.sku
+                            ? { ...prev, suggested_category: suggested }
+                            : prev,
+                    );
+                    setEditForm((p) =>
+                        p.category === "New Items"
+                            ? { ...p, category: suggested }
+                            : p,
+                    );
+                })
+                .catch(() => {});
+        }
     };
 
     // Authoritative category list from the API (includes empty categories like
@@ -3442,6 +3462,20 @@ function InventoryView({
                             </div>
                             <div className="field">
                                 <label>Category (reassign)</label>
+                                {editTarget.suggested_category && (
+                                    <div
+                                        className="banner info"
+                                        style={{ margin: "0 0 8px" }}
+                                    >
+                                        {I.alert()}
+                                        <span>
+                                            Parser suggests{" "}
+                                            <b>{editTarget.suggested_category}</b>{" "}
+                                            from the invoice — pre-selected below.
+                                            Confirm or change it, then Save.
+                                        </span>
+                                    </div>
+                                )}
                                 <select
                                     className="ipt sel"
                                     value={editForm.category}
@@ -4251,10 +4285,11 @@ function UsersView({ user: currentUser }: { user: User }) {
                     <div className="banner info" style={{ margin: "0 16px 12px" }}>
                         {I.alert()}
                         <span>
-                            Checking a box here controls whether that role can see and navigate to a page — it's the only
-                            gate on visibility now. Some actions inside a page (editing users, deleting events, changing
-                            settings, publishing the menu) still enforce their own minimum role on the server regardless of
-                            these checkboxes, as a second layer of protection for sensitive writes.
+                            Checking a box here controls whether that role can see and navigate to a page. Financial pages
+                            (Inventory, Monthly Inventory, Reports, Archives, Pull Sheet, Snack Bar, Data Entry) additionally
+                            require assistant level or above regardless of these checkboxes. Some actions inside a page
+                            (editing users, deleting events, changing settings, publishing the menu) still enforce their own
+                            minimum role on the server, as a second layer of protection for sensitive writes.
                         </span>
                     </div>
                     <div className="card-body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12 }}>

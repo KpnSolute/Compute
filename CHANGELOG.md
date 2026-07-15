@@ -4,6 +4,85 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## 🚨 HOTFIX — 2026-07-15 — PGRST201 prod outage from the suggested-category FK
+
+**Claude:** The suggested-category migration (038) added a SECOND foreign key from `inventory_items` → `inventory_categories`. That made every existing PostgREST `inventory_categories(...)` embed in the **deployed** code ambiguous (`PGRST201: more than one relationship found`), so live inventory reads failed with "Couldn't load live data" — the migration was applied to prod ahead of the code that disambiguates. Root lesson: an additive second FK to the same table is NOT backwards-compatible with existing embeds.
+
+**Fix:** Dropped the FK constraint on `inventory_items.suggested_category_id` (column + backfilled data retained) and reloaded the PostgREST schema cache → prod reads restored immediately (verified: the plain `inventory_categories(name)` embed returns RLS-`42501` for anon, no longer `PGRST201`; service-role backend bypasses RLS). Reworked the feature to be backwards-compatible: `suggested_category_id` is now a PLAIN uuid column with **no** foreign key, and `GET /api/inventory/items` resolves the suggested category's display name via an id→name map in Python instead of a second embed. Migration files (038 + supabase mirror) updated to match. No FK is ever added, so migration/deploy ordering can't break embeds again.
+
+**Push:** pending — fix on branch `fix/audit-findings` (PR #4). The live DB is already corrected.
+
+## 🎯 2026-07-15 — Weekly-invoice AI targeting: preserve the parser's category guess for New Items
+
+**Claude:** Follow-on from the Data Entry incident. Reviewed what the AI actually needs to extract from a weekly US Foods invoice against the live data model, using the real `Julywk2.pdf`. Field targeting was already correct post-v0.0.3 (SHP not ORD, zero-preserved, SKU = product number, the three controls, fees kept separate). The real gap was **category**: `inventory_identity.resolve_and_write_item` force-routes every new SKU into "New Items" and **discarded the category the parser had already inferred**, so 40 items sat awaiting manual categorization even though most are obvious (`MUFFIN…FZN`→Frozen, `MARGARINE…REF`→Dairy, `CHICKEN, PTY`→Meats, `CUP…PLYST`→Disposables). The invoice's printed **storage-location column (DRY/REFRIGERATED/FROZEN)** — a strong category signal — wasn't even captured.
+
+**Decision (operator):** keep human-in-the-loop review, but surface the guess as a one-click confirmation.
+
+**Change (backend + schema + frontend):**
+- Migration `038_item_suggested_category.sql` (applied live + mirrored to supabase/migrations): `inventory_items.suggested_category_id` (advisory FK, partial index). Tracked in git — not another MCP-only drift.
+- `resolve_and_write_item`: new items still land in New Items, but the parser's guessed category is retained as `suggested_category_id` instead of thrown away.
+- Vision prompt: capture `storage_location` and use it as the PRIMARY category signal (FROZEN→Frozen Food; REFRIGERATED→Dairy/Meats/Produce; DRY→refine by description).
+- `dispatch_item_update`: clears `suggested_category_id` once a manager sets the real category (keeps the review list accurate).
+- `GET /api/inventory/items`: exposes `suggested_category_id` + name via a disambiguated PostgREST embed (validated live against the REST API — resolves; backend service-role bypasses the RLS that blocks anon).
+- Frontend (`Portal.tsx` Edit-item modal): for a New-Items row, fetches the suggestion, pre-selects it in the Category dropdown, and shows a "Parser suggests X" banner — confirm = one click.
+- Conservative advisory backfill for the existing 40 New Items (high-confidence keywords only; ambiguous left NULL; caught + reverted one false positive where "GRND" matched ground paprika).
+
+**Tests:** `test_item_suggested_category.py` (3) — guess preserved as suggestion in review mode, no self-suggestion when guess == New Items, direct apply outside review mode.
+
+**Push:** pending — see the incident/audit branch below.
+
+## 🚨 INCIDENT — 2026-07-15 — Data Entry broken on scanned invoices (Gemini vision empty-response)
+
+**Claude:** Othniel reported Data Entry not working. Root-caused against production `ai_usage_logs` + the actual `Julywk2.pdf`: **the file is an image-only scanned PDF (8 pages, zero text layer)**, so it can only be read by AI vision — the deterministic pdfplumber/workbook path extracts nothing. The configured vision model, **Gemini 2.5 Flash, was failing ~27% of page calls today** (50 failed `invoice_vision` calls) with the opaque error string `'content'`.
+
+**Root cause:** `backend/ai/engine.py::_gemini_complete` did `data["candidates"][0]["content"]["parts"][0]["text"]` with no guard. Gemini 2.5 spends output tokens on internal "thinking" first; on a dense full-page invoice image the thinking budget consumed the entire `maxOutputTokens`, so the API returned a candidate with `finishReason=MAX_TOKENS` and **no `content` block** → bare `KeyError('content')` (which stringifies to exactly `'content'`). Reproduced deterministically. Per-page failures forced slow Claude-Haiku fallbacks and, when a page failed every provider, dropped that page's line items so the parse never reconciled to the invoice's printed controls (82 items / 155 pieces / $7,792.62 product total, verified from the PDF's Delivery Summary) and the v0.0.3 fail-closed gate 422-rejected the whole upload.
+
+**Fix:** (1) Disable Gemini thinking for 2.5 models — `generationConfig.thinkingConfig.thinkingBudget=0` — so the full output budget produces actual content. (2) New `_gemini_extract_text` helper raises a descriptive `RuntimeError` (finishReason / blockReason) instead of a bare KeyError, so fallbacks log something actionable. Regression suite `backend/tests/test_gemini_vision_empty_response.py` (6 tests) covers the MAX_TOKENS no-content case, prompt blocks, the happy path, and asserts the 2.5 thinking-disable body. **Needs deploy + a real re-upload of Julywk2.pdf to confirm end-to-end** — the unit tests prove the code path; only a live parse proves 82/155 reconciliation.
+
+**Data cleanup (live prod, per operator request):** Verified inventory itself was clean — the rejected W2 invoice `2140189` never leaked into July (`w2_received=0`), no orphaned ledger rows, no stuck `pending` staging. Removed the two genuinely-broken artifacts: (a) 2 zero-quantity `inventory_transactions` ledger stubs (July W2 issued, SKUs 5016696 + F00072501 — the zero-correction drift noted in the audit's I-10 area), and (b) stale open test PR #55 ("staging verification test", 2026-07-06, no commit, no live staging) → closed with a note. The rejected incident batch `2140189` and its 84 rejected staging entries were **retained as audit evidence** (not deleted). Post-clean: 0 zero-qty ledger rows, 0 open PRs, 0 stuck staging.
+
+**Push:** Claude → `f722d75` on branch `fix/audit-findings` — 2026-07-15, remote ref verified. Bundled with the audit remediations below (OneDrive lock on `.agents/` blocked a clean standalone branch). **Merge to `main` to deploy the parser fix** — Render auto-deploys on push to main.
+
+## [Unversioned fixes] — 2026-07-15 — Audit findings remediated (branch `fix/audit-findings`)
+
+**Claude:** Fixed the actionable findings from today's full-ledger audit (entry below):
+1. **Overwrite-restore (P1):** `_apply_confirmed_inventory_overwrites` now snapshots every month/week scope BEFORE clearing it, and new `_restore_inventory_overwrites` re-clears + reinserts the snapshot on any replay failure (error result or exception). A failed commit can no longer leave a period empty. New regression suite `backend/tests/test_sourcectrl_overwrite_restore.py` (4 tests) pins snapshot-before-delete order, month/week restore semantics, and best-effort rollback.
+2. **Meal-periods write guard (P1):** `PUT /api/meal-periods/{period_id}` now requires `_require_admin_or_manager` (was any authenticated user incl. staff PIN tokens) — matches every sibling menu write.
+3. **Admin PIN paths (P3):** user create/update now reject PINs shorter than 4 digits (self-service `/me/pin` already enforced `min_length=4` via Pydantic — the audit's original claim was half right; only the admin paths were loose).
+4. **`archive_is_required()` footgun:** requirement is now inferred only from the three core connection vars (endpoint/access/secret) instead of ANY `MJCC_ARCHIVE_*` var — auxiliary tuning vars alone can no longer make every Data Entry upload 503. Explicit `MJCC_ARCHIVE_REQUIRED` still overrides.
+5. **Role Scopes banner copy:** now discloses the assistant-level floor on financial pages instead of claiming scope is the only visibility gate.
+6. **AGENTS.md facts refresh:** §4 rewritten to the real 3-week `opening_oh`/`w1–w3` schema and 28-day menu tables; I-1 and I-3 marked RESOLVED with verification date; new **I-10** records the untracked-migration drift (`audit_inventory_period` 018–021 stale in git; live `revert_to_commit` still references dropped columns — dead code, no callers).
+
+**Deliberately NOT changed (policy calls for the user):** SKU-review stage-and-commit self-approval bypass (`sku_review.py` — may be intentional for manager+ SKU fixes); vision hard-fail on non-vision primary; zero-qty ledger row writes.
+
+**Verification:** full release gate re-run on the branch — see Push line.
+
+**Push:** Claude → `7e95a90` on branch `fix/audit-findings` — 2026-07-15, remote ref verified. Merge to `main` awaits user review.
+
+## 🔍 FULL-LEDGER VERIFICATION AUDIT — 2026-07-15 — Every changelog claim re-verified against code, live DB, and production
+
+**Claude:** User-directed adversarial audit of this entire ledger (~200 entries, v1.x → v0.0.4): six parallel auditors verified claims against actual code; I independently ran the release gate, live Supabase invariant checks, and production API probes. **Verdict: the ledger is honest** — nearly every claimed fix is implemented as described, and the flagship inventory-integrity claims hold against live data.
+
+**Confirmed against live production data:** cross-month value continuity exact (May end $9,575.02 = June open; June end $9,505.58 = July open); ledger↔monthly_inventory reconciles exactly for all 3 months; zero duplicate ledger rows (v4.26.24 held); US Foods recovery real (compensating commit `f252e084…` merged, 86 staging entries rejected, zero remnants of invoice 2140189); `trg_guard_closed_month` DB trigger exists; `archived_files` service-role-only RLS live; File Vault routes deployed + auth-gated (401); all protected endpoints reject unauthenticated calls; public menu API shape matches v0.0.2 claims; menu anchor `2026-06-14` confirmed; release gate green locally (74 passed / 14 skipped, lint clean, build ok).
+
+**NEW BUGS found (not previously in this ledger):**
+1. **P1 — Overwrite-before-validation** (`routes/sourcectrl.py:643` → `_apply_confirmed_inventory_overwrites`): confirmed month-scope overwrite DELETEs the whole month from `monthly_inventory` + ledger BEFORE replay; a replay failure (e.g. unresolved SKU) leaves the month empty until a successful retry.
+2. **P1 — Write-guard gap**: `PUT /api/meal-periods/{period_id}` (`routes/data.py:111`) only requires `_get_auth_user` — any staff PIN token can rewrite public service windows. Every sibling menu write is manager+.
+3. **P2 — Self-approval bypass**: `routes/sku_review.py:169,271` stages and commits via `_apply_entries` in one call by the same user, skipping segregation of duties (contradicts v4.27.13's "no other dispatch caller" claim).
+4. **P2 — `archive_is_required()` footgun** (`archive_storage.py:29`): ANY `MJCC_ARCHIVE_*` env var makes archiving required; if endpoint/keys unset, every Data Entry upload 503s. Relevant before the Garage HTTPS tunnel activation.
+5. **P3 — Weak server-side PIN**: `PUT /users/me/pin` (`users.py:735`) accepts any all-digit string incl. 1 digit; only the UI enforces 4.
+Minor: duplicate-SKU weekly cells in one staging entry can 23505 mid-commit (ledger insert not deduped, `dispatch.py:491`); `complete_vision` hard-fails on non-vision primary instead of falling to vision-capable providers (`engine.py:759`); zero-qty ledger rows written (2 found in July, harmless); Role Scopes banner still says scope is the only visibility gate while `FINANCIAL_KEYS` re-adds a level gate (`Portal.tsx:4254` vs `:5121`).
+
+**Live-DB drift:** `revert_to_commit` in live DB still references dropped pre-v4.22 columns (the "all 7 RPCs updated" claim missed it) — currently dead code, no callers, but breaks the day revert is wired. Tracked migrations 018–021 still define `audit_inventory_period` against dropped columns — live fixes were applied via MCP and never captured in git; a fresh environment built from the repo gets broken SQL. July has 37 monthly_inventory rows with NULL stored value columns (new W1 items) — all read paths COALESCE correctly, hygiene only.
+
+**Doc rot (facts file misleads agents):** AGENTS.md I-3 marked "STILL CRITICAL" but `dispatch.py` excludes `password` (fixed); §4 still documents `on_hand`/`w1–w4_received`/`w*_issued` and dead `menu_entries`/`menu_cycles`; row counts stale (inventory_items 373 live vs 1591 documented). API.md claims `dispatch_menu_save` is unreferenced — false since v4.27.2. DB.md has matching drift. `.env.example` drifted both directions (9 stale keys; `SUPABASE_JWT_SECRET`, `MENU_API_KEY`, `MJCC_ARCHIVE_*` missing).
+
+**Coverage gap:** zero direct tests for the sourcectrl staging→PR→commit→replay pipeline — historically the most re-fixed area of the project. Root-level `tests/` dir (8 tests) is not run by CI.
+
+**Not yet verified:** authenticated UI flows (inventory dashboard, Data Entry upload, Pull Sheet staging, SC approve/merge, File Vault UI) — pending an operator login session. What's New popup role-gating remains untested live (as v4.36.0 itself admitted).
+
+**Push:** pending — audit entry only, no code changed.
+
 ## [v0.0.4] — 2026-07-14 — Manager File Vault and Durable Source Archives
 
 **Codex + Claude:** Added a separate manager-only File Vault for invoices, menus, recipes, reports, and other operational files. Browser clients never receive Garage credentials: authenticated FastAPI routes proxy upload, listing, download, and logical removal, while downloads are attachment-only, non-cacheable, and streamed with guaranteed body cleanup. Logical removal hides a record without physically erasing its retained blob.

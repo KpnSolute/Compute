@@ -388,8 +388,12 @@ async def list_inventory_items(
     - category_id: items in a specific category
     """
     try:
+        # suggested_category_id is a plain column (no FK) so it never makes the
+        # inventory_categories embed ambiguous. Resolve its display name via a
+        # small id->name map instead of a second PostgREST embed.
         q = supabase_service.table("inventory_items").select(
             "id, sku, description, category_id, unit_price, par_level, unit, active, sku_pending, needs_attention, "
+            "suggested_category_id, "
             "inventory_categories(name)"
         )
         if sku:
@@ -402,11 +406,16 @@ async def list_inventory_items(
             q = q.eq("category_id", category_id)
         q = q.limit(limit)
         result = q.execute()
+        cat_rows = (
+            supabase_service.table("inventory_categories").select("id, name").execute()
+        )
+        cat_name_by_id = {c["id"]: c.get("name") or "" for c in (cat_rows.data or [])}
         items = []
         for row in result.data or []:
             cat_join = row.get("inventory_categories") or {}
             if isinstance(cat_join, list):
                 cat_join = cat_join[0] if cat_join else {}
+            sug_id = row.get("suggested_category_id")
             items.append(
                 {
                     "id": row["id"],
@@ -414,6 +423,10 @@ async def list_inventory_items(
                     "description": row["description"],
                     "category_id": row.get("category_id"),
                     "category": cat_join.get("name") or "",
+                    "suggested_category_id": sug_id,
+                    "suggested_category": cat_name_by_id.get(sug_id, "")
+                    if sug_id
+                    else "",
                     "unit_price": row.get("unit_price"),
                     "par_level": row.get("par_level"),
                     "unit": row.get("unit"),

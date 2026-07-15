@@ -1337,6 +1337,7 @@ If the model does not support tool calling, return ONLY valid JSON matching this
       "unit_price": 12.34,
       "ext_price": 12.34,
       "weight_lbs": 0.0,
+      "storage_location": "DRY | REFRIGERATED | FROZEN or null",
       "category": "one of the valid category names below"
     }
   ]
@@ -1355,12 +1356,21 @@ Rules:
 - If this page has NO product line items (e.g. it's a cover/summary/blank page),
   return "items": []  — do not invent items.
 - Any field you cannot find (vendor, invoice_number, totals, etc.): use null / 0.0, do not guess.
+- storage_location: the section header the line item is printed under on the
+  invoice — DRY, REFRIGERATED, or FROZEN. Line items are grouped under these
+  headers; carry the current section's header down to each line until the next
+  header appears. Use null only if no header is visible.
 - category: classify each item into EXACTLY one of these valid MJCC categories:
   Dairy, Cereal, Beverages, Snacks, Meats, Frozen Food, Dry Goods, Produce, Disposables
+  Use storage_location as the PRIMARY signal, then refine by description:
+    FROZEN        → Frozen Food (almost always)
+    REFRIGERATED  → Dairy (milk, yogurt, margarine, cheese), Meats (raw/deli),
+                    or Produce (fresh cut) by description
+    DRY           → Dry Goods, Cereal, Snacks, Beverages, or Disposables by description
   Examples: chicken breast → Meats, whole milk → Dairy, plastic gloves → Disposables,
   orange juice → Beverages, frozen pizza → Frozen Food, lettuce → Produce,
   flour → Dry Goods, corn flakes → Cereal, paper cups → Disposables, chips → Snacks.
-  If uncertain, use Dry Goods.
+  If genuinely uncertain, use Dry Goods.
 - Return ONLY the JSON object, no explanation."""
 
 

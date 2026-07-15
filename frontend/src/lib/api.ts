@@ -305,6 +305,8 @@ export interface InventoryCatalogItem {
   active?: boolean | null;
   sku_pending?: boolean | null;
   needs_attention?: boolean | null;
+  suggested_category_id?: string | null;
+  suggested_category?: string | null;
 }
 
 export type EntityType = 'inventory' | 'menu' | 'user' | 'compliance' | 'event' | 'ops';

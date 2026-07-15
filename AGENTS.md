@@ -81,13 +81,13 @@ This is the **authoritative schema**. 38 tables, RLS enabled on all. Key tables 
 
 - **`user_profiles`** (13 rows): `id, username, display_name, role, pin, active, created_at, updated_at, last_name, email, last_login`.
   - **NO `password` column.** Admin/manager auth = Supabase Auth (`auth.signInWithPassword`, synthesized email `username@mjc-cafeteria.com`). Staff auth = `pin` compare. Any code inserting `password` into `user_profiles` is a bug (I-3).
-- **`inventory_items`** (1591 rows): `id, sku, barcode_id, description, category_id, vendor_id, unit_price, par_level, unit, active, on_hand, ...`.
-- **`inventory_categories`** (9 rows): `id, name, color, icon, sort_order`.
-- **`monthly_inventory`** (21089 rows): `id, item_id, month, year, on_hand, w1_received..w4_received, w1_issued..w4_issued, unit_price, ...`. **`month` is 0-indexed** — do not widen the constraint without confirming. Period is `month` + `year` separate integer columns, NOT `year*100+month`.
+- **`inventory_items`** (~373 rows, 2026-07-15): `id, sku, barcode_id, description, category_id, vendor_id, unit_price, par_level, unit, active, sku_pending (GENERATED), needs_attention (GENERATED), ...`. The old `on_hand` column was DROPPED (migration 009) — current stock is derived, never stored here.
+- **`inventory_categories`** (11 rows): `id, name, color, icon, sort_order`.
+- **`monthly_inventory`** (~900 rows, 2026-07-15): `id, item_id, month, year, opening_oh, w1_received..w3_received, w1_pulled..w3_pulled, unit_price, status, opening_unit_cost, opening_value, received_value, pulled_value, ending_value`. **3-week template model since v4.22.0** — the old `on_hand` / `w1_issued..w4_issued` / `w4_*` columns are DROPPED. Derived totals (Total Received/Pulled, Ending OH) are computed via `backend/inventory_formulas.py`, never stored. **`month` is 0-indexed** — do not widen the constraint without confirming. Period is `month` + `year` separate integer columns, NOT `year*100+month`.
 - **`monthly_snapshots`** (76 rows): `id, month, year, grand_total, category_totals, item_count, reorder_count, preset, data, wk1_total..wk4_total, starting_total, saved_by, saved_at`.
 - **`inventory_master`** (316) / **`item_barcodes`** (316) / **`barcodes`** (409): barcode + master item layers.
 - **`vendors`** (3) · **`invoices`** (7) · **`invoice_items`** (64): purchasing/invoicing.
-- **`menu_cycles`** (1) + **`menu_entries`** (0): cycle menu. `menu_entries`: `cycle_id, week_number, day_of_week, meal_type, items, sides, is_vegetarian, sort_order`. `items`/`sides` are **`text`** columns storing JSON strings — serialize with `json.dumps()` on write, `json.loads()` on read.
+- **Menu (28-day cycle since v4.27.x):** `menu_items` (~268), `menu_cycle_days` (28), `menu_cycle_slots` (~1215), `menu_suggestions`, `menu_feedback_summary`. The anchor date lives in `app_settings.menu_cycle_anchor_date`. The old `menu_cycles`/`menu_entries` tables were **DROPPED** (migration 031) — do not reference them.
 - **`events`** (29 rows): `id, cat, title, date, theme, description, suggested_menu, status, created_at, updated_at`. Category column is **`cat`**, not `category`.
 - **`haccp_logs`** (0 rows): `id, location, temperature, unit, timestamp, checked_by, notes, created_at`.
 - **`daily_operations_logs`** (0 rows): `id, entry_type, title, description, severity, data, created_by, created_at`. `data` is `text` (not jsonb).
@@ -156,15 +156,16 @@ This is the **authoritative schema**. 38 tables, RLS enabled on all. Key tables 
 
 ## 7. KNOWN CRITICAL ISSUES
 
-- **I-1 — Schema fiction (LARGELY RESOLVED).** Real tables created for `events`, `haccp_logs`, `daily_operations_logs`, and the ops tables; routes/staging target them. STILL fiction: `inventory_sync`, `cycle_menu`. Audit `seed_data.py` for dead names.
+- **I-1 — Schema fiction (RESOLVED, verified 2026-07-15).** Zero live code references to `inventory_sync`, `cycle_menu`, `menu_entries`, or `menu_cycles` remain in backend/ or frontend/src/ — only historical migrations and one comment. `seed_data.py` is clean.
 - **I-2 — Frontend/backend disconnect (IN PROGRESS).** Historically the frontend never called FastAPI. The §3 Option-A wiring is the active migration — verify each module actually hits `VITE_API_BASE` before calling it done.
-- **I-3 — Auth model conflict (STILL CRITICAL).** `user_profiles` has NO `password` column. `backend/staging/dispatch.py::dispatch_user_create`/`dispatch_user_update` write/pass a `password` key — schema-invalid, guaranteed runtime failure once a Users UI stages `user_create`. Currently a latent landmine (no frontend stages those ops). Gemini removes the `password` key. Separately, creating an admin/manager requires a Supabase Auth user, not just a profile row.
+- **I-3 — Auth model conflict (RESOLVED, verified 2026-07-15).** `user_profiles` has NO `password` column — and `backend/staging/dispatch.py` now respects that: `dispatch_user_create` builds its row without a `password` key and `dispatch_user_update` explicitly excludes it (`_EXCLUDED = {"user_id", "password"}`). Admin/manager creation goes through Supabase Auth (`users.py`). Keep it that way — any code writing `password` to `user_profiles` is a bug.
 - **I-4 — HACCP logs persistence (HIGH).** `haccp_logs` table is real and `logs.py` is schema-valid, but the frontend still writes to localStorage (`mjc_log_*`). Frontend wiring to `POST /api/logs/haccp` not done.
 - **I-5 — Styling contract (MEDIUM).** Docs say "Tailwind only"; app ships a large bespoke `index.css`. Pick one story.
 - **I-6 — Changelog vs reality drift (MEDIUM).** Historical changelog versions don't match git tags and contain aspirational claims. The new forum format (§8) + push-tracking line is the fix going forward. History is append-only — do not rewrite it.
 - **I-7 — CI broken (MEDIUM).** `.github/workflows/deploy.yml` installs `requirements-dev.txt` and runs `pytest` against `tests/`. A `tests/` dir and a `backend/requirements-dev.txt` now exist in the working tree — confirm the workflow paths match before relying on CI. The root-level `requirements-dev.txt` was removed in the 2026-06-04 cleanup.
 - **I-8 — `.env.example` drift (LOW).** May list stale vars not used by the FastAPI stack. Reconcile against real `.env` keys.
 - **I-9 — Phantom agents (LOW).** "Catch21", "Github", "Orchestrator" are role labels, not real running agents. Treat as conventions.
+- **I-10 — Tracked migrations cannot rebuild the live DB (MEDIUM, found 2026-07-15 audit).** Migrations 018–021 still define `audit_inventory_period` against columns dropped by v4.22.0; the live functions were fixed via MCP but never captured in git. Live `revert_to_commit` is STILL stale (references dropped columns) — currently dead code with no callers, but it breaks the day revert is wired. Before building a fresh environment or wiring revert: dump the live function bodies (`pg_get_functiondef`) into a new tracked migration.
 
 ---
 
