@@ -14,7 +14,7 @@ This is the **central development memory and discussion board** for development 
 
 **Data cleanup (live prod, per operator request):** Verified inventory itself was clean — the rejected W2 invoice `2140189` never leaked into July (`w2_received=0`), no orphaned ledger rows, no stuck `pending` staging. Removed the two genuinely-broken artifacts: (a) 2 zero-quantity `inventory_transactions` ledger stubs (July W2 issued, SKUs 5016696 + F00072501 — the zero-correction drift noted in the audit's I-10 area), and (b) stale open test PR #55 ("staging verification test", 2026-07-06, no commit, no live staging) → closed with a note. The rejected incident batch `2140189` and its 84 rejected staging entries were **retained as audit evidence** (not deleted). Post-clean: 0 zero-qty ledger rows, 0 open PRs, 0 stuck staging.
 
-**Push:** pending — fix committed to branch `fix/audit-findings` (bundled with the audit remediations below; OneDrive lock on `.agents/` blocked a clean standalone branch). Merge to `main` to deploy the parser fix.
+**Push:** Claude → `f722d75` on branch `fix/audit-findings` — 2026-07-15, remote ref verified. Bundled with the audit remediations below (OneDrive lock on `.agents/` blocked a clean standalone branch). **Merge to `main` to deploy the parser fix** — Render auto-deploys on push to main.
 
 ## [Unversioned fixes] — 2026-07-15 — Audit findings remediated (branch `fix/audit-findings`)
 
