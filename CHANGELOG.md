@@ -22,6 +22,10 @@ authoritative MJCC access decision.
 
 **Push:** branch `codex/lunchvoice-sso`, intended for verified fast-forward to `main`.
 
+**Release follow-up:** Bumped the synchronized project version to `0.0.7` after
+the first push's full gate passed but its publish job correctly rejected the
+already-shipped `v0.0.6` tag.
+
 This is the **central development memory and discussion board** for development on MJCC. **READ THIS BEFORE MAKING ANY CHANGE.** All thoughts, decisions, and changes go HERE — no new `.md` files are permitted (see `AGENTS.md` §0).
 
 ---
