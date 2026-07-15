@@ -400,6 +400,8 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
     const aiPrefs = loadAIPrefs(user.id);
 
     const [file, setFile]           = useState<File | null>(null);
+    const [inputMode, setInputMode] = useState<'file' | 'text'>('file');
+    const [pastedText, setPastedText] = useState('');
     const [hint, setHint]           = useState<Hint>('');
     const [month, setMonth]         = useState<number>(now.getMonth());
     const [year, setYear]           = useState<number>(now.getFullYear());
@@ -647,8 +649,9 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         abortRef.current?.abort();
     }, []);
 
-    const doUpload = useCallback(async (confirmedOverwrite = false) => {
-        if (!file) return;
+    const doUpload = useCallback(async (confirmedOverwrite = false, overrideFile?: File) => {
+        const effectiveFile = overrideFile ?? file;
+        if (!effectiveFile) return;
         cancelledRef.current = false;
         abortRef.current?.abort();
         abortRef.current = new AbortController();
@@ -659,7 +662,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         setPreview(null);
         const timeoutId = setTimeout(() => abortRef.current?.abort(), 300_000);
         try {
-            const res = await api.uploadDataEntry(file, hint, month + 1, year, week, direction, description, abortRef.current?.signal, confirmedOverwrite);
+            const res = await api.uploadDataEntry(effectiveFile, hint, month + 1, year, week, direction, description, abortRef.current?.signal, confirmedOverwrite);
             clearTimeout(timeoutId);
             setResult(res);
             setStagingIds(res.staging_ids || []);
@@ -692,7 +695,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
             if (!userCancelled) {
                 window.dispatchEvent(new CustomEvent('mjcc:open-agent', {
                     detail: {
-                        prompt: `Data Entry could not parse ${file.name} for ${MONTHS[month]} ${year}${week > 0 ? ` W${week} ${direction}` : ' full month'}. Error: ${msg}. What information do you need from me to map this upload correctly?`,
+                        prompt: `Data Entry could not parse ${effectiveFile.name} for ${MONTHS[month]} ${year}${week > 0 ? ` W${week} ${direction}` : ' full month'}. Error: ${msg}. What information do you need from me to map this upload correctly?`,
                     },
                 }));
             }
@@ -758,6 +761,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
 
     const clearAll = () => {
         setFile(null);
+        setPastedText('');
         setResult(null);
         setUploadErr(null);
         setOverwritePrompt(null);
@@ -931,14 +935,44 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                 link={result ? `✓ ${stagedCount} staged` : undefined}
             >
                 <div>
-                    <div style={STEP_LBL}>1 — File</div>
-                    <div className={aiPrefs.effects && uploading ? 'ai-ring-wrap' : ''} style={{ borderRadius: 12 }}>
-                        <FileZone
-                            file={file} uploading={uploading}
-                            onFile={f => { setFile(f); setResult(null); setUploadErr(null); setOverwritePrompt(null); setPreview(null); }}
-                            onClear={clearAll}
-                        />
+                    <div className="seg" role="tablist" style={{ marginBottom: 16 }}>
+                        <button
+                            data-on={inputMode === 'file'}
+                            onClick={() => setInputMode('file')}
+                            role="tab"
+                            aria-selected={inputMode === 'file'}
+                        >
+                            {I.fileText({ className: 'si' })} Upload file
+                        </button>
+                        <button
+                            data-on={inputMode === 'text'}
+                            onClick={() => setInputMode('text')}
+                            role="tab"
+                            aria-selected={inputMode === 'text'}
+                        >
+                            {I.clipboard({ className: 'si' })} Paste text
+                        </button>
                     </div>
+                    <div style={STEP_LBL}>1 — {inputMode === 'file' ? 'File' : 'Text'}</div>
+                    {inputMode === 'file' ? (
+                        <div className={aiPrefs.effects && uploading ? 'ai-ring-wrap' : ''} style={{ borderRadius: 12 }}>
+                            <FileZone
+                                file={file} uploading={uploading}
+                                onFile={f => { setFile(f); setResult(null); setUploadErr(null); setOverwritePrompt(null); setPreview(null); }}
+                                onClear={clearAll}
+                            />
+                        </div>
+                    ) : (
+                        <textarea
+                            className="ipt"
+                            value={pastedText}
+                            rows={12}
+                            placeholder="Paste invoice text here — e.g. a Multi-Flow invoice copied from email"
+                            style={{ width: '100%', resize: 'vertical', fontSize: 12.5, fontFamily: 'var(--mono)' }}
+                            onChange={e => setPastedText(e.target.value)}
+                            disabled={uploading}
+                        />
+                    )}
                     {uploading && (
                         <>
                             <PipelineBar stage={aiStage} />
@@ -1067,19 +1101,38 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
 
                 <div className="de-submit-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
                     <div className="de-file-summary" style={{ fontSize: 12, color: 'var(--muted)', minWidth: 0 }}>
-                        {file ? (
-                            <>
-                                <span style={{ fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', maxWidth: 200, verticalAlign: 'bottom' }}>
-                                    {file.name}
-                                </span>
-                                {' -> '}{MONTHS[month]} {year}{week > 0 ? ` · W${week} ${direction}` : ''}
-                                {hint && ` · ${hint}`}
-                            </>
-                        ) : 'Select a file to upload'}
+                        {inputMode === 'file' ? (
+                            file ? (
+                                <>
+                                    <span style={{ fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', maxWidth: 200, verticalAlign: 'bottom' }}>
+                                        {file.name}
+                                    </span>
+                                    {' -> '}{MONTHS[month]} {year}{week > 0 ? ` · W${week} ${direction}` : ''}
+                                    {hint && ` · ${hint}`}
+                                </>
+                            ) : 'Select a file to upload'
+                        ) : (
+                            pastedText.trim()
+                                ? `Pasted text -> ${MONTHS[month]} ${year}${week > 0 ? ` · W${week} ${direction}` : ''}${hint ? ` · ${hint}` : ''}`
+                                : 'Paste invoice text to upload'
+                        )}
                     </div>
                     <div className="de-submit-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         {result && <button className="btn" onClick={clearAll} style={{ fontSize: 12 }}>Upload another</button>}
-                        <button className="btn primary" onClick={() => doUpload()} disabled={!file || uploading} style={{ minWidth: 130, minHeight: 40 }}>
+                        <button
+                            className="btn primary"
+                            onClick={() => {
+                                if (inputMode === 'text') {
+                                    const f = new File([pastedText], 'pasted-invoice.txt', { type: 'text/plain' });
+                                    setFile(f);
+                                    doUpload(false, f);
+                                } else {
+                                    doUpload();
+                                }
+                            }}
+                            disabled={inputMode === 'file' ? !file || uploading : !pastedText.trim() || uploading}
+                            style={{ minWidth: 130, minHeight: 40 }}
+                        >
                             {I.inbox({ style: { width: 14, height: 14 } })}
                             {uploading ? 'Parsing...' : 'Upload & Parse'}
                         </button>

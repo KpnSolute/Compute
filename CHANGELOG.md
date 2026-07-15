@@ -4,6 +4,20 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## ✨ 2026-07-15 — Paste-text invoice input (Data Entry)
+
+**Claude:** New input mode so staff can copy-paste an invoice's text (e.g. a Multi-Flow invoice from email) instead of scanning/photographing it — far more reliable than vision on a clean text invoice. Deliberately DRY: a `.txt` paste is now detected in `parser.detect_and_parse` and run through the existing deterministic invoice text parser (`parse_invoice_text_pages`), returning the same `invoice_items` shape as PDFs — so it reuses the **entire** existing pipeline (structured items, fee separation, reconciliation gate, staging, archive) with no new endpoint or API call. Frontend adds an "Upload file / Paste text" toggle to the Data Entry card; the paste box wraps the text as a `pasted-invoice.txt` File and runs the existing `doUpload()` flow.
+
+**Validated locally** against the real Multi-Flow invoice #898561: parser extracts all 10 product lines with correct qty/price, correctly **excludes** the FE997 fuel surcharge (fee separation), item total $1,652.70 + $5 fuel = $1,657.70 printed total. Tests: `test_pasted_text_invoice.py` (3 — .txt→invoice_items detection, line/fuel extraction, non-invoice text falls back to plain text). Full gate green (90 backend tests, 0 lint errors, TS build ok).
+
+**Delegation:** frontend tab implemented by the OpenCode CLI worker under a bounded spec; diff reviewed (icons/classes verified to exist, overwrite-confirm re-call handled) and the release gate re-run by Claude before merge, per the Frontline Governor contract.
+
+**Note (follow-up):** the text parser leaves `vendor` = null for Multi-Flow (extracts invoice_number fine). Non-blocking today; worth teaching `_extract_meta` to recognize the Multi-Flow header if vendor-scoped identity ever gates these uploads.
+
+**Push:** pending — branch `feat/paste-text-invoice` → main.
+
+---
+
 ## 🚨 HOTFIX — 2026-07-15 — PGRST201 prod outage from the suggested-category FK
 
 **Claude:** The suggested-category migration (038) added a SECOND foreign key from `inventory_items` → `inventory_categories`. That made every existing PostgREST `inventory_categories(...)` embed in the **deployed** code ambiguous (`PGRST201: more than one relationship found`), so live inventory reads failed with "Couldn't load live data" — the migration was applied to prod ahead of the code that disambiguates. Root lesson: an additive second FK to the same table is NOT backwards-compatible with existing embeds.
