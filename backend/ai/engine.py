@@ -190,12 +190,49 @@ def _mistral_complete(
 _GEMINI_RETRYABLE = {429, 500, 502, 503, 504}
 
 
+def _gemini_extract_text(data: dict) -> str:
+    """Pull the answer text out of a Gemini generateContent response.
+
+    Raises a descriptive RuntimeError instead of a bare KeyError('content')
+    when the model returns no usable text — e.g. finishReason=MAX_TOKENS (the
+    thinking-budget exhaustion bug), SAFETY/RECITATION blocks, or a
+    prompt-level block. A clear message lets the fallback chain log something
+    actionable and move to the next provider.
+    """
+    block = (data.get("promptFeedback") or {}).get("blockReason")
+    if block:
+        raise RuntimeError(f"Gemini blocked the prompt (blockReason={block})")
+    candidates = data.get("candidates") or []
+    if not candidates:
+        raise RuntimeError("Gemini returned no candidates")
+    candidate = candidates[0]
+    parts = (candidate.get("content") or {}).get("parts") or []
+    text = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
+    if not text:
+        reason = candidate.get("finishReason") or "unknown"
+        raise RuntimeError(
+            f"Gemini returned an empty response (finishReason={reason}); "
+            "no text was produced"
+        )
+    return text
+
+
 def _gemini_complete(
     messages: list[dict], model: str, api_key: str
 ) -> tuple[str, dict]:
     """Call Google Gemini generateContent API with exponential-backoff retry."""
     system_parts = [m["content"] for m in messages if m.get("role") == "system"]
     turns = [m for m in messages if m.get("role") != "system"]
+
+    generation_config: dict = {"temperature": 0.1, "maxOutputTokens": 32768}
+    # Gemini 2.5 models spend output tokens on internal "thinking" first. On a
+    # dense full-page invoice image the thinking budget can consume the entire
+    # maxOutputTokens, so the API returns a candidate with finishReason=MAX_TOKENS
+    # and NO content block — which used to surface as a bare KeyError('content').
+    # Disabling thinking (budget 0, supported on 2.5 Flash) routes the whole
+    # budget to the actual answer and makes invoice vision deterministic again.
+    if model.startswith("gemini-2.5"):
+        generation_config["thinkingConfig"] = {"thinkingBudget": 0}
 
     body: dict = {
         "contents": [
@@ -207,7 +244,7 @@ def _gemini_complete(
             }
             for m in turns
         ],
-        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 32768},
+        "generationConfig": generation_config,
     }
     if system_parts:
         body["systemInstruction"] = {"parts": [{"text": "\n\n".join(system_parts)}]}
@@ -223,7 +260,7 @@ def _gemini_complete(
             resp = httpx.post(url, headers=headers, json=body, timeout=timeout_sec)
             resp.raise_for_status()
             data = resp.json()
-            text = data["candidates"][0]["content"]["parts"][0]["text"]
+            text = _gemini_extract_text(data)
             meta = data.get("usageMetadata", {})
             return text, {
                 "tokens_in": meta.get("promptTokenCount", 0),

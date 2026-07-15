@@ -4,6 +4,18 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## 🚨 INCIDENT — 2026-07-15 — Data Entry broken on scanned invoices (Gemini vision empty-response)
+
+**Claude:** Othniel reported Data Entry not working. Root-caused against production `ai_usage_logs` + the actual `Julywk2.pdf`: **the file is an image-only scanned PDF (8 pages, zero text layer)**, so it can only be read by AI vision — the deterministic pdfplumber/workbook path extracts nothing. The configured vision model, **Gemini 2.5 Flash, was failing ~27% of page calls today** (50 failed `invoice_vision` calls) with the opaque error string `'content'`.
+
+**Root cause:** `backend/ai/engine.py::_gemini_complete` did `data["candidates"][0]["content"]["parts"][0]["text"]` with no guard. Gemini 2.5 spends output tokens on internal "thinking" first; on a dense full-page invoice image the thinking budget consumed the entire `maxOutputTokens`, so the API returned a candidate with `finishReason=MAX_TOKENS` and **no `content` block** → bare `KeyError('content')` (which stringifies to exactly `'content'`). Reproduced deterministically. Per-page failures forced slow Claude-Haiku fallbacks and, when a page failed every provider, dropped that page's line items so the parse never reconciled to the invoice's printed controls (82 items / 155 pieces / $7,792.62 product total, verified from the PDF's Delivery Summary) and the v0.0.3 fail-closed gate 422-rejected the whole upload.
+
+**Fix:** (1) Disable Gemini thinking for 2.5 models — `generationConfig.thinkingConfig.thinkingBudget=0` — so the full output budget produces actual content. (2) New `_gemini_extract_text` helper raises a descriptive `RuntimeError` (finishReason / blockReason) instead of a bare KeyError, so fallbacks log something actionable. Regression suite `backend/tests/test_gemini_vision_empty_response.py` (6 tests) covers the MAX_TOKENS no-content case, prompt blocks, the happy path, and asserts the 2.5 thinking-disable body. **Needs deploy + a real re-upload of Julywk2.pdf to confirm end-to-end** — the unit tests prove the code path; only a live parse proves 82/155 reconciliation.
+
+**Data cleanup (live prod, per operator request):** Verified inventory itself was clean — the rejected W2 invoice `2140189` never leaked into July (`w2_received=0`), no orphaned ledger rows, no stuck `pending` staging. Removed the two genuinely-broken artifacts: (a) 2 zero-quantity `inventory_transactions` ledger stubs (July W2 issued, SKUs 5016696 + F00072501 — the zero-correction drift noted in the audit's I-10 area), and (b) stale open test PR #55 ("staging verification test", 2026-07-06, no commit, no live staging) → closed with a note. The rejected incident batch `2140189` and its 84 rejected staging entries were **retained as audit evidence** (not deleted). Post-clean: 0 zero-qty ledger rows, 0 open PRs, 0 stuck staging.
+
+**Push:** pending — fix committed to branch `fix/audit-findings` (bundled with the audit remediations below; OneDrive lock on `.agents/` blocked a clean standalone branch). Merge to `main` to deploy the parser fix.
+
 ## [Unversioned fixes] — 2026-07-15 — Audit findings remediated (branch `fix/audit-findings`)
 
 **Claude:** Fixed the actionable findings from today's full-ledger audit (entry below):
