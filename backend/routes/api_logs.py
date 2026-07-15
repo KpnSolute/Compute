@@ -8,7 +8,7 @@ import logging
 import time
 import traceback
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncGenerator
 
 import jwt
@@ -209,6 +209,38 @@ async def get_api_logs(
     return JSONResponse(
         {"entries": entries, "buffered": len(_events), "max": MAX_EVENTS}
     )
+
+
+@router.get("/api/system/logs/errors")
+async def get_persisted_errors(
+    limit: int = Query(100, ge=1, le=500),
+    status_min: int = Query(400, ge=400, le=599),
+    since_hours: int = Query(168, ge=1, le=2160),
+    auth_user: dict = Depends(require_elevated_user),
+) -> JSONResponse:
+    """Durable error history from error_logs — survives restarts/redeploys.
+
+    Unlike the in-memory live tail above, this is what an operator opens after a
+    staff member reports "it errored earlier": persisted 5xx + actionable 4xx,
+    newest first, filterable by minimum status and lookback window.
+    """
+    _ = auth_user
+    since = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).isoformat()
+    try:
+        result = (
+            supabase_service.table("error_logs")
+            .select(
+                "id, created_at, method, path, status_code, error_type, detail, user_hint"
+            )
+            .gte("status_code", status_min)
+            .gte("created_at", since)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return JSONResponse({"errors": result.data or []})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Could not load errors: {exc}")
 
 
 @router.get("/api/system/logs/stream")
