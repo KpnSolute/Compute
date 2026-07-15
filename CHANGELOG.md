@@ -4,6 +4,25 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## 🎯 2026-07-15 — Weekly-invoice AI targeting: preserve the parser's category guess for New Items
+
+**Claude:** Follow-on from the Data Entry incident. Reviewed what the AI actually needs to extract from a weekly US Foods invoice against the live data model, using the real `Julywk2.pdf`. Field targeting was already correct post-v0.0.3 (SHP not ORD, zero-preserved, SKU = product number, the three controls, fees kept separate). The real gap was **category**: `inventory_identity.resolve_and_write_item` force-routes every new SKU into "New Items" and **discarded the category the parser had already inferred**, so 40 items sat awaiting manual categorization even though most are obvious (`MUFFIN…FZN`→Frozen, `MARGARINE…REF`→Dairy, `CHICKEN, PTY`→Meats, `CUP…PLYST`→Disposables). The invoice's printed **storage-location column (DRY/REFRIGERATED/FROZEN)** — a strong category signal — wasn't even captured.
+
+**Decision (operator):** keep human-in-the-loop review, but surface the guess as a one-click confirmation.
+
+**Change (backend + schema + frontend):**
+- Migration `038_item_suggested_category.sql` (applied live + mirrored to supabase/migrations): `inventory_items.suggested_category_id` (advisory FK, partial index). Tracked in git — not another MCP-only drift.
+- `resolve_and_write_item`: new items still land in New Items, but the parser's guessed category is retained as `suggested_category_id` instead of thrown away.
+- Vision prompt: capture `storage_location` and use it as the PRIMARY category signal (FROZEN→Frozen Food; REFRIGERATED→Dairy/Meats/Produce; DRY→refine by description).
+- `dispatch_item_update`: clears `suggested_category_id` once a manager sets the real category (keeps the review list accurate).
+- `GET /api/inventory/items`: exposes `suggested_category_id` + name via a disambiguated PostgREST embed (validated live against the REST API — resolves; backend service-role bypasses the RLS that blocks anon).
+- Frontend (`Portal.tsx` Edit-item modal): for a New-Items row, fetches the suggestion, pre-selects it in the Category dropdown, and shows a "Parser suggests X" banner — confirm = one click.
+- Conservative advisory backfill for the existing 40 New Items (high-confidence keywords only; ambiguous left NULL; caught + reverted one false positive where "GRND" matched ground paprika).
+
+**Tests:** `test_item_suggested_category.py` (3) — guess preserved as suggestion in review mode, no self-suggestion when guess == New Items, direct apply outside review mode.
+
+**Push:** pending — see the incident/audit branch below.
+
 ## 🚨 INCIDENT — 2026-07-15 — Data Entry broken on scanned invoices (Gemini vision empty-response)
 
 **Claude:** Othniel reported Data Entry not working. Root-caused against production `ai_usage_logs` + the actual `Julywk2.pdf`: **the file is an image-only scanned PDF (8 pages, zero text layer)**, so it can only be read by AI vision — the deterministic pdfplumber/workbook path extracts nothing. The configured vision model, **Gemini 2.5 Flash, was failing ~27% of page calls today** (50 failed `invoice_vision` calls) with the opaque error string `'content'`.

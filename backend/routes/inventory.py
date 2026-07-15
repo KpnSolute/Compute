@@ -390,7 +390,9 @@ async def list_inventory_items(
     try:
         q = supabase_service.table("inventory_items").select(
             "id, sku, description, category_id, unit_price, par_level, unit, active, sku_pending, needs_attention, "
-            "inventory_categories(name)"
+            "suggested_category_id, "
+            "inventory_categories!category_id(name), "
+            "suggested_cat:inventory_categories!suggested_category_id(name)"
         )
         if sku:
             q = q.eq("sku", sku)
@@ -407,6 +409,9 @@ async def list_inventory_items(
             cat_join = row.get("inventory_categories") or {}
             if isinstance(cat_join, list):
                 cat_join = cat_join[0] if cat_join else {}
+            sug_join = row.get("suggested_cat") or {}
+            if isinstance(sug_join, list):
+                sug_join = sug_join[0] if sug_join else {}
             items.append(
                 {
                     "id": row["id"],
@@ -414,6 +419,8 @@ async def list_inventory_items(
                     "description": row["description"],
                     "category_id": row.get("category_id"),
                     "category": cat_join.get("name") or "",
+                    "suggested_category_id": row.get("suggested_category_id"),
+                    "suggested_category": sug_join.get("name") or "",
                     "unit_price": row.get("unit_price"),
                     "par_level": row.get("par_level"),
                     "unit": row.get("unit"),

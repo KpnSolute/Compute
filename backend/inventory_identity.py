@@ -78,7 +78,9 @@ def resolve_and_write_item(
     without a known category fall back to `fallback_category_id` (New Items).
     When `force_review_category` is set (data-entry path), a NEW item ALWAYS
     lands in the New Items bucket even if a category was guessed — so the manager
-    reviews everything ingestion introduces.
+    reviews everything ingestion introduces. In that case the guessed
+    `category_id` is retained as `suggested_category_id` (advisory) so the review
+    UI can pre-fill it for one-click confirmation instead of discarding the guess.
     """
     raw_sku = canonical_sku(sku)
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -131,9 +133,13 @@ def resolve_and_write_item(
         return item_id, sku, False
 
     # New item: data-entry review mode routes every parsed item into New Items
-    # even if the parser guessed a known category.
+    # even if the parser guessed a known category — but keep that guess as an
+    # advisory suggestion (unless it IS the New Items bucket) so review can
+    # pre-fill it. Outside review mode the guess is applied directly.
     if force_review_category:
         fields["category_id"] = fallback_category_id
+        if category_id and category_id != fallback_category_id:
+            fields["suggested_category_id"] = category_id
     else:
         fields["category_id"] = category_id or fallback_category_id
     fields["active"] = True

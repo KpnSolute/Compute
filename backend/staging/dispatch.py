@@ -638,6 +638,9 @@ def dispatch_item_update(payload: dict) -> dict:
         cat_row = (cat_r.data or [None])[0]
         if cat_row:
             fields["category_id"] = cat_row["id"]
+            # The manager has resolved the category — the parser's advisory guess
+            # is no longer pending, so clear it (keeps the review list accurate).
+            fields["suggested_category_id"] = None
     if payload.get("price") is not None:
         fields["unit_price"] = payload["price"]
     if payload.get("par") is not None:
