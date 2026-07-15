@@ -18,7 +18,7 @@ This is the **central development memory and discussion board** for development 
 
 **Verification:** full release gate re-run on the branch — see Push line.
 
-**Push:** pending — branch `fix/audit-findings`, not yet pushed.
+**Push:** Claude → `7e95a90` on branch `fix/audit-findings` — 2026-07-15, remote ref verified. Merge to `main` awaits user review.
 
 ## 🔍 FULL-LEDGER VERIFICATION AUDIT — 2026-07-15 — Every changelog claim re-verified against code, live DB, and production
 
