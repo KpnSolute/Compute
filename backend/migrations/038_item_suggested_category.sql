@@ -8,14 +8,19 @@
 -- This column keeps that guess as a non-authoritative SUGGESTION so the review UI
 -- can pre-fill it for one-click confirmation. category_id stays the source of
 -- truth; suggested_category_id is advisory and cleared once a human confirms.
+--
+-- IMPORTANT: this is a PLAIN uuid column with NO foreign key. A second FK from
+-- inventory_items to inventory_categories would make every existing PostgREST
+-- `inventory_categories(...)` embed ambiguous (PGRST201) and break inventory
+-- reads. The suggested category's display name is resolved in application code
+-- (routes/inventory.py) via an id->name map instead of a DB relationship embed.
 
 ALTER TABLE public.inventory_items
-    ADD COLUMN IF NOT EXISTS suggested_category_id uuid
-    REFERENCES public.inventory_categories (id) ON DELETE SET NULL;
+    ADD COLUMN IF NOT EXISTS suggested_category_id uuid;
 
 COMMENT ON COLUMN public.inventory_items.suggested_category_id IS
-    'Advisory category the parser inferred for a New-Items row (storage location + '
-    'description). Pre-fills the review UI; not authoritative. NULL once confirmed.';
+    'Advisory category id the parser inferred for a New-Items row (storage location + '
+    'description). Plain column, NO fk (avoids embed ambiguity). Advisory only; NULL once confirmed.';
 
 -- Index the small set of rows actively awaiting review.
 CREATE INDEX IF NOT EXISTS idx_inventory_items_suggested_category

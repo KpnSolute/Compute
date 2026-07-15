@@ -4,6 +4,14 @@ This is the **central development memory and discussion board** for development 
 
 ---
 
+## 🚨 HOTFIX — 2026-07-15 — PGRST201 prod outage from the suggested-category FK
+
+**Claude:** The suggested-category migration (038) added a SECOND foreign key from `inventory_items` → `inventory_categories`. That made every existing PostgREST `inventory_categories(...)` embed in the **deployed** code ambiguous (`PGRST201: more than one relationship found`), so live inventory reads failed with "Couldn't load live data" — the migration was applied to prod ahead of the code that disambiguates. Root lesson: an additive second FK to the same table is NOT backwards-compatible with existing embeds.
+
+**Fix:** Dropped the FK constraint on `inventory_items.suggested_category_id` (column + backfilled data retained) and reloaded the PostgREST schema cache → prod reads restored immediately (verified: the plain `inventory_categories(name)` embed returns RLS-`42501` for anon, no longer `PGRST201`; service-role backend bypasses RLS). Reworked the feature to be backwards-compatible: `suggested_category_id` is now a PLAIN uuid column with **no** foreign key, and `GET /api/inventory/items` resolves the suggested category's display name via an id→name map in Python instead of a second embed. Migration files (038 + supabase mirror) updated to match. No FK is ever added, so migration/deploy ordering can't break embeds again.
+
+**Push:** pending — fix on branch `fix/audit-findings` (PR #4). The live DB is already corrected.
+
 ## 🎯 2026-07-15 — Weekly-invoice AI targeting: preserve the parser's category guess for New Items
 
 **Claude:** Follow-on from the Data Entry incident. Reviewed what the AI actually needs to extract from a weekly US Foods invoice against the live data model, using the real `Julywk2.pdf`. Field targeting was already correct post-v0.0.3 (SHP not ORD, zero-preserved, SKU = product number, the three controls, fees kept separate). The real gap was **category**: `inventory_identity.resolve_and_write_item` force-routes every new SKU into "New Items" and **discarded the category the parser had already inferred**, so 40 items sat awaiting manual categorization even though most are obvious (`MUFFIN…FZN`→Frozen, `MARGARINE…REF`→Dairy, `CHICKEN, PTY`→Meats, `CUP…PLYST`→Disposables). The invoice's printed **storage-location column (DRY/REFRIGERATED/FROZEN)** — a strong category signal — wasn't even captured.
