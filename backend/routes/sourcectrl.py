@@ -420,8 +420,15 @@ def _assert_inventory_overwrite_allowed(
         )
 
 
-def _apply_confirmed_inventory_overwrites(entries: list[dict]) -> list[dict]:
-    """Clear confirmed Data Entry replacement scopes once per commit merge."""
+def _apply_confirmed_inventory_overwrites(
+    entries: list[dict], backups: list[dict]
+) -> list[dict]:
+    """Clear confirmed Data Entry replacement scopes once per commit merge.
+
+    Every scope is snapshotted into ``backups`` BEFORE it is cleared so a
+    failed replay can restore the pre-commit state via
+    ``_restore_inventory_overwrites`` instead of leaving the period empty.
+    """
     sup = supabase_service
     cleared: list[dict] = []
     seen: set[tuple] = set()
@@ -441,6 +448,29 @@ def _apply_confirmed_inventory_overwrites(entries: list[dict]) -> list[dict]:
             _assert_inventory_overwrite_allowed(sup, db_month, year, month)
             # A confirmed month overwrite is a full scope replacement: clear all
             # cache and ledger rows for that period, then replay the new upload.
+            monthly_rows = (
+                sup.table("monthly_inventory")
+                .select("*")
+                .eq("month", db_month)
+                .eq("year", year)
+                .execute()
+            ).data or []
+            txn_rows = (
+                sup.table("inventory_transactions")
+                .select("*")
+                .eq("month", db_month)
+                .eq("year", year)
+                .execute()
+            ).data or []
+            backups.append(
+                {
+                    "scope": "month",
+                    "db_month": db_month,
+                    "year": year,
+                    "monthly_rows": monthly_rows,
+                    "txn_rows": txn_rows,
+                }
+            )
             sup.table("monthly_inventory").delete().eq("month", db_month).eq(
                 "year", year
             ).execute()
@@ -460,6 +490,35 @@ def _apply_confirmed_inventory_overwrites(entries: list[dict]) -> list[dict]:
         col = f"w{week}_{column_direction}"
         # A confirmed weekly overwrite replaces the whole week+direction scope,
         # not just matching SKUs, so deleted rows cannot linger in reports.
+        nonzero_rows = (
+            sup.table("monthly_inventory")
+            .select(f"id, {col}")
+            .eq("month", db_month)
+            .eq("year", year)
+            .neq(col, 0)
+            .execute()
+        ).data or []
+        txn_rows = (
+            sup.table("inventory_transactions")
+            .select("*")
+            .eq("month", db_month)
+            .eq("year", year)
+            .eq("week_number", week)
+            .eq("txn_type", txn_type)
+            .execute()
+        ).data or []
+        backups.append(
+            {
+                "scope": "week",
+                "db_month": db_month,
+                "year": year,
+                "week": week,
+                "txn_type": txn_type,
+                "col": col,
+                "monthly_values": nonzero_rows,
+                "txn_rows": txn_rows,
+            }
+        )
         sup.table("monthly_inventory").update({col: 0}).eq("month", db_month).eq(
             "year", year
         ).execute()
@@ -476,6 +535,55 @@ def _apply_confirmed_inventory_overwrites(entries: list[dict]) -> list[dict]:
             }
         )
     return cleared
+
+
+def _restore_inventory_overwrites(backups: list[dict]) -> None:
+    """Best-effort rollback of ``_apply_confirmed_inventory_overwrites``.
+
+    Re-clears each scope (removing whatever a partial replay landed), then
+    reinserts the snapshotted originals so a failed commit leaves the period
+    exactly as it was instead of empty. Called only on the abort path.
+    """
+    sup = supabase_service
+    for backup in backups:
+        try:
+            db_month, year = backup["db_month"], backup["year"]
+            if backup["scope"] == "month":
+                sup.table("monthly_inventory").delete().eq("month", db_month).eq(
+                    "year", year
+                ).execute()
+                sup.table("inventory_transactions").delete().eq("month", db_month).eq(
+                    "year", year
+                ).execute()
+                if backup["monthly_rows"]:
+                    sup.table("monthly_inventory").insert(
+                        backup["monthly_rows"]
+                    ).execute()
+                if backup["txn_rows"]:
+                    sup.table("inventory_transactions").insert(
+                        backup["txn_rows"]
+                    ).execute()
+                continue
+            week, txn_type, col = backup["week"], backup["txn_type"], backup["col"]
+            sup.table("inventory_transactions").delete().eq("month", db_month).eq(
+                "year", year
+            ).eq("week_number", week).eq("txn_type", txn_type).execute()
+            sup.table("monthly_inventory").update({col: 0}).eq("month", db_month).eq(
+                "year", year
+            ).execute()
+            for row in backup["monthly_values"]:
+                sup.table("monthly_inventory").update({col: row[col]}).eq(
+                    "id", row["id"]
+                ).execute()
+            if backup["txn_rows"]:
+                sup.table("inventory_transactions").insert(backup["txn_rows"]).execute()
+        except Exception as exc:
+            log.error(
+                "[COMMIT] overwrite rollback failed for scope %s — manual repair "
+                "may be needed: %s",
+                {k: backup.get(k) for k in ("scope", "db_month", "year", "week")},
+                exc,
+            )
 
 
 # ── models ──────────────────────────────────────────────────────────────────
@@ -640,7 +748,17 @@ def _apply_entries(
     # 1 — replay all operations. Published periods are read-only (enforced by the
     #     DB guard and the dispatch published-check); there is no override — to edit
     #     a closed period an admin reopens it (month_status.status='open') first.
-    overwrite_clears = _apply_confirmed_inventory_overwrites(entries)
+    #     Overwrite scopes are snapshotted before clearing; any replay failure —
+    #     error result or exception — restores them so a failed commit can never
+    #     leave a period empty.
+    overwrite_backups: list[dict] = []
+    try:
+        overwrite_clears = _apply_confirmed_inventory_overwrites(
+            entries, overwrite_backups
+        )
+    except Exception:
+        _restore_inventory_overwrites(overwrite_backups)
+        raise
     # Batch inventory_save entries by (month, year) so the 3 fixed Supabase overhead
     # queries (month_status, categories, new_items_cat) run once per period instead of
     # once per entry. 266 entries → 1 dispatch call; items carry per-item _staging_entry_id.
@@ -678,63 +796,69 @@ def _apply_entries(
             _other_entries.append(entry)
 
     replay_results = []
-    for group in _inv_save_groups.values():
-        first_fp = group[0]["full_payload"]
-        merged_items = [
-            {**item, "_staging_entry_id": e["entry_id"]}
-            for e in group
-            for item in (e["full_payload"].get("items") or [])
-        ]
-        merged_payload = {
-            **first_fp,
-            "items": merged_items,
-            "_staging_entry_id": group[0]["entry_id"],
-            "_batch_staging_ids": [e["entry_id"] for e in group],
-            "review_new": any(e["full_payload"].get("review_new") for e in group),
-        }
-        result = replay("inventory_save", merged_payload)
-        for e in group:
-            replay_results.append(
-                {
-                    "entry_id": e["entry_id"],
-                    "operation": "inventory_save",
-                    "result": result,
-                }
-            )
+    try:
+        for group in _inv_save_groups.values():
+            first_fp = group[0]["full_payload"]
+            merged_items = [
+                {**item, "_staging_entry_id": e["entry_id"]}
+                for e in group
+                for item in (e["full_payload"].get("items") or [])
+            ]
+            merged_payload = {
+                **first_fp,
+                "items": merged_items,
+                "_staging_entry_id": group[0]["entry_id"],
+                "_batch_staging_ids": [e["entry_id"] for e in group],
+                "review_new": any(e["full_payload"].get("review_new") for e in group),
+            }
+            result = replay("inventory_save", merged_payload)
+            for e in group:
+                replay_results.append(
+                    {
+                        "entry_id": e["entry_id"],
+                        "operation": "inventory_save",
+                        "result": result,
+                    }
+                )
 
-    for group in _inv_week_groups.values():
-        first_fp = group[0]["full_payload"]
-        merged_items = [
-            {**item, "_staging_entry_id": entry["entry_id"]}
-            for entry in group
-            for item in (entry["full_payload"].get("items") or [])
-        ]
-        merged_payload = {
-            **first_fp,
-            "items": merged_items,
-            "_staging_entry_id": group[0]["entry_id"],
-            "_batch_staging_ids": [entry["entry_id"] for entry in group],
-            "review_new": any(
-                entry["full_payload"].get("review_new") for entry in group
-            ),
-        }
-        result = replay("inventory_week_update", merged_payload)
-        for entry in group:
-            replay_results.append(
-                {
-                    "entry_id": entry["entry_id"],
-                    "operation": "inventory_week_update",
-                    "result": result,
-                }
-            )
+        for group in _inv_week_groups.values():
+            first_fp = group[0]["full_payload"]
+            merged_items = [
+                {**item, "_staging_entry_id": entry["entry_id"]}
+                for entry in group
+                for item in (entry["full_payload"].get("items") or [])
+            ]
+            merged_payload = {
+                **first_fp,
+                "items": merged_items,
+                "_staging_entry_id": group[0]["entry_id"],
+                "_batch_staging_ids": [entry["entry_id"] for entry in group],
+                "review_new": any(
+                    entry["full_payload"].get("review_new") for entry in group
+                ),
+            }
+            result = replay("inventory_week_update", merged_payload)
+            for entry in group:
+                replay_results.append(
+                    {
+                        "entry_id": entry["entry_id"],
+                        "operation": "inventory_week_update",
+                        "result": result,
+                    }
+                )
 
-    for entry in _other_entries:
-        op = entry.get("operation")
-        fp = entry.get("full_payload")
-        result = replay(op, {**fp, "_staging_entry_id": entry["entry_id"]})
-        replay_results.append(
-            {"entry_id": entry["entry_id"], "operation": op, "result": result}
-        )
+        for entry in _other_entries:
+            op = entry.get("operation")
+            fp = entry.get("full_payload")
+            result = replay(op, {**fp, "_staging_entry_id": entry["entry_id"]})
+            replay_results.append(
+                {"entry_id": entry["entry_id"], "operation": op, "result": result}
+            )
+    except Exception:
+        # An uncaught replay exception would otherwise 500 with the overwrite
+        # scopes already cleared — restore the snapshots before propagating.
+        _restore_inventory_overwrites(overwrite_backups)
+        raise
 
     # 2 — all-or-nothing. If ANY entry failed to replay, abort the WHOLE commit:
     #     create no commit, mark nothing merged, leave every entry pending with a
@@ -744,6 +868,9 @@ def _apply_entries(
     replayed_ids = {r["entry_id"] for r in replay_results}
     failed_results = [r for r in replay_results if r["result"].get("error")]
     if failed_results:
+        # Put back everything the overwrite clears removed, so an aborted commit
+        # leaves the period exactly as it was rather than empty until a retry.
+        _restore_inventory_overwrites(overwrite_backups)
         for r in replay_results:
             err = r["result"].get("error")
             note = (

@@ -30,7 +30,18 @@ def archive_is_required() -> bool:
     raw = os.getenv("MJCC_ARCHIVE_REQUIRED")
     if raw is not None:
         return raw.lower() in {"1", "true", "yes"}
-    return any(name.startswith("MJCC_ARCHIVE_") for name in os.environ)
+    # Infer "required" only from the core connection vars, so a partial or
+    # typo'd credential setup fails closed. Auxiliary tuning vars alone
+    # (MJCC_ARCHIVE_MAX_FILE_MB, MJCC_ARCHIVE_ALLOW_INSECURE, ...) must not
+    # flip archiving to required-but-unconfigurable and 503 every upload.
+    return any(
+        os.getenv(name)
+        for name in (
+            "MJCC_ARCHIVE_ENDPOINT",
+            "MJCC_ARCHIVE_ACCESS_KEY",
+            "MJCC_ARCHIVE_SECRET_KEY",
+        )
+    )
 
 
 def archive_settings_valid() -> bool:

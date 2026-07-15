@@ -112,7 +112,7 @@ async def get_meal_periods(auth_user: dict = Depends(_get_auth_user)):
 async def update_meal_period(
     period_id: str,
     body: MealPeriodUpdate,
-    auth_user: dict = Depends(_get_auth_user),
+    auth_user: dict = Depends(_require_admin_or_manager),
 ):
     updates = body.model_dump(exclude_unset=True)
     if not updates:

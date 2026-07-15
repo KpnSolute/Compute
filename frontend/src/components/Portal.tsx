@@ -4251,10 +4251,11 @@ function UsersView({ user: currentUser }: { user: User }) {
                     <div className="banner info" style={{ margin: "0 16px 12px" }}>
                         {I.alert()}
                         <span>
-                            Checking a box here controls whether that role can see and navigate to a page — it's the only
-                            gate on visibility now. Some actions inside a page (editing users, deleting events, changing
-                            settings, publishing the menu) still enforce their own minimum role on the server regardless of
-                            these checkboxes, as a second layer of protection for sensitive writes.
+                            Checking a box here controls whether that role can see and navigate to a page. Financial pages
+                            (Inventory, Monthly Inventory, Reports, Archives, Pull Sheet, Snack Bar, Data Entry) additionally
+                            require assistant level or above regardless of these checkboxes. Some actions inside a page
+                            (editing users, deleting events, changing settings, publishing the menu) still enforce their own
+                            minimum role on the server, as a second layer of protection for sensitive writes.
                         </span>
                     </div>
                     <div className="card-body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12 }}>

@@ -943,8 +943,8 @@ async def create_user(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
-    if req.pin and not req.pin.isdigit():
-        raise HTTPException(status_code=400, detail="PIN must be numeric")
+    if req.pin and (not req.pin.isdigit() or len(req.pin) < 4):
+        raise HTTPException(status_code=400, detail="PIN must be at least 4 digits")
 
     now = datetime.now(timezone.utc).isoformat()
 
@@ -1041,8 +1041,8 @@ async def update_user(
             )
         update_data["role"] = req.role
     if req.pin is not None:
-        if req.pin and not req.pin.isdigit():
-            raise HTTPException(status_code=400, detail="PIN must be numeric")
+        if req.pin and (not req.pin.isdigit() or len(req.pin) < 4):
+            raise HTTPException(status_code=400, detail="PIN must be at least 4 digits")
         update_data["pin"] = req.pin or None
     if req.active is not None:
         update_data["active"] = req.active
