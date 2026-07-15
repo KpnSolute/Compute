@@ -1552,6 +1552,19 @@ def detect_and_parse(
     if ext == "tsv":
         return "rows", parse_tsv(content)
 
+    # Pasted / plain-text invoices (.txt) — run the deterministic invoice text
+    # parser so they get the SAME structured items + reconciliation gate as PDF
+    # and vision invoices. Falls back to raw text if no invoice lines are found.
+    if ext == "txt":
+        text = content.decode("utf-8", errors="replace")
+        try:
+            parsed = invoice_parser.parse_invoice_text_pages([text], filename)
+            if parsed.get("items"):
+                return "invoice_items", parsed
+        except Exception:
+            pass
+        return "text", text
+
     # CSV heuristic for unknown text files
     try:
         rows = parse_csv(content)
