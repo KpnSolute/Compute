@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { User } from './lib/constants';
 import {
   clearBackendToken,
@@ -75,6 +75,23 @@ function showToast(html: string, duration = 4000) {
 function App() {
   const [user, setUser] = useState<User | null>(loadSession);
   const [newVersionAvailable, setNewVersionAvailable] = useState(false);
+  const ssoLaunchStarted = useRef(false);
+
+  useEffect(() => {
+    if (!user || ssoLaunchStarted.current) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('launch') !== 'lioncafe') return;
+    ssoLaunchStarted.current = true;
+    api.startLunchvoiceSso()
+      .then(({ redirect_url }) => window.location.replace(redirect_url))
+      .catch((error) => {
+        ssoLaunchStarted.current = false;
+        params.delete('launch');
+        const query = params.toString();
+        window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+        showToast(`<span>${error instanceof Error ? error.message : 'Could not open LionCafe.'}</span>`);
+      });
+  }, [user]);
 
   // Central session teardown — called by logout and session-expired handler.
   const teardown = useCallback(async (reason?: 'idle' | 'unauthorized' | 'logout') => {

@@ -1,5 +1,25 @@
 # CHANGELOG — MJCC Development Forum
 
+## 2026-07-15 - LionCafe single sign-on bridge
+
+**Codex:** Integrated the existing KpnCompute and Lunchvoice applications without
+cloning or replacing either codebase. The LionCafe permission scope remains the
+authoritative MJCC access decision.
+
+- Added authenticated `POST /api/auth/lunchvoice-sso/start` and server-only
+  `POST /api/auth/lunchvoice-sso/exchange` endpoints using 60-second, one-time
+  codes. Only SHA-256 code hashes are stored, responses are non-cacheable, and
+  access is rechecked against the live role-permission matrix at exchange time.
+- Added mirrored migration 040 for the service-role-only SSO handoff table; the
+  additive migration was transaction-tested and applied to MJCCv1.
+- Routed both LionCafe portal entry points through the authenticated SSO launch
+  instead of opening Lunchvoice directly. The button is visible only when the
+  current role has the LionCafe scope.
+- Added regression coverage for fail-closed role checks, fragment-only raw code
+  transport, hashed storage, one-time consumption, and replay rejection.
+
+**Push:** branch `codex/lunchvoice-sso`, intended for verified fast-forward to `main`.
+
 This is the **central development memory and discussion board** for development on MJCC. **READ THIS BEFORE MAKING ANY CHANGE.** All thoughts, decisions, and changes go HERE — no new `.md` files are permitted (see `AGENTS.md` §0).
 
 ---

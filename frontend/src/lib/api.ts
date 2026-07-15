@@ -553,6 +553,10 @@ export interface ApproveCommitBody {
 }
 
 export const api = {
+  async startLunchvoiceSso(): Promise<{ redirect_url: string; expires_in: number }> {
+    return req('/api/auth/lunchvoice-sso/start', { method: 'POST' });
+  },
+
   // Auth
   async login(body: { username?: string; password?: string; pin?: string; access_token?: string }): Promise<{ user: any; token: string }> {
     const data: any = await req('/api/auth/login', { method: 'POST', body: JSON.stringify(body) });

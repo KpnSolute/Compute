@@ -1,8 +1,15 @@
 import datetime
+import hashlib
+import hmac
+import os
+import secrets
+from urllib.parse import urlsplit
+
 import jwt as pyjwt
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, Response
 from pydantic import BaseModel, ConfigDict
 from backend.routes import supabase_service, jwt_validator, SUPABASE_JWT_SECRET
+from backend.routes._deps import _get_auth_user
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -37,12 +44,190 @@ class UserInfo(BaseModel):
     must_change_pin: bool = False
 
 
+class LunchvoiceSsoStartResponse(BaseModel):
+    redirect_url: str
+    expires_in: int
+
+
+class LunchvoiceSsoExchangeRequest(BaseModel):
+    code: str
+
+
+class LunchvoiceSsoIdentity(BaseModel):
+    mjcc_user_id: str
+    username: str
+    email: str
+    display_name: str
+    mjcc_role: str
+    tenant_slug: str
+
+
 def _credential_flags(user: dict) -> dict:
     """Default-credential banner flags. PIN default is derived (PINs are plaintext)."""
     return {
         "must_change_password": bool(user.get("must_change_password")),
         "must_change_pin": user.get("role") == "staff" and user.get("pin") == "2222",
     }
+
+
+def _has_lioncafe_scope(role: str) -> bool:
+    """Fail closed unless the live MJCC role matrix grants LionCafe access."""
+    try:
+        scope = (
+            supabase_service.table("permission_scopes")
+            .select("key")
+            .eq("key", "lioncafe")
+            .eq("active", True)
+            .limit(1)
+            .execute()
+        )
+        if not scope.data:
+            return False
+        grant = (
+            supabase_service.table("role_permissions")
+            .select("scope_key")
+            .eq("role", role)
+            .eq("scope_key", "lioncafe")
+            .eq("allowed", True)
+            .limit(1)
+            .execute()
+        )
+        return bool(grant.data)
+    except Exception:
+        return False
+
+
+def _sso_secret() -> str:
+    value = os.getenv("LUNCHVOICE_SSO_SECRET", "").strip()
+    if len(value) >= 32:
+        return value
+    source = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
+    if len(source) < 32:
+        raise HTTPException(status_code=503, detail="Lunchvoice SSO is not configured")
+    return hmac.new(
+        source.encode("utf-8"),
+        b"lunchvoice-sso-bridge-v1",
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _sso_callback() -> str:
+    value = os.getenv(
+        "LUNCHVOICE_SSO_URL",
+        "https://interact-3npi.onrender.com/LionCafe/sso",
+    ).strip()
+    parsed = urlsplit(value)
+    if parsed.scheme != "https" or not parsed.netloc or parsed.query or parsed.fragment:
+        raise HTTPException(
+            status_code=503, detail="Lunchvoice SSO callback is invalid"
+        )
+    return value.rstrip("/")
+
+
+@router.post("/lunchvoice-sso/start", response_model=LunchvoiceSsoStartResponse)
+async def start_lunchvoice_sso(
+    response: Response,
+    current_user: dict = Depends(_get_auth_user),
+) -> LunchvoiceSsoStartResponse:
+    """Create a 60-second, one-time code for a LionCafe-authorized MJCC account."""
+    response.headers["Cache-Control"] = "no-store"
+    if not _has_lioncafe_scope(str(current_user.get("role") or "")):
+        raise HTTPException(
+            status_code=403, detail="LionCafe access is not enabled for your MJCC role"
+        )
+
+    # Validate shared configuration before creating a handoff that cannot be exchanged.
+    _sso_secret()
+    callback = _sso_callback()
+    raw_code = secrets.token_urlsafe(32)
+    code_hash = hashlib.sha256(raw_code.encode("utf-8")).hexdigest()
+    now = datetime.datetime.now(datetime.timezone.utc)
+    expires_in = 60
+    expires_at = now + datetime.timedelta(seconds=expires_in)
+    try:
+        supabase_service.table("lunchvoice_sso_handoffs").delete().lt(
+            "expires_at", now.isoformat()
+        ).execute()
+        supabase_service.table("lunchvoice_sso_handoffs").insert(
+            {
+                "code_hash": code_hash,
+                "user_id": current_user["id"],
+                "tenant_slug": "LionCafe",
+                "expires_at": expires_at.isoformat(),
+            }
+        ).execute()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Could not start Lunchvoice SSO")
+
+    return LunchvoiceSsoStartResponse(
+        redirect_url=f"{callback}#code={raw_code}",
+        expires_in=expires_in,
+    )
+
+
+@router.post("/lunchvoice-sso/exchange", response_model=LunchvoiceSsoIdentity)
+async def exchange_lunchvoice_sso(
+    req: LunchvoiceSsoExchangeRequest,
+    response: Response,
+    x_lunchvoice_sso_secret: str = Header("", alias="X-Lunchvoice-Sso-Secret"),
+) -> LunchvoiceSsoIdentity:
+    """Atomically consume a handoff; this endpoint is only for Lunchvoice's server."""
+    response.headers["Cache-Control"] = "no-store"
+    if not secrets.compare_digest(x_lunchvoice_sso_secret, _sso_secret()):
+        raise HTTPException(status_code=401, detail="Invalid SSO client")
+    code = req.code.strip()
+    if len(code) < 32 or len(code) > 200:
+        raise HTTPException(status_code=401, detail="Invalid or expired SSO code")
+
+    code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    try:
+        consumed = (
+            supabase_service.table("lunchvoice_sso_handoffs")
+            .update({"consumed_at": now})
+            .eq("code_hash", code_hash)
+            .is_("consumed_at", "null")
+            .gt("expires_at", now)
+            .select("user_id,tenant_slug")
+            .execute()
+        )
+    except Exception:
+        raise HTTPException(status_code=503, detail="Could not exchange SSO code")
+    if not consumed.data:
+        raise HTTPException(status_code=401, detail="Invalid or expired SSO code")
+
+    handoff = consumed.data[0]
+    user = await _get_user_profile(str(handoff["user_id"]))
+    if (
+        not user
+        or not user.get("active")
+        or not _has_lioncafe_scope(str(user.get("role") or ""))
+    ):
+        raise HTTPException(status_code=403, detail="LionCafe access has been revoked")
+
+    username = str(user.get("username") or "").strip()
+    if not username:
+        raise HTTPException(status_code=403, detail="MJCC profile is incomplete")
+    display_name = (
+        " ".join(
+            value.strip()
+            for value in [
+                str(user.get("display_name") or ""),
+                str(user.get("last_name") or ""),
+            ]
+            if value.strip()
+        )
+        or username
+    )
+    email = str(user.get("email") or "").strip() or f"{username}@mjc-cafeteria.com"
+    return LunchvoiceSsoIdentity(
+        mjcc_user_id=str(user["id"]),
+        username=username,
+        email=email,
+        display_name=display_name,
+        mjcc_role=str(user["role"]),
+        tenant_slug=str(handoff["tenant_slug"]),
+    )
 
 
 async def _get_user_profile(user_id: str) -> dict | None:

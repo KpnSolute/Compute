@@ -618,9 +618,11 @@ function ActivityBar({
                             <div className="um-head">
                                 <div className="nm">External Tools</div>
                             </div>
-                            <button className="um-item" onClick={() => { window.open('https://lunchvoice.com/LionCafe', '_blank', 'noreferrer'); setToolsOpen(false); }}>
-                                LunchVoice — Menu Review
-                            </button>
+                            {hasScope("lioncafe") && (
+                                <button className="um-item" onClick={() => { goTo("lioncafe"); setToolsOpen(false); }}>
+                                    LunchVoice — Menu Review
+                                </button>
+                            )}
                         </div>
                     )}
                 </div>
@@ -5170,7 +5172,7 @@ export function Portal({
                 toast("This page isn't enabled for your role. Ask an administrator to grant it in Role Scopes.");
                 return;
             }
-            window.open("https://lunchvoice.com/admin", "_blank", "noopener,noreferrer");
+            window.location.assign("/?launch=lioncafe");
             return;
         }
         if (!canAccess(routeKey)) {
