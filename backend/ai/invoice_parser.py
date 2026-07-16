@@ -1320,10 +1320,12 @@ If the model does not support tool calling, return ONLY valid JSON matching this
   "vendor": "vendor name or null",
   "invoice_number": "string or null",
   "invoice_date": "MM/DD/YYYY or null",
-  "subtotal": 0.0,
+  "product_total": 0.0,
   "vizient_discount": 0.0,
   "fuel_surcharge": 0.0,
   "net_total": 0.0,
+  "total_items_shipped": 0,
+  "total_pieces_delivered": 0,
   "items": [
     {
       "sku": "US Foods 5-7 digit product number",
@@ -1351,8 +1353,14 @@ Rules:
 - Include EVERY product line item visible — skip subtotal/header/address/fuel-surcharge lines
 - ORD and SHP are different columns. qty_shipped MUST come from SHP, never ORD.
 - Preserve a printed SHP value of 0 exactly as 0. Never replace zero with one.
-- On the invoice-summary page, extract Product Total, TOTAL ITEMS SHIPPED, and
-  TOTAL PIECES DELIVERED exactly. These are mandatory controls for US Foods.
+- On the page with a "STORAGE LOCATION RECAP" table (usually near the end), read
+  its "DELIVERY SUMMARY TOTALS" row exactly: put its "TOTAL ITEMS SHIPPED" column
+  into total_items_shipped (integer) and its "TOTAL PIECES DELIVERED" column into
+  total_pieces_delivered (integer). Also read "Product Total" from the nearby
+  "INVOICE SUMMARY" block into product_total. These three are mandatory US Foods
+  controls used to verify nothing was missed — read them exactly, do not compute
+  or estimate them. Leave all three at 0 / 0.0 on every page that does not show
+  this recap table.
 - If this page has NO product line items (e.g. it's a cover/summary/blank page),
   return "items": []  — do not invent items.
 - Any field you cannot find (vendor, invoice_number, totals, etc.): use null / 0.0, do not guess.
@@ -1502,17 +1510,29 @@ def extract_invoice_vision(
             "vendor",
             "invoice_number",
             "invoice_date",
-            "subtotal",
-            "product_total",
             "vizient_discount",
             "fuel_surcharge",
             "net_total",
-            "total_items_shipped",
-            "total_pieces_delivered",
         ):
             val = data.get(key)
             if val not in (None, "", 0, 0.0) and not merged_meta.get(key):
                 merged_meta[key] = val
+
+        # product_total/total_items_shipped/total_pieces_delivered are the
+        # DELIVERY SUMMARY RECAP controls and only ever appear together, printed
+        # once, on the invoice's recap page. Per-page vision calls are
+        # independent and non-deterministic: a page with no real totals can
+        # hallucinate a plausible-looking number into ONE of these fields while
+        # leaving the others at 0. Merging each field independently let a
+        # hallucinated early-page value block the real recap page's correct
+        # trio (first-non-null-wins never got a chance to see it). Requiring
+        # all three truthy on the SAME page's response before accepting any of
+        # them makes a single hallucinated field harmless.
+        recap_keys = ("product_total", "total_items_shipped", "total_pieces_delivered")
+        if not any(merged_meta.get(k) for k in recap_keys):
+            recap_vals = {k: data.get(k) for k in recap_keys}
+            if all(v not in (None, "", 0, 0.0) for v in recap_vals.values()):
+                merged_meta.update(recap_vals)
 
         page_items = data.get("items") or []
         if not page_items:
@@ -1549,9 +1569,7 @@ def extract_invoice_vision(
         "vendor_name": merged_meta.get("vendor"),
         "invoice_number": merged_meta.get("invoice_number"),
         "invoice_date": merged_meta.get("invoice_date"),
-        "subtotal": merged_meta.get("subtotal"),
-        "product_total": merged_meta.get("product_total")
-        or merged_meta.get("subtotal"),
+        "product_total": merged_meta.get("product_total"),
         "vizient_discount": merged_meta.get("vizient_discount"),
         "fuel_surcharge": merged_meta.get("fuel_surcharge"),
         "net_total": merged_meta.get("net_total"),

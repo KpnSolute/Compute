@@ -1,5 +1,63 @@
 # CHANGELOG — MJCC Development Forum
 
+## 2026-07-15 - v0.0.8 - US Foods invoice parser: fix sideways scans + recap-total reliability
+
+**Claude:** Root-caused why weekly US Foods invoice uploads were failing to parse
+(the parser was correctly refusing garbage, but the underlying extraction never
+had a chance). Verified end-to-end with a real local Supabase stack, a seeded
+manager account, and the real production invoice PDF, driven through the actual
+FastAPI upload endpoint with a live authenticated JWT.
+
+- **Root cause:** US Foods invoices are scanned PDFs with zero extractable text
+  (line items are outlined vector paths, not real text — pdfplumber and PyMuPDF
+  both return 0 chars). `detect_and_parse` correctly falls through to rendering
+  pages as images for Vision AI, but the rendered pages came out **rotated 90°**
+  (portrait page, landscape content). Sideways input broke both the OCR→regex
+  parser (mis-read "Page N of M" as the invoice number) and Vision AI item
+  recall, which caused the fail-closed 82-line/155-piece reconciliation gate to
+  reject every real upload.
+- **Fix 1 — auto de-rotation** (`backend/ai/parser.py`, `_orient_invoice_page`):
+  detects sideways text via pure-Pillow ink projection-profile variance (no
+  OCR/Tesseract — Render only ships PyMuPDF + Pillow) and rotates upright only
+  when needed, so an already-correct page from any vendor is never touched.
+  Wired into both the fitz and pdfplumber render paths.
+- **Fix 2 — recap-totals schema gap** (`backend/ai/invoice_parser.py`,
+  `_VISION_PROMPT`): the prompt told the model to read the printed
+  `TOTAL ITEMS SHIPPED` / `TOTAL PIECES DELIVERED` recap row, but the JSON
+  schema never defined those fields, so the model had nowhere to put them.
+  Added `product_total` / `total_items_shipped` / `total_pieces_delivered` to
+  the schema with explicit table/row guidance.
+- **Fix 3 — hallucination leak** (`extract_invoice_vision` meta merge): a
+  redundant, ambiguous `subtotal` field let an unrelated early page's guess
+  leak into `product_total` through two fallback paths, overriding the real
+  recap page's correct value. Removed the redundant field; `product_total` /
+  `total_items_shipped` / `total_pieces_delivered` now merge **atomically** —
+  all three or none, from a single page's response — so one hallucinated field
+  can no longer corrupt the others.
+- **Verified:** all 8 real invoice pages (+6 template invoices) render upright;
+  a real authenticated upload against a local Supabase replica (schema dumped
+  from live MJCCv1) now extracts dollar-perfect totals (`product_total`,
+  `fuel_surcharge` exact match; `delta_pct: 0.0`, `reconciled: true`) instead of
+  zero items. The system still correctly fails closed when Vision's per-page
+  read of the recap page is inconsistent (LLM call-to-call variance, not a code
+  defect) — a known, accepted limitation; retry is safe since nothing is staged
+  on rejection.
+- Also fixed two local-dev-only issues found while building the test
+  environment (not part of this push): a Docker-DNS-breaking trailing hyphen
+  in `supabase/config.toml`'s `project_id`, and a missing schema baseline for
+  `supabase start` (repo's 20 committed migrations are only the tail of ~163
+  real production migrations). Left uncommitted per governance — schema/
+  migration disposition is Gemini/mjcc-data's lane.
+
+**Verify:** `scripts/verify_release.py` — Ruff lint/format clean, 96 backend
+tests passed (14 skipped), frontend lint 0 errors (664 pre-existing warnings
+untouched), production build passing.
+
+**Files touched:** `backend/ai/parser.py`, `backend/ai/invoice_parser.py`,
+`VERSION`, `frontend/package.json`, `frontend/package-lock.json`.
+
+**Push:** pending
+
 ## 2026-07-15 - LionCafe single sign-on bridge
 
 **Codex:** Integrated the existing KpnCompute and Lunchvoice applications without

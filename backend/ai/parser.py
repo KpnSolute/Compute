@@ -1361,6 +1361,62 @@ def rows_to_text(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
+# Rotate a rendered page above this column/row profile-variance ratio. Empirically
+# upright US Foods pages sit near 0.35 (col<<row) and sideways pages near 2.8-11
+# (col>>row), so a 1.30 gate never fires on an already-upright page and reliably
+# catches the 90-degree case. See _orient_invoice_page.
+_ORIENT_ROTATE_RATIO = 1.30
+
+
+def _orient_invoice_page(png_bytes: bytes) -> bytes:
+    """Return the page rotated upright when its text lines run vertically.
+
+    US Foods invoices are landscape line-item tables drawn as outlined vector
+    graphics rotated 90 degrees on a portrait page (native text extraction yields
+    nothing), so PyMuPDF/pdfplumber render them sideways. Both the vision model
+    and the Cloud-Vision-OCR -> regex parser need upright pages, and a sideways
+    render is the root cause of under-counted items and the "Page N of M" value
+    landing in the invoice-number field.
+
+    Orientation is detected with projection-profile variance in pure Pillow (no
+    OCR, no extra deps): rows of text create ink banding *perpendicular* to the
+    line direction, so an upright page has higher row-profile variance while a
+    sideways page has higher column-profile variance. Only pages whose text is
+    actually sideways are rotated, so a correctly oriented page is never touched.
+    On any error the original bytes are returned unchanged.
+    """
+    try:
+        from PIL import Image
+    except Exception:
+        return png_bytes
+    try:
+        im = Image.open(io.BytesIO(png_bytes))
+        im.load()
+        probe = im.convert("L")
+        probe.thumbnail((400, 400))  # tiny + fast; keeps peak heap flat
+        w, h = probe.size
+        if w < 8 or h < 8:
+            return png_bytes
+        inv = probe.point(lambda p: 255 - p)  # dark ink -> high value
+        row_prof = list(inv.resize((1, h)).getdata())  # mean ink per row
+        col_prof = list(inv.resize((w, 1)).getdata())  # mean ink per column
+
+        def _var(xs: list[float]) -> float:
+            m = sum(xs) / len(xs)
+            return sum((x - m) ** 2 for x in xs) / len(xs)
+
+        row_var = _var(row_prof)
+        col_var = _var(col_prof)
+        if row_var > 0 and col_var > row_var * _ORIENT_ROTATE_RATIO:
+            rotated = im.transpose(Image.ROTATE_270)
+            buf = io.BytesIO()
+            rotated.save(buf, format="PNG")
+            return buf.getvalue()
+    except Exception:
+        pass
+    return png_bytes
+
+
 def detect_and_parse(
     filename: str, content: bytes
 ) -> tuple[str, list[dict] | str | dict]:
@@ -1489,7 +1545,7 @@ def detect_and_parse(
                 for _page_index in range(min(pages_total, _PDF_PAGE_CAP)):
                     _page = _doc.load_page(_page_index)
                     _pix = _page.get_pixmap(matrix=matrix, alpha=False)
-                    page_images.append(_pix.tobytes("png"))
+                    page_images.append(_orient_invoice_page(_pix.tobytes("png")))
             if page_images:
                 return "invoice_images", {
                     "images": page_images,
@@ -1515,7 +1571,7 @@ def detect_and_parse(
                         _page.to_image(resolution=_PDF_RENDER_DPI).save(
                             _buf, format="PNG"
                         )
-                        page_images.append(_buf.getvalue())
+                        page_images.append(_orient_invoice_page(_buf.getvalue()))
                     except Exception:
                         pass
                     finally:
