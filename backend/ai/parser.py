@@ -1314,40 +1314,29 @@ def parse_excel(content: bytes) -> list[dict[str, Any]]:
     return result
 
 
-_PDF_PAGE_CAP = 40  # matches invoice_parser._PDF_MAX_PAGES
+_TEXT_EXTRACT_PAGE_CAP = 40  # matches invoice_parser._PDF_MAX_PAGES
 
 
-def parse_pdf(content: bytes) -> str:
-    pages: list[str] = []
+def _pdf_has_native_text(content: bytes) -> bool:
+    """Fast presence-only check: does this PDF have ANY real text at all?
+
+    PyMuPDF's page.get_text() answers this in ~0.15s on an 8-page dense,
+    vector-drawn scan (measured) — pdfplumber's extract_text() takes ~11s on
+    the same file to reach the identical "no text" conclusion, because it
+    additionally does layout/character-position analysis that a mere
+    presence check doesn't need. Used purely as a gate: if this returns
+    False, the slower pdfplumber/pdfminer extraction below is skipped
+    entirely rather than spending ~20s confirming what this already answered.
+    Returns True (safe/slow path) on any error, so a missing/broken PyMuPDF
+    install can never suppress real text extraction.
+    """
     try:
-        import pdfplumber
+        import fitz
 
-        with pdfplumber.open(io.BytesIO(content)) as pdf:
-            total = min(len(pdf.pages), _PDF_PAGE_CAP)
-            for i in range(total):
-                page = pdf.pages[i]
-                try:
-                    text = page.extract_text() or ""
-                except Exception:
-                    text = ""
-                finally:
-                    page.close()
-                pages.append(text)
-    except ImportError:
-        pass
-
-    text = "\n".join(pages).strip()
-    if text:
-        return text
-
-    try:
-        from pdfminer.high_level import extract_text
-
-        return (extract_text(io.BytesIO(content), maxpages=_PDF_PAGE_CAP) or "").strip()
-    except ImportError:
-        raise RuntimeError("pdfplumber or pdfminer.six is required for PDF parsing.")
+        with fitz.open(stream=content, filetype="pdf") as doc:
+            return any(page.get_text().strip() for page in doc)
     except Exception:
-        return ""
+        return True
 
 
 def rows_to_text(rows: list[dict]) -> str:
@@ -1507,19 +1496,56 @@ def detect_and_parse(
 
     # PDFs: try deterministic invoice parser first, fall back to plain text,
     # then convert to page images for vision AI if text extraction yields nothing.
+    # try_ocr_fallback=False: OCR.space (network, up to 120s) and local Tesseract
+    # (CPU-heavy, no timeout) can never succeed here — a scanned invoice with no
+    # native text reaches the image-rendering + Vision AI fallback a few lines
+    # down regardless, which is the only path proven to work on these documents.
+    # Running either OCR fallback first was pure added latency/risk for zero
+    # payoff; see parse_invoice_bytes_pdf's docstring.
     if is_pdf or ext == "pdf":
-        try:
-            parsed = invoice_parser.parse_invoice_bytes_pdf(content, filename)
-            if parsed["items"]:
-                return "invoice_items", parsed
-        except Exception:
-            pass
         raw_text = ""
-        try:
-            raw_text = parse_pdf(content)
-        except Exception:
-            pass
-        if raw_text.strip():
+        # Fast gate (~0.15s) before paying pdfplumber's ~11s per-page cost: on
+        # a scanned invoice (the overwhelming common case through this path)
+        # there is no native text at all, so skip straight to image rendering
+        # + Vision AI — the only path proven to work on these documents —
+        # instead of spending ~20s (pdfplumber + pdfminer) to reach the exact
+        # conclusion this check already answers near-instantly.
+        if _pdf_has_native_text(content):
+            native_pages: list[str] = []
+            try:
+                native_pages = invoice_parser._extract_text_native(content)
+            except Exception:
+                pass
+            try:
+                parsed = invoice_parser.parse_invoice_bytes_pdf(
+                    content,
+                    filename,
+                    try_ocr_fallback=False,
+                    native_pages=native_pages,
+                )
+                if parsed["items"]:
+                    return "invoice_items", parsed
+            except Exception:
+                pass
+            raw_text = "\n".join(native_pages).strip()
+            if not raw_text:
+                # pdfminer is a genuinely different parsing engine that can
+                # occasionally succeed where pdfplumber's native pass above
+                # found nothing (other document types through this same
+                # generic endpoint) — worth trying once, but only once, and
+                # only when the already-done pdfplumber pass came up empty.
+                try:
+                    from pdfminer.high_level import extract_text
+
+                    raw_text = (
+                        extract_text(
+                            io.BytesIO(content), maxpages=_TEXT_EXTRACT_PAGE_CAP
+                        )
+                        or ""
+                    ).strip()
+                except Exception:
+                    raw_text = ""
+        if raw_text:
             return "text", raw_text
         # All-image PDF (scanned / no native text) — render pages as PNG for vision AI.
         # 150 DPI is the floor for the model to reliably read dense invoice line-item

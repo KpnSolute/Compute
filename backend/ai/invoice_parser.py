@@ -1082,18 +1082,41 @@ def parse_invoice_bytes_pdf(
     api_key: str | None = None,
     ocr_only: bool = False,
     debug: bool = False,
+    try_ocr_fallback: bool = True,
+    native_pages: list[str] | None = None,
 ) -> dict:
     """Parse a PDF invoice from raw bytes.
 
     Returns {'meta': {...}, 'items': [...]}.
     Tries native text first; falls back to OCR.space, then local Tesseract.
+
+    try_ocr_fallback=False skips both OCR fallbacks entirely once native text
+    extraction comes up empty. detect_and_parse (the only caller) uses this:
+    it already has its own image-rendering + Vision AI fallback for scanned
+    PDFs immediately after this call, which is the ONLY path proven to work on
+    scanned US Foods invoices (native/OCR.space/local-Tesseract text
+    extraction all return nothing on these — they're pure vector-path scans
+    with zero real text). Running OCR.space (network call, up to 120s) and/or
+    local Tesseract (CPU-heavy, page-by-page, no timeout) first was pure
+    wasted latency on every scanned-invoice upload, and — worse — a slow or
+    resource-heavy attempt here can stall the request for minutes before
+    Vision AI ever gets a chance to run at all.
+
+    native_pages, when provided, is used as-is instead of re-running native
+    extraction — pdfplumber's per-page text pass is expensive on a dense,
+    vector-drawn scan (~10s on an 8-page US Foods invoice) and detect_and_parse
+    already ran it once to decide whether to call this function at all;
+    re-deriving the same empty result a second time inside here was pure
+    duplicate cost.
     """
     pages: list[str] = []
 
-    if not ocr_only:
+    if native_pages is not None:
+        pages = native_pages  # caller already ran native extraction — reuse it
+    elif not ocr_only:
         pages = _extract_text_native(content)
 
-    if not any(p.strip() for p in pages):
+    if try_ocr_fallback and not any(p.strip() for p in pages):
         key = api_key or os.getenv("OCR_API_KEY", "")
         if key:
             pages = _ocr_space(content, "invoice.pdf", key, is_pdf=True, debug=debug)

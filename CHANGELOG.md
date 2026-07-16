@@ -1,5 +1,73 @@
 # CHANGELOG — MJCC Development Forum
 
+## 2026-07-16 - v0.1.0 - Fix invoice-upload hang: dead legacy OCR fallback + redundant PDF parsing
+
+**Claude:** Live-reproduced a production incident: a real invoice upload sat
+"loading" indefinitely until the user cancelled, and got logged out
+("session expired") partway through. Watched Render logs in real time during
+a second live reproduction and found the request hung for 100+ seconds with
+**zero** `[AI] vision request start` log activity — meaning the parse never
+even reached Vision AI, the one path already proven to work end-to-end today
+(v0.0.8/v0.0.9). At ~117s in, `/api/commits` (an unrelated endpoint) logged
+`ConnectionTerminated error_code:1` — the same signature as two pre-existing
+`error_logs` rows from the day before, confirming this is a recurring bug,
+not a one-off. Restarted the Render backend to unblock the user immediately,
+then root-caused and fixed the underlying issue:
+
+- **Removed the legacy OCR fallback from the hot path.** `detect_and_parse`
+  (`backend/ai/parser.py`) called `parse_invoice_bytes_pdf`
+  (`backend/ai/invoice_parser.py`) first, which — whenever native text
+  extraction found nothing — unconditionally tried OCR.space (a network call
+  with a **120-second timeout**) and then local Tesseract (CPU-heavy,
+  page-by-page, no timeout at all), *before* the working Vision AI path ever
+  got a chance to run. Proven repeatedly today: these scanned US Foods
+  invoices have zero native text and neither OCR.space nor local Tesseract
+  can ever succeed on them — Vision AI is the only path that works. This
+  fallback was pure wasted latency and, worse, unbounded CPU/network risk on
+  every scanned-invoice upload. Added a `try_ocr_fallback` flag (default
+  `True`, preserving behavior for any other future caller) and set it `False`
+  at this call site.
+- **Eliminated a duplicate pdfplumber pass.** `parse_invoice_bytes_pdf` and a
+  second function (`parse_pdf`, now removed as dead code — confirmed unused
+  anywhere else) were each independently re-parsing the same PDF's content
+  streams from scratch to reach the identical "no text here" conclusion —
+  paying pdfplumber's expensive per-page `extract_text()` cost (~11s on this
+  8-page dense vector-drawn scan) **twice**, plus a further ~9-10s pdfminer
+  pass. Added a `native_pages` passthrough parameter so the single native-text
+  pass is computed once and reused; pdfminer is still tried once (a genuinely
+  different engine, useful for other document types through this same
+  generic upload endpoint) but only when that one pass found nothing.
+- **Added a fast native-text presence gate.** Measured PyMuPDF's
+  `page.get_text()` at **0.156s** for the identical "is there any text at
+  all" check that pdfplumber takes **11.4s** to answer on this file — a ~73x
+  difference for the same correct answer (0 characters, either way). Added
+  `_pdf_has_native_text` as a cheap gate before the pdfplumber/pdfminer
+  machinery: when it finds nothing (the common case for these scans), skip
+  straight to image rendering + Vision AI instead of spending ~20s confirming
+  what the 0.15s check already answered. Verified a synthetic genuinely
+  text-bearing PDF still routes through the existing (unchanged) extraction
+  path correctly — zero regression risk for non-scanned documents.
+- **Combined effect, measured on the real invoice:** `detect_and_parse` went
+  from ~34s (after the v0.0.9 fixes, before today's session) — or up to
+  120+s worst case with OCR.space involved — down to **1.47s**. This should
+  eliminate the production hang; the exact mechanism linking the hang to the
+  concurrent `/api/commits` `ConnectionTerminated` errors isn't proven with
+  full certainty, but removing a multi-minute blocking network call plus
+  ~30s of redundant CPU-bound parsing from the request hot path is an
+  unambiguous risk reduction regardless.
+
+**Verify:** `scripts/verify_release.py` — Ruff lint/format clean, 96 backend
+tests passed (14 skipped), frontend lint 0 errors (664 pre-existing warnings
+untouched), production build passing. Manually verified: real invoice
+extraction still correct (upright pages, correct reconciliation per v0.0.9),
+synthetic text-PDF still routes correctly, timing improvement measured
+directly (34s → 1.47s).
+
+**Files touched:** `backend/ai/parser.py`, `backend/ai/invoice_parser.py`,
+`VERSION`, `frontend/package.json`, `frontend/package-lock.json`.
+
+**Push:** pending
+
 ## 2026-07-16 - v0.0.9 - Invoice recap-totals: fix real-invoice reliability gap found in production
 
 **Claude:** Follow-up to v0.0.8. Checked MJCCv1 for errored DB rows and log
