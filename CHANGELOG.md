@@ -1,5 +1,55 @@
 # CHANGELOG — MJCC Development Forum
 
+## 2026-07-16 - v0.0.9 - Invoice recap-totals: fix real-invoice reliability gap found in production
+
+**Claude:** Follow-up to v0.0.8. Checked MJCCv1 for errored DB rows and log
+evidence after that release — no new/unexpected errored records (the only
+`rejected` staging_entries are the already-corrected July 14 incident + 2
+benign user-unstages; `error_logs` had 2 unrelated `/api/commits` 500s, an
+HTTP/2 client-disconnect, not a parsing issue). But `ai_usage_logs` showed a
+real production re-upload attempt of the July W2 invoice at 2026-07-16
+12:43-12:45 UTC (after the v0.0.8 deploy): Vision succeeded on all 8 pages
+(86 items extracted, a massive improvement over the previous total failure),
+but it still hit the exact reliability gap flagged when v0.0.8 shipped —
+Render logs showed `reconciled=False` because the recap page returned 0 items
+that run, so nothing got staged. Root-caused and fixed the underlying issue
+rather than leaving it as an accepted limitation:
+
+- **Added a targeted recap-retry** (`_extract_recap_totals`,
+  `_RECAP_RETRY_PROMPT` in `backend/ai/invoice_parser.py`): after the main
+  per-page pass, if the recap trio (`product_total`/`total_items_shipped`/
+  `total_pieces_delivered`) wasn't captured, re-ask ONLY for those three
+  numbers — a much narrower, more reliable question — on just the pages that
+  returned zero line items (typically 1-3 pages), instead of accepting the
+  fail-closed rejection immediately.
+- **Diagnosed a precise wrong-row failure mode** during verification: the
+  `STORAGE LOCATION RECAP` table's `DELIVERY SUMMARY TOTALS` grand-total row
+  sits alongside individual per-storage-location subtotal rows (DRY,
+  REFRIGERATED, FROZEN); a wrong read of the DRY subtotal (37 items/68
+  pieces/$2,661.41) reproduced consistently and exactly matched
+  `82-24-21=37`, `155-48-39=68`, `$7792.62-$3315.10-$1816.11=$2661.41` —
+  confirming the model was reading the wrong row, not hallucinating randomly.
+  An attempt to fix this by adding an explicit warning to the prompt about
+  the table being split across pages actually made results *worse* against
+  the real production model (Gemini 2.5 Flash) — reverted that addition;
+  the simpler prompt wording, verified against the real model, is what ships.
+- **Verified against the actual production model** (Gemini 2.5 Flash, not the
+  Claude model used for earlier local testing) on the real invoice that was
+  failing in production: `stated_item_count: 82`, `stated_piece_count: 155`,
+  `product_total: $7,792.62`, `item_count (parsed): 82`,
+  `piece_count (parsed): 155`, `reconciled: true`, `quantity_reconciled: true`
+  — a fully clean pass, the first time this invoice has reconciled end to end
+  in this project's history.
+
+**Verify:** `scripts/verify_release.py` — Ruff lint/format clean, 96 backend
+tests passed (14 skipped), frontend lint 0 errors (664 pre-existing warnings
+untouched), production build passing.
+
+**Files touched:** `backend/ai/invoice_parser.py`, `VERSION`,
+`frontend/package.json`, `frontend/package-lock.json`.
+
+**Push:** pending
+
 ## 2026-07-15 - v0.0.8 - US Foods invoice parser: fix sideways scans + recap-total reliability
 
 **Claude:** Root-caused why weekly US Foods invoice uploads were failing to parse

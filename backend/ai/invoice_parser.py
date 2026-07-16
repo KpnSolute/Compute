@@ -1353,14 +1353,20 @@ Rules:
 - Include EVERY product line item visible — skip subtotal/header/address/fuel-surcharge lines
 - ORD and SHP are different columns. qty_shipped MUST come from SHP, never ORD.
 - Preserve a printed SHP value of 0 exactly as 0. Never replace zero with one.
-- On the page with a "STORAGE LOCATION RECAP" table (usually near the end), read
-  its "DELIVERY SUMMARY TOTALS" row exactly: put its "TOTAL ITEMS SHIPPED" column
-  into total_items_shipped (integer) and its "TOTAL PIECES DELIVERED" column into
-  total_pieces_delivered (integer). Also read "Product Total" from the nearby
-  "INVOICE SUMMARY" block into product_total. These three are mandatory US Foods
-  controls used to verify nothing was missed — read them exactly, do not compute
-  or estimate them. Leave all three at 0 / 0.0 on every page that does not show
-  this recap table.
+- On the page with a "STORAGE LOCATION RECAP" table (usually near the end):
+  this table has one row PER storage location (DRY, REFRIGERATED, FROZEN,
+  etc. — each a subtotal for that location only) plus exactly ONE further
+  "DELIVERY SUMMARY TOTALS" row that grand-totals every location combined.
+  Read ONLY that grand-total row (its numbers are the SUM of every
+  storage-location row above it, so they are always the LARGEST value in each
+  column — never a single storage-location's subtotal): put its
+  "TOTAL ITEMS SHIPPED" column into total_items_shipped (integer) and its
+  "TOTAL PIECES DELIVERED" column into total_pieces_delivered (integer). Also
+  read "Product Total" from the nearby "INVOICE SUMMARY" block (a separate
+  block, not the recap table's own "TOTAL EXTENDED PRICE" column) into
+  product_total. These three are mandatory US Foods controls used to verify
+  nothing was missed — read them exactly, do not compute or estimate them.
+  Leave all three at 0 / 0.0 on every page that does not show this recap table.
 - If this page has NO product line items (e.g. it's a cover/summary/blank page),
   return "items": []  — do not invent items.
 - Any field you cannot find (vendor, invoice_number, totals, etc.): use null / 0.0, do not guess.
@@ -1408,6 +1414,77 @@ def _extract_vision_page(
         log.warning(
             "[invoice_parser] page %d: vision response was not a JSON object", page_num
         )
+        return None
+    return data
+
+
+# Narrow, single-purpose prompt used ONLY as a targeted retry when the full
+# per-page pass (_VISION_PROMPT) never captured the recap trio. Asking a model
+# to extract 12+ line-item fields AND remember 3 easily-overlooked recap
+# numbers in one call is where the miss happens in practice; asking for
+# nothing BUT the recap numbers on a page already suspected of being the
+# recap page (it returned zero line items) is a much easier, more reliable ask.
+_RECAP_RETRY_PROMPT = """This image is one page of a US Foods invoice. It may
+contain a "STORAGE LOCATION RECAP" table with a "DELIVERY SUMMARY TOTALS" row,
+and a nearby "INVOICE SUMMARY" block — look carefully, this text is often
+small and easy to miss.
+
+CRITICAL — the STORAGE LOCATION RECAP table has MULTIPLE rows and it is easy
+to read the wrong one:
+- One row PER storage location actually used on this invoice (e.g. "DRY",
+  "REFRIGERATED", "FROZEN", "COOLER") — each is a SUBTOTAL for that location only.
+- Exactly ONE further row labeled "DELIVERY SUMMARY TOTALS" (or "TOTALS") —
+  this is the GRAND total across every storage-location row combined.
+You must read ONLY the "DELIVERY SUMMARY TOTALS" grand-total row, never a
+single storage-location's subtotal row. The grand-total row's numbers are the
+SUM of every storage-location row above it, so they are always the LARGEST
+number in each column — if a storage-location row exists above your chosen
+row with a larger value in the same column, you picked the wrong row.
+
+Return ONLY this JSON, nothing else:
+{
+  "product_total": 0.0,
+  "total_items_shipped": 0,
+  "total_pieces_delivered": 0
+}
+
+- product_total: the "Product Total" dollar amount from the INVOICE SUMMARY
+  block (a separate block, usually below/beside the recap table — not the
+  recap table's own "TOTAL EXTENDED PRICE" column).
+- total_items_shipped: the "TOTAL ITEMS SHIPPED" column of the DELIVERY
+  SUMMARY TOTALS grand-total row (an integer count of line items, NOT a
+  dollar amount, NOT a piece count).
+- total_pieces_delivered: the "TOTAL PIECES DELIVERED" column of the same
+  grand-total row (an integer count of physical pieces/units, always >=
+  total_items_shipped).
+- If this page does not contain that recap table at all, return all three as
+  0 / 0.0 exactly. Do not guess, estimate, or compute these from line items."""
+
+
+def _extract_recap_totals(
+    image: bytes, cfg: dict, *, page_num: int, called_by: str | None
+) -> dict | None:
+    """Targeted retry: ask ONLY for the recap trio from a single candidate page.
+
+    Returns a dict with the three recap keys, or None on any failure. The
+    caller treats an all-zero result the same as a failure (page wasn't the
+    recap page or the model still couldn't read it).
+    """
+    from backend.ai import engine as ai_engine
+
+    try:
+        raw_text = ai_engine.complete_vision(
+            _RECAP_RETRY_PROMPT,
+            [image],
+            cfg,
+            operation="invoice_vision_recap_retry",
+            called_by=called_by,
+        )
+    except Exception as e:
+        log.warning("[invoice_parser] recap retry on page %d failed: %s", page_num, e)
+        return None
+    data = ai_engine.extract_json(raw_text)
+    if not isinstance(data, dict):
         return None
     return data
 
@@ -1480,6 +1557,11 @@ def extract_invoice_vision(
     items: list[dict] = []
     pages_failed = 0
     consecutive_empty = 0
+    # Pages with zero line items are recap/cover/terms-page candidates — the
+    # only pages the recap trio could plausibly be on. Tracked so a later
+    # targeted retry doesn't have to re-scan every page in the invoice.
+    zero_item_pages: list[tuple[int, bytes]] = []
+    recap_keys = ("product_total", "total_items_shipped", "total_pieces_delivered")
 
     for i, img in enumerate(images, start=1):
         try:
@@ -1528,7 +1610,6 @@ def extract_invoice_vision(
         # trio (first-non-null-wins never got a chance to see it). Requiring
         # all three truthy on the SAME page's response before accepting any of
         # them makes a single hallucinated field harmless.
-        recap_keys = ("product_total", "total_items_shipped", "total_pieces_delivered")
         if not any(merged_meta.get(k) for k in recap_keys):
             recap_vals = {k: data.get(k) for k in recap_keys}
             if all(v not in (None, "", 0, 0.0) for v in recap_vals.values()):
@@ -1542,12 +1623,37 @@ def extract_invoice_vision(
                 i,
                 len(images),
             )
+            zero_item_pages.append((i, img))
             consecutive_empty += 1
             if consecutive_empty >= 2 and items:
                 break
         else:
             consecutive_empty = 0
         items.extend(page_items)
+
+    # Targeted retry: the full per-page pass above sometimes fails to capture
+    # the recap trio purely from model variance (proven readable in isolation —
+    # see invoice_parser tests) even though it correctly identified the page as
+    # having zero line items. Re-ask ONLY for the three recap numbers, ONLY on
+    # those candidate pages, stopping at the first complete answer. Bounded to
+    # a handful of extra calls (typically 1-3 pages) rather than re-scanning
+    # the whole invoice.
+    if not any(merged_meta.get(k) for k in recap_keys) and zero_item_pages:
+        for page_num, page_img in zero_item_pages:
+            retry_data = _extract_recap_totals(
+                page_img, cfg, page_num=page_num, called_by=called_by
+            )
+            if not retry_data:
+                continue
+            recap_vals = {k: retry_data.get(k) for k in recap_keys}
+            if all(v not in (None, "", 0, 0.0) for v in recap_vals.values()):
+                merged_meta.update(recap_vals)
+                log.info(
+                    "[invoice_parser] recap retry succeeded on page %d/%d",
+                    page_num,
+                    len(images),
+                )
+                break
 
     if pages_failed and pages_failed == len(images):
         log.error(
