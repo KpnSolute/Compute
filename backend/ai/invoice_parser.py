@@ -394,7 +394,14 @@ INVOICE_EXTRACTION_TOOLS: list[dict] = [
                     },
                     "vizient_discount": {
                         "type": "number",
-                        "description": "Vizient/GPO member discount (store as positive; sign applied by system)",
+                        "description": (
+                            "Vizient/GPO member discount total (store as positive; sign applied by system). "
+                            "US Foods invoices sometimes print MULTIPLE separate Vizient/GPO incentive lines "
+                            "(e.g. a percentage-based 'AVG DROP INCENTIV' line AND a separate 'VOLUME INCENTIVE' "
+                            "line, each with its own dollar amount). If more than one such line appears, sum ALL "
+                            "of them into a single vizient_discount value — do not report only one line when "
+                            "multiple are present."
+                        ),
                     },
                     "fuel_surcharge": {"type": "number"},
                     "net_total": {
@@ -1406,6 +1413,12 @@ Rules:
   product_total. These three are mandatory US Foods controls used to verify
   nothing was missed — read them exactly, do not compute or estimate them.
   Leave all three at 0 / 0.0 on every page that does not show this recap table.
+- vizient_discount: US Foods invoices sometimes print MULTIPLE separate Vizient/GPO incentive
+  lines on the INVOICE SUMMARY page (e.g. a percentage-based "AVG DROP INCENTIV" line AND a
+  separate "VOLUME INCENTIVE" line, each showing its own dollar credit amount). If more than
+  one such line appears, sum ALL of them into a single vizient_discount value — do not report
+  only one line when multiple are present. Store the result as a positive number; the system
+  applies the negative sign.
 - If this page has NO product line items (e.g. it's a cover/summary/blank page),
   return "items": []  — do not invent items.
 - Any field you cannot find (vendor, invoice_number, totals, etc.): use null / 0.0, do not guess.
@@ -1442,7 +1455,16 @@ _VISION_RESPONSE_SCHEMA: dict = {
         "invoice_number": {"type": "string", "nullable": True},
         "invoice_date": {"type": "string", "nullable": True},
         "product_total": {"type": "number"},
-        "vizient_discount": {"type": "number"},
+        "vizient_discount": {
+            "type": "number",
+            "description": (
+                "Vizient/GPO member discount total (store as positive; sign applied by system). "
+                "US Foods invoices sometimes print MULTIPLE separate Vizient/GPO incentive lines "
+                "(e.g. 'AVG DROP INCENTIV' and a separate 'VOLUME INCENTIVE' line, each with its "
+                "own dollar amount). If more than one such line appears, sum ALL of them into a "
+                "single value — do not report only one line when multiple are present."
+            ),
+        },
         "fuel_surcharge": {"type": "number"},
         "net_total": {"type": "number"},
         "total_items_shipped": {"type": "integer"},
