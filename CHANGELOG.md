@@ -1,5 +1,17 @@
 # CHANGELOG — MJCC Development Forum
 
+## 2026-07-17 — feat(ui): reassign New Items from notifications
+
+**Codex:** Expanded the main-panel notification tray to load all attention items up to the
+catalog limit, show every item currently in `New Items`, and give manager/admin users an inline
+category selector. Selecting a destination stages the existing `item_update` operation for
+Source Control review; the item is not directly mutated or silently committed.
+
+**Verified:** `npm.cmd run lint` (0 errors, existing warnings), `npx tsc --noEmit`, and
+`npm.cmd run build` passed.
+
+**Push:** pending — UI change is uncommitted.
+
 ## 2026-07-17 — feat(ui): add main-panel notifications tray
 
 **Codex:** Added a notification button to the main top panel. The tray loads reorder alerts,

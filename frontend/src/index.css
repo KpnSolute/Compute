@@ -2290,6 +2290,10 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
 .tb-notify-empty{padding:7px 4px;color:var(--muted);font-size:11px}
 .tb-notify-item{width:100%;display:flex;gap:8px;align-items:flex-start;text-align:left;border:0;background:none;color:var(--ink);padding:7px 4px;border-radius:7px;cursor:pointer}
 .tb-notify-item:hover{background:var(--surface-2)}
+.tb-notify-item-editable{cursor:default}
+.tb-notify-item-copy{min-width:0;flex:1;cursor:pointer}
+.tb-notify-category{max-width:112px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);font-size:10px;padding:4px 3px}
+.tb-notify-category:disabled{opacity:.65}
 .tb-notify-item b,.tb-notify-item small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:290px}
 .tb-notify-item b{font-size:11px}
 .tb-notify-item small{color:var(--muted);font-size:10px;margin-top:2px}

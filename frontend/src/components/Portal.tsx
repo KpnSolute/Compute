@@ -265,15 +265,19 @@ function Topbar({
         reorders: any[];
         newItems: any[];
         commits: any[];
-    }>({ reorders: [], newItems: [], commits: [] });
+        categories: string[];
+    }>({ reorders: [], newItems: [], commits: [], categories: [] });
     const [notificationsLoading, setNotificationsLoading] = useState(false);
+    const [reassigningSku, setReassigningSku] = useState<string | null>(null);
+    const [stagedReassignments, setStagedReassignments] = useState<Record<string, string>>({});
     const loadNotifications = useCallback(async () => {
         setNotificationsLoading(true);
         try {
-            const [reorderRows, attentionRows, commitRows] = await Promise.all([
+            const [reorderRows, attentionRows, commitRows, categoryRows] = await Promise.all([
                 api.getReorders(),
-                api.getInventoryItems({ needs_attention: true, limit: 100 }),
+                api.getInventoryItems({ needs_attention: true, limit: 2000 }),
                 api.getCommits(5),
+                api.getInventoryCategories(),
             ]);
             setNotificationData({
                 reorders: reorderRows || [],
@@ -281,12 +285,34 @@ function Topbar({
                     String(item.category || '').toLowerCase() === 'new items',
                 ),
                 commits: commitRows || [],
+                categories: (categoryRows || []).map((category: any) => category.name).filter(Boolean),
             });
         } catch {
             // The notification tray is auxiliary; keep the main panel usable if
             // one feed is temporarily unavailable.
         } finally {
             setNotificationsLoading(false);
+        }
+    }, []);
+    const reassignNewItem = useCallback(async (item: any, category: string) => {
+        const sku = String(item.sku || '');
+        if (!sku || !category || category === 'New Items') return;
+        setReassigningSku(sku);
+        try {
+            await api.stageChange(
+                'item_update',
+                'inventory',
+                sku,
+                { sku, desc: item.description || sku, category },
+                `Reassign New Item · ${item.description || sku} → ${category}`,
+            );
+            setStagedReassignments((previous) => ({ ...previous, [sku]: category }));
+            window.dispatchEvent(new CustomEvent('mjcc:staging-changed'));
+            (window as any).toast?.(`Staged ${item.description || sku} → ${category}`);
+        } catch (error: any) {
+            (window as any).toast?.(`Reassignment failed: ${error?.message || 'Unknown error'}`);
+        } finally {
+            setReassigningSku(null);
         }
     }, []);
     useEffect(() => {
@@ -417,11 +443,26 @@ function Topbar({
                             </div>
                             <div className="tb-notify-section">
                                 <div className="tb-notify-label">New Items <span>{notificationData.newItems.length}</span></div>
-                                {notificationData.newItems.length === 0 ? <div className="tb-notify-empty">No items awaiting review.</div> : notificationData.newItems.slice(0, 4).map((item: any) => (
-                                    <button key={`new-${item.sku}`} className="tb-notify-item" onClick={() => { onNav?.('inventory'); setNotificationsOpen(false); }}>
+                                {notificationData.newItems.length === 0 ? <div className="tb-notify-empty">No items awaiting review.</div> : notificationData.newItems.slice(0, 8).map((item: any) => (
+                                    <div key={`new-${item.sku}`} className="tb-notify-item tb-notify-item-editable">
                                         <span className="tb-notify-dot info" />
-                                        <span><b>{item.description || item.sku}</b><small>{item.sku}</small></span>
-                                    </button>
+                                        <span className="tb-notify-item-copy" onClick={() => { onNav?.('inventory'); setNotificationsOpen(false); }}><b>{item.description || item.sku}</b><small>{item.sku}</small></span>
+                                        {ROLE_LEVEL[user.role] >= 30 && (
+                                            <select
+                                                className="tb-notify-category"
+                                                value={stagedReassignments[item.sku] || 'New Items'}
+                                                disabled={reassigningSku === item.sku || Boolean(stagedReassignments[item.sku])}
+                                                aria-label={`Reassign ${item.description || item.sku}`}
+                                                onChange={(event) => reassignNewItem(item, event.target.value)}
+                                                onClick={(event) => event.stopPropagation()}
+                                            >
+                                                <option value="New Items">Reassign…</option>
+                                                {notificationData.categories.filter((category) => category !== 'New Items').map((category) => (
+                                                    <option key={category} value={category}>{category}</option>
+                                                ))}
+                                            </select>
+                                        )}
+                                    </div>
                                 ))}
                             </div>
                             <div className="tb-notify-section">
