@@ -1,5 +1,17 @@
 # CHANGELOG — MJCC Development Forum
 
+## 2026-07-17 — feat(ui): add main-panel notifications tray
+
+**Codex:** Added a notification button to the main top panel. The tray loads reorder alerts,
+items in the `New Items` review category, and the five most recent Source Control pushes. Each
+notification links to the relevant Inventory or Source Control view, supports refresh, and
+fails soft if an auxiliary feed is temporarily unavailable.
+
+**Verified:** `npm.cmd run lint` (0 errors, existing warnings), `npx tsc --noEmit`, and
+`npm.cmd run build` passed.
+
+**Push:** pending — UI change is uncommitted.
+
 ## 2026-07-17 — fix(data-entry): persist zero invoice financial fields on re-import
 
 **Codex:** Fixed the invoice financial upsert so re-imports explicitly persist zero Vizient,

@@ -260,6 +260,38 @@ function Topbar({
     onNav?: (k: string) => void;
 }) {
     const [menu, setMenu] = useState(false);
+    const [notificationsOpen, setNotificationsOpen] = useState(false);
+    const [notificationData, setNotificationData] = useState<{
+        reorders: any[];
+        newItems: any[];
+        commits: any[];
+    }>({ reorders: [], newItems: [], commits: [] });
+    const [notificationsLoading, setNotificationsLoading] = useState(false);
+    const loadNotifications = useCallback(async () => {
+        setNotificationsLoading(true);
+        try {
+            const [reorderRows, attentionRows, commitRows] = await Promise.all([
+                api.getReorders(),
+                api.getInventoryItems({ needs_attention: true, limit: 100 }),
+                api.getCommits(5),
+            ]);
+            setNotificationData({
+                reorders: reorderRows || [],
+                newItems: (attentionRows || []).filter((item: any) =>
+                    String(item.category || '').toLowerCase() === 'new items',
+                ),
+                commits: commitRows || [],
+            });
+        } catch {
+            // The notification tray is auxiliary; keep the main panel usable if
+            // one feed is temporarily unavailable.
+        } finally {
+            setNotificationsLoading(false);
+        }
+    }, []);
+    useEffect(() => {
+        if (notificationsOpen) loadNotifications();
+    }, [notificationsOpen, loadNotifications]);
     useEffect(() => {
         const close = () => setMenu(false);
         if (menu) {
@@ -267,6 +299,13 @@ function Topbar({
             return () => window.removeEventListener("click", close);
         }
     }, [menu]);
+    useEffect(() => {
+        const close = () => setNotificationsOpen(false);
+        if (notificationsOpen) {
+            window.addEventListener("click", close);
+            return () => window.removeEventListener("click", close);
+        }
+    }, [notificationsOpen]);
     const [flowPanel, setFlowPanel] = useState(false);
     useEffect(() => {
         const close = () => setFlowPanel(false);
@@ -344,6 +383,59 @@ function Topbar({
                         )}
                     </button>
                 )}
+                <div className="tb-notify-wrap">
+                    <button
+                        className={"tb-notify-btn" + (notificationsOpen ? " active" : "")}
+                        onClick={(e) => { e.stopPropagation(); setNotificationsOpen((v) => !v); }}
+                        title="Notifications"
+                        aria-label="Open notifications"
+                        aria-expanded={notificationsOpen}
+                    >
+                        {I.bell({ style: { width: 16, height: 16 } })}
+                        {(notificationData.reorders.length + notificationData.newItems.length + notificationData.commits.length) > 0 && (
+                            <span className="tb-notify-count">
+                                {Math.min(99, notificationData.reorders.length + notificationData.newItems.length + notificationData.commits.length)}
+                            </span>
+                        )}
+                    </button>
+                    {notificationsOpen && (
+                        <div className="tb-notify-panel" onClick={(e) => e.stopPropagation()}>
+                            <div className="tb-notify-head">
+                                <b>Updates</b>
+                                <button className="tb-notify-refresh" onClick={loadNotifications} disabled={notificationsLoading}>
+                                    {notificationsLoading ? 'Refreshing…' : 'Refresh'}
+                                </button>
+                            </div>
+                            <div className="tb-notify-section">
+                                <div className="tb-notify-label">Reorders <span>{notificationData.reorders.length}</span></div>
+                                {notificationData.reorders.length === 0 ? <div className="tb-notify-empty">No reorder alerts.</div> : notificationData.reorders.slice(0, 4).map((item: any) => (
+                                    <button key={`reorder-${item.sku}`} className="tb-notify-item" onClick={() => { onNav?.('inventory'); setNotificationsOpen(false); }}>
+                                        <span className="tb-notify-dot warn" />
+                                        <span><b>{item.desc || item.sku}</b><small>{item.short ?? 0} below par</small></span>
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="tb-notify-section">
+                                <div className="tb-notify-label">New Items <span>{notificationData.newItems.length}</span></div>
+                                {notificationData.newItems.length === 0 ? <div className="tb-notify-empty">No items awaiting review.</div> : notificationData.newItems.slice(0, 4).map((item: any) => (
+                                    <button key={`new-${item.sku}`} className="tb-notify-item" onClick={() => { onNav?.('inventory'); setNotificationsOpen(false); }}>
+                                        <span className="tb-notify-dot info" />
+                                        <span><b>{item.description || item.sku}</b><small>{item.sku}</small></span>
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="tb-notify-section">
+                                <div className="tb-notify-label">Recent pushes <span>{notificationData.commits.length}</span></div>
+                                {notificationData.commits.length === 0 ? <div className="tb-notify-empty">No recent pushes.</div> : notificationData.commits.slice(0, 4).map((commit: any) => (
+                                    <button key={`commit-${commit.commit_id}`} className="tb-notify-item" onClick={() => { onNav?.('sourcectrl'); setNotificationsOpen(false); }}>
+                                        <span className="tb-notify-dot ok" />
+                                        <span><b>{commit.message || 'Source Control commit'}</b><small>{commit.branch || 'main'} · {commit.author_name || 'team'}</small></span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
                 {onNav && (
                     <div style={{ position: 'relative' }}>
                         <button
