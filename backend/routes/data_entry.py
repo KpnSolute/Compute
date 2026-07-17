@@ -1106,6 +1106,7 @@ def _upsert_invoice_record(
         ("subtotal", "subtotal"),
         ("vizient_discount", "vizient_discount"),
         ("fuel_surcharge", "fuel_surcharge"),
+        ("tax", "tax"),
         ("net_total", "net_total"),
         ("account_number", "account_number"),
         ("order_number", "order_number"),
@@ -1117,7 +1118,13 @@ def _upsert_invoice_record(
             row[field] = (
                 _to_dec(val)
                 if field
-                in ("subtotal", "vizient_discount", "fuel_surcharge", "net_total")
+                in (
+                    "subtotal",
+                    "vizient_discount",
+                    "fuel_surcharge",
+                    "tax",
+                    "net_total",
+                )
                 else str(val)
             )
 

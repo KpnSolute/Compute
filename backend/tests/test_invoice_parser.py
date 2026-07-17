@@ -94,6 +94,23 @@ TOTAL PIECES DELIVERED 2
     assert staged_value == 100.00
 
 
+def test_zero_financial_fields_are_explicitly_preserved_on_reconcile():
+    _, meta = reconcile_and_adjust(
+        [{"ext_price": 100.00, "unit_price": 100.00, "qty_shipped": 1}],
+        {
+            "product_total": 100.00,
+            "vizient_discount": 0,
+            "fuel_surcharge": 0,
+            "tax": 0,
+            "net_total": 100.00,
+        },
+    )
+
+    assert meta["vizient_discount"] == 0.0
+    assert meta["fuel_surcharge"] == 0.0
+    assert meta["tax"] == 0.0
+
+
 def test_vision_zero_shipped_stays_zero_and_is_not_staged():
     items = _normalize_vision_items(
         [

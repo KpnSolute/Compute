@@ -1046,10 +1046,11 @@ def reconcile_and_adjust(items: list[dict], meta: dict) -> tuple[list[dict], dic
     meta["product_total"] = f"{(valuation_target or computed_subtotal):.2f}"
     meta.setdefault("subtotal", meta["product_total"])
     meta["net_total"] = f"{net_total:.2f}"
-    if vizient:
-        meta["vizient_discount"] = f"{vizient:.2f}"
-    if fuel:
-        meta["fuel_surcharge"] = f"{fuel:.2f}"
+    # Persist every financial field, including explicit zeroes.  Re-imports update
+    # an existing invoice row; omitting a zero leaves stale fuel/tax values behind.
+    meta["vizient_discount"] = f"{vizient:.2f}"
+    meta["fuel_surcharge"] = f"{fuel:.2f}"
+    meta["tax"] = f"{tax:.2f}"
 
     shipped_items = [item for item in adjusted if _int(item.get("qty_shipped")) > 0]
     parsed_item_count = len(shipped_items)

@@ -1,5 +1,17 @@
 # CHANGELOG — MJCC Development Forum
 
+## 2026-07-17 — fix(data-entry): persist zero invoice financial fields on re-import
+
+**Codex:** Fixed the invoice financial upsert so re-imports explicitly persist zero Vizient,
+fuel, and tax values instead of leaving stale nonzero values on an existing invoice. Added a
+parser regression test. Corrected the current pending invoice `74d20aab-5841-4ed6-861f-12fdc3ad0afe`
+to `fuel_surcharge=0.00` and `tax=0.00`; product total `$7,792.62`, Vizient `$106.09`, and
+net total `$7,686.53` remain unchanged. The 82 staged inventory rows were not changed.
+
+**Verified:** invoice parser tests `6 passed`; Ruff check clean; full backend suite pending.
+
+**Push:** pending — financial upsert fix is uncommitted.
+
 ## 2026-07-17 — fix(data-entry): description-only new items use TEMP_000 identity
 
 **Codex:** Confirmed the data-entry dispatch path already routes an unrecognized vendor SKU
