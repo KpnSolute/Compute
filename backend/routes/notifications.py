@@ -23,7 +23,11 @@ router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 ROOT = Path(__file__).resolve().parents[2]
 PREFS_PREFIX = "user_prefs_"
-VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+try:
+    VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+except (OSError, UnicodeError) as exc:
+    VERSION = "0.0.0"
+    log.warning("Could not read application version from %s: %s", ROOT / "VERSION", exc)
 
 
 class ReadBody(BaseModel):

@@ -3,6 +3,7 @@ WORKDIR /app
 COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ ./backend/
+COPY VERSION ./VERSION
 
 ENV PORT=8000
 EXPOSE 8000

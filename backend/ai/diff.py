@@ -193,9 +193,12 @@ def _diff_inventory_week(payload: dict) -> dict:
                                      rows for (month, year) using the live DB values.
         batch_cost_delta           = SUM(qty * unit_price) for each item in this batch.
 
-    This is a PURE raw-item cost figure — no tax, no surcharges.  Matches the
-    Vizient-adjusted unit_price stored in inventory_items (reconcile_and_adjust
-    already excludes tax/fuel/Vizient discount from per-item valuation).
+    This is a PURE raw-item cost figure — no tax, no fuel surcharge, no Vizient/GPO
+    discount.  unit_price in inventory_items is never discount-adjusted:
+    reconcile_and_adjust only ever applies a bounded parse-noise correction
+    (scales line items to match the invoice's own stated Product Total when the
+    AI's line-item sum is slightly off) and explicitly never touches tax/fuel/
+    Vizient — those are recorded separately on the invoice financial record only.
     Returns None for projected_month_total if month/year are not specified or if
     the DB query fails (non-blocking best-effort).
     """

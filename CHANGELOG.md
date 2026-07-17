@@ -1,5 +1,18 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.1] — 2026-07-17 — fix(deploy): prevent notifications import crash when VERSION is absent
+
+**Codex:** Added `COPY VERSION ./VERSION` to the root Dockerfile and made the notifications
+module's import-time VERSION read fall back to `0.0.0` with a warning on `OSError` or
+`UnicodeError`. This prevents a missing or unreadable VERSION file from crash-looping the
+FastAPI process while preserving the existing VERSION usage.
+
+**Verified:** Ruff check passed; Ruff format check passed; backend tests passed (`98 passed,
+14 skipped`). Docker was not available locally, so static inspection confirmed the Dockerfile
+places VERSION at `/app/VERSION`, matching the module's resolved root.
+
+**Push:** not requested — local changes only.
+
 ## [v0.1.0] — 2026-07-17 — feat(notifications): unify feeds and per-user update state
 
 **Codex:** Replaced the main-panel notification tray's all-or-nothing parallel fetch with the
