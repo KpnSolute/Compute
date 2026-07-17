@@ -1,5 +1,24 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.0] — 2026-07-17 — feat(notifications): unify feeds and per-user update state
+
+**Codex:** Replaced the main-panel notification tray's all-or-nothing parallel fetch with the
+authenticated `/api/notifications` feed. Reorders, New Items, Source Control pushes, and site
+updates now fail independently, and the tray reports partial feed failures instead of silently
+showing only recent pushes. The `/api/notifications/read` endpoint stores read keys in each
+user's existing preferences, so the badge clears after the user opens the tray and returns only
+for new or changed items. The current `v0.1.0` is the baseline; a future VERSION bump is shown
+with key update lines from the forum and the deployed git commit when available. All authenticated
+roles receive the feed; New Item reassignment remains manager/admin-only.
+
+**Verified:** backend Ruff check and format check, backend import, `98 passed, 14 skipped`,
+frontend lint with 0 errors (existing warnings only), TypeScript, and production build passed.
+
+**CLI review:** OpenCode and MiMo read-only review attempts timed out before returning feedback;
+the implementation was then reviewed and verified locally.
+
+**Push:** pending — notification work is uncommitted.
+
 ## 2026-07-17 — feat(ui): reassign New Items from notifications
 
 **Codex:** Expanded the main-panel notification tray to load all attention items up to the

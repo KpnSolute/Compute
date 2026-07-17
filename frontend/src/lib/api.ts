@@ -103,6 +103,23 @@ export interface Commit {
   pr_title?: string | null;
 }
 
+export interface NotificationItem {
+  key: string;
+  kind: 'reorder' | 'new_item' | 'push' | 'app_update';
+  title: string;
+  body: string;
+  target?: string;
+  item?: any;
+}
+
+export interface NotificationsResponse {
+  version: string;
+  items: NotificationItem[];
+  unread_keys: string[];
+  feed_errors: string[];
+  generated_at: string;
+}
+
 export interface SourceTransaction {
   change_id?: string;
   commit_id?: string | null;
@@ -712,6 +729,17 @@ export const api = {
 
   async getReorders(): Promise<LowStockItem[]> {
     return req<LowStockItem[]>('/api/inventory/reorders');
+  },
+
+  async getNotifications(): Promise<NotificationsResponse> {
+    return req('/api/notifications');
+  },
+
+  async markNotificationsRead(keys: string[]): Promise<{ read: number; stored: number }> {
+    return req('/api/notifications/read', {
+      method: 'POST',
+      body: JSON.stringify({ keys }),
+    });
   },
 
   async getInventoryItems(params?: { sku?: string; sku_pending?: boolean; needs_attention?: boolean; category_id?: string; limit?: number }): Promise<InventoryCatalogItem[]> {

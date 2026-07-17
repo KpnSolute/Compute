@@ -37,7 +37,7 @@ import {
     catColor,
     getBackendToken,
 } from "../lib/supabase";
-import { api, type PublicMenuToday, type PublicMenuCycleSlot, type PublicMealPeriod } from "../lib/api";
+import { api, type NotificationItem, type PublicMenuToday, type PublicMenuCycleSlot, type PublicMealPeriod } from "../lib/api";
 import { ComplianceHub } from "./ComplianceHub";
 import { DataEntry } from "./DataEntry";
 import { DailyOps } from "./DailyOps";
@@ -262,34 +262,39 @@ function Topbar({
     const [menu, setMenu] = useState(false);
     const [notificationsOpen, setNotificationsOpen] = useState(false);
     const [notificationData, setNotificationData] = useState<{
-        reorders: any[];
-        newItems: any[];
-        commits: any[];
+        items: NotificationItem[];
+        unreadKeys: string[];
         categories: string[];
-    }>({ reorders: [], newItems: [], commits: [], categories: [] });
+        feedErrors: string[];
+        version: string;
+    }>({ items: [], unreadKeys: [], categories: [], feedErrors: [], version: '' });
     const [notificationsLoading, setNotificationsLoading] = useState(false);
     const [reassigningSku, setReassigningSku] = useState<string | null>(null);
     const [stagedReassignments, setStagedReassignments] = useState<Record<string, string>>({});
-    const loadNotifications = useCallback(async () => {
+    const loadNotifications = useCallback(async (markRead = false) => {
         setNotificationsLoading(true);
         try {
-            const [reorderRows, attentionRows, commitRows, categoryRows] = await Promise.all([
-                api.getReorders(),
-                api.getInventoryItems({ needs_attention: true, limit: 2000 }),
-                api.getCommits(5),
+            const [notificationResult, categoryResult] = await Promise.allSettled([
+                api.getNotifications(),
                 api.getInventoryCategories(),
             ]);
+            if (notificationResult.status !== 'fulfilled') throw notificationResult.reason;
+            const response = notificationResult.value;
             setNotificationData({
-                reorders: reorderRows || [],
-                newItems: (attentionRows || []).filter((item: any) =>
-                    String(item.category || '').toLowerCase() === 'new items',
-                ),
-                commits: commitRows || [],
-                categories: (categoryRows || []).map((category: any) => category.name).filter(Boolean),
+                items: response.items || [],
+                unreadKeys: response.unread_keys || [],
+                feedErrors: response.feed_errors || [],
+                version: response.version || '',
+                categories: categoryResult.status === 'fulfilled'
+                    ? (categoryResult.value || []).map((category: any) => category.name).filter(Boolean)
+                    : [],
             });
+            if (markRead && response.unread_keys?.length) {
+                await api.markNotificationsRead(response.unread_keys);
+                setNotificationData((previous) => ({ ...previous, unreadKeys: [] }));
+            }
         } catch {
-            // The notification tray is auxiliary; keep the main panel usable if
-            // one feed is temporarily unavailable.
+            // The main panel remains usable; the tray keeps its last good state.
         } finally {
             setNotificationsLoading(false);
         }
@@ -316,7 +321,7 @@ function Topbar({
         }
     }, []);
     useEffect(() => {
-        if (notificationsOpen) loadNotifications();
+        void loadNotifications(notificationsOpen);
     }, [notificationsOpen, loadNotifications]);
     useEffect(() => {
         const close = () => setMenu(false);
@@ -418,41 +423,43 @@ function Topbar({
                         aria-expanded={notificationsOpen}
                     >
                         {I.bell({ style: { width: 16, height: 16 } })}
-                        {(notificationData.reorders.length + notificationData.newItems.length + notificationData.commits.length) > 0 && (
+                        {notificationData.unreadKeys.length > 0 && (
                             <span className="tb-notify-count">
-                                {Math.min(99, notificationData.reorders.length + notificationData.newItems.length + notificationData.commits.length)}
+                                {Math.min(99, notificationData.unreadKeys.length)}
                             </span>
                         )}
                     </button>
                     {notificationsOpen && (
                         <div className="tb-notify-panel" onClick={(e) => e.stopPropagation()}>
                             <div className="tb-notify-head">
-                                <b>Updates</b>
-                                <button className="tb-notify-refresh" onClick={loadNotifications} disabled={notificationsLoading}>
+                                <span><b>Updates</b>{notificationData.version && <small className="tb-notify-version">{notificationData.version}</small>}</span>
+                                <button className="tb-notify-refresh" onClick={() => loadNotifications(false)} disabled={notificationsLoading}>
                                     {notificationsLoading ? 'Refreshing…' : 'Refresh'}
                                 </button>
                             </div>
+                            {notificationData.feedErrors.length > 0 && <div className="tb-notify-warning">Some feeds are temporarily unavailable. Refresh to retry.</div>}
                             <div className="tb-notify-section">
-                                <div className="tb-notify-label">Reorders <span>{notificationData.reorders.length}</span></div>
-                                {notificationData.reorders.length === 0 ? <div className="tb-notify-empty">No reorder alerts.</div> : notificationData.reorders.slice(0, 4).map((item: any) => (
-                                    <button key={`reorder-${item.sku}`} className="tb-notify-item" onClick={() => { onNav?.('inventory'); setNotificationsOpen(false); }}>
+                                <div className="tb-notify-label">Reorders <span>{notificationData.items.filter((item) => item.kind === 'reorder').length}</span></div>
+                                {notificationData.items.filter((item) => item.kind === 'reorder').length === 0 ? <div className="tb-notify-empty">No reorder alerts.</div> : notificationData.items.filter((item) => item.kind === 'reorder').slice(0, 4).map((item) => (
+                                    <button key={item.key} className="tb-notify-item" onClick={() => { onNav?.('inventory'); setNotificationsOpen(false); }}>
                                         <span className="tb-notify-dot warn" />
-                                        <span><b>{item.desc || item.sku}</b><small>{item.short ?? 0} below par</small></span>
+                                        <span><b>{item.title}</b><small>{item.body}</small></span>
                                     </button>
                                 ))}
                             </div>
                             <div className="tb-notify-section">
-                                <div className="tb-notify-label">New Items <span>{notificationData.newItems.length}</span></div>
-                                {notificationData.newItems.length === 0 ? <div className="tb-notify-empty">No items awaiting review.</div> : notificationData.newItems.slice(0, 8).map((item: any) => (
-                                    <div key={`new-${item.sku}`} className="tb-notify-item tb-notify-item-editable">
+                                <div className="tb-notify-label">New Items <span>{notificationData.items.filter((item) => item.kind === 'new_item').length}</span></div>
+                                {notificationData.items.filter((item) => item.kind === 'new_item').length === 0 ? <div className="tb-notify-empty">No items awaiting review.</div> : notificationData.items.filter((item) => item.kind === 'new_item').slice(0, 8).map((notification) => {
+                                    const item = notification.item || {};
+                                    return <div key={notification.key} className="tb-notify-item tb-notify-item-editable">
                                         <span className="tb-notify-dot info" />
-                                        <span className="tb-notify-item-copy" onClick={() => { onNav?.('inventory'); setNotificationsOpen(false); }}><b>{item.description || item.sku}</b><small>{item.sku}</small></span>
+                                        <span className="tb-notify-item-copy" onClick={() => { onNav?.('inventory'); setNotificationsOpen(false); }}><b>{notification.title}</b><small>{notification.body}</small></span>
                                         {ROLE_LEVEL[user.role] >= 30 && (
                                             <select
                                                 className="tb-notify-category"
                                                 value={stagedReassignments[item.sku] || 'New Items'}
                                                 disabled={reassigningSku === item.sku || Boolean(stagedReassignments[item.sku])}
-                                                aria-label={`Reassign ${item.description || item.sku}`}
+                                                aria-label={`Reassign ${notification.title}`}
                                                 onChange={(event) => reassignNewItem(item, event.target.value)}
                                                 onClick={(event) => event.stopPropagation()}
                                             >
@@ -462,18 +469,25 @@ function Topbar({
                                                 ))}
                                             </select>
                                         )}
-                                    </div>
-                                ))}
+                                    </div>;
+                                })}
                             </div>
                             <div className="tb-notify-section">
-                                <div className="tb-notify-label">Recent pushes <span>{notificationData.commits.length}</span></div>
-                                {notificationData.commits.length === 0 ? <div className="tb-notify-empty">No recent pushes.</div> : notificationData.commits.slice(0, 4).map((commit: any) => (
-                                    <button key={`commit-${commit.commit_id}`} className="tb-notify-item" onClick={() => { onNav?.('sourcectrl'); setNotificationsOpen(false); }}>
+                                <div className="tb-notify-label">Recent pushes <span>{notificationData.items.filter((item) => item.kind === 'push').length}</span></div>
+                                {notificationData.items.filter((item) => item.kind === 'push').length === 0 ? <div className="tb-notify-empty">No recent pushes.</div> : notificationData.items.filter((item) => item.kind === 'push').slice(0, 4).map((item) => (
+                                    <button key={item.key} className="tb-notify-item" onClick={() => { onNav?.('sourcectrl'); setNotificationsOpen(false); }}>
                                         <span className="tb-notify-dot ok" />
-                                        <span><b>{commit.message || 'Source Control commit'}</b><small>{commit.branch || 'main'} · {commit.author_name || 'team'}</small></span>
+                                        <span><b>{item.title}</b><small>{item.body}</small></span>
                                     </button>
                                 ))}
                             </div>
+                            {notificationData.items.filter((item) => item.kind === 'app_update').map((item) => (
+                                <div key={item.key} className="tb-notify-section tb-notify-release">
+                                    <div className="tb-notify-label">Site update</div>
+                                    <div className="tb-notify-release-copy"><b>{item.title}</b><small>{item.body}</small></div>
+                                    {(item.item?.key_updates || []).slice(1).map((update: string) => <small key={update}>• {update}</small>)}
+                                </div>
+                            ))}
                         </div>
                     )}
                 </div>
