@@ -1,5 +1,35 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.3] — 2026-07-17 — fix(inventory): needs_attention never flagged real New Items
+
+**Claude:** Live-verified the New Items notification feed with a real test row and found
+it was structurally broken, not just empty. `inventory_items.needs_attention` is a
+Postgres STORED GENERATED column; its expression only flagged a placeholder SKU
+(`MJC-%`), a NULL `category_id`, or `category_id = 'Uncategorized'`. `dispatch_item_create`
+bridges unrecognized vendor SKUs into a real "New Items" category (a real, non-null,
+non-Uncategorized `category_id`) -- so items landing there via the normal invoice-import
+path never satisfied any branch of the expression and `needs_attention` silently stayed
+false. The entire review pipeline (`GET /api/inventory/items?needs_attention=true`, the
+notifications.py New Items feed) was only ever catching the rarer placeholder-SKU case,
+never the common one.
+
+Migration `043_fix_needs_attention_new_items.sql`: dropped and re-added the generated
+column (Postgres has no ALTER for a generated expression) with `category_id = 'New Items'`
+added as a fourth OR branch, applied directly to production. Because it's STORED, all
+existing rows recomputed immediately -- this surfaced **40 real, pre-existing catalog
+items** (real vendor SKUs, real prices, several matching products from tonight's invoice
+audit) that have been sitting unreviewed in the New Items category, invisible to every
+review mechanism, likely since whenever this generated column was first created. Dashboard
+"Inventory Value" correctly dropped by $2,470.51 (346 → 306 line items) now that these
+unreviewed items are excluded from totals per the earlier v0.1.2 visibility fix -- that
+number was silently including un-vetted catalog data the whole time. These 40 items now
+correctly need manager review (reassign category via the notification tray) before they'll
+count toward inventory value again.
+
+Verified live end-to-end: inserted a real-SKU test row into New Items, confirmed
+`needs_attention` computed true, confirmed it surfaced in the notification bell, removed
+the test row, confirmed the badge count matched the real remaining backlog (40) exactly.
+
 ## [v0.1.1] — 2026-07-17 — fix(deploy): prevent notifications import crash when VERSION is absent
 
 ## [v0.1.2] - 2026-07-17 - fix(inventory): hide unreviewed items from normal inventory totals
