@@ -1241,9 +1241,11 @@ def invoice_items_to_ops(
     week=0  → inventory_save (whole-month opening update)
     week=1-3 → inventory_week_update (post qty_shipped into w{week}_{direction})
 
-    Items without a usable SKU or description are skipped. Unknown categories
-    pass through as-is and resolve to 'New Items' in the dispatch layer when
-    review_new=True.
+    Items without a usable SKU or description are skipped. A delivered item with
+    a description but no vendor SKU receives the shared TEMP_000 placeholder so
+    dispatch can resolve it by exact description and file it under 'New Items'
+    for manager review. Unknown categories pass through as-is and resolve to
+    'New Items' in the dispatch layer when review_new=True.
     """
     live_cats = list(live_categories.keys()) if live_categories else None
     weekly = week in (1, 2, 3)
@@ -1274,11 +1276,11 @@ def invoice_items_to_ops(
             skipped += 1
             continue
 
-        # generate a deterministic slug SKU from description when vendor SKU absent
+        # Use the shared placeholder for description-based identity resolution.
+        # inventory_identity.resolve_and_write_item matches TEMP_000 rows by exact
+        # description, so repeated imports do not create a new random/slug SKU.
         if not sku and desc:
-            words = desc.upper().split()[:2]
-            slug = "".join(w[:3] for w in words)
-            sku = f"INV-{slug}" if slug else ""
+            sku = "TEMP_000"
 
         if not sku:
             skipped += 1

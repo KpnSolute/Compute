@@ -122,6 +122,31 @@ def test_vision_zero_shipped_stays_zero_and_is_not_staged():
     assert [op["payload"]["items"][0]["sku"] for op in ops] == ["DELIVERED"]
 
 
+def test_missing_vendor_sku_uses_temp_placeholder_for_new_item_review():
+    ops = invoice_items_to_ops(
+        [
+            {
+                "sku": "",
+                "description": "CHICKEN PATTY BREADED",
+                "qty_shipped": 2,
+                "unit_price": 18.50,
+                "ext_price": 37.00,
+            }
+        ],
+        {},
+        7,
+        2026,
+        2,
+        "received",
+        {},
+    )
+
+    item = ops[0]["payload"]["items"][0]
+    assert item["sku"] == "TEMP_000"
+    assert item["desc"] == "CHICKEN PATTY BREADED"
+    assert ops[0]["payload"]["review_new"] is True
+
+
 def test_usfoods_delivery_recap_controls_items_and_pieces():
     items = [
         {"sku": "A", "qty_shipped": 3, "ext_price": 30, "unit_price": 10},

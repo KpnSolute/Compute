@@ -1,5 +1,87 @@
 # CHANGELOG — MJCC Development Forum
 
+## 2026-07-17 — fix(data-entry): description-only new items use TEMP_000 identity
+
+**Codex:** Confirmed the data-entry dispatch path already routes an unrecognized vendor SKU
+into the `New Items` category with `review_new=True`, preserving a suggested category for
+manager/admin review. Fixed the description-only case: when a delivered row has no vendor SKU,
+`invoice_items_to_ops` now assigns the shared `TEMP_000` placeholder instead of an `INV-...`
+slug. The identity resolver already handles `TEMP_000` by exact description, so repeated imports
+match the same catalog item and do not create inconsistent temporary SKUs. Rows with neither
+SKU nor description remain excluded because they have no safe identity.
+
+**Verified:** `.venv\\Scripts\\python.exe -m ruff check backend/` clean; Ruff format check clean;
+full backend suite `97 passed, 14 skipped`.
+
+**Push:** pending — application change is uncommitted.
+
+## 2026-07-17 — verify(data-entry): live Julywk2 upload matches source PDF
+
+**Codex:** Monitored production upload batch `75feeec3-7c43-43a5-bbd9-56f683991ea3` for
+`Julywk2.pdf`. The 8-page vision run completed in 47.06s with 85 extracted rows, 82 staged
+inventory operations, 0 SKU-review queue entries, and reconciliation passed at 0.00%.
+
+**Source cross-check:** visually verified the PDF Delivery Summary / Invoice Summary page:
+82 items shipped, 155 pieces delivered, Product Total `$7,792.62`, Vizient/GPO adjustments
+`-$50.65` and `-$58.44`, and delivered/net amount `$7,686.53`. Production logs returned the
+same values, including the dedicated recap retry correcting the initial inline 37-item /
+68-piece subtotal read. Three extracted rows lacked a usable SKU or description and were
+correctly excluded from staging.
+
+**Cost Manager note:** current code intentionally uses Product Total for inventory valuation;
+Cost Manager period spend reads `invoices.net_total`. No expense-routing code was changed.
+The staged batch remains uncommitted pending review.
+
+**Push:** pending — verification note only; no application code changed.
+
+## 2026-07-17 — finding(accounting): tax persistence gap and three skipped rows
+
+**Codex:** The source PDF shows Sales Tax `$0.00` and Fuel `$0.00`, so this upload's net
+expense remains `$7,686.53`. The parser extracts `tax`, but `_upsert_invoice_record` currently
+persists subtotal, Vizient discount, fuel surcharge, and net total without a separate tax field;
+future nonzero-tax invoices need a Cost Manager persistence/display change. This is not a blocker
+for the current zero-tax amount, but it must be fixed before treating tax-inclusive expense
+reporting as complete.
+
+**Commit gate:** NOT APPROVED. The live parse produced 85 rows but only 82 staged operations;
+three rows were excluded for missing usable SKU/description. Invoice-level reconciliation passed,
+but item-level relationship completeness is not yet proven.
+
+**Push:** pending — finding only; no application code changed.
+
+## 2026-07-17 — chore(cli): install and register local coding CLIs
+
+**Codex:** Installed and verified the user-installed CLI set: MiMo Code (`mimo 0.1.6`),
+Gemini CLI (`gemini 0.51.0`), OpenCode (`opencode 1.18.3`), Codex (`codex-cli 0.144.5`),
+Claude Code (`2.1.207`), and Antigravity (`agy 1.1.3`). Repaired the global OpenCode install
+after its bundled Windows executable was invalid. Added `cli/README.txt` plus `.cmd` launchers
+that call the installed executables; no application source or binaries were copied.
+
+**Verified:** all six `cli/*.cmd --version` launchers returned successfully. Authentication or
+provider credentials remain required for model access where applicable.
+
+**Push:** pending — `cli/` and this changelog entry are uncommitted.
+
+## 2026-07-17 — test(cli): MiMo smoke test
+
+**Codex:** `mimo --version`, `mimo --help`, and `mimo providers list` passed; the latter
+confirmed the CLI is installed but has 0 configured credentials. A read-only `mimo run` in
+the repository failed before authentication because MiMo 0.1.6 attempts to create the already
+existing `.git/info` directory and raises `EEXIST`. No project files were changed by MiMo.
+
+**Push:** pending — local CLI setup remains uncommitted.
+
+## 2026-07-17 — fix(cli): MiMo Git-discovery startup workaround
+
+**Codex:** The published MiMo 0.1.6 Windows binary fails in this Git checkout with
+`EEXIST` while recreating `.git\\info`. Verified the supported `MIMOCODE_DISABLE_GIT=1`
+environment flag bypasses that broken discovery path: the read-only smoke test completed and
+reported branch `main`. Scoped the flag to `cli\\mimo.cmd`; the bare global `mimo` command is
+unchanged. MiMo's automatic Git integration is disabled through this launcher, but shell Git
+commands remain available.
+
+**Push:** pending — local CLI setup remains uncommitted.
+
 ## 2026-07-17 — fix(ai): recap-trio always cross-validated via dedicated retry when recap page is self-identified
 
 **mjcc-api:** Closed the "confidently-wrong recap read" reliability gap in `extract_invoice_vision`.
@@ -306,6 +388,30 @@ reintroduce the reverted 4-week value on any DB blip. Now consistent with
 rejected with 422, weeks 1-3 pass, week=0 full-month pass).
 
 **Push:** pending
+
+## 2026-07-17 - verify(data-entry): canceled live extraction stopped before persistence
+
+**Codex:** Reviewed the canceled `Julywk2.pdf` extraction started with the wrong scope
+(`week=0`). Production created 0 staging rows, 0 new invoice rows, and 0 new archive
+records; no inventory data changed. Vision calls continued briefly in the background and
+completed, but the job did not reach the database-write stage.
+
+**Follow-up:** cancellation is data-safe but not fully efficient/observable yet. The
+executor-backed parser does not immediately interrupt in-flight AI calls or emit a definitive
+cancellation event; improve this in a later integration task.
+
+**Push:** pending - application changes are uncommitted.
+
+## 2026-07-17 - chore(data-entry): clear pending integration test batch
+
+**Codex:** Rejected the current production test batch `75feeec3-7cba-43a5-bbd9-56f683991ea3`
+through the staging state: 82 pending staging rows cleared and linked invoice
+`74d20aab-5841-4ed6-861f-12fdc3ad0afe` marked rejected. No committed inventory rows were
+deleted or changed; the 85 invoice detail rows and archived source remain available for audit.
+
+**Verified:** 0 pending rows remain for the batch; 82 are rejected; invoice status is rejected.
+
+**Push:** pending - application changes are uncommitted.
 
 ## 2026-07-17 — fix(api): reject invoice staging clears invoice tracking status
 
