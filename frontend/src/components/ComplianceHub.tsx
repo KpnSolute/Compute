@@ -82,15 +82,15 @@ function useLog<T>(key: string, initial: T) {
     setSaved(false);
   };
 
-  const save = async (syncedBy: string) => {
-    const r = await saveLog(key, data, syncedBy);
+  const save = async (syncedBy: string, saveData: T = data) => {
+    const r = await saveLog(key, saveData, syncedBy);
     setSaved(true);
     setSavedAt(new Date());
     try {
       await api.saveDailyLog({
         entry_type: 'haccp',
         title: 'HACCP Log',
-        data: JSON.stringify({ key, data }),
+        data: JSON.stringify({ key, data: saveData }),
       });
     } catch { /* local save succeeded */ }
     return r;
@@ -211,7 +211,7 @@ function TemperatureLog({
   const key = `temp:${appId}:${y}-${m}`;
   const ndays = daysInMonth(m, y);
   const blank = () => ({ rows: {} as Record<number, TempRow> });
-  const { data, update, saved, save, savedAt } = useLog(key, blank());
+  const { data, update, saved, save, savedAt } = useLog(key, { ...blank(), applianceName: app.name });
   const rows: Record<number, TempRow> = (data as any).rows ?? {};
 
   function setCell(day: number, field: string, val: string) {
@@ -347,7 +347,7 @@ function TemperatureLog({
       <SaveBar
         saved={saved}
         savedAt={savedAt}
-        onSave={() => save(user.display_name)}
+        onSave={() => save(user.display_name, { ...data, applianceName: app.name } as typeof data)}
         canEdit={canEdit}
         note={
           <span className="formbar-meta">

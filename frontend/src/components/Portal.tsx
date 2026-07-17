@@ -481,6 +481,15 @@ function Topbar({
                                     </button>
                                 ))}
                             </div>
+                            <div className="tb-notify-section">
+                                <div className="tb-notify-label">Temps <span>{notificationData.items.filter((item) => item.kind === 'temp_alert').length}</span></div>
+                                {notificationData.items.filter((item) => item.kind === 'temp_alert').length === 0 ? <div className="tb-notify-empty">No temperature alerts.</div> : notificationData.items.filter((item) => item.kind === 'temp_alert').slice(0, 8).map((item) => (
+                                    <button key={item.key} className="tb-notify-item" onClick={() => { onNav?.('haccp'); setNotificationsOpen(false); }}>
+                                        <span className="tb-notify-dot warn" />
+                                        <span><b>{item.title}</b><small>{item.body}</small></span>
+                                    </button>
+                                ))}
+                            </div>
                             {notificationData.items.filter((item) => item.kind === 'app_update').map((item) => (
                                 <div key={item.key} className="tb-notify-section tb-notify-release">
                                     <div className="tb-notify-label">Site update</div>

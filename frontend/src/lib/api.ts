@@ -105,7 +105,7 @@ export interface Commit {
 
 export interface NotificationItem {
   key: string;
-  kind: 'reorder' | 'new_item' | 'push' | 'app_update';
+  kind: 'reorder' | 'new_item' | 'push' | 'temp_alert' | 'app_update';
   title: string;
   body: string;
   target?: string;

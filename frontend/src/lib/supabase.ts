@@ -369,9 +369,42 @@ export async function saveLog(key: string, data: any, syncedBy?: string) {
   try {
     const { api } = await import('./api');
     
-    // Determine which API to call based on the key/context
-    // This is a simplified shim to maintain the existing local-first UI pattern
-    if (key.includes('haccp')) {
+    // Temperature grids are stored locally as a month-shaped document, but
+    // each reading must be queryable in the structured HACCP table.
+    if (key.startsWith('temp:')) {
+      const match = /^temp:[^:]+:(\d{4})-(\d{1,2})$/.exec(key);
+      const rows = data?.rows && typeof data.rows === 'object' ? data.rows : {};
+      if (!match) throw new Error(`Invalid temperature log key: ${key}`);
+      const year = Number(match[1]);
+      const month = Number(match[2]);
+      const applianceName = String(data?.applianceName || key.split(':')[1] || 'Unknown');
+      const readings: Promise<unknown>[] = [];
+      Object.entries(rows).forEach(([dayValue, rowValue]) => {
+        const day = Number(dayValue);
+        const row = (rowValue || {}) as Record<string, unknown>;
+        (['am', 'pm'] as const).forEach(session => {
+          const rawTemperature = String(row[session] ?? '').trim();
+          if (!rawTemperature) return;
+          const temperature = Number.parseFloat(rawTemperature);
+          if (Number.isNaN(temperature)) return;
+          const hour = session === 'am' ? 8 : 16;
+          const timestamp = new Date(year, month, day, hour, 0, 0, 0).toISOString();
+          readings.push(
+            api.saveHaccpLog({
+              location: applianceName,
+              temperature,
+              unit: 'F',
+              timestamp,
+              checked_by: String(row[session === 'am' ? 'ami' : 'pmi'] || syncedBy || 'portal'),
+              notes: String(row.note || ''),
+            }).catch(error => {
+              console.warn('[Storage] HACCP reading sync failed, continued:', error?.message || error);
+            }),
+          );
+        });
+      });
+      await Promise.all(readings);
+    } else if (key.includes('haccp')) {
       await api.saveHaccpLog({
         location: data.location || 'Unknown',
         temperature: data.temperature || 0,

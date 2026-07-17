@@ -457,6 +457,19 @@ rejected with 422, weeks 1-3 pass, week=0 full-month pass).
 
 **Push:** pending
 
+## [v0.1.2] - 2026-07-17 - fix(haccp): persist temperature grids and surface alerts
+
+**Codex:** Temperature-grid saves now fan out non-empty AM/PM cells into structured
+`haccp_logs` rows while retaining local-first caching and the generic daily audit entry.
+Added an isolated seven-day HACCP out-of-range notification feed and a Temps tray section
+linking alerts to the Compliance Hub.
+
+**Verified:** Backend Ruff check and format check passed; backend tests passed (`98 passed,
+14 skipped`). Frontend lint passed with 0 errors and existing warnings, TypeScript passed,
+and the production build passed. Local-only; no commit or push.
+
+**Push:** not requested - local changes only.
+
 ## 2026-07-17 - verify(data-entry): canceled live extraction stopped before persistence
 
 **Codex:** Reviewed the canceled `Julywk2.pdf` extraction started with the wrong scope

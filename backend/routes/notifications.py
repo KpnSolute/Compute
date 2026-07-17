@@ -9,7 +9,7 @@ does not introduce a second notification schema or a new table.
 import logging
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends
@@ -215,6 +215,42 @@ def _commits() -> list[dict]:
     ]
 
 
+def _temp_alerts() -> list[dict]:
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    result = (
+        supabase_service.table("haccp_logs")
+        .select("*")
+        .gte("timestamp", cutoff)
+        .order("timestamp", desc=True)
+        .limit(500)
+        .execute()
+    )
+    alerts = []
+    for row in result.data or []:
+        try:
+            temperature = float(row.get("temperature"))
+        except (TypeError, ValueError):
+            continue
+        location = str(row.get("location") or "Unknown location")
+        threshold = 0 if "freezer" in location.lower() else 41
+        if temperature <= threshold:
+            continue
+        timestamp = str(row.get("timestamp") or "unknown time")
+        alerts.append(
+            {
+                "key": _key(
+                    "temp-alert", str(row.get("id") or f"{location}:{timestamp}")
+                ),
+                "kind": "temp_alert",
+                "title": location,
+                "body": f"{temperature:g}°F recorded above the {threshold:g}°F limit at {timestamp}",
+                "target": "haccp",
+                "item": row,
+            }
+        )
+    return alerts
+
+
 @router.get("")
 async def get_notifications(auth_user: dict = Depends(_get_auth_user)):
     prefs = _read_prefs(auth_user["id"])
@@ -225,6 +261,7 @@ async def get_notifications(auth_user: dict = Depends(_get_auth_user)):
         ("reorders", _reorders),
         ("new_items", _inventory_items),
         ("pushes", _commits),
+        ("temp_alerts", _temp_alerts),
     ):
         try:
             feeds.extend(loader())
