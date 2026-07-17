@@ -17,7 +17,7 @@ frontend lint with 0 errors (existing warnings only), TypeScript, and production
 **CLI review:** OpenCode and MiMo read-only review attempts timed out before returning feedback;
 the implementation was then reviewed and verified locally.
 
-**Push:** pending — notification work is uncommitted.
+**Push:** Codex → main — `c5606a8` — pushed 2026-07-17.
 
 ## 2026-07-17 — feat(ui): reassign New Items from notifications
 
