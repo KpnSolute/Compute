@@ -148,7 +148,7 @@ def _data_entry_period_settings() -> dict:
         "floor_month": 4,  # 0-indexed: May
         "max_year": now.year,
         "max_month": min(now.month, 11),  # 0-indexed current month + one
-        "operational_week_count": 4,
+        "operational_week_count": 3,
         "calendar_rollover_rule": "days_after_28_to_next_month_w1",
         # Weekly invoices legitimately carry items not yet in the catalog (e.g.
         # a Multi-Flow beverage invoice vs a US-Foods-derived catalog). Allow them
@@ -179,11 +179,11 @@ def _data_entry_period_settings() -> dict:
 def _validate_week(week: int, month: int, year: int) -> None:
     """Reject weeks the merge path can't accept.
 
-    ponytail: schema reserves w4_* columns but dispatch_inventory_week only
-    accepts 1-3 (see staging/dispatch.py, routes/inventory.py, ai/tools.py) —
-    match that here instead of accepting a week the merge path will reject
-    anyway. Raise to 4 when full W4 support lands across
-    parser/staging/dispatch/UI.
+    MJCC operates on exactly 3 invoice weeks per month — this is the settled,
+    permanent design. Migration 013_enforce_four_operational_weeks attempted a
+    4-week model and was reverted; the 3-week cap is now the authoritative
+    constraint. dispatch_inventory_week, routes/inventory.py, and ai/tools.py
+    all enforce the same 1-3 limit.
     """
     valid_weeks = 3
     if week and (week < 1 or week > valid_weeks):

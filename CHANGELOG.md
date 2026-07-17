@@ -1,5 +1,70 @@
 # CHANGELOG — MJCC Development Forum
 
+## 2026-07-17 — migration: apply 042_revert_four_operational_weeks to production
+
+**mjcc-data:** Applied migration `042_revert_four_operational_weeks` to production
+Supabase project `mgvyylvmkxhhataavqjz` (MJCCv1). This resolves the schema
+inconsistency left by migration 013 (20260621150647), which partially landed its
+four-week rollout but silently skipped its `monthly_inventory` ALTER statements
+(those referenced `w5_received`/`w5_issued` columns that do not exist). Per
+product decision: roll back to 3-week model, do not build real W4 support.
+
+**SQL applied (in order):**
+1. `DELETE FROM public.week_status WHERE week > 3 AND status = 'open' AND locked_by IS NULL` — deleted 1 orphaned row (id `6fe73f11...`, June 2026, week 4, never used).
+2. Dropped `week_status_week_1_4_check`, added `week_status_week_1_3_check CHECK (week >= 1 AND week <= 3)`.
+3. Dropped old `inv_txn_week_check` on `inventory_transactions`, re-added as `CHECK (week_number BETWEEN 0 AND 3)` (was 0-4).
+4. Merged `{"operational_week_count": 3}` into `app_settings.data_entry` (was 4).
+
+**Migration tracking:** `supabase_migrations.schema_migrations` version `20260717100000`,
+name `revert_four_operational_weeks`. Applied via Supabase Management API (PAT) +
+`supabase migration repair --status applied 20260717100000 --linked`. File also
+written to `supabase/migrations/20260717100000_revert_four_operational_weeks.sql`.
+
+**Verification results (post-apply):**
+- `week_status WHERE week > 3`: 0 rows (orphan deleted).
+- `week_status_week_1_3_check`: `CHECK (((week >= 1) AND (week <= 3)))` — confirmed.
+- `week_status_week_1_4_check`: gone — confirmed.
+- `inv_txn_week_check`: `CHECK (((week_number >= 0) AND (week_number <= 3)))` — confirmed.
+- `app_settings.data_entry.operational_week_count`: `"3"` — confirmed.
+- `schema_migrations` row: `version=20260717100000, name=revert_four_operational_weeks` — confirmed.
+
+**Files written:**
+- `backend/migrations/042_revert_four_operational_weeks.sql` (authoritative)
+- `supabase/migrations/20260717100000_revert_four_operational_weeks.sql` (CLI tracking copy)
+
+**Push:** N/A — schema change applied directly to production via Supabase Management API.
+
+
+## 2026-07-16 - chore: remove stale W4 forward-looking comment from _validate_week()
+
+**mjcc-api:** Comment-only cleanup following the revert of migration
+013_enforce_four_operational_weeks. No logic or behavior changed.
+
+**File touched:** `backend/routes/data_entry.py`
+
+**Change:** `_validate_week()` docstring (lines 180-187). Removed the stale
+"ponytail: schema reserves w4_* columns" / "Raise to 4 when full W4 support
+lands" language. Replaced with a short factual note: MJCC operates on exactly
+3 invoice weeks per month (permanent design); the 4-week migration was reverted
+and the 3-week cap is now authoritative. `valid_weeks = 3` and all validation
+logic are untouched.
+
+**Second change (coordinator follow-up):** `data_entry.py:151` — hardcoded
+fallback default `"operational_week_count": 4` changed to `3`. A transient DB
+read failure in `_data_entry_period_settings()` falls through to `defaults`
+as-is (the except block only logs); a stale `4` there would silently
+reintroduce the reverted 4-week value on any DB blip. Now consistent with
+`_validate_week()` (`valid_weeks = 3`) and the DB revert.
+- SQL files — frozen/immutable, not touched.
+- `test_data_entry_week_validation.py` docstring — says "has no W4 column"
+  (stating a current fact, not implying W4 is coming); no change needed.
+
+**Verified:** `ruff check backend/ && ruff format backend/ --check` clean.
+`pytest backend/tests/test_data_entry_week_validation.py` — 3/3 passed (week=4
+rejected with 422, weeks 1-3 pass, week=0 full-month pass).
+
+**Push:** pending
+
 ## 2026-07-16 - v0.1.0 - Fix invoice-upload hang: dead legacy OCR fallback + redundant PDF parsing
 
 **Claude:** Live-reproduced a production incident: a real invoice upload sat
