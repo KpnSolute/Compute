@@ -13,6 +13,7 @@ from backend.ai import diff as diff_engine
 from backend.routes._deps import (
     _get_auth_user,
     _require_assistant,
+    check_direction_role,
     ensure_pr_for_entries,
 )
 
@@ -1340,34 +1341,9 @@ async def submit_staging(
                         status_code=403,
                         detail=f"Period {inv_month}/{inv_year} is published and cannot be modified.",
                     )
-        if caller_role not in ("admin", "manager", "sudo"):
-            if (
-                body.operation
-                in (
-                    "inventory_save",
-                    "inventory_week_update",
-                    "monthly_invoice_totals_update",
-                )
-                and body.full_payload
-            ):
-                fp = body.full_payload or {}
-                # Staff cannot stage issued quantities — manager-only field
-                if (
-                    body.operation == "inventory_week_update"
-                    and fp.get("direction") == "issued"
-                ):
-                    raise HTTPException(
-                        status_code=403,
-                        detail="Only managers can stage issued (pullout) quantities.",
-                    )
-                # Check for inventory_save payloads containing any pulled field
-                if body.operation == "inventory_save":
-                    for item in fp.get("items", []):
-                        if any(k in item for k in ("w1p", "w2p", "w3p")):
-                            raise HTTPException(
-                                status_code=403,
-                                detail="Only managers can stage issued (pullout) quantities.",
-                            )
+        # Role-gate: staff cannot stage issued/pulled quantities.
+        # Uses the shared helper from _deps so data_entry.py enforces the same rule.
+        check_direction_role(caller_role, body.operation, body.full_payload)
         # Dedup: update existing pending entry rather than stacking duplicates
         existing_r = (
             supabase_service.table("staging_entries")

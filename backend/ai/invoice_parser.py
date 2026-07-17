@@ -21,6 +21,7 @@ Item shape returned by parse_* functions:
 """
 
 import base64
+import concurrent.futures
 import io
 import logging
 import os
@@ -714,7 +715,12 @@ def _extract_text_local_ocr(content: bytes, debug: bool = False) -> list[str]:
 
 
 def _extract_image_local_ocr(content: bytes, debug: bool = False) -> list[str]:
-    """Extract text from an image via local pytesseract (optional dep)."""
+    """Extract text from an image via local pytesseract (optional dep).
+
+    A 30-second timeout is applied to prevent unbounded hangs — pytesseract
+    on large or high-DPI images can run indefinitely without one, which
+    previously blocked the entire upload worker thread.
+    """
     try:
         from PIL import Image  # type: ignore
         import pytesseract  # type: ignore
@@ -726,7 +732,7 @@ def _extract_image_local_ocr(content: bytes, debug: bool = False) -> list[str]:
         return []
     try:
         img = Image.open(io.BytesIO(content))
-        return [pytesseract.image_to_string(img)]
+        return [pytesseract.image_to_string(img, timeout=30)]
     except Exception as exc:
         if debug:
             print(f"[invoice_parser] Local image OCR error: {exc}")
@@ -1333,11 +1339,16 @@ def invoice_items_to_ops(
 
 # ── Vision-based invoice extraction ──────────────────────────────────────────
 
-_VISION_PROMPT = """You are an invoice data extraction engine for a food service cafeteria.
-This image is ONE PAGE of a multi-page invoice. Extract ALL line items visible on
-THIS page only using the extract_invoice_line tool, then call extract_invoice_summary
-once for the totals block IF this page shows totals (not every page will).
+# Single-page preamble for every vision call.
+_VISION_PROMPT_PREAMBLE = (
+    "You are an invoice data extraction engine for a food service cafeteria.\n"
+    "This image is ONE PAGE of a multi-page invoice. Extract ALL line items visible on\n"
+    "THIS page only using the extract_invoice_line tool, then call extract_invoice_summary\n"
+    "once for the totals block IF this page shows totals (not every page will)."
+)
 
+# Body shared across all page counts (schema + rules).
+_VISION_PROMPT_BODY = """
 If the model does not support tool calling, return ONLY valid JSON matching this schema:
 {
   "vendor": "vendor name or null",
@@ -1349,6 +1360,7 @@ If the model does not support tool calling, return ONLY valid JSON matching this
   "net_total": 0.0,
   "total_items_shipped": 0,
   "total_pieces_delivered": 0,
+  "is_recap_page": false,
   "items": [
     {
       "sku": "US Foods 5-7 digit product number",
@@ -1376,6 +1388,10 @@ Rules:
 - Include EVERY product line item visible — skip subtotal/header/address/fuel-surcharge lines
 - ORD and SHP are different columns. qty_shipped MUST come from SHP, never ORD.
 - Preserve a printed SHP value of 0 exactly as 0. Never replace zero with one.
+- is_recap_page: set to true ONLY when this page (or any page in the batch) contains a
+  "STORAGE LOCATION RECAP" table with a "DELIVERY SUMMARY TOTALS" grand-total row.
+  Set to false for all other pages. This flag is used to decide whether to retry this
+  page for recap data if the three recap numbers below come back as 0.
 - On the page with a "STORAGE LOCATION RECAP" table (usually near the end):
   this table has one row PER storage location (DRY, REFRIGERATED, FROZEN,
   etc. — each a subtotal for that location only) plus exactly ONE further
@@ -1410,6 +1426,61 @@ Rules:
   If genuinely uncertain, use Dry Goods.
 - Return ONLY the JSON object, no explanation."""
 
+# Canonical full prompt for a single page (backward compat).
+_VISION_PROMPT = _VISION_PROMPT_PREAMBLE + "\n" + _VISION_PROMPT_BODY
+
+
+# ── Gemini response schemas (structured output — Google provider only) ─────────
+# These force Gemini to return schema-conforming JSON directly, eliminating the
+# markdown-fence / partial-JSON parse failures that occasionally occur with raw
+# text responses.  Non-Gemini providers still use extract_json() on raw text.
+
+_VISION_RESPONSE_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "vendor": {"type": "string", "nullable": True},
+        "invoice_number": {"type": "string", "nullable": True},
+        "invoice_date": {"type": "string", "nullable": True},
+        "product_total": {"type": "number"},
+        "vizient_discount": {"type": "number"},
+        "fuel_surcharge": {"type": "number"},
+        "net_total": {"type": "number"},
+        "total_items_shipped": {"type": "integer"},
+        "total_pieces_delivered": {"type": "integer"},
+        "is_recap_page": {"type": "boolean"},
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "sku": {"type": "string"},
+                    "description": {"type": "string"},
+                    "label": {"type": "string"},
+                    "pack_size": {"type": "string"},
+                    "unit": {"type": "string"},
+                    "qty_ordered": {"type": "integer"},
+                    "qty_shipped": {"type": "integer"},
+                    "qty_adj": {"type": "integer"},
+                    "unit_price": {"type": "number"},
+                    "ext_price": {"type": "number"},
+                    "weight_lbs": {"type": "number"},
+                    "storage_location": {"type": "string", "nullable": True},
+                    "category": {"type": "string"},
+                },
+            },
+        },
+    },
+}
+
+_RECAP_RESPONSE_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "product_total": {"type": "number"},
+        "total_items_shipped": {"type": "integer"},
+        "total_pieces_delivered": {"type": "integer"},
+    },
+}
+
 
 def _extract_vision_page(
     image: bytes,
@@ -1419,6 +1490,12 @@ def _extract_vision_page(
     called_by: str | None,
 ) -> dict | None:
     """Run vision extraction on a single page image. Returns parsed dict or None on failure.
+
+    Always sends exactly ONE image per API call — the proven-safe pattern for
+    dense invoice pages.  A prior attempt at multi-image batching found that it
+    caused silent partial extraction (model returns fewer items or empty list with
+    no error) on dense pages.  Callers run multiple _extract_vision_page calls
+    concurrently instead of batching images into a single call.
 
     Failures here are caught by the caller (extract_invoice_vision) so that one
     unreadable page does not sink extraction of the rest of the invoice.
@@ -1431,6 +1508,7 @@ def _extract_vision_page(
         cfg,
         operation="invoice_vision",
         called_by=called_by,
+        json_schema=_VISION_RESPONSE_SCHEMA,
     )
     data = ai_engine.extract_json(raw_text)
     if not isinstance(data, dict):
@@ -1502,6 +1580,7 @@ def _extract_recap_totals(
             cfg,
             operation="invoice_vision_recap_retry",
             called_by=called_by,
+            json_schema=_RECAP_RESPONSE_SCHEMA,
         )
     except Exception as e:
         log.warning("[invoice_parser] recap retry on page %d failed: %s", page_num, e)
@@ -1563,14 +1642,17 @@ def extract_invoice_vision(
 ) -> dict:
     """Extract invoice line items from image(s) using AI vision.
 
-    Pages are processed ONE AT A TIME and merged. This is deliberate:
-      - A single batched request asking the model to read N pages at once was
-        found to silently return an empty item list once images got dense
-        (the model would "give up" rather than partially extract). Per-page
-        calls are slower in wall-clock time but each call is small, focused,
-        and a bad/unreadable page does not zero out the whole invoice.
-      - Keeps peak request payload size (and provider-side processing time)
-        bounded regardless of how many pages the invoice has.
+    Each page is sent as exactly ONE image per API call — the proven-reliable
+    pattern (multi-image batching was found to silently return empty item lists
+    on dense pages, making it the worst possible failure mode for a financial
+    pipeline).  Up to _PAGE_CONCURRENCY=3 of these single-image calls run
+    concurrently via ThreadPoolExecutor, cutting wall-clock time by ~60% vs
+    strictly sequential without sacrificing per-call reliability.
+
+    The is_recap_page self-classification flag (WS0.3) means the targeted recap
+    retry focuses on the exact recap-page candidate rather than all zero-item
+    pages, making the retry path a rarer 0-or-1-extra-call case instead of up
+    to N additional calls.
 
     Returns {'meta': {...}, 'items': [...], 'reconciled': bool, 'computed_total': float,
              'pages_total': int, 'pages_failed': int}.
@@ -1580,35 +1662,28 @@ def extract_invoice_vision(
     items: list[dict] = []
     pages_failed = 0
     consecutive_empty = 0
-    # Pages with zero line items are recap/cover/terms-page candidates — the
-    # only pages the recap trio could plausibly be on. Tracked so a later
-    # targeted retry doesn't have to re-scan every page in the invoice.
+    # Pages with zero line items fall into two buckets:
+    #   recap_candidate_pages — page self-identified as the recap page via is_recap_page=True;
+    #                           targeted retry scans these FIRST (typically just 1 page).
+    #   zero_item_pages       — cover/terms/blank pages without self-identification;
+    #                           only scanned if recap_candidate_pages yields nothing.
+    recap_candidate_pages: list[tuple[int, bytes]] = []
     zero_item_pages: list[tuple[int, bytes]] = []
     recap_keys = ("product_total", "total_items_shipped", "total_pieces_delivered")
 
-    for i, img in enumerate(images, start=1):
-        try:
-            data = _extract_vision_page(img, cfg, page_num=i, called_by=called_by)
-        except Exception as e:
-            pages_failed += 1
-            log.error(
-                "[invoice_parser] page %d/%d vision extraction failed: %s",
-                i,
-                len(images),
-                e,
-            )
-            consecutive_empty += 1
-            if consecutive_empty >= 2 and items:
-                break  # past the line-item section; remaining pages are summaries/terms
-            continue
+    # _PAGE_CONCURRENCY: at most this many single-page vision calls run simultaneously.
+    # Each call sends exactly ONE image — matching the proven-reliable single-page
+    # pattern.  A prior attempt at multi-image batching (sending N pages per call)
+    # was found to cause silent partial extraction on dense invoice pages (model
+    # returns fewer items or an empty list with no error) — the worst possible failure
+    # mode for a financial data pipeline.  Concurrent single-image calls preserve
+    # the reliability of the one-image-per-call pattern while cutting wall-clock time
+    # by ~60% vs strictly sequential: ceil(N/3) rounds instead of N sequential calls
+    # for a typical 8-page invoice.
+    _PAGE_CONCURRENCY = 3
 
-        if data is None:
-            pages_failed += 1
-            consecutive_empty += 1
-            if consecutive_empty >= 2 and items:
-                break
-            continue
-
+    def _merge_page_data(data: dict, page_num: int, img: bytes) -> bool:
+        """Fold one page's extracted data into the running merge state. Returns True if items found."""
         # First non-null value for each meta field wins (most invoices put
         # vendor/invoice#/date on page 1, totals on the last page).
         for key in (
@@ -1641,28 +1716,90 @@ def extract_invoice_vision(
         page_items = data.get("items") or []
         if not page_items:
             log.info(
-                "[invoice_parser] page %d/%d: 0 items extracted (may be a cover/"
-                "summary page, or page was unreadable)",
-                i,
+                "[invoice_parser] page %d/%d: 0 items extracted (cover/summary/recap page)",
+                page_num,
                 len(images),
             )
-            zero_item_pages.append((i, img))
+            if data.get("is_recap_page"):
+                recap_candidate_pages.append((page_num, img))
+                log.info(
+                    "[invoice_parser] page %d self-identified as recap page — "
+                    "targeted retry queued (avoids scanning all %d zero-item pages)",
+                    page_num,
+                    len(zero_item_pages) + 1,
+                )
+            else:
+                zero_item_pages.append((page_num, img))
+        items.extend(page_items)
+        return bool(page_items)
+
+    # Submit all pages to a bounded pool — __exit__ waits for all to finish,
+    # so by the time we iterate futures_ordered below, every f.result() returns instantly.
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=_PAGE_CONCURRENCY, thread_name_prefix="vision-pg"
+    ) as page_pool:
+        futures_ordered: list[tuple[int, bytes, concurrent.futures.Future]] = [
+            (
+                i,
+                img,
+                page_pool.submit(
+                    _extract_vision_page, img, cfg, page_num=i, called_by=called_by
+                ),
+            )
+            for i, img in enumerate(images, start=1)
+        ]
+
+    # Process results in page order so consecutive_empty heuristic and item ordering are correct.
+    for page_num, img, f in futures_ordered:
+        try:
+            data = f.result()
+        except Exception as e:
+            pages_failed += 1
+            log.error(
+                "[invoice_parser] page %d/%d vision extraction failed: %s",
+                page_num,
+                len(images),
+                e,
+            )
             consecutive_empty += 1
+            zero_item_pages.append((page_num, img))
+            if consecutive_empty >= 2 and items:
+                break  # past the line-item section; remaining pages are summaries/terms
+            continue
+
+        if data is None:
+            pages_failed += 1
+            consecutive_empty += 1
+            zero_item_pages.append((page_num, img))
             if consecutive_empty >= 2 and items:
                 break
+            continue
+
+        had_items = _merge_page_data(data, page_num, img)
+        if not had_items:
+            consecutive_empty += 1
         else:
             consecutive_empty = 0
-        items.extend(page_items)
 
-    # Targeted retry: the full per-page pass above sometimes fails to capture
-    # the recap trio purely from model variance (proven readable in isolation —
-    # see invoice_parser tests) even though it correctly identified the page as
-    # having zero line items. Re-ask ONLY for the three recap numbers, ONLY on
-    # those candidate pages, stopping at the first complete answer. Bounded to
-    # a handful of extra calls (typically 1-3 pages) rather than re-scanning
-    # the whole invoice.
-    if not any(merged_meta.get(k) for k in recap_keys) and zero_item_pages:
-        for page_num, page_img in zero_item_pages:
+        if consecutive_empty >= 2 and items:
+            break  # past the line-item section; remaining pages are summaries/terms
+
+    # Targeted retry: the main pass now self-classifies recap pages via is_recap_page.
+    # In the common case the main pass already captured the recap trio inline (zero retries).
+    # The retry below only fires when the trio is still missing after all batches —
+    # typically 0 or 1 extra call (vs potentially N in the old all-zero-item-pages loop).
+    if not any(merged_meta.get(k) for k in recap_keys):
+        # Prefer self-identified recap candidates; fall back to any zero-item page.
+        retry_targets = recap_candidate_pages or zero_item_pages
+        if retry_targets:
+            log.info(
+                "[invoice_parser] recap retry starting | candidates=%d "
+                "(self-identified=%d, generic-zero-item=%d)",
+                len(retry_targets),
+                len(recap_candidate_pages),
+                len(zero_item_pages),
+            )
+        for retry_idx, (page_num, page_img) in enumerate(retry_targets, start=1):
             retry_data = _extract_recap_totals(
                 page_img, cfg, page_num=page_num, called_by=called_by
             )
@@ -1672,9 +1809,12 @@ def extract_invoice_vision(
             if all(v not in (None, "", 0, 0.0) for v in recap_vals.values()):
                 merged_meta.update(recap_vals)
                 log.info(
-                    "[invoice_parser] recap retry succeeded on page %d/%d",
+                    "[invoice_parser] recap retry succeeded on page %d/%d "
+                    "(attempt %d/%d)",
                     page_num,
                     len(images),
+                    retry_idx,
+                    len(retry_targets),
                 )
                 break
 

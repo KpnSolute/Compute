@@ -218,7 +218,7 @@ def _gemini_extract_text(data: dict) -> str:
 
 
 def _gemini_complete(
-    messages: list[dict], model: str, api_key: str
+    messages: list[dict], model: str, api_key: str, json_schema: dict | None = None
 ) -> tuple[str, dict]:
     """Call Google Gemini generateContent API with exponential-backoff retry."""
     system_parts = [m["content"] for m in messages if m.get("role") == "system"]
@@ -233,6 +233,15 @@ def _gemini_complete(
     # budget to the actual answer and makes invoice vision deterministic again.
     if model.startswith("gemini-2.5"):
         generation_config["thinkingConfig"] = {"thinkingBudget": 0}
+    # Native structured output: when a JSON schema is provided, tell Gemini to
+    # respond ONLY with valid JSON conforming to that schema.  This eliminates
+    # the markdown-fence/JSON-parse failures that occasionally occur with raw text
+    # responses, and makes the model's output deterministic in shape.  Only wired
+    # for Gemini (confirmed live in production); other providers still use
+    # extract_json() on raw text.
+    if json_schema is not None:
+        generation_config["response_mime_type"] = "application/json"
+        generation_config["response_schema"] = json_schema
 
     body: dict = {
         "contents": [
@@ -505,7 +514,12 @@ def _media_type(b: bytes) -> str:
 
 
 def _call_vision_provider(
-    provider: str, model: str, prompt: str, images: list[bytes], cfg: dict
+    provider: str,
+    model: str,
+    prompt: str,
+    images: list[bytes],
+    cfg: dict,
+    json_schema: dict | None = None,
 ) -> tuple[str, dict]:
     """Build provider-specific vision payload and dispatch. Returns (text, usage)."""
     if provider == "anthropic":
@@ -548,7 +562,9 @@ def _call_vision_provider(
         key, _ = _resolve_key("google", cfg)
         if not key:
             raise RuntimeError("No API key configured for Google Gemini")
-        return _gemini_complete([{"role": "user", "content": parts}], model, key)
+        return _gemini_complete(
+            [{"role": "user", "content": parts}], model, key, json_schema=json_schema
+        )
 
     else:
         # OpenAI-compatible: groq, openai, mistral, lm_studio
@@ -782,11 +798,15 @@ def complete_vision(
     *,
     operation: str | None = None,
     called_by: str | None = None,
+    json_schema: dict | None = None,
 ) -> str:
     """Send a prompt + images to the configured provider and return the response text.
 
     Falls back through available vision-capable providers exactly like complete().
     images — list of raw image bytes (JPEG or PNG recommended).
+    json_schema — optional Gemini response_schema; when provided the primary
+    Google/Gemini provider returns native JSON (eliminates markdown-fence parse
+    failures).  Ignored for all other providers.
     Raises RuntimeError if no provider with vision support and a key is available.
     """
     cfg = config or {}
@@ -823,7 +843,9 @@ def complete_vision(
         t0 = time.monotonic()
         usage: dict = {"tokens_in": 0, "tokens_out": 0}
         try:
-            text, usage = _call_vision_provider(prov, mdl, prompt, images, cfg)
+            text, usage = _call_vision_provider(
+                prov, mdl, prompt, images, cfg, json_schema=json_schema
+            )
         except Exception as exc:
             duration_ms = int((time.monotonic() - t0) * 1000)
             _log_usage(

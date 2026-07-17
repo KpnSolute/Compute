@@ -44,7 +44,7 @@ from backend.archive_storage import (
 from backend.inventory_identity import canonical_sku
 from backend.periods import business_now
 from backend.routes import jwt_validator, supabase_service
-from backend.routes._deps import ensure_pr_for_entries
+from backend.routes._deps import check_direction_role, ensure_pr_for_entries
 from backend.staging.dispatch import _is_month_published
 
 # Thread pool dedicated to blocking parse work so FastAPI's event loop stays free
@@ -457,16 +457,25 @@ def _extract_ops(
             log.warning("[DATA-ENTRY] Google Cloud Vision OCR failed: %s", e)
 
         # ── FALLBACK 2: per-image OCR cascade (OCR.space / pytesseract) ───────
-        for img_bytes in images[:10]:
-            try:
-                ocr_parsed = invoice_parser.parse_invoice_bytes_image(
-                    img_bytes, img_meta.get("filename", filename)
-                )
-                result = _ops_from_parsed(ocr_parsed, ocr_parsed.get("meta", {}))
-                if result:
-                    return result
-            except Exception:
-                pass
+        # Gated behind "no vision model configured" for the same reason the PDF
+        # path dropped its pre-Vision OCR cascade (commit effc765): OCR.space has
+        # a 120s timeout and local Tesseract has NO timeout — both are unbounded
+        # hangs that can lock the entire upload worker thread.  When a vision-
+        # capable model (e.g. Gemini 2.5 Flash) already ran and returned nothing,
+        # OCR would only produce worse results on the same image, so there is no
+        # benefit to risk that hang.  Only allow OCR as a genuine fallback when no
+        # AI vision is configured at all.
+        if not ai_engine.is_vision_capable(provider, model, ai_config):
+            for img_bytes in images[:10]:
+                try:
+                    ocr_parsed = invoice_parser.parse_invoice_bytes_image(
+                        img_bytes, img_meta.get("filename", filename)
+                    )
+                    result = _ops_from_parsed(ocr_parsed, ocr_parsed.get("meta", {}))
+                    if result:
+                        return result
+                except Exception:
+                    pass
 
         # All paths failed — raise an actionable message
         if not ai_engine.is_vision_capable(provider, model, ai_config):
@@ -1244,6 +1253,13 @@ async def upload_file(
         raise HTTPException(
             status_code=422, detail="Direction must be received, issued, or both."
         )
+    # Role-gate: fast rejection before the 2-minute parse.
+    # direction=issued is a manager-only field; this mirrors the check that
+    # submit_staging already enforces on manual staging entries.
+    if direction == "issued":
+        check_direction_role(
+            auth_user.get("role", ""), "inventory_week_update", {"direction": "issued"}
+        )
     if week and direction == "both":
         raise HTTPException(
             status_code=422,
@@ -1408,6 +1424,20 @@ async def upload_file(
             log.warning("[DATA-ENTRY] No data extracted | file=%s", fname)
             yield _err(422, "No data could be extracted from this file.")
             return
+
+        # Role-gate (post-parse): catch inventory_save payloads that contain pulled
+        # fields (w1p/w2p/w3p), which can appear in full-workbook uploads regardless
+        # of the direction form field.  The early check above caught direction=issued;
+        # this catches the remaining staff-forbidden path.
+        _caller_role = (auth_user.get("role") or "").lower()
+        for _op_item in ops:
+            try:
+                check_direction_role(
+                    _caller_role, _op_item["operation"], _op_item.get("payload", {})
+                )
+            except HTTPException as _exc:
+                yield _err(_exc.status_code, _exc.detail)
+                return
 
         parsed_meta: dict = invoice_meta
         reconciliation: dict = parsed_meta.get("reconciliation", {})
@@ -1781,7 +1811,32 @@ async def preview_batch(batch_id: str, auth_user: dict = Depends(_get_auth_user)
 
     tables_affected = list({d["table"] for d in diffs})
 
-    return {
+    # Aggregate batch_cost_delta across all inventory_week_update diffs in this batch.
+    # A real invoice upload stages ONE staging_entries row per line item (each with a
+    # single-item full_payload), so _diff_inventory_week runs once PER ITEM, not once
+    # for the whole invoice. Its projected_month_total is therefore
+    # current_month_total + THIS ITEM's delta alone — identical current_month_total
+    # in every diff, just with a different single-item delta added. Summing that
+    # field across N items would double/N-count current_month_total; only
+    # batch_cost_delta (a true per-item delta) is safe to sum directly. The correct
+    # month-wide total is computed ONCE: current_month_total (recovered from any one
+    # diff as projected_month_total - batch_cost_delta) + the correctly-summed delta
+    # across the whole batch.
+    projected_month_total: float | None = None
+    batch_cost_delta: float | None = None
+    _current_month_total: float | None = None
+    for d in diffs:
+        if d.get("operation") == "inventory_week_update":
+            pt = d.get("projected_month_total")
+            cd = d.get("batch_cost_delta")
+            if cd is not None:
+                batch_cost_delta = round((batch_cost_delta or 0) + cd, 2)
+            if pt is not None and cd is not None and _current_month_total is None:
+                _current_month_total = round(pt - cd, 2)
+    if _current_month_total is not None and batch_cost_delta is not None:
+        projected_month_total = round(_current_month_total + batch_cost_delta, 2)
+
+    resp: dict = {
         "batch_id": batch_id,
         "staged_count": len(pending),
         "tables_affected": tables_affected,
@@ -1792,6 +1847,11 @@ async def preview_batch(batch_id: str, auth_user: dict = Depends(_get_auth_user)
         "staging_ids": [e["entry_id"] for e in pending],
         "diff": diffs,
     }
+    if projected_month_total is not None:
+        resp["projected_month_total"] = projected_month_total
+    if batch_cost_delta is not None:
+        resp["batch_cost_delta"] = batch_cost_delta
+    return resp
 
 
 # ── AI settings ───────────────────────────────────────────────────────────────

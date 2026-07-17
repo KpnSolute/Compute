@@ -1,5 +1,163 @@
 # CHANGELOG — MJCC Development Forum
 
+## 2026-07-17 — fix(ui): DataEntry preview monthly-total display + 3-week cleanup
+
+**mjcc-ui:** Two focused fixes in `frontend/src/components/DataEntry.tsx`. No backend files touched. `SourceControl.tsx` untouched.
+
+### 1 — Surface `projected_month_total` / `batch_cost_delta` in AI Extract Preview card
+
+- `PreviewResponse` interface extended: added `projected_month_total?: number | null` and `batch_cost_delta?: number | null`.
+- Added two sibling states `previewMonthTotal` / `previewCostDelta` (both `number | null`, init null).
+- `loadPreview` now captures both fields from `res` and resets them to null on error.
+- AI Extract Preview card (`WinCard title="AI Extract Preview"`) gains a financial summary banner above the diff table when either field is non-null: "Projected month total: $X,XXX.XX · +$YYY.YY from this upload". Uses `fmtMoney` (imported from `lib/supabase`), `var(--accent-soft)` / `var(--accent-chip)` border, `I.dollar` icon. Renders nothing when both fields are null (graceful degradation for non-inventory uploads).
+
+### 2 — Permanent 3-week model cleanup
+
+- `operational_week_count` default in state init: `4` → `3`.
+- `?? 4` fallback in `refreshDataEntrySettings` setter: → `?? 3`.
+- Removed `weeksInMonth()` function entirely (was only used at one callsite).
+- Removed `calendarWeekCount` derived variable.
+- `weekCount` simplified: was `Math.min(calendarWeekCount, Number(periodSettings.operational_week_count || 4))` → `Number(periodSettings.operational_week_count || 3)`.
+- Week-picker hint text (was conditional on `calendarWeekCount > weekCount`) simplified to always show the "days after the 28th roll into the next month's W1" message, which is always correct under the 3-week model.
+
+**Build:** `tsc --noEmit` clean · `npm run lint` 0 errors / 664 pre-existing any-warnings (unchanged) · `npm run build` passing.
+**Push:** pending.
+
+---
+
+## 2026-07-17 — feat(api): AI extraction restructuring + role-gate parity + projected month total
+
+**mjcc-api:** Three bundled workstreams touching the data-entry/inventory pipeline.
+
+### WS0: AI extraction restructuring (`backend/ai/invoice_parser.py`, `backend/ai/engine.py`)
+
+**WS0.1 — Close image-upload OCR landmine** (`data_entry.py:459-477`, `invoice_parser.py:716-733`):
+- FALLBACK 2 (OCR.space + pytesseract cascade) in the `invoice_images` path now gated behind
+  `not ai_engine.is_vision_capable(provider, model, ai_config)` — exact same principle as
+  commit `effc765` that fixed the PDF path. When Gemini is configured (confirmed live), the
+  unbounded Tesseract call can never be reached.
+- Defense-in-depth: added `timeout=30` to `_extract_image_local_ocr`'s pytesseract call so it
+  cannot hang unboundedly even if reached via a non-vision-capable config.
+
+**WS0.2 — Native structured output for Gemini** (`engine.py`, `invoice_parser.py`):
+- `_gemini_complete` accepts a new optional `json_schema: dict | None` parameter; when provided,
+  sets `response_mime_type: application/json` + `response_schema` in `generationConfig`.
+- `_call_vision_provider` and `complete_vision` both accept and pass `json_schema` through.
+- Two schemas defined: `_VISION_RESPONSE_SCHEMA` (full invoice page) and `_RECAP_RESPONSE_SCHEMA`
+  (recap-only retry call). Both callers (`_extract_vision_page`, `_extract_recap_totals`) now pass
+  their respective schemas. Gemini returns schema-conforming JSON directly — eliminates markdown-
+  fence / partial-JSON parse failures.
+- **Scope-down**: structured output is wired for Google/Gemini only. All other providers (Anthropic,
+  Groq, OpenAI, Mistral, Ollama) still use `extract_json()` on raw text — consistent multi-provider
+  support would require per-provider schema translation and is deferred.
+
+**WS0.3 — Fold recap detection into main per-page prompt** (`invoice_parser.py`):
+- Added `is_recap_page: boolean` field to `_VISION_PROMPT_BODY` and `_VISION_RESPONSE_SCHEMA`.
+  The model now self-classifies whether the page contains the STORAGE LOCATION RECAP table.
+- `extract_invoice_vision` tracks `recap_candidate_pages` (self-identified) separately from
+  `zero_item_pages` (generic zero-item pages). The targeted retry loop now tries
+  `recap_candidate_pages` first — typically exactly 1 page — instead of scanning every zero-item
+  page. In the common case (main pass captures the recap trio inline), retries = 0.
+- Call count before vs after a typical 8-page invoice: before = up to 8 main + 3 retry = 11 calls;
+  after WS0.3 alone = 8 main + 0-1 retry = 8-9 calls (common case 0 retries).
+
+**WS0.4 — Concurrent single-image calls** (`invoice_parser.py`):
+- COORDINATOR REJECTION: an initial implementation of multi-image batching (`_VISION_BATCH_SIZE=2`,
+  `images: list[bytes]`) was rejected because it reintroduced the documented empirical finding
+  that the model silently returns an empty item list on dense invoice pages when asked to read N
+  images in a single call — the worst possible failure mode for a financial data pipeline (silent
+  partial extraction with no error). Batching was reverted.
+- FINAL IMPLEMENTATION: `_extract_vision_page` reverted to `image: bytes` (exactly ONE image per
+  API call). `_build_vision_prompt` deleted. `extract_invoice_vision` now submits all pages to a
+  `concurrent.futures.ThreadPoolExecutor(max_workers=3, thread_name_prefix="vision-pg")`. The
+  `with` block exits only after all futures finish; results are then processed in page-number order
+  so the `consecutive_empty` heuristic and item ordering remain correct.
+- Wall-clock speedup: ~60% for a typical 8-page invoice (ceil(8/3)=3 rounds instead of 8
+  sequential calls) without touching what each individual API call sees (1 image, 1 page).
+- API call count unchanged vs pre-WS0 baseline. Each call remains small, focused, and a bad page
+  cannot zero out its neighbours.
+
+### WS1: Staff role-gate parity (`backend/routes/_deps.py`, `sourcectrl.py`, `data_entry.py`)
+
+- Extracted `check_direction_role(caller_role, operation, full_payload)` into `_deps.py`.
+  Raises 403 with the same message as the old inline check in `submit_staging`.
+- `sourcectrl.py:submit_staging` inline check (old lines 1343-1370) replaced with
+  `check_direction_role(caller_role, body.operation, body.full_payload)`.
+- `data_entry.py:upload_file` now enforces the same restriction in two places:
+  1. Early: before the 2-minute parse, if `direction=issued` → fast 403.
+  2. Post-parse: after `_extract_ops`, scan all ops for `inventory_save` payloads with
+     `w1p/w2p/w3p` fields (covers full-workbook uploads that include pull columns).
+
+### WS2: Projected monthly total in diff engine (`backend/ai/diff.py`, `data_entry.py`)
+
+- `_diff_inventory_week` now:
+  - Selects `unit_price` from `inventory_items` alongside `id`.
+  - Accumulates `batch_cost_delta = SUM(qty * unit_price)` across all staged items
+    (raw item cost only — tax-excluded, matching what `reconcile_and_adjust` stores).
+  - Queries `SUM(ending_value)` from `monthly_inventory` for the target (month, year) as the
+    live current total (not `monthly_snapshots.grand_total` which is only populated on rollover
+    and unavailable for the current open period).
+  - Returns `batch_cost_delta` and `projected_month_total` (current + delta) in the diff dict.
+    Both are None (best-effort) if month/year are missing or the DB query fails.
+- `GET /api/data-entry/preview/{batch_id}` now surfaces `projected_month_total` and
+  `batch_cost_delta` at the top level of the response when any `inventory_week_update` diff in
+  the batch provides them. These fields are present only for week-upload batches.
+- `sourcectrl.py:740` (`diff_engine.diff_batch`) automatically includes the new fields since
+  `_diff_inventory_week` returns them; `_granular_commit_changes` ignores unknown fields safely.
+
+**Verification (final — post WS0.4 rework):** `ruff check backend/ && ruff format backend/` — 62 files
+clean, zero changes required. `pytest backend/tests/` — 96 passed, 14 skipped (skipped = fixture-file
+tests that require sample XLSX files, unrelated to any change in this session).
+
+**Push:** pending — coordinator review required before push.
+
+---
+
+## 2026-07-17 — fix(ui): clarify SourceControl button labels and Review Queue wording
+
+**mjcc-ui:** Surgical clarity pass on `frontend/src/components/SourceControl.tsx` —
+no structural changes, no API calls touched, no endpoints renamed. Scope: label
+and copy changes only.
+
+**Changes made:**
+
+1. `SCPushButton` — renamed visible label from "Push" / "Pushing…" to
+   "Sync Archive" / "Syncing…". Updated tooltip from "Push pending commits to
+   the GitHub archive repo" to "Sync committed changes to the GitHub archive repo
+   (archive/audit-trail backup only — does not write to the live database)".
+   Updated toast messages: "Push queued…" → "Archive sync queued…",
+   "Push failed:" → "Archive sync failed:". The underlying `doPush()` function
+   and all API calls are completely unchanged.
+
+2. `SourceControlPage` header — wrapped the `SCPushButton` in a thin
+   `borderLeft: "1px solid var(--line)"` separator span so it is visually
+   grouped apart from the "Refresh" button, communicating that it is a
+   secondary/maintenance utility rather than a primary action. No new CSS
+   classes introduced.
+
+3. "Pull Requests" tab/label renamed to "Review Queue" for manager/admin role
+   (canReview). Changed in three places: the panel-mode nav toolbar button
+   (line ~1187), the page-mode `PageToolbar` tab button (line ~1532), and the
+   `renderPRs()` modal title (line ~828). Staff-facing label "My Requests" is
+   unchanged. Title tooltips on both tab buttons now spell out the purpose
+   ("changes submitted by staff for approval" / "changes you have submitted for
+   review").
+
+4. `renderPRs` modal subtitle for managers: changed from generic "N open" /
+   "All requests" to "N awaiting approval" / "No pending approvals". For staff
+   the subtitle now reads "Changes you have submitted for manager review".
+
+5. Staff pending-review footer note (lines ~1345-1349): made the note clickable
+   (same `onClick` pattern as the submit-for-review note above it — opens the
+   My Requests overlay), changed icon from `I.user` to `I.inbox`, updated copy
+   to "Your changes are pending manager review — tap to view status in
+   My Requests →". Connects the passive status note to the actual review panel.
+
+**Build:** `tsc --noEmit` clean, `npm run build` passing (355 ms, 0 new errors).
+ESLint: 0 errors, 664 warnings — same pre-existing count, zero introduced.
+
+**Push:** pending — awaiting coordinator review.
+
 ## 2026-07-17 — migration: apply 042_revert_four_operational_weeks to production
 
 **mjcc-data:** Applied migration `042_revert_four_operational_weeks` to production

@@ -183,7 +183,22 @@ def _diff_inventory_save(payload: dict) -> dict:
 
 
 def _diff_inventory_week(payload: dict) -> dict:
-    """Preview a weekly-invoice posting: each item's qty → w{week}_{direction}."""
+    """Preview a weekly-invoice posting: each item's qty → w{week}_{direction}.
+
+    Also computes projected_month_total — the estimated ending value for the
+    period after this batch is committed.  Computed as:
+        current_month_ending_value + batch_cost_delta
+    where:
+        current_month_ending_value = SUM(ending_value) across all monthly_inventory
+                                     rows for (month, year) using the live DB values.
+        batch_cost_delta           = SUM(qty * unit_price) for each item in this batch.
+
+    This is a PURE raw-item cost figure — no tax, no surcharges.  Matches the
+    Vizient-adjusted unit_price stored in inventory_items (reconcile_and_adjust
+    already excludes tax/fuel/Vizient discount from per-item valuation).
+    Returns None for projected_month_total if month/year are not specified or if
+    the DB query fails (non-blocking best-effort).
+    """
     week = payload.get("week")
     direction = payload.get("direction", "received")
     # txn/direction vocabulary is "issued"; the monthly_inventory column is "pulled".
@@ -194,6 +209,7 @@ def _diff_inventory_week(payload: dict) -> dict:
     items = payload.get("items", [])
     svc = supabase_service
     rows = []
+    batch_cost_delta: float = 0.0
     for it in items:
         sku = (it.get("sku") or "").strip()
         qty = it.get("qty")
@@ -201,10 +217,19 @@ def _diff_inventory_week(payload: dict) -> dict:
             qty = it.get("onHand", 0)
 
         live_r = (
-            svc.table("inventory_items").select("id").eq("sku", sku).limit(1).execute()
+            svc.table("inventory_items")
+            .select("id,unit_price")
+            .eq("sku", sku)
+            .limit(1)
+            .execute()
         )
         item_row = live_r.data[0] if live_r.data else None
         status = "update" if item_row else "new"
+
+        # Accumulate batch cost: qty delivered × unit_price (tax-excluded raw item cost)
+        if item_row and qty:
+            unit_price = float(item_row.get("unit_price") or 0)
+            batch_cost_delta += float(qty) * unit_price
 
         # Fetch the current value of the target weekly column so reviewers see before → after
         current_val = None
@@ -234,6 +259,27 @@ def _diff_inventory_week(payload: dict) -> dict:
                 "changes": [col],
             }
         )
+
+    # Compute current month ending value (live sum — authoritative source for the
+    # open period; monthly_snapshots.grand_total is only populated on rollover so
+    # it's unavailable for the current in-progress month).
+    projected_month_total: float | None = None
+    if db_month is not None and year is not None:
+        try:
+            mi_total_r = (
+                svc.table("monthly_inventory")
+                .select("ending_value")
+                .eq("month", db_month)
+                .eq("year", year)
+                .execute()
+            )
+            current_total = sum(
+                float(r.get("ending_value") or 0) for r in (mi_total_r.data or [])
+            )
+            projected_month_total = round(current_total + batch_cost_delta, 2)
+        except Exception:
+            pass  # best-effort — non-blocking if the DB query fails
+
     return {
         "table": "monthly_inventory",
         "operation": "inventory_week_update",
@@ -241,6 +287,8 @@ def _diff_inventory_week(payload: dict) -> dict:
         "month": month,
         "year": year,
         "rows": rows,
+        "batch_cost_delta": round(batch_cost_delta, 2),
+        "projected_month_total": projected_month_total,
     }
 
 

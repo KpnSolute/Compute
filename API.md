@@ -930,22 +930,42 @@ Row-level diff for a staged batch — shows before/after against live DB for eac
 
 **Response `200`:**
 ```json
-[
-  {
-    "table": "monthly_inventory",
-    "operation": "inventory_save",
-    "summary": "12 items for 6/2026",
-    "rows": [
-      {
-        "sku": "DRY-001",
-        "status": "update | new",
-        "before": { "onHand": 10, "price": 1.50 },
-        "after": { "onHand": 8, "price": 1.50 },
-        "changes": ["onHand"]
-      }
-    ]
-  }
-]
+{
+  "batch_id": "uuid",
+  "staged_count": 1,
+  "tables_affected": ["monthly_inventory"],
+  "summary": { "new_rows": 0, "updated_rows": 12 },
+  "staging_ids": ["uuid"],
+  "diff": [
+    {
+      "table": "monthly_inventory",
+      "operation": "inventory_week_update",
+      "summary": "12 items → Week 1 received",
+      "month": 6,
+      "year": 2026,
+      "rows": [
+        {
+          "sku": "DRY-001",
+          "status": "update | new",
+          "before": { "w1_received": 0 },
+          "after": { "w1_received": 3 },
+          "changes": ["w1_received"]
+        }
+      ],
+      "batch_cost_delta": 92.16,
+      "projected_month_total": 14823.45
+    }
+  ],
+  "batch_cost_delta": 92.16,
+  "projected_month_total": 14823.45
+}
+```
+- `projected_month_total` and `batch_cost_delta` are present at the top level and inside
+  each `inventory_week_update` diff entry **only** for week-upload batches. Both are
+  `null` / absent for non-week operations.
+- `projected_month_total` = current month `SUM(ending_value)` from `monthly_inventory` +
+  `batch_cost_delta` (raw item cost only, tax-excluded, Vizient-adjusted per-unit price).
+- `batch_cost_delta` = `SUM(qty × unit_price)` for items in this staged batch.
 ```
 
 ---

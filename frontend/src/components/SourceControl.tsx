@@ -16,22 +16,22 @@ function SCPushButton() {
         setSyncing(true);
         try {
             await api.runGithubSync();
-            t("Push queued — draining archive sync in background");
+            t("Archive sync queued — draining committed records to GitHub in background");
             // give the background task a moment, then check how it landed
             setTimeout(async () => {
                 try {
                     const status = await api.getGithubSyncStatus();
                     if (status.failed > 0) {
-                        t(`Sync: ${status.synced} synced, ${status.failed} failed — check server logs`);
+                        t(`Archive sync: ${status.synced} synced, ${status.failed} failed — check server logs`);
                     } else if (status.pending > 0) {
-                        t(`Sync in progress — ${status.pending} still pending`);
+                        t(`Archive sync in progress — ${status.pending} still pending`);
                     } else {
                         t("Archive sync complete");
                     }
                 } catch { /* status check is best-effort */ }
             }, 3000);
         } catch (err: any) {
-            t(`Push failed: ${err?.message || "Unknown error"}`);
+            t(`Archive sync failed: ${err?.message || "Unknown error"}`);
         } finally {
             setSyncing(false);
         }
@@ -42,10 +42,10 @@ function SCPushButton() {
             className="sc-icon-btn"
             onClick={doPush}
             disabled={syncing}
-            title="Push pending commits to the GitHub archive repo"
+            title="Sync committed changes to the GitHub archive repo (archive/audit-trail backup only — does not write to the live database)"
             style={{ marginLeft: 6 }}
         >
-            {syncing ? "Pushing…" : "Push"}
+            {syncing ? "Syncing…" : "Sync Archive"}
         </button>
     );
 }
@@ -825,8 +825,12 @@ function SCChangesView({
             <div className="overlay" onClick={() => setShowPRs(false)}>
                 <div className="modal" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
                     <div className="modal-head">
-                        <h3>{I.inbox()} {canReview ? "Pull Requests" : "My Requests"}</h3>
-                        <div className="sub">{openCount > 0 ? `${openCount} open` : "All requests"}</div>
+                        <h3>{I.inbox()} {canReview ? "Review Queue" : "My Requests"}</h3>
+                        <div className="sub">
+                            {canReview
+                                ? (openCount > 0 ? `${openCount} awaiting approval` : "No pending approvals")
+                                : "Changes you have submitted for manager review"}
+                        </div>
                         <button className="modal-x" onClick={() => setShowPRs(false)} aria-label="Close">{I.x()}</button>
                     </div>
                     <div className="modal-body" style={{ padding: 0 }}>
@@ -1183,8 +1187,8 @@ function SCChangesView({
                 <button className="sc-nav-btn" title="Commit History" onClick={() => setShowHistory(true)}>
                     {I.clock({ style: { width: 13, height: 13 } })} History
                 </button>
-                <button className="sc-nav-btn" title={canReview ? "Pull Requests" : "My Requests"} onClick={() => { setShowPRs(true); loadPRs(); }}>
-                    {I.inbox({ style: { width: 13, height: 13 } })} {canReview ? "Pull Requests" : "My Requests"}
+                <button className="sc-nav-btn" title={canReview ? "Review Queue — changes submitted for approval" : "My Requests — changes you have submitted for review"} onClick={() => { setShowPRs(true); loadPRs(); }}>
+                    {I.inbox({ style: { width: 13, height: 13 } })} {canReview ? "Review Queue" : "My Requests"}
                 </button>
                 {canReview && (
                     <button className="sc-nav-btn" title="AI Assistant" onClick={() => setShowAI(true)}>
@@ -1343,9 +1347,9 @@ function SCChangesView({
                 </div>
             )}
             {!canReview && unlinkedStaged.length === 0 && visibleStaged.length > 0 && (
-                <div className="sc-staff-note">
-                    {I.user({ style: { width: 12, height: 12 } })}
-                    <span>Your changes are pending manager review.</span>
+                <div className="sc-staff-note" style={{ cursor: "pointer" }} onClick={() => { setShowPRs(true); loadPRs(); }}>
+                    {I.inbox({ style: { width: 12, height: 12 } })}
+                    <span>Your changes are pending manager review — tap to view status in My Requests →</span>
                 </div>
             )}
             {!canReview && visibleStaged.length === 0 && (
@@ -1519,7 +1523,11 @@ export function SourceControlPage({
                 <button className="btn" onClick={loadData} disabled={loading}>
                     {I.refresh()} Refresh
                 </button>
-                {(ROLE_LEVEL[user.role] || 0) >= ROLE_LEVEL.manager && <SCPushButton />}
+                {(ROLE_LEVEL[user.role] || 0) >= ROLE_LEVEL.manager && (
+                    <span style={{ borderLeft: "1px solid var(--line)", paddingLeft: 8, marginLeft: 4, display: "inline-flex", alignItems: "center" }}>
+                        <SCPushButton />
+                    </span>
+                )}
             </div>
             <PageToolbar>
                 <button className={"sc-nav-btn" + (tab === 'changes' ? " active" : "")} onClick={() => setTab('changes')}>
@@ -1528,8 +1536,9 @@ export function SourceControlPage({
                 <button className={"sc-nav-btn" + (tab === 'history' ? " active" : "")} onClick={() => setTab('history')}>
                     {I.clock({ style: { width: 13, height: 13 } })} History
                 </button>
-                <button className={"sc-nav-btn" + (tab === 'prs' ? " active" : "")} onClick={() => setTab('prs')}>
-                    {I.inbox({ style: { width: 13, height: 13 } })} {canReview ? "Pull Requests" : "My Requests"}
+                <button className={"sc-nav-btn" + (tab === 'prs' ? " active" : "")} onClick={() => setTab('prs')}
+                    title={canReview ? "Review Queue — changes submitted by staff for approval" : "My Requests — changes you have submitted for review"}>
+                    {I.inbox({ style: { width: 13, height: 13 } })} {canReview ? "Review Queue" : "My Requests"}
                 </button>
                 {canReview && (
                     <button className={"sc-nav-btn" + (tab === 'ai' ? " active" : "")} onClick={() => setTab('ai')}>

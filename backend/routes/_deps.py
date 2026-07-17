@@ -80,6 +80,40 @@ def _require_assistant(auth_user: dict = Depends(_get_auth_user)) -> dict:
     return auth_user
 
 
+def check_direction_role(
+    caller_role: str,
+    operation: str,
+    full_payload: dict | None,
+) -> None:
+    """Raise 403 if a non-manager caller tries to stage issued/pulled quantities.
+
+    Mirrors the inline check that was previously only in sourcectrl.submit_staging
+    so that the data-entry upload path enforces the same restriction (WS1 parity).
+    Error shape is identical so existing frontend error handling is unaffected.
+    """
+    if (caller_role or "").lower() in ("admin", "manager", "sudo"):
+        return
+    fp = full_payload or {}
+    if operation not in (
+        "inventory_save",
+        "inventory_week_update",
+        "monthly_invoice_totals_update",
+    ):
+        return
+    if operation == "inventory_week_update" and fp.get("direction") == "issued":
+        raise HTTPException(
+            status_code=403,
+            detail="Only managers can stage issued (pullout) quantities.",
+        )
+    if operation == "inventory_save":
+        for item in fp.get("items", []):
+            if any(k in item for k in ("w1p", "w2p", "w3p")):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only managers can stage issued (pullout) quantities.",
+                )
+
+
 def ensure_pr_for_entries(
     entry_ids: list[str],
     author_id: str,

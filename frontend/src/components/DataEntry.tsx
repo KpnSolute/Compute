@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { I } from '../lib/icons';
 import { ROLE_LEVEL, MONTHS, loadAIPrefs } from '../lib/constants';
 import { api, type AuditReport } from '../lib/api';
+import { fmtMoney } from '../lib/supabase';
 
 type Hint = '' | 'inventory' | 'events' | 'haccp' | 'menu' | 'log' | 'budget';
 type Direction = 'received' | 'issued' | 'both';
@@ -81,6 +82,8 @@ interface PreviewResponse {
     summary: { new_rows: number; updated_rows: number };
     staging_ids: string[];
     diff: DiffTable[];
+    projected_month_total?: number | null;
+    batch_cost_delta?: number | null;
 }
 
 interface PeriodSettings {
@@ -285,10 +288,6 @@ function DiffRowPreview({ row }: { row: DiffRow }) {
 const ACCEPTED = '.csv,.tsv,.xls,.xlsx,.pdf,.txt,.jpg,.jpeg,.png,.webp,.bmp,.gif,.tif,.tiff';
 const FILE_TYPES = 'CSV · Excel · PDF · Images · Pull sheets · Invoices';
 
-function weeksInMonth(monthIndex: number, year: number) {
-    return new Date(year, monthIndex + 1, 0).getDate() > 28 ? 5 : 4;
-}
-
 const IMAGE_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp', 'image/tiff']);
 
 function FileZone({
@@ -419,6 +418,8 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
 
     const [preview, setPreview]           = useState<DiffTable[] | null>(null);
     const [stagingIds, setStagingIds]     = useState<string[]>([]);
+    const [previewMonthTotal, setPreviewMonthTotal] = useState<number | null>(null);
+    const [previewCostDelta, setPreviewCostDelta]   = useState<number | null>(null);
     const [commitBusy, setCommitBusy]     = useState(false);
     const [previewLoading, setPreviewLoading] = useState(false);
     const [previewErr, setPreviewErr]     = useState<string | null>(null);
@@ -437,14 +438,13 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         floor_month: 4,
         max_year: now.getFullYear(),
         max_month: Math.min(now.getMonth() + 1, 11),
-        operational_week_count: 4,
+        operational_week_count: 3,
     });
 
     const stageTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
     const abortRef = useRef<AbortController | null>(null);
     const cancelledRef = useRef(false);
-    const calendarWeekCount = weeksInMonth(month, year);
-    const weekCount = Math.min(calendarWeekCount, Number(periodSettings.operational_week_count || 4));
+    const weekCount = Number(periodSettings.operational_week_count || 3);
     const allowedYears = useMemo(() => {
         const years: number[] = [];
         for (let yr = periodSettings.floor_year; yr <= periodSettings.max_year; yr += 1) years.push(yr);
@@ -501,7 +501,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                 floor_month: Number(cfg.period.floor_month ?? p.floor_month),
                 max_year: Number(cfg.period.max_year ?? p.max_year),
                 max_month: Number(cfg.period.max_month ?? p.max_month),
-                operational_week_count: Number(cfg.period.operational_week_count ?? p.operational_week_count ?? 4),
+                operational_week_count: Number(cfg.period.operational_week_count ?? p.operational_week_count ?? 3),
             }));
         }
     }, [setAiKeys, setAiStatus, setPeriodSettings]);
@@ -607,14 +607,18 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
             const res = await api.getDataEntryPreview(batchId) as unknown as PreviewResponse;
             setPreview(res.diff as DiffTable[]);
             setStagingIds(res.staging_ids || []);
+            setPreviewMonthTotal(res.projected_month_total ?? null);
+            setPreviewCostDelta(res.batch_cost_delta ?? null);
         } catch (e: any) {
             setPreviewErr(e?.message || 'Failed to load preview');
             setPreview(null);
             setStagingIds([]);
+            setPreviewMonthTotal(null);
+            setPreviewCostDelta(null);
         } finally {
             setPreviewLoading(false);
         }
-    }, [setPreview, setPreviewErr, setPreviewLoading, setStagingIds]);
+    }, [setPreview, setPreviewErr, setPreviewLoading, setStagingIds, setPreviewMonthTotal, setPreviewCostDelta]);
 
     // Post-session inventory audit for the selected period. Loads on period change
     // and whenever a commit lands (the backend auto-runs the audit after a commit).
@@ -1048,9 +1052,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                                 ))}
                             </div>
                             <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 5 }}>
-                                {calendarWeekCount > weekCount
-                                    ? `${MONTHS[month]} ${year} uses W1-W${weekCount}; days after the 28th roll into the next month's W1.`
-                                    : `${MONTHS[month]} ${year} uses W1-W${weekCount}`}
+                                {`${MONTHS[month]} ${year} uses W1-W${weekCount}; days after the 28th roll into the next month's W1.`}
                             </div>
                         </div>
 
@@ -1285,6 +1287,29 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                             <span style={{ color: '#3b82f6', fontSize: 15 }}>✦</span>
                             <span className="ph-sub">AI computing diff...</span>
                             <ThinkingDots />
+                        </div>
+                    )}
+                    {!previewLoading && (previewMonthTotal != null || previewCostDelta != null) && (
+                        <div style={{
+                            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+                            padding: '9px 13px', marginBottom: 12,
+                            background: 'var(--accent-soft)', border: '1px solid var(--accent-chip)',
+                            borderRadius: 8, fontSize: 12.5,
+                        }}>
+                            {I.dollar({ style: { width: 15, height: 15, color: 'var(--accent)', flexShrink: 0 } })}
+                            {previewMonthTotal != null && (
+                                <span style={{ fontWeight: 600, color: 'var(--ink)' }}>
+                                    Projected month total: <span style={{ color: 'var(--accent)' }}>{fmtMoney(previewMonthTotal)}</span>
+                                </span>
+                            )}
+                            {previewMonthTotal != null && previewCostDelta != null && (
+                                <span style={{ color: 'var(--muted)' }}>·</span>
+                            )}
+                            {previewCostDelta != null && (
+                                <span style={{ color: previewCostDelta >= 0 ? 'var(--amber)' : 'var(--green)', fontWeight: 600 }}>
+                                    {previewCostDelta >= 0 ? '+' : ''}{fmtMoney(previewCostDelta)} from this upload
+                                </span>
+                            )}
                         </div>
                     )}
                     {!previewLoading && preview && preview.map((d, di) => (
