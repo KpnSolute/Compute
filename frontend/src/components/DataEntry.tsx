@@ -240,9 +240,14 @@ function PipelineBar({ stage }: { stage: number }) {
 // ── diff row ──────────────────────────────────────────────────────────────────
 
 function DiffRowPreview({ row }: { row: DiffRow }) {
-    const sku  = row.after?.sku  || row.before?.sku  || '';
+    // sku/description live at different depths depending on which diff handler
+    // produced this row: _diff_inventory_item nests them inside after/before,
+    // but _diff_inventory_week (the real invoice-upload path) puts them at the
+    // row's top level. Check both so neither shape renders blank.
+    const sku  = row.after?.sku  || row.before?.sku  || row.sku  || '';
     const desc = row.after?.description || row.before?.description ||
-                 row.after?.desc        || row.before?.desc        || '';
+                 row.after?.desc        || row.before?.desc        ||
+                 row.description        || row.desc               || '';
     const changes = row.changes || [];
 
     return (
