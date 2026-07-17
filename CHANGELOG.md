@@ -2,6 +2,21 @@
 
 ## [v0.1.1] — 2026-07-17 — fix(deploy): prevent notifications import crash when VERSION is absent
 
+## [v0.1.2] - 2026-07-17 - fix(inventory): hide unreviewed items from normal inventory totals
+
+**Codex:** Updated `backend/routes/inventory.py:get_inventory` to remove flattened inventory
+items with `needs_attention=true` before calculating the returned item list or any aggregate,
+including received, pulled, opening, closing, over-pulled, and category totals. The dedicated
+`GET /api/inventory/items?needs_attention=true` review queue and reassignment flow were not
+changed. The notifications `_reorders()` query remains unchanged because its `live_inventory`
+select and checked-in view definition do not expose `needs_attention`; no view migration was
+attempted.
+
+**Verified:** Ruff check passed; Ruff format check passed; backend tests passed (`98 passed,
+14 skipped`).
+
+**Push:** not requested - local changes only.
+
 **Codex:** Added `COPY VERSION ./VERSION` to the root Dockerfile and made the notifications
 module's import-time VERSION read fall back to `0.0.0` with a warning on `OSError` or
 `UnicodeError`. This prevents a missing or unreadable VERSION file from crash-looping the

@@ -277,7 +277,9 @@ async def get_inventory(
         if not result.data:
             raise HTTPException(status_code=404, detail="Inventory not found")
 
-        items = _flatten_rows(result.data)
+        items = [
+            item for item in _flatten_rows(result.data) if not item.needs_attention
+        ]
         period_id = f"{year}-{month:02d}"
         created_at = _serialize_dt(result.data[0].get("created_at"))
 
