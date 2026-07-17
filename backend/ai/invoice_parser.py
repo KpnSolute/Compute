@@ -1806,20 +1806,75 @@ def extract_invoice_vision(
         if consecutive_empty >= 2 and items:
             break  # past the line-item section; remaining pages are summaries/terms
 
-    # Targeted retry: the main pass now self-classifies recap pages via is_recap_page.
-    # In the common case the main pass already captured the recap trio inline (zero retries).
-    # The retry below only fires when the trio is still missing after all batches —
-    # typically 0 or 1 extra call (vs potentially N in the old all-zero-item-pages loop).
-    if not any(merged_meta.get(k) for k in recap_keys):
-        # Prefer self-identified recap candidates; fall back to any zero-item page.
-        retry_targets = recap_candidate_pages or zero_item_pages
+    # Recap trio validation — two-branch strategy based on whether any page
+    # self-identified as the recap page via is_recap_page=True.
+    #
+    # Branch A (recap_candidate_pages non-empty): ALWAYS run _extract_recap_totals
+    # against the self-identified recap page, even when the main pass already wrote
+    # a non-zero trio into merged_meta.  The main pass juggles 12+ fields per page
+    # and occasionally reads a per-storage-location SUBTOTAL row (e.g. DRY: 37 items /
+    # 68 pieces) instead of the "DELIVERY SUMMARY TOTALS" grand-total row (82 items /
+    # 155 pieces).  Because the subtotal values are non-zero, the old "not any(...)"
+    # gate accepted them without cross-checking — the confidently-wrong read silently
+    # stuck.  The dedicated retry uses a much narrower prompt (see _RECAP_RETRY_PROMPT)
+    # with explicit grand-total-vs-subtotal guidance, so it is treated as authoritative
+    # for these three fields: its values OVERRIDE the inline read when they are valid.
+    # Fall back to the inline trio ONLY if the retry itself returns an all-zero result
+    # (page didn't contain a recap table, or model still couldn't read it).
+    #
+    # Branch B (no recap_candidate_pages): legacy fallback — only retry zero-item pages
+    # when the main pass returned nothing at all for the trio (preserves old behaviour
+    # for invoice formats where is_recap_page was never set true).
+    if recap_candidate_pages:
+        inline_trio = {k: merged_meta.get(k) for k in recap_keys}
+        log.info(
+            "[invoice_parser] recap cross-check starting | candidates=%d "
+            "(self-identified recap page — dedicated retry always fires; "
+            "inline trio=%s will be overridden if retry succeeds)",
+            len(recap_candidate_pages),
+            inline_trio,
+        )
+        for retry_idx, (page_num, page_img) in enumerate(
+            recap_candidate_pages, start=1
+        ):
+            retry_data = _extract_recap_totals(
+                page_img, cfg, page_num=page_num, called_by=called_by
+            )
+            if not retry_data:
+                continue
+            recap_vals = {k: retry_data.get(k) for k in recap_keys}
+            if all(v not in (None, "", 0, 0.0) for v in recap_vals.values()):
+                if any(inline_trio.get(k) for k in recap_keys):
+                    log.info(
+                        "[invoice_parser] recap cross-check OVERRIDE page %d/%d "
+                        "(attempt %d/%d): inline=%s -> dedicated-retry=%s",
+                        page_num,
+                        len(images),
+                        retry_idx,
+                        len(recap_candidate_pages),
+                        inline_trio,
+                        recap_vals,
+                    )
+                else:
+                    log.info(
+                        "[invoice_parser] recap cross-check succeeded page %d/%d "
+                        "(attempt %d/%d) — main pass had no inline trio",
+                        page_num,
+                        len(images),
+                        retry_idx,
+                        len(recap_candidate_pages),
+                    )
+                merged_meta.update(recap_vals)
+                break
+    elif not any(merged_meta.get(k) for k in recap_keys):
+        # No recap page self-identified — only retry when the main pass returned
+        # nothing for the trio (legacy zero-item-pages fallback).
+        retry_targets = zero_item_pages
         if retry_targets:
             log.info(
                 "[invoice_parser] recap retry starting | candidates=%d "
-                "(self-identified=%d, generic-zero-item=%d)",
+                "(no recap self-id — generic zero-item fallback)",
                 len(retry_targets),
-                len(recap_candidate_pages),
-                len(zero_item_pages),
             )
         for retry_idx, (page_num, page_img) in enumerate(retry_targets, start=1):
             retry_data = _extract_recap_totals(
