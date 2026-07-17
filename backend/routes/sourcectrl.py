@@ -1466,6 +1466,7 @@ async def reject_staging(
 ):
     try:
         now = datetime.now(timezone.utc).isoformat()
+        entries = _select_staging_entries([entry_id], "entry_id,full_payload,status")
         r = (
             supabase_service.table("staging_entries")
             .update(
@@ -1484,6 +1485,23 @@ async def reject_staging(
             raise HTTPException(
                 status_code=404, detail="Staging entry not found or already processed."
             )
+        invoice_ids = {
+            str((entry.get("full_payload") or {}).get("invoice_id") or "").strip()
+            for entry in entries
+            if entry.get("status") == "pending"
+        }
+        invoice_ids.discard("")
+        for invoice_id in sorted(invoice_ids):
+            try:
+                supabase_service.table("invoices").update(
+                    {"status": "rejected", "updated_at": now}
+                ).eq("id", invoice_id).execute()
+            except Exception as exc:
+                log.warning(
+                    "[STAGING] invoice rejection flip failed | invoice_id=%s error=%s",
+                    invoice_id,
+                    exc,
+                )
         return None
     except HTTPException:
         raise
@@ -1510,6 +1528,7 @@ async def bulk_unstage(
         )
     now = datetime.now(timezone.utc).isoformat()
     rejected = 0
+    invoice_ids: set[str] = set()
     try:
         for chunk in _chunks(body.entry_ids, 100):
             r = (
@@ -1527,8 +1546,24 @@ async def bulk_unstage(
                 .execute()
             )
             rejected += len(r.data or [])
+            invoice_ids.update(
+                str((entry.get("full_payload") or {}).get("invoice_id") or "").strip()
+                for entry in (r.data or [])
+            )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    invoice_ids.discard("")
+    for invoice_id in sorted(invoice_ids):
+        try:
+            supabase_service.table("invoices").update(
+                {"status": "rejected", "updated_at": now}
+            ).eq("id", invoice_id).execute()
+        except Exception as exc:
+            log.warning(
+                "[STAGING] invoice rejection flip failed | invoice_id=%s error=%s",
+                invoice_id,
+                exc,
+            )
     return {"rejected": rejected}
 
 

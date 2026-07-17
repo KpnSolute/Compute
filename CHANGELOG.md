@@ -1,5 +1,89 @@
 # CHANGELOG — MJCC Development Forum
 
+## 2026-07-17 — fix(ai): recap-trio always cross-validated via dedicated retry when recap page is self-identified
+
+**mjcc-api:** Closed the "confidently-wrong recap read" reliability gap in `extract_invoice_vision`.
+
+**Root cause (confirmed via 3 live production runs of Julywk2.pdf):** The existing recap-retry gate
+`if not any(merged_meta.get(k) for k in recap_keys)` only fires when the main pass returned nothing
+at all for the trio. On Run 3, the main pass returned NON-ZERO but WRONG values — it read the DRY
+storage-location SUBTOTAL row (37 items / 68 pieces) instead of the true DELIVERY SUMMARY TOTALS
+grand-total row (82 items / 155 pieces). Because the trio was non-zero, the `not any(...)` check was
+False, `_extract_recap_totals` never fired, and the wrong values were accepted as final. Reconciliation
+correctly caught the mismatch and staged nothing (fail-closed, no data corruption) — but the root cause
+was the retry logic, not the fail-safe.
+
+**Changes — `backend/ai/invoice_parser.py` only (lines ~1809-1896):**
+
+Replaced the single `if not any(...):` recap retry block with a two-branch strategy:
+
+- **Branch A — `if recap_candidate_pages:`** (pages where `is_recap_page=True` fired): ALWAYS calls
+  `_extract_recap_totals` unconditionally, regardless of what the main pass already wrote for the trio.
+  Captures the inline trio snapshot (`inline_trio`) before the call. When the dedicated retry returns a
+  valid non-zero result, it OVERRIDES `merged_meta` (logging the old vs new values at INFO level when
+  an actual override happens). Falls back to the inline read only if the retry returns an all-zero result
+  (page had no recap table or model still couldn't read it). This means one guaranteed extra API call per
+  invoice that has a self-identified recap page — approved tradeoff for closing this gap.
+
+- **Branch B — `elif not any(merged_meta.get(k) for k in recap_keys):`** (no recap page self-identified):
+  Preserves exact legacy behavior — retries against `zero_item_pages` only when the main pass returned
+  nothing for the trio. No behavior change for invoice formats where `is_recap_page` never fires.
+
+`_RECAP_RETRY_PROMPT`, `_RECAP_RESPONSE_SCHEMA`, `_merge_page_data` tracking logic, the Vizient fix
+from effc765, and all OCR/concurrency changes from earlier tonight are untouched.
+
+**Verified:**
+- `ruff check backend/` — clean.
+- `ruff format backend/` — 1 file reformatted (quote normalization only), 61 files unchanged.
+- `pytest backend/tests/` — 96 passed, 14 skipped, 0 failures.
+
+**Push:** pending.
+
+---
+
+## 2026-07-17 — fix(ai): vision path multi-line Vizient/GPO discount summing
+
+**mjcc-api:** Targeted fix for the Julywk2.pdf production bug where two separate Vizient/GPO
+incentive lines in the INVOICE SUMMARY block were not summed — the app reported -$106.09
+(only one line) vs the correct -$109.09 (two lines: -$50.65 + -$58.44).
+
+**Root cause confirmed:** The regex-based native-text path (`_extract_meta`, lines ~785-794)
+already handles multi-line Vizient sums correctly (with an existing `re.findall` + `sum(...)`).
+However, all scanned US Foods invoices have zero native text and go through the vision AI path
+instead. The vision path's prompt and schema fields had no instruction to sum multiple lines.
+
+**Changes — `backend/ai/invoice_parser.py` only (3 edits):**
+
+1. **Tool-calling schema `vizient_discount` description** (lines ~395-405): Expanded from
+   a single-sentence note to include explicit multi-line instruction: "US Foods invoices
+   sometimes print MULTIPLE separate Vizient/GPO incentive lines... If more than one such
+   line appears, sum ALL of them into a single vizient_discount value."
+
+2. **`_VISION_PROMPT_BODY` rules section** (inserted before the "no product line items" bullet):
+   New bullet specifically for `vizient_discount` with the same multi-line summing instruction,
+   mirroring the existing regex-path comment. This is the free-text guidance that non-Gemini
+   providers and the fallback text path will see.
+
+3. **`_VISION_RESPONSE_SCHEMA` `vizient_discount` field** (was bare `{"type": "number"}`):
+   Expanded to include a `description` key with the same instruction. Gemini's structured-output
+   mode respects field descriptions as extraction guidance, making this the highest-confidence
+   fix for the Gemini provider path that runs on every real scanned invoice.
+
+**NOT touched:** `_extract_meta` regex path (lines ~785-794) — already correct.
+**NOT touched:** `_RECAP_RETRY_PROMPT` / `_RECAP_RESPONSE_SCHEMA` — recap retry only asks for
+`product_total`/`total_items_shipped`/`total_pieces_delivered`, no `vizient_discount` field; out of scope.
+
+**Verified:**
+- `ruff check backend/` — clean.
+- `ruff format backend/` — 62 files unchanged.
+- `pytest backend/tests/` — 96 passed, 14 skipped, 0 failures.
+- No existing vizient-related test fixtures in `backend/tests/` (confirmed by grep); a unit test
+  cannot cover prompt-text changes without a live AI API call.
+
+**Push:** pending.
+
+---
+
 ## 2026-07-17 — fix(ui): DataEntry preview monthly-total display + 3-week cleanup
 
 **mjcc-ui:** Two focused fixes in `frontend/src/components/DataEntry.tsx`. No backend files touched. `SourceControl.tsx` untouched.
@@ -220,6 +304,20 @@ reintroduce the reverted 4-week value on any DB blip. Now consistent with
 **Verified:** `ruff check backend/ && ruff format backend/ --check` clean.
 `pytest backend/tests/test_data_entry_week_validation.py` — 3/3 passed (week=4
 rejected with 422, weeks 1-3 pass, week=0 full-month pass).
+
+**Push:** pending
+
+## 2026-07-17 — fix(api): reject invoice staging clears invoice tracking status
+
+**Codex:** Fixed `backend/routes/sourcectrl.py` so single and bulk staging rejection paths collect
+`full_payload.invoice_id` for entries actually rejected and best-effort update the linked
+`invoices` row to `status='rejected'` with `updated_at`. Manual staging entries without an invoice
+ID are skipped. Invoice-update failures emit warnings and do not fail the staging rejection.
+
+**Verified:** `.venv/Scripts/python.exe -m ruff check backend/` passed; `.venv/Scripts/python.exe -m
+ruff format --check backend/` passed; `.venv/Scripts/python.exe -m pytest backend/tests/ -q` passed
+with 96 passed and 14 skipped. The standalone `pytest backend/tests/ -q` command was unavailable on
+the PowerShell PATH, so the equivalent virtualenv invocation was used.
 
 **Push:** pending
 
