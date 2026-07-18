@@ -1,5 +1,103 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.4] — 2026-07-18 — fix(audit): W2 variance reconciliation, register item counts, unit provenance, draft policy, test harness
+
+**Claude:** Worked the 2026-07-18 production-audit findings (tmp/kpncompute-mjcc-production-audit-2026-07-18.html). Every conclusion re-verified against current source + read-only live queries before changing code. NO production writes, NO deploy, NO push — all changes are local awaiting approval.
+
+**1. The "$101.09 W2 variance" is fully explained — it was never missing data.**
+Live decomposition (read-only SQL): W2 headline $9,445.32 = `inventory_transactions`
+goods value (sum of invoice subtotals 1,652.70 + 7,792.62 — pure item totals, per
+the standing valuation rule). Register total $9,344.23 = sum of `invoices.net_total`
+(payable = goods − Vizient 106.09 + fuel 5.00). Difference = 106.09 − 5.00 = $101.09
+to the cent. Both numbers correct; the defect was presenting them unlabeled side by
+side. Source of truth is now DEFINED: goods value for inventory valuation, net_total
+for payables, and the bridge between them is computed and displayed.
+- `backend/inventory_formulas.py`: new pure `reconcile_weekly_invoices()` — per-week
+  goods/net/vizient/fuel/tax + `residual` (headline vs register goods = REAL drift)
+  and `net_residual` (invoice's own net identity check). Nonzero residuals flag
+  "review required" instead of being silently absorbed.
+- `backend/routes/inventory.py`: new `_invoice_register_weeks()` (NOTE: invoices.month
+  is 1-INDEXED vs 0-indexed monthly_* tables — documented in code) + metadata now
+  carries `invoice_register` and `weekly_reconciliation`.
+- `frontend Operations.tsx`: Invoice register card shows the per-week bridge
+  ("goods − GPO + fuel = payable ✓ reconciled" / "⚠ off by $X — review"); header
+  labeled "payable". `Reports.tsx`: new "Invoice Register Reconciliation" section in
+  the monthly review export — report/download uses the same data model as the live
+  register.
+
+**2. Invoice register "Items —" fixed.** `GET /api/invoices` now returns `item_count`
+(single batched `invoice_items` query, range-lifted so counts can't truncate).
+The register UI already rendered `item_count` when present — no UI change needed.
+
+**3. Unit provenance — stop fabricating units.** The Cranberry "each" audit item:
+the pasted Multi-Flow invoice has NO unit column, yet the chain had THREE fabricated
+defaults (parser hardcoded EA; vision normalizer defaulted CS; dispatch_item_create
+defaulted "each"; DB column default 'CS'). Now: no-unit-column formats parse as
+unknown (""), `_replace_invoice_items` stores NULL, `dispatch_item_create` and
+`resolve_and_write_item` insert explicit NULL (both unit columns are nullable —
+no migration needed). Weekly ops still never carry units (catalog data). Unconfirmed
+units render blank and are set by the manager in the existing item-edit modal during
+New-Items review — the safe confirmation path. US Foods keeps its REAL printed
+sales-unit column. Existing wrong catalog data NOT corrected (production write —
+proposal in the session report; note near-duplicate rows F00480038 "13%" unit=each
+vs F00408038 "13X" unit=Case).
+
+**4. localStorage policy enforced: backend owns durable data; drafts only.**
+New `frontend/src/lib/drafts.ts`: namespaced (`mjcc_draft_`), 24h expiry, corrupt
+drafts dropped, legacy keys migrate once. Wired: Operations (draft restore now shows
+a visible "Unsaved draft restored" banner + Discard button, arms the save bar instead
+of claiming "saved"), PullSheet (both per-week and compact drafts), Portal inventory
+draft (was WRITE-ONLY — saved a draft nothing ever read back; now actually restores
+with a toast). ComplianceHub: `saveLog`'s local-only fallback result is no longer
+swallowed — SaveBar shows "⚠ Saved on this device only — backend sync failed" when
+the backend write didn't land.
+
+**5. Test harness repair preserved & extended.** Kept the conftest fix (mock FastAPI/
+Pydantic only when not installed). Suite grew 106 → 131 passed: new
+`test_invoice_register_reconciliation.py` (July-numbers reconciliation, drift
+flagging, 1-indexed month regression guard, item_count), `test_unit_provenance.py`
+(no fabricated units end-to-end), `test_staging_approval_rules.py` (staff
+issued/pulled gate incl. data-entry parity, PR self-merge blocking, admin/sudo
+exemption). Frontend: vitest+jsdom added (devDeps), `drafts.test.ts` 7 tests
+(expiry/corruption/migration). New opt-in `tests/test_e2e_workflow.py` — full
+authenticated workflow harness, skipped until MJCC_E2E_* env vars point at a
+NON-production environment (hard-refuses prod hostnames). BLOCKER: no dedicated
+non-production account/environment exists yet.
+
+**Verified:** pytest `131 passed, 20 skipped` (14 pre-existing + 6 E2E awaiting
+creds); ruff check+format clean (backend/ + tests/); eslint 0 errors; tsc clean;
+vite build passes; vitest 7 passed. Live read-only checks: /health/ready
+operational, prod version still `66dc68ca768b` == local HEAD parent — production
+unchanged by this session.
+
+**Addendum (same session, second findings pass):**
+- **Register model now carries line-item counts:** `_invoice_register_weeks` also
+  batch-counts `invoice_items` per week (one query, range-lifted, no N+1) →
+  `line_item_count` flows through `reconcile_weekly_invoices` into the Operations
+  strip ("N inv · M lines") and a new "Line Items" column in the Reports
+  reconciliation section. Report preview/CSV and the live register share one model.
+- **Drafts now namespaced by USER** as well as feature+period(+week):
+  `ops_<uid>_<m>_<y>`, `pull_<uid>_<y>_<m>_w<wk>`, `inv_<uid>_<m>_<y>`, with
+  one-time migration from both the original raw keys and the brief user-unscoped
+  scopes. Prevents cross-account draft bleed on shared kitchen terminals.
+- **E2E blocklist extended:** any `kpnsolute.com` host (mjcc./archive./…) is now
+  refused alongside the onrender.com production hosts.
+- **Duplicate investigation documented (read-only, NOT modified):**
+  `F00480038` "MF Cranberry Fusion 13%" (unit=each) vs `F00408038` "…13X"
+  (unit=Case) — same $55.70 price, same Beverages category, both created
+  2026-06-29; SKU digits transposed (480↔408) and `%` misread as `X`. The real
+  vendor SKU per the actual Multi-Flow invoice text is **F00480038**. The
+  corrupted twin has ZERO invoice_items references but 2 monthly_inventory rows
+  and 4 inventory_transactions — history was posted to the wrong row. Proposed
+  (awaiting approval, do NOT auto-apply): merge F00408038 into F00480038 via the
+  existing admin item-merge flow, and clear F00480038's unproven `each` unit to
+  NULL pending vendor-packaging confirmation.
+- Re-verified after addendum: pytest `131 passed, 20 skipped`; ruff check+format
+  clean; eslint 0 errors; tsc clean; build passes; vitest `7 passed`. Prod
+  still `66dc68ca768b`, all health components operational, zero writes.
+
+**Push:** pending — awaiting user approval (explicit instruction: no deploy/push without approval).
+
 ## [v0.1.3] — 2026-07-17 — fix(inventory): needs_attention never flagged real New Items
 
 **Claude:** Live-verified the New Items notification feed with a real test row and found
@@ -501,6 +599,27 @@ reintroduce the reverted 4-week value on any DB blip. Now consistent with
 rejected with 422, weeks 1-3 pass, week=0 full-month pass).
 
 **Push:** pending
+
+## KpnCompute / MJCC production structure and live-scenario audit (Codex, 2026-07-18)
+
+Audited the KpnCompute checkout and production services without changing production data or deployment state. Local `main` and production backend both report commit `66dc68c`. Render services were verified as separate production frontend (`KpnCompute`), backend (`MJCC-Managements-`), and `Interact` static site services.
+
+Live checks passed: `/`, `/health`, `/health/live`, `/health/ready`, `/api/system/status`, `/api/system/info`, `/openapi.json`, public menu today/cycle/stats, protected endpoint rejection without auth, malformed-date and malformed-login validation, Password sign-in rejection, and Staff PIN rejection. Render’s recent 500/502/503 query returned no matches. The live browser showed no console errors during the tested UI transitions.
+
+Local checks passed: frontend dependency install, frontend production build, and Python bytecode compilation. The repository pytest gate remains blocked by the local environment: `tests/test_health.py` cannot collect `fastapi.testclient` in the project `.venv`, while system Python has no pytest. Full authenticated end-to-end write-flow testing still requires a safe test account; this audit intentionally performed no production writes.
+
+Viewable evidence report: `tmp/kpncompute-mjcc-production-audit-2026-07-18.html`.
+
+Follow-up root-cause check: the $101.09 Week 2 variance is enabled by separate
+sources of truth—monthly snapshot weekly totals drive the headline while invoice
+register rows drive the visible invoice sum. The invoice register “Items” dash is
+an API contract gap because `GET /api/invoices` does not include `item_count`.
+The live Cranberry unit is inherited catalog data; the pasted invoice has no unit
+column, and the weekly parser does not update catalog units, so vendor packaging
+confirmation is still required. The local test harness was repaired by stopping
+its test conftest from replacing installed FastAPI/Pydantic packages; `pytest -q`
+now reports 106 passed, 14 skipped. A dedicated non-production authenticated E2E
+account was not available, so no production writes were attempted.
 
 ## [v0.1.2] - 2026-07-17 - fix(haccp): persist temperature grids and surface alerts
 

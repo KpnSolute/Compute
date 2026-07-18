@@ -204,6 +204,29 @@ function buildMonthlyReviewSections(periodLabel: string, rows: any[], metadata: 
         ['Variance vs. Catalog-Priced Receipt Value', csvValue(num(metadata?.received_value) - invoiceTotal, true), 'Product Receipt Value minus invoice total'],
       ],
     },
+    // Same data model as the live Invoice register: goods (valuation) vs
+    // payable (net) per week, with the explained bridge and residual status.
+    ...(metadata?.weekly_reconciliation
+      ? [{
+          title: 'Invoice Register Reconciliation (Goods vs Payable)',
+          columns: ['Week', 'Goods Subtotal', 'GPO Discount', 'Fuel', 'Tax', 'Payable (Net)', 'Invoices', 'Line Items', 'Residual', 'Status'],
+          columnTypes: ['text', 'money', 'money', 'money', 'money', 'money', 'number', 'number', 'money', 'text'] as ReviewCellType[],
+          rows: Object.entries(metadata.weekly_reconciliation as Record<string, any>)
+            .sort(([a], [b]) => Number(a) - Number(b))
+            .map(([wk, r]: [string, any]) => [
+              `Week ${wk}`,
+              csvValue(num(r.register_goods ?? r.headline_goods), true),
+              csvValue(num(r.vizient_discount), true),
+              csvValue(num(r.fuel_surcharge), true),
+              csvValue(num(r.tax), true),
+              csvValue(num(r.register_net), true),
+              num(r.invoice_count),
+              num(r.line_item_count),
+              csvValue(num(r.residual), true),
+              r.reconciled ? 'RECONCILED' : 'REVIEW REQUIRED',
+            ]),
+        }]
+      : []),
     {
       title: 'Category Summary',
       columns: ['Category', 'Items', 'Opening OH', 'Received', 'Pulled', 'Ending OH', 'Opening Value', 'Received Value', 'Inventory Flow Value', 'Ending Value'],

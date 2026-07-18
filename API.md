@@ -253,13 +253,19 @@ If neither `month` nor `year` is provided, returns the most recent period in the
       "endingValue": 0.00
     }
   ],
-  "metadata": { "month": 6, "year": 2026, "period": "2026-06" },
+  "metadata": {
+    "month": 6, "year": 2026, "period": "2026-06",
+    "weekly_invoice_totals": { "source": "inventory_transactions", "weeks": { "2": 9445.32 }, "total": 9445.32 },
+    "invoice_register": { "2": { "goods_subtotal": 9445.32, "vizient_discount": 106.09, "fuel_surcharge": 5.00, "tax": 0.00, "net_total": 9344.23, "invoice_count": 2, "line_item_count": 92 } },
+    "weekly_reconciliation": { "2": { "headline_goods": 9445.32, "register_goods": 9445.32, "register_net": 9344.23, "residual": 0.00, "net_residual": 0.00, "reconciled": true } }
+  },
   "notes": "string",
   "created_at": "ISO 8601"
 }
 ```
 - `onHand` = opening quantity (DB `opening_oh`). Ending quantity = `onHand + sum(w*r) - sum(w*p)`.
 - `endingValue` is the audited DB value when present; fallback math is only for legacy rows without value controls.
+- `weekly_invoice_totals` is the goods-value headline used for inventory valuation. `invoice_register` contains payable and bridge fields from invoice records. `weekly_reconciliation` flags a real goods or invoice-net mismatch; the goods-versus-payable difference alone is expected when discounts, fuel, or tax apply.
 - Items sorted by SKU ascending.
 
 **Errors:** `400` bad month, `401` auth, `404` no inventory, `500` DB error.
@@ -707,7 +713,7 @@ Authenticated update for menu service windows used by the student menu status.
 | `month` | int | — |
 | `year` | int | — |
 
-**Response `200`:** Invoice array with `vendor_name` joined from `vendors` table.
+**Response `200`:** Invoice array with `vendor_name` joined from `vendors` table and `item_count` populated from `invoice_items` in one batched lookup. `item_count` is `0` when the invoice has no line rows.
 
 ---
 

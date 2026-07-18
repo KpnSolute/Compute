@@ -9,6 +9,7 @@ import {
   endingQty as fEndingQty,
 } from '../lib/inventoryFormulas';
 import { matchesInventoryQuery, parseInventoryQuery } from '../lib/inventorySearch';
+import * as draftsLib from '../lib/drafts';
 import { SnackBarShop } from './SnackBarShop';
 
 const SNACK_HOURS = [
@@ -305,26 +306,34 @@ export function MonthlyInventory({
   const [showRollover, setShowRollover] = useState(false);
   const [rolloverBusy, setRolloverBusy] = useState(false);
 
-  // Local cache key for this period
-  const draftKey = `mjcc_ops_draft_${m + 1}_${y}`;
+  // Unsaved-edit draft for this period. localStorage is DRAFT-ONLY here (the
+  // backend owns durable data): drafts are namespaced by user + feature +
+  // period, expire after 24h, and a restored draft is surfaced via the banner
+  // below instead of silently overlaying live rows.
+  const draftScope = `ops_${user.id}_${m + 1}_${y}`;
+  const [draftRestoredAt, setDraftRestoredAt] = useState<number | null>(null);
 
-  const saveDraft = (data: any[]) => {
-    try { localStorage.setItem(draftKey, JSON.stringify({ rows: data, savedAt: Date.now() })); }
-    catch { /* quota exceeded — silent */ }
-  };
-
-  const clearDraft = () => {
-    try { localStorage.removeItem(draftKey); }
-    catch { /* silent */ }
-  };
-
+  const saveDraft = (data: any[]) => draftsLib.saveDraft(draftScope, data);
+  const clearDraft = () => { draftsLib.clearDraft(draftScope); setDraftRestoredAt(null); };
   const restoreDraft = (): any[] | null => {
-    try {
-      const raw = localStorage.getItem(draftKey);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed?.rows) ? parsed.rows : null;
-    } catch { return null; }
+    // one-time migrations: the original un-expiring key, then the brief
+    // user-unscoped drafts-lib key.
+    draftsLib.migrateLegacyDraft<any[]>(
+      `mjcc_ops_draft_${m + 1}_${y}`,
+      draftScope,
+      (parsed) => (Array.isArray(parsed?.rows) ? parsed.rows : null),
+    );
+    draftsLib.migrateLegacyDraft<any[]>(
+      draftsLib.draftKey(`ops_${m + 1}_${y}`),
+      draftScope,
+      (parsed) => (Array.isArray(parsed?.data) ? parsed.data : null),
+    );
+    const restored = draftsLib.restoreDraft<any[]>(draftScope);
+    if (restored && Array.isArray(restored.data)) {
+      setDraftRestoredAt(restored.savedAt);
+      return restored.data;
+    }
+    return null;
   };
 
   useEffect(() => {
@@ -363,7 +372,9 @@ export function MonthlyInventory({
           for (const dr of draft) {
             if (!merged.find((r: any) => r.id === dr.id)) merged.push(dr);
           }
-          if (alive) { setRows(merged); setInitRows(flat); setMaxWeeks(wip); setInventoryMeta(inv.metadata || {}); }
+          // A restored draft IS unsaved work — reflect that so the draft
+          // banner shows and the save bar arms instead of reporting "saved".
+          if (alive) { setRows(merged); setInitRows(flat); setMaxWeeks(wip); setInventoryMeta(inv.metadata || {}); setSaved(false); }
         } else {
           if (alive) { setRows(flat); setInitRows(flat); setMaxWeeks(wip); setInventoryMeta(inv.metadata || {}); }
         }
@@ -718,6 +729,23 @@ export function MonthlyInventory({
         <div className="card mobile-compact"><Loading label="Loading inventory…" /></div>
       ) : (
         <>
+          {draftRestoredAt !== null && !saved && (
+            <div
+              className="card"
+              style={{ marginBottom: 12, padding: '10px 14px', display: 'flex', gap: 12, alignItems: 'center', borderLeft: '4px solid var(--amber, #d97706)' }}
+            >
+              <span style={{ fontSize: 13 }}>
+                <b>Unsaved draft restored</b> from {new Date(draftRestoredAt).toLocaleString()} — these edits exist only on this device until you {lvl >= 30 ? 'save & commit' : 'stage'} them.
+              </span>
+              <button
+                className="btn"
+                style={{ marginLeft: 'auto' }}
+                onClick={() => { clearDraft(); setSaved(true); setLiveTick((t) => t + 1); }}
+              >
+                Discard draft
+              </button>
+            </div>
+          )}
           <div className="stat-grid">
             {SUM_CARDS.map((s, i) => (
               <div className="stat-card" key={i}>
@@ -884,9 +912,41 @@ export function MonthlyInventory({
             <div className="card-head">
               <h3>Invoice register — {MONTHS[m]} {y}</h3>
               <span className="ch-link">
-                {invoices.length} invoices · {fmtMoney(invoices.reduce((s: number, i: any) => s + (i.net_total || i.total || 0), 0))}
+                {invoices.length} invoices · payable {fmtMoney(invoices.reduce((s: number, i: any) => s + (i.net_total || i.total || 0), 0))}
               </span>
             </div>
+            {/* Weekly reconciliation: the weekly headline is GOODS value (pure
+                item totals — tax/fuel/GPO never in valuation) while the register
+                totals are PAYABLE (net). Show the bridge per week so the two
+                numbers explain each other; flag any real residual for review. */}
+            {inventoryMeta?.weekly_reconciliation && (
+              <div className="card-body" style={{ paddingTop: 8, paddingBottom: 8, borderBottom: '1px solid var(--line, #e5e7eb)' }}>
+                {Object.entries(inventoryMeta.weekly_reconciliation as Record<string, any>)
+                  .sort(([a], [b]) => Number(a) - Number(b))
+                  .map(([wk, r]: [string, any]) => (
+                    <div key={wk} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', fontSize: 12, padding: '2px 0' }}>
+                      <b>W{wk}</b>
+                      <span style={{ color: 'var(--muted, #6b7280)' }}>
+                        {r.invoice_count} inv · {r.line_item_count} lines
+                      </span>
+                      <span>
+                        goods {fmtMoney(r.register_goods ?? r.headline_goods)}
+                        {(r.vizient_discount || 0) !== 0 && <> − GPO {fmtMoney(r.vizient_discount)}</>}
+                        {(r.fuel_surcharge || 0) !== 0 && <> + fuel {fmtMoney(r.fuel_surcharge)}</>}
+                        {(r.tax || 0) !== 0 && <> + tax {fmtMoney(r.tax)}</>}
+                        {' '}= payable {fmtMoney(r.register_net ?? 0)}
+                      </span>
+                      {r.reconciled ? (
+                        <span style={{ color: 'var(--green-ink, #059669)', fontWeight: 700 }}>✓ reconciled</span>
+                      ) : (
+                        <span style={{ color: 'var(--red, #dc2626)', fontWeight: 700 }}>
+                          ⚠ off by {fmtMoney(Math.abs(r.residual ?? 0) || Math.abs(r.net_residual ?? 0))} — review invoices
+                        </span>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            )}
             <div className="card-body flush tbl-wrap">
               <table className="data">
                 <thead>

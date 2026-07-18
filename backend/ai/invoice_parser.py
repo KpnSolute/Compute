@@ -884,7 +884,10 @@ def _parse_page_lines(text: str, current_cat: str) -> tuple[list[dict], str]:
                     "description": _clean(m.group(4)),
                     "label": "Multi-Flow",
                     "pack_size": "",
-                    "unit": "EA",
+                    # Multi-Flow text has NO unit column — leave unknown ("")
+                    # rather than fabricate EA. Unconfirmed units surface as
+                    # blank in review instead of masquerading as source data.
+                    "unit": "",
                     "qty_ordered": qty,
                     "qty_shipped": qty,
                     "qty_adj": 0,
@@ -908,7 +911,7 @@ def _parse_page_lines(text: str, current_cat: str) -> tuple[list[dict], str]:
                     "description": _clean(m.group(3)),
                     "label": "",
                     "pack_size": "",
-                    "unit": "EA",
+                    "unit": "",  # receipt format has no unit column — unknown
                     "qty_ordered": qty,
                     "qty_shipped": qty,
                     "qty_adj": 0,
@@ -938,7 +941,7 @@ def _parse_page_lines(text: str, current_cat: str) -> tuple[list[dict], str]:
                     "description": _clean(m.group(1)),
                     "label": "",
                     "pack_size": "",
-                    "unit": "EA",
+                    "unit": "",  # generic fallback line — unit not in source
                     "qty_ordered": 1,
                     "qty_shipped": 1,
                     "qty_adj": 0,
@@ -1633,7 +1636,9 @@ def _normalize_vision_items(items: list[dict]) -> list[dict]:
     for item in items:
         sku = str(item.get("sku") or "").strip()
         desc = str(item.get("description") or sku).strip()
-        unit = str(item.get("unit") or "CS").upper()
+        # Only trust a unit the vision model actually read off the page; a
+        # missing unit stays unknown ("") instead of a fabricated CS default.
+        unit = str(item.get("unit") or "").upper()
         qty_raw = item.get("qty_shipped")
         qty = int(float(qty_raw)) if qty_raw not in (None, "") else 0
         unit_price = float(item.get("unit_price") or 0)

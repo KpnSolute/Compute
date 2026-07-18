@@ -1,3 +1,4 @@
+import importlib.util
 import sys
 import os
 from unittest.mock import MagicMock
@@ -24,7 +25,11 @@ if "dotenv" not in sys.modules:
     mock_dotenv.load_dotenv = MagicMock(return_value=True)
     sys.modules["dotenv"] = mock_dotenv
 
-if "fastapi" not in sys.modules:
+# Use the real FastAPI package whenever the development environment provides it.
+# The old unconditional stub polluted sys.modules during collection, so the
+# separate root-level health test later saw a MagicMock instead of the package
+# and failed with: "fastapi.testclient; 'fastapi' is not a package".
+if importlib.util.find_spec("fastapi") is None and "fastapi" not in sys.modules:
     mock_fastapi = MagicMock()
     mock_fastapi_responses = MagicMock()
 
@@ -60,7 +65,10 @@ if "fastapi" not in sys.modules:
     sys.modules["fastapi"] = mock_fastapi
     sys.modules["fastapi.responses"] = mock_fastapi_responses
 
-if "pydantic" not in sys.modules:
+# Keep the installed Pydantic package intact when available.  FastAPI imports
+# its submodules during collection; replacing it with a MagicMock breaks both
+# FastAPI itself and fastapi.testclient.
+if importlib.util.find_spec("pydantic") is None and "pydantic" not in sys.modules:
     mock_pydantic = MagicMock()
 
     class BaseModel:

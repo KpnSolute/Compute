@@ -11,6 +11,7 @@ import {
     DOW_FULL,
 } from "../lib/constants";
 import { useEscapeClose } from "../lib/useEscapeClose";
+import * as draftsLib from "../lib/drafts";
 
 // Compact-table cell handlers — module-level so they're not recreated per render
 const cinpFocus = (e: React.FocusEvent<HTMLInputElement>) => e.currentTarget.select();
@@ -1728,12 +1729,39 @@ function InventoryView({
         }));
     }, [draft, invState.inv]);
 
-    // Save draft to localStorage
+    // Draft persistence (draft-only localStorage policy: namespaced by
+    // user + feature + period, 24h expiry, restored visibly). The old key was
+    // write-only — it saved a draft nothing ever read back, so "Draft saved
+    // locally" was a dead end.
+    const invDraftScope = `inv_${user.id}_${period[0]}_${period[1]}`;
     const saveDraftLocally = () => {
-        const key = `mjcc_inv_draft_${period[0]}_${period[1]}`;
-        localStorage.setItem(key, JSON.stringify({ draft, wkDraft }));
-        toast("Draft saved locally");
+        draftsLib.saveDraft(invDraftScope, { draft, wkDraft });
+        toast("Draft saved on this device (expires in 24h) — stage or commit to persist");
     };
+    useEffect(() => {
+        // Restore an unexpired draft for this period; legacy key migrates once.
+        draftsLib.migrateLegacyDraft<{ draft: any; wkDraft: any }>(
+            `mjcc_inv_draft_${period[0]}_${period[1]}`,
+            invDraftScope,
+            (p) => (p && (p.draft || p.wkDraft) ? p : null),
+        );
+        const restored = draftsLib.restoreDraft<{ draft: any; wkDraft: any }>(invDraftScope);
+        if (restored?.data) {
+            if (restored.data.draft && Object.keys(restored.data.draft).length) {
+                setDraft(restored.data.draft);
+            }
+            if (restored.data.wkDraft && Object.keys(restored.data.wkDraft).length) {
+                setWkDraft(restored.data.wkDraft);
+            }
+            if (
+                Object.keys(restored.data.draft || {}).length ||
+                Object.keys(restored.data.wkDraft || {}).length
+            ) {
+                toast(`Unsaved draft from ${new Date(restored.savedAt).toLocaleString()} restored — stage or commit to persist`);
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [invDraftScope]);
 
     const stageInventoryRow = async (row: any) => {
         if (!canStage || !row.sku) return;

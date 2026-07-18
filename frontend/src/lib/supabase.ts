@@ -379,6 +379,7 @@ export async function saveLog(key: string, data: any, syncedBy?: string) {
       const month = Number(match[2]);
       const applianceName = String(data?.applianceName || key.split(':')[1] || 'Unknown');
       const readings: Promise<unknown>[] = [];
+      let syncFailed = false;
       Object.entries(rows).forEach(([dayValue, rowValue]) => {
         const day = Number(dayValue);
         const row = (rowValue || {}) as Record<string, unknown>;
@@ -398,12 +399,16 @@ export async function saveLog(key: string, data: any, syncedBy?: string) {
               checked_by: String(row[session === 'am' ? 'ami' : 'pmi'] || syncedBy || 'portal'),
               notes: String(row.note || ''),
             }).catch(error => {
+              syncFailed = true;
               console.warn('[Storage] HACCP reading sync failed, continued:', error?.message || error);
             }),
           );
         });
       });
       await Promise.all(readings);
+      if (syncFailed) {
+        throw new Error('One or more HACCP readings failed to sync');
+      }
     } else if (key.includes('haccp')) {
       await api.saveHaccpLog({
         location: data.location || 'Unknown',
@@ -440,6 +445,17 @@ export async function fetchLog(key: string) {
     if (key.includes('haccp')) {
       const logs = await api.getHaccpLogs(1, key);
       data = logs[0];
+    } else {
+      const logs = await api.getDailyLogs(500, 'other');
+      const title = `Log Update: ${key}`;
+      const match = logs.find((row: any) => row?.title === title);
+      if (match?.data) {
+        try {
+          data = typeof match.data === 'string' ? JSON.parse(match.data) : match.data;
+        } catch {
+          data = null;
+        }
+      }
     }
     
     if (data) {

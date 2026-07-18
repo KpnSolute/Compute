@@ -240,8 +240,35 @@ async def get_invoices(
             )
             vendor_map = {v["id"]: v["name"] for v in (vendors_result.data or [])}
 
+        # Line-item counts for the register's "Items" column. One query for the
+        # whole page of invoices; counted in Python (PostgREST has no GROUP BY
+        # through this client). range() lifts the default 1000-row cap so counts
+        # cannot silently truncate as months grow.
+        item_counts: dict[str, int] = {}
+        invoice_ids = [inv.get("id") for inv in invoices_data if inv.get("id")]
+        if invoice_ids:
+            try:
+                items_result = (
+                    supabase_service.table("invoice_items")
+                    .select("invoice_id")
+                    .in_("invoice_id", invoice_ids)
+                    .range(0, 49999)
+                    .execute()
+                )
+                for row in items_result.data or []:
+                    inv_id = row.get("invoice_id")
+                    if inv_id:
+                        item_counts[inv_id] = item_counts.get(inv_id, 0) + 1
+            except Exception:
+                # Counts are display metadata — never fail the register for them.
+                item_counts = {}
+
         return [
-            {**inv, "vendor_name": vendor_map.get(inv.get("vendor_id"))}
+            {
+                **inv,
+                "vendor_name": vendor_map.get(inv.get("vendor_id")),
+                "item_count": item_counts.get(inv.get("id"), 0),
+            }
             for inv in invoices_data
         ]
     except Exception as e:

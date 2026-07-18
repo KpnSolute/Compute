@@ -167,6 +167,83 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
     return items
 
 
+def _invoice_register_weeks(db_month: int, year: int) -> dict | None:
+    """Aggregate the invoice register per week for the period.
+
+    NOTE: invoices.month is 1-INDEXED (July=7) unlike monthly_inventory /
+    monthly_snapshots / inventory_transactions which are 0-indexed (July=6).
+    Returns week → {goods_subtotal, vizient_discount, fuel_surcharge, tax,
+    net_total, invoice_count, line_item_count}, or None when the register has
+    no rows.
+    """
+    try:
+        res = (
+            supabase_service.table("invoices")
+            .select(
+                "id,week_number,subtotal,vizient_discount,fuel_surcharge,tax,net_total"
+            )
+            .eq("month", db_month + 1)
+            .eq("year", year)
+            .execute()
+        )
+    except Exception:
+        logger.exception("Could not load invoice register for reconciliation")
+        return None
+
+    weeks: dict[str, dict] = {}
+    invoice_week: dict[str, str] = {}
+    for row in res.data or []:
+        week = int(_to_float(row.get("week_number")))
+        if week <= 0:
+            continue
+        if row.get("id"):
+            invoice_week[row["id"]] = str(week)
+        agg = weeks.setdefault(
+            str(week),
+            {
+                "goods_subtotal": 0.0,
+                "vizient_discount": 0.0,
+                "fuel_surcharge": 0.0,
+                "tax": 0.0,
+                "net_total": 0.0,
+                "invoice_count": 0,
+                "line_item_count": 0,
+            },
+        )
+        agg["goods_subtotal"] = round(
+            agg["goods_subtotal"] + _to_float(row.get("subtotal")), 2
+        )
+        agg["vizient_discount"] = round(
+            agg["vizient_discount"] + _to_float(row.get("vizient_discount")), 2
+        )
+        agg["fuel_surcharge"] = round(
+            agg["fuel_surcharge"] + _to_float(row.get("fuel_surcharge")), 2
+        )
+        agg["tax"] = round(agg["tax"] + _to_float(row.get("tax")), 2)
+        agg["net_total"] = round(agg["net_total"] + _to_float(row.get("net_total")), 2)
+        agg["invoice_count"] += 1
+
+    # Line-item counts: one batched query for the whole period (no N+1),
+    # range-lifted past the default row cap so counts cannot truncate.
+    if invoice_week:
+        try:
+            items_res = (
+                supabase_service.table("invoice_items")
+                .select("invoice_id")
+                .in_("invoice_id", list(invoice_week))
+                .range(0, 49999)
+                .execute()
+            )
+            for row in items_res.data or []:
+                wk = invoice_week.get(row.get("invoice_id") or "")
+                if wk and wk in weeks:
+                    weeks[wk]["line_item_count"] += 1
+        except Exception:
+            # Counts are display metadata — never fail reconciliation for them.
+            logger.exception("Could not load invoice line-item counts")
+    return weeks or None
+
+
 def _weekly_received_values_from_ledger(db_month: int, year: int) -> dict | None:
     try:
         txns = (
@@ -337,6 +414,19 @@ async def get_inventory(
         if not weekly_invoice_totals:
             weekly_invoice_totals = _weekly_received_values_from_ledger(db_month, year)
 
+        # Reconcile the headline weekly totals against the invoice register so
+        # the UI can explain (goods vs payable) instead of silently showing two
+        # different numbers — the 2026-07-18 audit's "$101.09 variance".
+        invoice_register = _invoice_register_weeks(db_month, year)
+        weekly_reconciliation = None
+        if invoice_register:
+            headline_weeks = (
+                weekly_invoice_totals.get("weeks", {}) if weekly_invoice_totals else {}
+            )
+            weekly_reconciliation = fi.reconcile_weekly_invoices(
+                headline_weeks, invoice_register
+            )
+
         return InventoryResponse(
             id=period_id,
             items=items,
@@ -360,6 +450,8 @@ async def get_inventory(
                 "closing_value": closing_value,
                 "category_totals": category_totals,
                 "weekly_invoice_totals": weekly_invoice_totals,
+                "invoice_register": invoice_register,
+                "weekly_reconciliation": weekly_reconciliation,
             },
             notes="",
             created_at=created_at or datetime.now(timezone.utc).isoformat(),

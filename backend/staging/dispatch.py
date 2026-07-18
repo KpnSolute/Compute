@@ -1151,7 +1151,9 @@ def dispatch_item_create(payload: dict) -> dict:
                     "category_id": cat_id,
                     "unit_price": payload.get("unit_price") or 0,
                     "par_level": payload.get("par_level") or 0,
-                    "unit": payload.get("unit") or "each",
+                    # NULL (not a fabricated "each") when the caller has no
+                    # source-proven unit — the manager confirms it in review.
+                    "unit": payload.get("unit") or None,
                     "active": bool(payload.get("active", True)),
                 }
             )
