@@ -52,6 +52,10 @@ def test_txt_paste_is_detected_as_invoice_items():
     )
     assert kind == "invoice_items"
     assert data["meta"].get("invoice_number") == "898561"
+    # Vendor line is indented (as in a real pasted email), not flush to column
+    # 0 — the vendor_name regex must tolerate leading whitespace or the
+    # backend rejects the whole upload with "Invoice vendor is unknown".
+    assert data["meta"].get("vendor_name") == "Multi-Flow Industries"
 
 
 def test_txt_paste_extracts_all_lines_and_skips_fuel_surcharge():

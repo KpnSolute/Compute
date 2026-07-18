@@ -208,7 +208,7 @@ META_PATTERNS: list[tuple[str, re.Pattern]] = [
     (
         "vendor_name",
         re.compile(
-            r"^(U\.?S\.?\s*FOODS?|SYSCO|PERFORMANCE\s*FOOD|GORDON\s*FOOD|MULTI[\-\s]?FLOW\s+INDUSTRIES)",
+            r"^[ \t]*(U\.?S\.?\s*FOODS?|SYSCO|PERFORMANCE\s*FOOD|GORDON\s*FOOD|MULTI[\-\s]?FLOW\s+INDUSTRIES)",
             re.IGNORECASE | re.MULTILINE,
         ),
     ),
