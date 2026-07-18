@@ -780,6 +780,11 @@ function ActivityBar({
                                     LunchVoice — Menu Review
                                 </button>
                             )}
+                            {hasScope("marquee") && (
+                                <button className="um-item" onClick={() => { window.location.assign("/?launch=marquee"); setToolsOpen(false); }}>
+                                    Marquee — Display Manager
+                                </button>
+                            )}
                         </div>
                     )}
                 </div>

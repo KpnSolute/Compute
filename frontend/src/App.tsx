@@ -80,16 +80,18 @@ function App() {
   useEffect(() => {
     if (!user || ssoLaunchStarted.current) return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get('launch') !== 'lioncafe') return;
+    const launch = params.get('launch');
+    if (launch !== 'lioncafe' && launch !== 'marquee') return;
     ssoLaunchStarted.current = true;
-    api.startLunchvoiceSso()
+    const start = launch === 'marquee' ? api.startSso('marquee') : api.startLunchvoiceSso();
+    start
       .then(({ redirect_url }) => window.location.replace(redirect_url))
       .catch((error) => {
         ssoLaunchStarted.current = false;
         params.delete('launch');
         const query = params.toString();
         window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
-        showToast(`<span>${error instanceof Error ? error.message : 'Could not open LionCafe.'}</span>`);
+        showToast(`<span>${error instanceof Error ? error.message : `Could not open ${launch}.`}</span>`);
       });
   }, [user]);
 
