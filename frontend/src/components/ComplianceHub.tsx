@@ -64,11 +64,16 @@ function useLog<T>(key: string, initial: T) {
   const [data, setData] = useState<T>(() => loadLog(key, null) ?? initial);
   const [saved, setSaved] = useState(true);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
+  // 'backend' = durably persisted; 'local' = ONLY on this device (backend sync
+  // failed). Compliance logs are durable data — a local-only save must be
+  // visible, not silently reported as "Saved".
+  const [savedWhere, setSavedWhere] = useState<'backend' | 'local' | null>(null);
   const initialRef = useRef(initial);
 
   useEffect(() => {
     setData(loadLog(key, null) ?? initialRef.current);
     setSaved(true);
+    setSavedWhere(null);
     let alive = true;
     fetchLog(key).then(r => {
       if (alive && r && r.data) setData(r.data as T);
@@ -86,17 +91,18 @@ function useLog<T>(key: string, initial: T) {
     const r = await saveLog(key, saveData, syncedBy);
     setSaved(true);
     setSavedAt(new Date());
+    setSavedWhere(r?.where === 'backend' ? 'backend' : 'local');
     try {
       await api.saveDailyLog({
         entry_type: 'haccp',
         title: 'HACCP Log',
         data: JSON.stringify({ key, data: saveData }),
       });
-    } catch { /* local save succeeded */ }
+    } catch { /* audit-trail copy failed; primary save state already reported */ }
     return r;
   };
 
-  return { data, update, saved, save, savedAt };
+  return { data, update, saved, save, savedAt, savedWhere };
 }
 
 function tempCell(
@@ -156,10 +162,27 @@ function textCell(
 }
 
 // ponytail: alias keeps call sites unchanged; dirtyCount=1 when !saved (ComplianceHub tracks saved as bool not count)
-function SaveBar({ saved, savedAt, onSave, canEdit, note }: {
+function SaveBar({ saved, savedAt, onSave, canEdit, note, savedWhere }: {
   saved: boolean; savedAt: Date | null; onSave: () => void; canEdit: boolean; note?: React.ReactNode;
+  savedWhere?: 'backend' | 'local' | null;
 }) {
-  return <SharedSaveBar dirtyCount={saved ? 0 : 1} saved={saved} savedAt={savedAt} onSave={onSave} canEdit={canEdit} saveLabel="Save" savePrimary note={note} />;
+  const syncNote = savedWhere === 'local' ? (
+    <span style={{ color: 'var(--amber, #d97706)', fontWeight: 700, fontSize: 12 }}>
+      ⚠ Saved on this device only — backend sync failed. Retry Save while online.
+    </span>
+  ) : null;
+  return (
+    <SharedSaveBar
+      dirtyCount={saved ? 0 : 1}
+      saved={saved}
+      savedAt={savedAt}
+      onSave={onSave}
+      canEdit={canEdit}
+      saveLabel="Save"
+      savePrimary
+      note={syncNote ? <>{syncNote}{note ? <> · {note}</> : null}</> : note}
+    />
+  );
 }
 
 function MonthNav({
@@ -211,7 +234,7 @@ function TemperatureLog({
   const key = `temp:${appId}:${y}-${m}`;
   const ndays = daysInMonth(m, y);
   const blank = () => ({ rows: {} as Record<number, TempRow> });
-  const { data, update, saved, save, savedAt } = useLog(key, { ...blank(), applianceName: app.name });
+  const { data, update, saved, save, savedAt, savedWhere } = useLog(key, { ...blank(), applianceName: app.name });
   const rows: Record<number, TempRow> = (data as any).rows ?? {};
 
   function setCell(day: number, field: string, val: string) {
@@ -346,6 +369,7 @@ function TemperatureLog({
       </div>
       <SaveBar
         saved={saved}
+        savedWhere={savedWhere}
         savedAt={savedAt}
         onSave={() => save(user.display_name, { ...data, applianceName: app.name } as typeof data)}
         canEdit={canEdit}
@@ -368,7 +392,7 @@ function SanitizerLog({
   const [m, y] = period;
   const key = `sanit:${y}-${m}`;
   const ndays = daysInMonth(m, y);
-  const { data, update, saved, save, savedAt } = useLog(key, {
+  const { data, update, saved, save, savedAt, savedWhere } = useLog(key, {
     rows: {} as Record<number, SanitRow>,
     conc: 'Oasis 146',
   });
@@ -483,6 +507,7 @@ function SanitizerLog({
       </div>
       <SaveBar
         saved={saved}
+        savedWhere={savedWhere}
         savedAt={savedAt}
         onSave={() => save(user.display_name)}
         canEdit={canEdit}
@@ -514,7 +539,7 @@ function TastePanel({
     };
   }
 
-  const { data, update, saved, save, savedAt } = useLog(key, {
+  const { data, update, saved, save, savedAt, savedWhere } = useLog(key, {
     items: [blankTaste()],
   });
   const items: TasteItem[] = (data as any).items ?? [];
@@ -704,6 +729,7 @@ function TastePanel({
       </div>
       <SaveBar
         saved={saved}
+        savedWhere={savedWhere}
         savedAt={savedAt}
         onSave={() => save(user.display_name)}
         canEdit={canEdit}

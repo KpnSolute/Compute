@@ -144,6 +144,11 @@ def resolve_and_write_item(
         fields["category_id"] = category_id or fallback_category_id
     fields["active"] = True
     fields["created_at"] = now_iso
+    # No source-proven unit → store NULL explicitly (the column's 'CS' default
+    # would otherwise fabricate a unit the source never stated). NULL renders
+    # as blank/unconfirmed in the UI and the manager sets it during review.
+    if "unit" not in fields:
+        fields["unit"] = None
     ins = sup.table("inventory_items").insert(fields).execute()
     new_id = ins.data[0]["id"] if ins.data else None
     return new_id, sku, True

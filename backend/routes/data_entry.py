@@ -1205,7 +1205,9 @@ def _replace_invoice_items(invoice_id: str, items: list[dict]) -> None:
                 "category": str(item.get("category") or "Uncategorized"),
                 "label": str(item.get("label") or "") or None,
                 "pack_size": str(item.get("pack_size") or "") or None,
-                "unit": str(item.get("unit") or "CS"),
+                # NULL = unit not present in the source document (unconfirmed);
+                # never fabricate CS — the register must reflect the invoice.
+                "unit": str(item.get("unit") or "") or None,
                 "quantity_ordered": item.get("qty_ordered") or 0,
                 "quantity_shipped": item.get("qty_shipped") or 0,
                 "quantity_adjusted": item.get("qty_adj") or 0,

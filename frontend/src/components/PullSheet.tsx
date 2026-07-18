@@ -4,6 +4,7 @@ import { type User, ROLE_LEVEL, MONTHS } from '../lib/constants';
 import { api } from '../lib/api';
 import { useEscapeClose } from '../lib/useEscapeClose';
 import { itemTotals } from '../lib/inventoryFormulas';
+import * as draftsLib from '../lib/drafts';
 import { StatusPill } from './ui/StatusPill';
 
 const t = (msg: string) => (window as any).toast?.(msg);
@@ -126,9 +127,12 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
   const [staging, setStaging] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
-  // Draft key based on period+week
-  const draftKey = `mjcc_pull_${year}_${month}_w${week}`;
-  const draftKeyForWeek = useCallback((wk: number) => `mjcc_pull_${year}_${month}_w${wk}`, [month, year]);
+  // Draft scope: user + feature + period + week. Drafts live in the shared
+  // drafts lib (namespaced + 24h expiry) — localStorage is draft-only; the
+  // backend owns durable pull data via stageWeeklyPull.
+  const draftKey = `pull_${user.id}_${year}_${month}_w${week}`;
+  const draftKeyForWeek = useCallback((wk: number) => `pull_${user.id}_${year}_${month}_w${wk}`, [month, year, user.id]);
+  const legacyKeyForWeek = useCallback((wk: number) => `mjcc_pull_${year}_${month}_w${wk}`, [month, year]);
 
   useEffect(() => {
     if (initialMonth) setMonth(initialMonth);
@@ -165,36 +169,26 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
     };
   }, [load]);
 
-  // Load draft from localStorage when period/week changes
+  // Load draft (namespaced, expiring) when period/week changes
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(draftKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setQtys(parsed.items || {});
-        setCompactQtys(prev => ({ ...prev, [week]: parsed.items || {} }));
-      } else {
-        setQtys({});
-        setCompactQtys(prev => ({ ...prev, [week]: {} }));
-      }
-    } catch {
-      setQtys({});
-      setCompactQtys(prev => ({ ...prev, [week]: {} }));
-    }
-  }, [draftKey, week]);
+    draftsLib.migrateLegacyDraft<Record<string, number>>(
+      legacyKeyForWeek(week), draftKey, (p) => p?.items ?? null,
+    );
+    const restored = draftsLib.restoreDraft<Record<string, number>>(draftKey);
+    setQtys(restored?.data || {});
+    setCompactQtys(prev => ({ ...prev, [week]: restored?.data || {} }));
+  }, [draftKey, week, legacyKeyForWeek]);
 
   useEffect(() => {
     const next: Record<number, Record<string, number>> = {};
     for (const wk of PULL_WEEKS) {
-      try {
-        const raw = localStorage.getItem(draftKeyForWeek(wk));
-        next[wk] = raw ? (JSON.parse(raw).items || {}) : {};
-      } catch {
-        next[wk] = {};
-      }
+      draftsLib.migrateLegacyDraft<Record<string, number>>(
+        legacyKeyForWeek(wk), draftKeyForWeek(wk), (p) => p?.items ?? null,
+      );
+      next[wk] = draftsLib.restoreDraft<Record<string, number>>(draftKeyForWeek(wk))?.data || {};
     }
     setCompactQtys(next);
-  }, [draftKeyForWeek]);
+  }, [draftKeyForWeek, legacyKeyForWeek]);
 
   const setQty = (sku: string, val: number) => {
     const qty = Math.max(0, val);
@@ -345,12 +339,12 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
   function saveDraft() {
     if (viewMode === 'compact') {
       for (const wk of PULL_WEEKS) {
-        localStorage.setItem(draftKeyForWeek(wk), JSON.stringify({ week: wk, items: compactQtys[wk] || {} }));
+        draftsLib.saveDraft(draftKeyForWeek(wk), compactQtys[wk] || {});
       }
       t('All week drafts saved.');
       return;
     }
-    localStorage.setItem(draftKey, JSON.stringify({ week, items: qtys }));
+    draftsLib.saveDraft(draftKey, qtys);
     t('Draft saved.');
   }
 

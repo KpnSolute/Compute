@@ -58,8 +58,7 @@ class _Query:
         rows = self._t._rows
         if self._op == "select":
             matched = [
-                r for r in rows
-                if all(r.get(k) == v for k, v in self._filters.items())
+                r for r in rows if all(r.get(k) == v for k, v in self._filters.items())
             ]
             return _Result([{"id": r["id"]} for r in matched])
         if self._op == "update":
@@ -102,10 +101,17 @@ class FakeSup:
 
 
 def test_known_sku_updates_not_inserts():
-    sup = FakeSup([{"id": "abc", "sku": "COKE-12", "description": "Old", "category_id": DRY_ID}])
+    sup = FakeSup(
+        [{"id": "abc", "sku": "COKE-12", "description": "Old", "category_id": DRY_ID}]
+    )
     item_id, sku, created = resolve_and_write_item(
-        sup, sku="COKE-12", desc="Coca-Cola 12oz", category_id=DRY_ID,
-        fallback_category_id=NEW_ITEMS_ID, price=1.5, par=10,
+        sup,
+        sku="COKE-12",
+        desc="Coca-Cola 12oz",
+        category_id=DRY_ID,
+        fallback_category_id=NEW_ITEMS_ID,
+        price=1.5,
+        par=10,
     )
     assert created is False
     assert item_id == "abc"
@@ -121,7 +127,10 @@ def test_known_sku_update_preserves_category():
     # a different category — it must NOT clobber the reassignment.
     sup = FakeSup([{"id": "abc", "sku": "X1", "category_id": DRY_ID}])
     resolve_and_write_item(
-        sup, sku="X1", desc="thing", category_id="cat-other",
+        sup,
+        sku="X1",
+        desc="thing",
+        category_id="cat-other",
         fallback_category_id=NEW_ITEMS_ID,
     )
     assert sup.rows[0]["category_id"] == DRY_ID  # untouched
@@ -130,7 +139,10 @@ def test_known_sku_update_preserves_category():
 def test_unknown_sku_with_known_category_uses_it():
     sup = FakeSup([])
     item_id, sku, created = resolve_and_write_item(
-        sup, sku="NEW-1", desc="New thing", category_id=DRY_ID,
+        sup,
+        sku="NEW-1",
+        desc="New thing",
+        category_id=DRY_ID,
         fallback_category_id=NEW_ITEMS_ID,
     )
     assert created is True
@@ -143,7 +155,10 @@ def test_unknown_sku_with_known_category_uses_it():
 def test_unknown_sku_no_category_falls_back_to_new_items():
     sup = FakeSup([])
     resolve_and_write_item(
-        sup, sku="NEW-2", desc="Mystery", category_id=None,
+        sup,
+        sku="NEW-2",
+        desc="Mystery",
+        category_id=None,
         fallback_category_id=NEW_ITEMS_ID,
     )
     assert sup.rows[0]["category_id"] == NEW_ITEMS_ID
@@ -153,8 +168,12 @@ def test_force_review_routes_new_item_to_new_items_even_with_category():
     # data-entry path: a guessed category must still land in New Items.
     sup = FakeSup([])
     resolve_and_write_item(
-        sup, sku="NEW-3", desc="Parsed", category_id=DRY_ID,
-        fallback_category_id=NEW_ITEMS_ID, force_review_category=True,
+        sup,
+        sku="NEW-3",
+        desc="Parsed",
+        category_id=DRY_ID,
+        fallback_category_id=NEW_ITEMS_ID,
+        force_review_category=True,
     )
     assert sup.rows[0]["category_id"] == NEW_ITEMS_ID
 
@@ -162,7 +181,10 @@ def test_force_review_routes_new_item_to_new_items_even_with_category():
 def test_blank_sku_is_generated():
     sup = FakeSup([])
     item_id, sku, created = resolve_and_write_item(
-        sup, sku="  ", desc="No sku item", category_id=DRY_ID,
+        sup,
+        sku="  ",
+        desc="No sku item",
+        category_id=DRY_ID,
         fallback_category_id=NEW_ITEMS_ID,
     )
     assert created is True
@@ -174,7 +196,10 @@ def test_blank_sku_is_generated():
 def test_missing_par_and_price_not_written():
     sup = FakeSup([{"id": "abc", "sku": "P1", "par_level": 5, "unit_price": 2.0}])
     resolve_and_write_item(
-        sup, sku="P1", desc="keep par", category_id=DRY_ID,
+        sup,
+        sku="P1",
+        desc="keep par",
+        category_id=DRY_ID,
         fallback_category_id=NEW_ITEMS_ID,  # price/par omitted
     )
     row = sup.rows[0]

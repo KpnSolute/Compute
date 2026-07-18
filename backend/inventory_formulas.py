@@ -88,6 +88,73 @@ def ending_value(opening_val, received_val, pulled_val) -> float:
     return max(0.0, num(opening_val) + num(received_val) - num(pulled_val))
 
 
+# ── weekly invoice-register reconciliation ───────────────────────────────────
+
+
+def reconcile_weekly_invoices(headline_weeks: dict, register_weeks: dict) -> dict:
+    """Reconcile the weekly received headline against the invoice register.
+
+    The two totals measure DIFFERENT things by design and must never be compared
+    raw (the 2026-07-18 audit's "$101.09 unexplained variance" was exactly this):
+
+      headline (weekly_invoice_totals) — GOODS value received, pure item totals.
+        Tax, fuel surcharge, and Vizient/GPO discounts are never in item
+        valuation (standing project rule).
+      register (invoices table)        — PAYABLE amounts. Each invoice's
+        net_total = goods subtotal − vizient + fuel + tax.
+
+    Per week this returns both measures plus the explained bridge between them,
+    and two actionable residuals:
+      residual      = headline − register goods subtotal. Nonzero means the
+                      ledger and the invoice register genuinely disagree about
+                      goods received — real drift needing review.
+      net_residual  = register net_total − (goods − vizient + fuel + tax).
+                      Nonzero means an invoice row's own financial fields do not
+                      satisfy the net-total identity — a bad invoice record.
+
+    `headline_weeks` maps week → goods value (e.g. {"2": 9445.32}).
+    `register_weeks` maps week → {goods_subtotal, vizient_discount,
+    fuel_surcharge, tax, net_total, invoice_count}.
+    Only weeks present in either input appear in the output.
+    """
+    weeks: dict[str, dict] = {}
+    for wk in sorted(set(headline_weeks) | set(register_weeks), key=str):
+        headline = round(num(headline_weeks.get(wk)), 2)
+        reg = register_weeks.get(wk) or {}
+        goods = round(num(reg.get("goods_subtotal")), 2)
+        vizient = round(num(reg.get("vizient_discount")), 2)
+        fuel = round(num(reg.get("fuel_surcharge")), 2)
+        tax = round(num(reg.get("tax")), 2)
+        net = round(num(reg.get("net_total")), 2)
+        has_register = bool(reg)
+        residual = round(headline - goods, 2) if has_register else None
+        net_residual = (
+            round(net - round(goods - vizient + fuel + tax, 2), 2)
+            if has_register
+            else None
+        )
+        weeks[str(wk)] = {
+            "headline_goods": headline,
+            "register_goods": goods if has_register else None,
+            "register_net": net if has_register else None,
+            "vizient_discount": vizient if has_register else None,
+            "fuel_surcharge": fuel if has_register else None,
+            "tax": tax if has_register else None,
+            "invoice_count": int(num(reg.get("invoice_count"))) if has_register else 0,
+            "line_item_count": (
+                int(num(reg.get("line_item_count"))) if has_register else 0
+            ),
+            "residual": residual,
+            "net_residual": net_residual,
+            "reconciled": (
+                has_register
+                and abs(residual or 0) < 0.01
+                and abs(net_residual or 0) < 0.01
+            ),
+        }
+    return weeks
+
+
 # ── period aggregates (the Review control block) ─────────────────────────────
 
 
