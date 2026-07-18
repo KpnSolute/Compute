@@ -8,6 +8,7 @@ FE997 excluded, item total $1,652.70 + $5 fuel = $1,657.70 printed total.
 """
 
 from backend.ai import parser
+from backend.ai.invoice_parser import invoice_items_to_ops
 
 MULTIFLOW_TEXT = """\
   DATE: 07/14/2026
@@ -73,6 +74,27 @@ def test_txt_paste_extracts_all_lines_and_skips_fuel_surcharge():
     # Product lines total (fuel kept separate) reconciles to the printed math.
     line_total = sum(float(i.get("ext_price") or 0) for i in items)
     assert abs(line_total - 1652.70) < 0.01
+
+
+def test_txt_paste_keeps_product_value_separate_from_invoice_extras():
+    _, data = parser.detect_and_parse(
+        "pasted-invoice.txt", MULTIFLOW_TEXT.encode("utf-8")
+    )
+
+    recon = data["meta"]["reconciliation"]
+    assert recon["product_cost"] == 1652.70
+    assert recon["fuel_surcharge"] == 5.00
+    assert recon["tax"] == 0.00
+    assert recon["net_total"] == 1657.70
+
+    # Inventory receives product lines only; the surcharge remains an
+    # invoice/cost-manager extra and must never become a received item value.
+    ops = invoice_items_to_ops(data["items"], data["meta"], 7, 2026, 2, "received", {})
+    staged_product_value = sum(
+        (op["payload"]["items"][0]["price"] or 0) * op["payload"]["items"][0]["qty"]
+        for op in ops
+    )
+    assert staged_product_value == 1652.70
 
 
 def test_non_invoice_txt_falls_back_to_text():

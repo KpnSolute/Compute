@@ -1120,6 +1120,16 @@ table.data.logtbl td{padding:6px 10px}
 .pull-week-tab[data-on="true"]{background:var(--accent);color:#fff}
 .pull-sheet-table{min-width:940px}
 .pull-sheet-compact{min-width:860px}
+/* Bounded, focusable scroll region for the pull sheet (2026-07-18 audit: the
+   unbounded table was ~13,583px tall — End never reached the last row and the
+   fixed action bar covered the bottom rows). The region is keyboard-scrollable
+   (tabIndex=0 → native Home/End/PageUp/PageDown once focused) with a pinned
+   header, an inset scroll affordance, and a visible focus ring. */
+.pull-table-scroll{max-height:min(64vh,760px);overflow-y:auto;overflow-x:auto;overscroll-behavior:contain;scroll-padding-top:44px}
+.pull-table-scroll:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.pull-table-scroll table.data thead th{position:sticky;top:0;z-index:3;background:var(--surface-2);box-shadow:0 1px 0 var(--line)}
+[data-theme="dark"] .pull-table-scroll table.data thead th{background:var(--surface-2)}
+.pull-table-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 13px;font-size:11.5px;color:var(--muted);border-top:1px solid var(--line);background:var(--surface-2)}
 .pull-qty-input{width:80px;height:32px;text-align:center;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--ink);font:700 12.5px var(--mono);box-shadow:var(--shadow-sm);transition:border-color .12s,background .12s,box-shadow .12s}
 .pull-qty-input:hover{border-color:var(--muted);background:var(--surface)}
 .pull-qty-input:focus{outline:none;border-color:var(--accent);background:var(--surface);box-shadow:0 0 0 2px rgba(30,115,232,.10)}

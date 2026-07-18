@@ -464,7 +464,9 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
           <span className="pull-search-icon">{I.search({ style: { width: 14, height: 14 } })}</span>
           <input
             className="ipt pull-search-input"
+            type="search"
             placeholder="Search SKU or description…"
+            aria-label="Search pull sheet items by SKU, description, category, or price"
             value={q}
             onChange={e => setQ(e.target.value)}
           />
@@ -550,7 +552,12 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
 
       {!loading && !loadErr && viewMode === 'regular' && (
         <div className="card" style={{ marginBottom: 0 }}>
-          <div className="card-body flush tbl-wrap">
+          <div
+            className="card-body flush tbl-wrap pull-table-scroll"
+            role="region"
+            aria-label={`Pull sheet items, ${filtered.length} rows. Scrollable list; header stays pinned.`}
+            tabIndex={0}
+          >
             <table className="data pull-sheet-table">
               <thead>
                 <tr>
@@ -599,7 +606,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
                       <td>{punit(it)}</td>
                       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmt(price)}</td>
                       <td style={{ textAlign: 'right', color: onHand <= 0 ? 'var(--muted)' : undefined }}>{onHand}</td>
-                      <td style={{ textAlign: 'right' }}>{par || '-'}</td>
+                      <td style={{ textAlign: 'right' }}>{par}</td>
                       <td><span className="pull-status" data-status={status.toLowerCase()}>{status}</span></td>
                       <td style={{ textAlign: 'center' }}>
                         <input
@@ -609,6 +616,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
                           step={1}
                           value={qty === 0 ? '' : qty}
                           placeholder="0"
+                          aria-label={`Pull quantity for ${desc}`}
                           onChange={e => setQty(sku, Number(e.target.value) || 0)}
                           onFocus={e => e.target.select()}
                         />
@@ -624,12 +632,21 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
               </tbody>
             </table>
           </div>
+          <div className="pull-table-foot">
+            <span>Showing all {filtered.length} item{filtered.length !== 1 ? 's' : ''} · scroll the list above to review — the header stays pinned</span>
+            <span>End of list</span>
+          </div>
         </div>
       )}
 
       {!loading && !loadErr && viewMode === 'compact' && (
         <div className="card" style={{ marginBottom: 0 }}>
-          <div className="card-body flush tbl-wrap">
+          <div
+            className="card-body flush tbl-wrap pull-table-scroll"
+            role="region"
+            aria-label={`Pull sheet items, all weeks, ${filtered.length} rows. Scrollable list; header stays pinned.`}
+            tabIndex={0}
+          >
             <table className="data compact pull-sheet-compact">
               <thead>
                 <tr>
@@ -671,7 +688,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
                       <td data-label="Item">{desc}</td>
                       <td data-label="SKU" style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{sku}</td>
                       <td data-label="OH" className="r num">{onHand}</td>
-                      <td data-label="Par" className="r num">{par || '-'}</td>
+                      <td data-label="Par" className="r num">{par}</td>
                       <td data-label="Status"><span className="pull-status" data-status={status.toLowerCase()}>{status}</span></td>
                       {weekQtys.map(({ wk, qty }) => (
                         <td key={`${sku}-w${wk}`} data-label={`W${wk} Pull`} className="r">
@@ -696,6 +713,10 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
                 })}
               </tbody>
             </table>
+          </div>
+          <div className="pull-table-foot">
+            <span>Showing all {filtered.length} item{filtered.length !== 1 ? 's' : ''} · scroll the list above to review — the header stays pinned</span>
+            <span>End of list</span>
           </div>
         </div>
       )}
