@@ -227,6 +227,17 @@ META_PATTERNS: list[tuple[str, re.Pattern]] = [
     ),
     ("route", re.compile(r"ROUTE\s*[:\s]\s*(\w+)", re.IGNORECASE)),
     (
+        # Generic "Pay Terms:" / "Payment Terms:" label. Vendor-specific formats
+        # (e.g. US Foods' combined header row) are extracted more precisely
+        # below via USFOODS_ORDER_HEADER_RE, which overrides this value when it
+        # matches — this is the fallback for every other vendor.
+        "payment_terms",
+        re.compile(
+            r"PAY(?:MENT)?\s*TERMS\s*[:\s]+([A-Z0-9][A-Z0-9/ ]{0,20}?)(?:\s{2,}|\r?\n|$)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
         # Authoritative GOODS subtotal — inventory is valued at this number
         # (before Vizient/fuel/tax).  Only matches the explicit "Product Total $X"
         # label from the invoice summary section.  Do NOT match per-page
