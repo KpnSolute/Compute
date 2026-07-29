@@ -13,12 +13,20 @@ function fmt(v: number) {
   return '$' + v.toFixed(2);
 }
 
+// Reads the exact fields GET /api/inventory's InventoryItem model sends
+// (category/desc/unit/par/price) — no fallback aliases. api.ts's
+// InventoryItem interface mirrors the backend model 1:1 specifically so a
+// rename on either side is a TypeScript compile error here, not a silent
+// runtime default; guessing at alternate names (this used to check `cat`,
+// `unit_price`, `par_level`, etc. — real column/field names elsewhere in
+// this backend, just never on THIS endpoint) would defeat that and mask a
+// real contract break behind a quiet "Uncategorized"/`0`/`-`.
 const pnum = (v: any) => Number.isFinite(Number(v)) ? Number(v) : 0;
-const pcat = (it: any) => String(it.category || it.cat || it.category_name || 'Uncategorized').trim() || 'Uncategorized';
-const pdesc = (it: any) => String(it.desc || it.description || it.name || it.sku || '');
-const punit = (it: any) => String(it.unit || it.uom || it.unit_of_measure || '-');
-const ppar = (it: any) => pnum(it.par ?? it.par_level ?? it.parLevel);
-const pprice = (it: any) => pnum(it.price ?? it.unit_price ?? it.unitPrice);
+const pcat = (it: any) => String(it.category || 'Uncategorized').trim() || 'Uncategorized';
+const pdesc = (it: any) => String(it.desc || it.sku || '');
+const punit = (it: any) => String(it.unit || '-');
+const ppar = (it: any) => pnum(it.par);
+const pprice = (it: any) => pnum(it.price);
 const pavailable = (it: any) => typeof it.closingQty === 'number'
   ? it.closingQty
   : itemTotals(it).ending;
@@ -119,6 +127,10 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
   // qty map: sku -> pull qty
   const [qtys, setQtys] = useState<Record<string, number>>({});
   const [compactQtys, setCompactQtys] = useState<Record<number, Record<string, number>>>({});
+  // True once qtys/compactQtys has an edit that hasn't been staged or freshly
+  // (re)loaded — gates the background live-data-changed/focus refresh below
+  // so it never fires while the user is actively editing.
+  const [dirty, setDirty] = useState(false);
 
   const [showAll, setShowAll] = useState(false);
   const [q, setQ] = useState('');
@@ -142,42 +154,79 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
     if (initialYear) setYear(initialYear);
   }, [initialYear]);
 
-  // Load inventory for selected month/year
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadErr(null);
+  // Load inventory for selected month/year. `silent` skips the loading-flag
+  // toggle so background refreshes (live-data-changed / window focus) never
+  // unmount the item table below — that unmount was destroying whichever
+  // Pull Qty input the user had focused mid-edit, which read as the entry
+  // "going back". `loadSeqRef` drops any response whose request has since
+  // been superseded, so an out-of-order resolution can't revert `items` to
+  // a stale snapshot.
+  const loadSeqRef = useRef(0);
+  // Set right before a SILENT load replaces `items`; consumed by the
+  // filtered-visibility effect below to notice the user when a background
+  // refresh (not their own edit) makes a row disappear from view, instead of
+  // it vanishing with no explanation.
+  const silentRefreshPendingRef = useRef(false);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    const seq = ++loadSeqRef.current;
+    const silent = opts?.silent ?? false;
+    if (!silent) { setLoading(true); setLoadErr(null); }
     try {
       const data = await api.getInventory(month, year);
+      if (seq !== loadSeqRef.current) return; // superseded by a newer load
+      if (silent) silentRefreshPendingRef.current = true;
       setItems(data?.items || []);
+      setLoadErr(null);
     } catch (e: any) {
-      setLoadErr(e?.message || 'Failed to load inventory');
-      setItems([]);
+      if (seq !== loadSeqRef.current) return;
+      if (!silent) {
+        setLoadErr(e?.message || 'Failed to load inventory');
+        setItems([]);
+      } else if (import.meta.env.DEV) {
+        console.warn('[PullSheet] background refresh failed:', e?.message || e);
+      }
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
   }, [month, year]);
 
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    const refresh = () => { void load(); };
+    // mjcc:live-data-changed fires on ANY successful write anywhere in the
+    // app (menu, HACCP, users, other staging — not just inventory), so this
+    // refresh is common, not rare. Skip it while the user has unsaved pull
+    // edits, mirroring Operations.tsx's `if (!saved) return` guard on the
+    // same event — the next refresh opportunity (after staging, or the next
+    // event once clean) catches up.
+    const refresh = () => { if (!dirty) void load({ silent: true }); };
     window.addEventListener('mjcc:live-data-changed', refresh);
     window.addEventListener('focus', refresh);
     return () => {
       window.removeEventListener('mjcc:live-data-changed', refresh);
       window.removeEventListener('focus', refresh);
     };
-  }, [load]);
+  }, [load, dirty]);
 
-  // Load draft (namespaced, expiring) when period/week changes
+  // Load the Regular-mode draft for the current week. compactQtys is owned
+  // entirely by the all-weeks effect below plus live edits (setQty/
+  // setCompactQty already mirror into it) — this used to ALSO overwrite
+  // compactQtys[week] from localStorage on every `week` change, which fires
+  // whenever the always-visible "Pull sheet week" selector is touched,
+  // including while viewing Compact mode (all 3 weeks on screen at once)
+  // with unsaved edits sitting in compactQtys[week] — silently discarding
+  // them with no warning.
   useEffect(() => {
     draftsLib.migrateLegacyDraft<Record<string, number>>(
       legacyKeyForWeek(week), draftKey, (p) => p?.items ?? null,
     );
     const restored = draftsLib.restoreDraft<Record<string, number>>(draftKey);
     setQtys(restored?.data || {});
-    setCompactQtys(prev => ({ ...prev, [week]: restored?.data || {} }));
-  }, [draftKey, week, legacyKeyForWeek]);
+    // In Compact mode, changing the selector must not clear the shared dirty
+    // guard: another week may still have unsaved quantities in compactQtys.
+    // Regular mode owns only qtys, so restoring its draft starts clean.
+    if (viewMode !== 'compact') setDirty(false);
+  }, [draftKey, week, legacyKeyForWeek, viewMode]);
 
   useEffect(() => {
     const next: Record<number, Record<string, number>> = {};
@@ -188,16 +237,19 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
       next[wk] = draftsLib.restoreDraft<Record<string, number>>(draftKeyForWeek(wk))?.data || {};
     }
     setCompactQtys(next);
+    setDirty(false);
   }, [draftKeyForWeek, legacyKeyForWeek]);
 
   const setQty = (sku: string, val: number) => {
     const qty = Math.max(0, val);
+    setDirty(true);
     setQtys(prev => ({ ...prev, [sku]: qty }));
     setCompactQtys(prev => ({ ...prev, [week]: { ...(prev[week] || {}), [sku]: qty } }));
   };
 
   const setCompactQty = (wk: number, sku: string, val: number) => {
     const qty = Math.max(0, val);
+    setDirty(true);
     setCompactQtys(prev => ({ ...prev, [wk]: { ...(prev[wk] || {}), [sku]: qty } }));
     if (wk === week) setQtys(prev => ({ ...prev, [sku]: qty }));
   };
@@ -240,6 +292,25 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
       return true;
     });
   }, [items, pullQtyFor, pullQtyForWeek, showAll, q, cat, viewMode]);
+
+  // A silent background refresh (see load()) can make a row drop out of
+  // `filtered` — e.g. its on-hand hit zero from someone else's committed
+  // change — with nothing on screen to say why. Notice the user instead of
+  // letting rows disappear unexplained; the dirty-guard above already skips
+  // the refresh entirely while there are unsaved edits, so this only fires
+  // between edits, and only for rows the user hadn't touched.
+  const prevVisibleSkusRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const skus = new Set(filtered.map((it: any) => String(it.sku || '')));
+    if (silentRefreshPendingRef.current) {
+      silentRefreshPendingRef.current = false;
+      const dropped = [...prevVisibleSkusRef.current].filter(sku => !skus.has(sku));
+      if (dropped.length) {
+        t(`Inventory refreshed — ${dropped.length} item${dropped.length !== 1 ? 's' : ''} dropped from view (now zero on hand). Check "Show zero-on-hand items" if you still need to pull ${dropped.length === 1 ? 'it' : 'one of them'}.`);
+      }
+    }
+    prevVisibleSkusRef.current = skus;
+  }, [filtered]);
 
   // Pulled items (qty > 0)
   const pulledItems = useMemo(() =>
@@ -336,16 +407,26 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
     ];
   }, [actionTotalValue, anyPulled, anyStaged, compactPullQty, filtered, filteredGroups.length, pulledItems, viewMode, week]);
 
-  function saveDraft() {
+  // Shared by the explicit "Save Draft" button AND every stage-failure path
+  // below — persisting on ANY confirmPull failure (network error, a stale
+  // client-cached role getting a live 403 from check_direction_role, a 409
+  // conflict, anything) means the reason for the failure no longer matters:
+  // the entered quantities are recoverable on reload instead of silently
+  // gone because the only recovery path was a Save Draft click the user
+  // never made, believing the stage was about to succeed.
+  const persistDraft = useCallback(() => {
     if (viewMode === 'compact') {
       for (const wk of PULL_WEEKS) {
         draftsLib.saveDraft(draftKeyForWeek(wk), compactQtys[wk] || {});
       }
-      t('All week drafts saved.');
       return;
     }
     draftsLib.saveDraft(draftKey, qtys);
-    t('Draft saved.');
+  }, [viewMode, compactQtys, draftKeyForWeek, draftKey, qtys]);
+
+  function saveDraft() {
+    persistDraft();
+    t(viewMode === 'compact' ? 'All week drafts saved.' : 'Draft saved.');
   }
 
   async function confirmPull() {
@@ -354,8 +435,12 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
       if (!compactStagedByWeek.length) { t('Enter or clear at least one pull quantity before staging.'); return; }
       setStaging(true);
       try {
-        for (const group of compactStagedByWeek) {
-          await api.stageWeeklyPull({
+        // Independent weeks staged in parallel (was a sequential for-loop —
+        // 3x the latency for no reason, since each targets a different week)
+        // via allSettled so one week's failure doesn't hide whether the
+        // others succeeded.
+        const settled = await Promise.allSettled(compactStagedByWeek.map(group =>
+          api.stageWeeklyPull({
             month,
             year,
             week: group.week,
@@ -368,21 +453,58 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
               unit: i.unit,
             })),
             note: `Pull sheet W${group.week} - ${MONTHS[month - 1]} ${year}`,
-          });
+          }).then(() => ({ week: group.week, ok: true as const }))
+            .catch((e: any) => ({ week: group.week, ok: false as const, message: e?.message || 'Unknown error' }))
+        ));
+        const outcomes = settled.map(r => r.status === 'fulfilled' ? r.value : { week: -1, ok: false as const, message: 'Unknown error' });
+        const succeeded = outcomes.filter(o => o.ok);
+        const failed = outcomes.filter(o => !o.ok) as Array<{ week: number; ok: false; message: string }>;
+        // A succeeded week is durably staged server-side (submit_staging
+        // dedups by entity_id+field_name+submitted_by while the entry is
+        // still pending — but NOT once a reviewer has already merged it).
+        // On a partial failure, drop succeeded weeks from local state so a
+        // retry of the still-failed week(s) can't resubmit an already-merged
+        // week and create a spurious duplicate staging entry for data that
+        // hasn't actually changed (Codex review finding, 2026-07-29).
+        // Computed explicitly rather than via setState + persistDraft():
+        // persistDraft() reads compactQtys from this render's closure and
+        // would still see the pre-clear values.
+        let nextCompactQtys = compactQtys;
+        if (succeeded.length && failed.length) {
+          nextCompactQtys = { ...compactQtys };
+          for (const o of succeeded) nextCompactQtys[o.week] = {};
+          setCompactQtys(nextCompactQtys);
+          if (succeeded.some(o => o.week === week)) setQtys({});
         }
-        // ponytail: keep the draft (don't clear qtys/localStorage) — staging only
+        // ponytail: keep the draft for any still-failed week(s) — staging only
         // creates a pending staging_entries row, monthly_inventory isn't updated
         // until another manager commits it in Source Control. Clearing here made
         // the sheet fall back to the still-uncommitted live value and the pull
         // looked like it vanished. The draft is harmless once committed data
         // catches up to match it.
-        setShowConfirm(false);
-        t(`Pull sheet staged - ${stagedItemCount} item${stagedItemCount !== 1 ? 's' : ''} across ${compactStagedByWeek.length} week${compactStagedByWeek.length !== 1 ? 's' : ''}, ${fmt(compactTotalValue)} total. Pending manager review in Source Control.`);
-        window.dispatchEvent(new CustomEvent('mjcc:staging-changed'));
-        window.dispatchEvent(new CustomEvent('mjcc:open-sc'));
-        onStagingDone?.();
-      } catch (e: any) {
-        t(`Stage failed: ${e?.message || 'Unknown error'}`);
+        for (const wk of PULL_WEEKS) {
+          draftsLib.saveDraft(draftKeyForWeek(wk), nextCompactQtys[wk] || {});
+        }
+        if (!failed.length) {
+          setShowConfirm(false);
+          setDirty(false);
+          t(`Pull sheet staged - ${stagedItemCount} item${stagedItemCount !== 1 ? 's' : ''} across ${compactStagedByWeek.length} week${compactStagedByWeek.length !== 1 ? 's' : ''}, ${fmt(compactTotalValue)} total. Pending manager review in Source Control.`);
+        } else if (succeeded.length) {
+          // Partial failure: leave the dialog open (nothing left to retry-click
+          // for the succeeded weeks, but the failed ones still need a retry) and
+          // keep `dirty` true so the background refresh guard keeps protecting
+          // the still-unstaged week(s).
+          t(`Staged W${succeeded.map(o => o.week).join(', W')} — W${failed.map(o => o.week).join(', W')} failed: ${failed[0].message}. Retry to stage the rest.`);
+        } else {
+          t(`Stage failed: ${failed[0].message}`);
+        }
+        // Only announce/open Source Control if something actually landed —
+        // a total failure has nothing there to review yet.
+        if (succeeded.length) {
+          window.dispatchEvent(new CustomEvent('mjcc:staging-changed'));
+          window.dispatchEvent(new CustomEvent('mjcc:open-sc'));
+          onStagingDone?.();
+        }
       } finally {
         setStaging(false);
       }
@@ -407,12 +529,14 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
       });
       // ponytail: keep the draft — see compact-mode comment above, same reason.
       setShowConfirm(false);
+      setDirty(false);
       t(`Pull sheet staged - ${stagedItems.length} item${stagedItems.length !== 1 ? 's' : ''}, ${fmt(totalValue)} total. Pending manager review in Source Control.`);
       window.dispatchEvent(new CustomEvent('mjcc:staging-changed'));
       window.dispatchEvent(new CustomEvent('mjcc:open-sc'));
       onStagingDone?.();
     } catch (e: any) {
-      t(`Stage failed: ${e?.message || 'Unknown error'}`);
+      persistDraft();
+      t(`Stage failed: ${e?.message || 'Unknown error'} — your entries were saved as a draft.`);
     } finally {
       setStaging(false);
     }
@@ -546,7 +670,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
       {loadErr && (
         <div className="banner warn">
           {I.alert()} <span>{loadErr}</span>
-          <span className="bx" onClick={load}>Retry</span>
+          <span className="bx" onClick={() => { void load(); }}>Retry</span>
         </div>
       )}
 

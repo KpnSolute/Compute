@@ -11,6 +11,35 @@ from backend import inventory_formulas as fi
 log = logging.getLogger("mjcc.dispatch")
 
 
+def _load_category_context(sup) -> tuple[dict, str | None]:
+    """Category name->id map + the 'New Items' category id — shared setup
+    used by every dispatcher that resolves items against a category."""
+    cat_r = sup.table("inventory_categories").select("id,name").execute()
+    cat_map = {r["name"]: r["id"] for r in (cat_r.data or [])}
+    new_items_cat_id = get_new_items_category_id(sup)
+    return cat_map, new_items_cat_id
+
+
+def _unresolved_items_rejected(dropped: int, **scope) -> dict:
+    """Standard 'batch rejected, nothing written' result for unresolved SKUs.
+
+    Both inventory dispatchers reject the WHOLE batch before any write if any
+    item can't be resolved — a merged commit batches many staging entries
+    into one call (see sourcectrl._apply_entries), so writing the resolvable
+    rows here while reporting an error would leave live data ahead of the
+    aborted commit/staging state — partial writes with no matching audit
+    record."""
+    return {
+        "applied": 0,
+        "dropped": dropped,
+        **scope,
+        "error": (
+            f"{dropped} item(s) unresolved (unknown SKU); batch rejected before "
+            "any write. Nothing was applied."
+        ),
+    }
+
+
 def _is_month_published(sup, db_month: int, year: int) -> bool:
     """Return True if this period is published/closed — writes should be rejected."""
     try:
@@ -304,9 +333,7 @@ def dispatch_inventory_save(payload: dict) -> dict:
     created_by = payload.get("_author_id") or payload.get("created_by")
     txn_date = payload.get("txn_date") or datetime.now(timezone.utc).date().isoformat()
 
-    cat_r = sup.table("inventory_categories").select("id,name").execute()
-    cat_map = {r["name"]: r["id"] for r in (cat_r.data or [])}
-    new_items_cat_id = get_new_items_category_id(sup)
+    cat_map, new_items_cat_id = _load_category_context(sup)
     # data-entry imports flag the whole batch so brand-new SKUs land in New Items.
     review_new = bool(payload.get("review_new"))
 
@@ -460,23 +487,8 @@ def dispatch_inventory_save(payload: dict) -> dict:
                     }
                 )
 
-    # Reject the WHOLE batch before any monthly_inventory/ledger write if any item
-    # could not be resolved. A merged commit batches many staging entries into one
-    # call (see sourcectrl._apply_entries), so writing the resolvable rows here
-    # while reporting an error left live data ahead of the aborted commit/staging
-    # state — partial writes with no matching audit record.
     if dropped:
-        return {
-            "applied": 0,
-            "dropped": dropped,
-            "month": month,
-            "year": year,
-            "notes": notes,
-            "error": (
-                f"{dropped} item(s) unresolved (unknown SKU); batch rejected before "
-                "any write. Nothing was applied."
-            ),
-        }
+        return _unresolved_items_rejected(dropped, month=month, year=year, notes=notes)
 
     # Batched, atomic write. Rows are grouped by their exact column signature so a
     # batched upsert never introduces NULLs for columns a row omitted (which would
@@ -765,9 +777,7 @@ def dispatch_inventory_week(payload: dict) -> dict:
     created_by = payload.get("_author_id") or payload.get("created_by")
     txn_date = payload.get("txn_date") or datetime.now(timezone.utc).date().isoformat()
 
-    cat_r = sup.table("inventory_categories").select("id,name").execute()
-    cat_map = {r["name"]: r["id"] for r in (cat_r.data or [])}
-    new_items_cat_id = get_new_items_category_id(sup)
+    cat_map, new_items_cat_id = _load_category_context(sup)
     review_new = bool(payload.get("review_new"))
 
     count = 0
@@ -827,21 +837,10 @@ def dispatch_inventory_week(payload: dict) -> dict:
         affected_items.add(item_id)
         count += 1
 
-    # Reject the whole batch before any ledger write if any item was unresolved —
-    # same partial-write hazard as dispatch_inventory_save (see comment there).
     if dropped:
-        return {
-            "applied": 0,
-            "dropped": dropped,
-            "month": month,
-            "year": year,
-            "week": week,
-            "direction": direction,
-            "error": (
-                f"{dropped} item(s) unresolved (unknown SKU); batch rejected before "
-                "any write. Nothing was applied."
-            ),
-        }
+        return _unresolved_items_rejected(
+            dropped, month=month, year=year, week=week, direction=direction
+        )
 
     # Idempotent append: clear any prior ledger rows from this exact staging entry
     # (a retried commit), then insert. The unique index on staging_entry_id is the
