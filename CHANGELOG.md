@@ -1,5 +1,13 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.8] — 2026-07-29 — fix(logging): expose durable audit events through legacy log routes
+
+**Codex:** Verified `audit_events` and `error_logs` schemas against their writers. The durable audit schema includes actor, action, target, result, status, duration, session reason, and request ID; `error_logs` includes request ID. Fixed legacy API visibility: `/api/system/logs` now merges durable audit events when available, `/api/system/logs/audit` exposes the normalized durable audit feed, `/api/system/logs/errors` now returns `request_id`, and the legacy portal can filter Audit events. If migration 046 is pending, the in-memory legacy tail continues working and durable reads degrade safely.
+
+**Verification:** Ruff clean; backend import clean; API-log and error-log tests 5 passed. Production Render logs confirmed audit events are emitted, but Supabase persistence remains dependent on applying the audit migration.
+
+**Push:** pending — local logging route fix awaiting commit/push.
+
 ## [v0.1.7] — 2026-07-29 — fix(inventory): show review categories, isolate drafts, protect active sessions
 
 **Codex:** Confirmed the dashboard was hiding New Items twice: the inventory API excluded `needs_attention` rows before building category totals, and the dashboard rendered only the first seven categories. New Items and Dairy are now retained in inventory metadata and every category is rendered, including zero-value categories. Reassignment remains a normal staged `item_update`; once committed, it moves the existing SKU to the selected category and clears its advisory suggestion.

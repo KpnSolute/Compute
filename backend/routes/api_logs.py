@@ -133,6 +133,78 @@ def record_log(
     )
 
 
+def _audit_level(result: str) -> str:
+    if result == "failed":
+        return "error"
+    if result in {"rejected", "expired"}:
+        return "warn"
+    return "info"
+
+
+def _legacy_audit_event(row: dict[str, Any]) -> dict[str, Any]:
+    """Map a durable audit row into the legacy live-tail event shape."""
+    result = str(row.get("result") or "observed")
+    actor = row.get("actor_name") or row.get("actor_id") or "unknown"
+    target = "/".join(
+        str(value) for value in (row.get("target_type"), row.get("target_id")) if value
+    )
+    return {
+        "id": f"audit:{row.get('id')}",
+        "ts": row.get("created_at"),
+        "type": "audit",
+        "level": _audit_level(result),
+        "source": "mjcc.audit",
+        "message": f"{row.get('action') or 'audit'} -> {result}",
+        "action": row.get("action"),
+        "result": result,
+        "actor": actor,
+        "user": actor,
+        "role": row.get("actor_role"),
+        "target": target,
+        "path": row.get("path"),
+        "status": row.get("status_code"),
+        "duration_ms": row.get("duration_ms"),
+        "request_id": row.get("request_id"),
+        "session_reason": row.get("session_reason"),
+        "meta": {
+            "sku": row.get("sku"),
+            "category": row.get("category"),
+            "period_month": row.get("period_month"),
+            "period_year": row.get("period_year"),
+            "staging_id": row.get("staging_id"),
+            "pr_id": row.get("pr_id"),
+            "commit_id": row.get("commit_id"),
+            "detail": row.get("detail"),
+            "error_type": row.get("error_type"),
+        },
+    }
+
+
+def _read_audit_events(limit: int) -> list[dict[str, Any]]:
+    """Read durable audit rows without breaking legacy logs if migration 046 is pending."""
+    try:
+        result = (
+            supabase_service.table("audit_events")
+            .select(
+                "id,created_at,actor_id,actor_name,actor_role,action,method,path,"
+                "target_type,target_id,sku,category,period_month,period_year,"
+                "staging_id,pr_id,commit_id,result,status_code,duration_ms,"
+                "error_type,detail,session_reason,request_id"
+            )
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return [_legacy_audit_event(row) for row in (result.data or [])]
+    except Exception:
+        # The application can deploy before the schema migration; the legacy
+        # in-memory tail must remain usable while durable storage is pending.
+        logging.getLogger("mjcc.api_logs").debug(
+            "Could not read audit_events; migration may be pending", exc_info=True
+        )
+        return []
+
+
 class InMemoryLogHandler(logging.Handler):
     """Capture Python log records into the portal ring buffer."""
 
@@ -196,12 +268,17 @@ def _user_from_token(token: str) -> dict:
 @router.get("/api/system/logs")
 async def get_api_logs(
     limit: int = Query(250, ge=1, le=MAX_EVENTS),
-    kind: str = Query("all", pattern="^(all|request|log)$"),
+    kind: str = Query("all", pattern="^(all|request|log|audit)$"),
     level: str = Query("all"),
+    include_durable: bool = Query(True),
     auth_user: dict = Depends(require_elevated_user),
 ) -> JSONResponse:
     _ = auth_user
-    entries = list(_events)[-limit:]
+    entries = list(_events)
+    if include_durable:
+        entries.extend(_read_audit_events(limit))
+        entries.sort(key=lambda entry: entry.get("ts") or "")
+    entries = entries[-limit:]
     if kind != "all":
         entries = [entry for entry in entries if entry.get("type") == kind]
     if level != "all":
@@ -211,6 +288,16 @@ async def get_api_logs(
     return JSONResponse(
         {"entries": entries, "buffered": len(_events), "max": MAX_EVENTS}
     )
+
+
+@router.get("/api/system/logs/audit")
+async def get_audit_logs(
+    limit: int = Query(250, ge=1, le=500),
+    auth_user: dict = Depends(require_elevated_user),
+) -> JSONResponse:
+    """Durable who/what/when audit events for the legacy operator surface."""
+    _ = auth_user
+    return JSONResponse({"events": _read_audit_events(limit)})
 
 
 @router.get("/api/system/logs/errors")
@@ -232,7 +319,7 @@ async def get_persisted_errors(
         result = (
             supabase_service.table("error_logs")
             .select(
-                "id, created_at, method, path, status_code, error_type, detail, user_hint"
+                "id, created_at, method, path, status_code, error_type, detail, user_hint, request_id"
             )
             .gte("status_code", status_min)
             .gte("created_at", since)
@@ -376,7 +463,7 @@ def _portal_html(auto_token: str = "") -> str:
     </div>
     <div class="controls">
       <input id="filter" placeholder="Filter message, path, user, source..." oninput="draw()" />
-      <select id="kind" onchange="draw()"><option value="all">All</option><option value="request">Requests</option><option value="log">Backend logs</option></select>
+      <select id="kind" onchange="draw()"><option value="all">All</option><option value="request">Requests</option><option value="log">Backend logs</option><option value="audit">Audit events</option></select>
       <select id="level" onchange="draw()"><option value="all">All levels</option><option value="error,critical">Errors</option><option value="warn,warning">Warnings</option><option value="info">Info</option></select>
       <button onclick="loadHistory()">Refresh</button>
     </div>
