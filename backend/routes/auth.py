@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Response
 from pydantic import BaseModel, ConfigDict
 from backend.routes import supabase_service, jwt_validator, SUPABASE_JWT_SECRET
 from backend.routes._deps import _get_auth_user
+from backend.audit_events import record_audit_event
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -592,6 +593,71 @@ async def logout(authorization: str = Header("")):
         raise HTTPException(status_code=400, detail="No token provided")
 
     return {"message": "Successfully logged out"}
+
+
+class SessionEventBody(BaseModel):
+    """A client-side session lifecycle event.
+
+    Deliberately carries NO credentials — only the reason a session ended and
+    safe diagnostic context. The frontend posts one of these on every teardown
+    so "a logout event lacks a reason" (a release gate) is answerable from the
+    durable log rather than from guesswork.
+    """
+
+    reason: str
+    detail: str = ""
+    path: str = ""
+
+
+_SESSION_REASONS = {
+    "idle",
+    "unauthorized",
+    "logout",
+    "refresh_failed",
+    "refresh_recovered",
+    "cross_tab_logout",
+    "token_expired",
+}
+
+
+@router.post("/session-event", status_code=202)
+async def session_event(body: SessionEventBody, authorization: str = Header("")):
+    """Record why a session ended (or recovered). Unauthenticated by design.
+
+    A session that has already been torn down has no usable token, so requiring
+    auth here would drop exactly the events worth keeping. The actor is
+    therefore best-effort: resolved from the token when one is still attached,
+    otherwise the event stands on its reason alone.
+    """
+    reason = (body.reason or "").strip().lower()
+    if reason not in _SESSION_REASONS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"reason must be one of {sorted(_SESSION_REASONS)}",
+        )
+
+    actor: dict = {}
+    token = authorization.replace("Bearer ", "") if authorization else ""
+    if token:
+        try:
+            actor = _get_auth_user(authorization=authorization) or {}
+        except Exception:
+            # Expected for an expired/rejected token — that IS the event.
+            actor = {}
+
+    record_audit_event(
+        action="session.teardown",
+        # Recovery is a normal observed transition, not a terminal failure.
+        result="observed" if reason == "refresh_recovered" else "expired",
+        actor=actor,
+        method="POST",
+        path="/api/auth/session-event",
+        target_type="session",
+        session_reason=reason,
+        status_code=202,
+        detail=f"{body.detail} (origin path: {body.path})".strip(),
+    )
+    return {"recorded": True, "reason": reason}
 
 
 @router.get("/me", response_model=UserInfo)

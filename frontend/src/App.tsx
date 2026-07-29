@@ -8,7 +8,7 @@ import {
   realLogout,
 } from './lib/supabase';
 import { startSessionWatch, stopSessionWatch, IDLE_LIMIT_MS, LAST_ACTIVITY_KEY } from './lib/session';
-import { api } from './lib/api';
+import { api, reportSessionEvent } from './lib/api';
 import { Login } from './components/Login';
 import { Portal } from './components/Portal';
 
@@ -96,8 +96,18 @@ function App() {
   }, [user]);
 
   // Central session teardown — called by logout and session-expired handler.
-  const teardown = useCallback(async (reason?: 'idle' | 'unauthorized' | 'logout') => {
+  const teardown = useCallback(async (
+    reason?: 'idle' | 'unauthorized' | 'logout',
+    origin?: string,
+    detail?: string,
+  ) => {
     stopSessionWatch();
+    // Record WHY before the token goes away, so the audit event can still be
+    // attributed. 'unauthorized' is skipped: api.ts already reported it with
+    // the failing request path, which is the more useful record.
+    if (reason !== 'unauthorized') {
+      reportSessionEvent(origin || reason || 'logout', detail || '', window.location.pathname);
+    }
     await realLogout();
     clearStoredSession();
     try { localStorage.removeItem(LAST_ACTIVITY_KEY); } catch {}
@@ -107,7 +117,7 @@ function App() {
     } else if (reason === 'unauthorized') {
       showToast('<span>Session expired — please sign in again.</span>');
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // Boot: register auth-refresh bridge; if session is restored, start watcher + validate token once.
   useEffect(() => {
@@ -170,12 +180,9 @@ function App() {
   // Session-expired listener — handles both inline 401s and idle/cross-tab expirations.
   useEffect(() => {
     const onExpired = (e: Event) => {
-      const reason = (e as CustomEvent<{ reason?: string }>).detail?.reason as
-        | 'idle'
-        | 'unauthorized'
-        | 'logout'
-        | undefined;
-      teardown(reason);
+      const info = (e as CustomEvent<{ reason?: string; origin?: string; detail?: string }>).detail;
+      const reason = info?.reason as 'idle' | 'unauthorized' | 'logout' | undefined;
+      teardown(reason, info?.origin, info?.detail);
     };
     window.addEventListener('mjc:session-expired', onExpired);
     return () => window.removeEventListener('mjc:session-expired', onExpired);

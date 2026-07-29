@@ -28,7 +28,6 @@ const VIEW_LABELS: Record<string, string> = Object.fromEntries(
     NAV.flatMap((g) => g.items.map((i) => [i.key, i.label])),
 );
 import {
-    realLogout,
     loadLog,
     fetchInventory,
     invToList,
@@ -549,7 +548,6 @@ function Topbar({
                             <button
                                 className="um-item danger"
                                 onClick={() => {
-                                    realLogout();
                                     (window as any).__logout?.();
                                 }}
                             >
@@ -1049,7 +1047,10 @@ function Dashboard({
         const ct = categoryRowsFromMeta(invMeta);
         const maxCat = ct.length ? ct[0].val : 1;
         itemCount = Math.round(num(invMeta.item_count)) || invToList(live).length;
-        catRows = ct.slice(0, 7).map((c: any) => ({
+        // Every category is part of inventory, including Dairy and the
+        // manager-review "New Items" bucket.  Do not silently hide categories
+        // just because they fall below the first seven by value.
+        catRows = ct.map((c: any) => ({
             name: c.name,
             color: c.color,
             val: fmtMoney(c.val),
@@ -1214,7 +1215,7 @@ function Dashboard({
                     {I.alert()}
                     <span>Couldn't load live data: {invState.error}</span>
                     {/token|authorization|expired/i.test(invState.error) ? (
-                        <span className="bx" onClick={() => { realLogout(); (window as any).__logout?.(); }}>
+                        <span className="bx" onClick={() => { (window as any).__logout?.(); }}>
                             Sign out
                         </span>
                     ) : (
@@ -1744,12 +1745,8 @@ function InventoryView({
         toast("Draft saved on this device (expires in 24h) — stage or commit to persist");
     };
     useEffect(() => {
-        // Restore an unexpired draft for this period; legacy key migrates once.
-        draftsLib.migrateLegacyDraft<{ draft: any; wkDraft: any }>(
-            `mjcc_inv_draft_${period[0]}_${period[1]}`,
-            invDraftScope,
-            (p) => (p && (p.draft || p.wkDraft) ? p : null),
-        );
+        // Restore only this user's draft. Historical inventory draft keys were
+        // unscoped and cannot be safely attributed to a user.
         const restored = draftsLib.restoreDraft<{ draft: any; wkDraft: any }>(invDraftScope);
         if (restored?.data) {
             if (restored.data.draft && Object.keys(restored.data.draft).length) {
@@ -2283,7 +2280,7 @@ function InventoryView({
                     {I.alert()}
                     <span>Couldn't load live data: {invState.error}</span>
                     {/token|authorization|expired/i.test(invState.error) ? (
-                        <span className="bx" onClick={() => { realLogout(); (window as any).__logout?.(); }}>
+                        <span className="bx" onClick={() => { (window as any).__logout?.(); }}>
                             Sign out
                         </span>
                     ) : (

@@ -133,35 +133,13 @@ def _period_totals(db_month: int, year: int) -> dict:
                 "ending_value": 0.0,
             },
         )
-        oh = max(0, int(fi.num(row.get("opening_oh"))))
-        total_recv_qty = fi.total_received(
-            row.get("w1_received"), row.get("w2_received"), row.get("w3_received")
-        )
-        total_pull_qty = fi.total_pulled(
-            row.get("w1_pulled"), row.get("w2_pulled"), row.get("w3_pulled")
-        )
-        price = fi.num(row.get("unit_price"))
-        opening_unit_cost = fi.num(row.get("opening_unit_cost")) or price
-
-        stored_opening = row.get("opening_value")
-        opening = (
-            float(stored_opening)
-            if stored_opening is not None
-            else fi.opening_value(oh, opening_unit_cost)
-        )
-        stored_received = row.get("received_value")
-        received = (
-            float(stored_received)
-            if stored_received is not None
-            else fi.received_value(total_recv_qty, price)
-        )
-        stored_pulled = row.get("pulled_value")
-        pulled = (
-            float(stored_pulled)
-            if stored_pulled is not None
-            else fi.pulled_value(total_pull_qty, price)
-        )
-        ending = fi.ending_value(opening, received, pulled)
+        # Same canonical resolver the inventory API uses, so category totals and
+        # item totals cannot disagree about a row's ending value (release gate).
+        fin = fi.resolve_row_financials(row)
+        opening = fin["opening_value"]
+        received = fin["received_value"]
+        pulled = fin["pulled_value"]
+        ending = fin["ending_value"]
         bucket["opening_value"] += opening
         bucket["pulled_value"] += pulled
         bucket["received_value"] += received

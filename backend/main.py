@@ -4,6 +4,7 @@ import os
 import sys
 import time
 import traceback
+import uuid
 
 # Configure root logging BEFORE any module-level `logging.getLogger(...)` calls
 # happen on import (engine.py, data_entry.py, etc.) -- otherwise those loggers
@@ -64,6 +65,7 @@ from backend.routes.api_logs import (
     _token_user_hint,
 )
 from backend.error_log import record_error
+from backend.audit_events import current_request_id
 from fastapi.responses import HTMLResponse
 
 load_dotenv()
@@ -88,6 +90,12 @@ async def api_request_logger(request: Request, call_next):
     path = request.url.path
     started = time.monotonic()
     skip = any(path.startswith(prefix) for prefix in _SKIP_REQUEST_LOG_PREFIXES)
+    # One id per request, echoed to the client and carried by every audit and
+    # error record written while handling it — the join key when correlating a
+    # user's report against the durable logs.
+    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+    request.state.request_id = request_id
+    current_request_id.set(request_id)
     try:
         response = await call_next(request)
     except Exception as exc:
@@ -104,6 +112,7 @@ async def api_request_logger(request: Request, call_next):
                 duration_ms=duration_ms,
                 user_hint=_token_user_hint(request.headers.get("authorization")),
                 client_ip=client_ip or (request.client.host if request.client else ""),
+                request_id=request_id,
             )
             record_log(
                 "error",
@@ -122,7 +131,9 @@ async def api_request_logger(request: Request, call_next):
             duration_ms=duration_ms,
             user_hint=_token_user_hint(request.headers.get("authorization")),
             client_ip=client_ip or (request.client.host if request.client else ""),
+            request_id=request_id,
         )
+    response.headers["X-Request-ID"] = request_id
     if path.startswith("/api/"):
         response.headers["Cache-Control"] = (
             "no-store, no-cache, must-revalidate, max-age=0"
@@ -175,6 +186,7 @@ async def logged_http_exception_handler(request: Request, exc: StarletteHTTPExce
             error_type="HTTPException",
             detail=exc.detail,
             user_hint=_token_user_hint(request.headers.get("authorization")),
+            request_id=getattr(request.state, "request_id", None),
         )
     return await http_exception_handler(request, exc)
 
@@ -200,6 +212,7 @@ async def logged_unhandled_exception_handler(request: Request, exc: Exception):
             traceback.format_exception(type(exc), exc, exc.__traceback__)
         ),
         user_hint=_token_user_hint(request.headers.get("authorization")),
+        request_id=getattr(request.state, "request_id", None),
     )
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 

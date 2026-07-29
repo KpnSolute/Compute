@@ -439,11 +439,25 @@ async def get_dashboard_stats(auth_user: dict = Depends(_get_auth_user)):
         # live_inventory view prefers monthly_inventory.ending_value so dashboard
         # totals follow workbook Review controls instead of recomputing value
         # from quantity x current catalog price.
+        # The view's sub_total COALESCEs to the stored ending_value, which is not
+        # clamped in SQL — a stale or negative stored balance would otherwise be
+        # summed straight into the headline. Apply the canonical invariant here:
+        # a row holding no stock contributes no value, and no row contributes
+        # negative value. (See fi.ending_value / the Phase 3 migration.)
         total_value = 0.0
         try:
-            tv = supabase_service.table("live_inventory").select("sub_total").execute()
+            tv = (
+                supabase_service.table("live_inventory")
+                .select("sub_total,on_hand")
+                .execute()
+            )
             if tv.data:
-                total_value = sum(float(r.get("sub_total", 0) or 0) for r in tv.data)
+                total_value = sum(
+                    0.0
+                    if float(r.get("on_hand", 0) or 0) <= 0
+                    else max(0.0, float(r.get("sub_total", 0) or 0))
+                    for r in tv.data
+                )
         except Exception:
             pass
         if not total_value:

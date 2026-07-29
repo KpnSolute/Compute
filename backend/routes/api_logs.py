@@ -96,6 +96,7 @@ def record_request(
     duration_ms: int,
     user_hint: str = "",
     client_ip: str = "",
+    request_id: str = "",
 ) -> None:
     _append_event(
         {
@@ -111,6 +112,7 @@ def record_request(
             "duration_ms": duration_ms,
             "user": user_hint,
             "ip": client_ip,
+            "request_id": request_id,
         }
     )
 
