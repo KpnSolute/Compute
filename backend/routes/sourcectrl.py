@@ -1,5 +1,6 @@
 import logging
 import hashlib
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
@@ -181,6 +182,45 @@ def _infer_entity_scope(entries: list[dict]) -> str:
 
 ENTITY_TYPES = {"inventory", "menu", "user", "compliance", "event", "ops"}
 BULK_CHUNK_SIZE = 100
+
+
+def _pr_scope_for_entry(
+    entity_type: str, full_payload: dict | None, operation: str | None
+) -> str:
+    """PR grouping scope for a manually-staged entry.
+
+    `ensure_pr_for_entries` reuses the author's open PR with a MATCHING scope, so
+    the scope decides what gets bundled together and therefore what gets merged
+    together. Weekly pulls get their own scope per (period, week, direction)
+    instead of the author's catch-all "inventory" PR, for two reasons:
+
+    1. Reviewability. An author may not merge their own entries (segregation of
+       duties, see `merge_pull_request`), so a pull sheet has to stand as a unit
+       an admin/sudo can approve — not sit behind an unrelated grid edit that
+       happens to be open in the same PR.
+    2. Correctness. `_apply_entries` replays `inventory_save` BEFORE
+       `inventory_week_update`, and the confirmed-overwrite clear runs before
+       both. A PR holding both re-applies the grid's weekly columns and then
+       adds the pull on top of them — a double count. Keeping them in separate
+       PRs keeps them in separate commits.
+
+    Scope is built from the PAYLOAD's (month, year, week, direction), not
+    `entity_id`: entity_id is per-CALLER (a dedup key for submit_staging's
+    "update the existing pending entry" logic), and some callers embed more
+    than the period in it — `ItemInspector` uses `{sku}-W{week}-{direction}-
+    {month}-{year}` for its per-item dedup. Scoping PRs by entity_id fragmented
+    every single item-level edit into its own PR (Codex review finding,
+    2026-07-29) instead of bundling a multi-item edit session into one
+    reviewable PR like `inventory_save` already does. The period is the
+    correct grouping unit regardless of which UI staged the entry. Every
+    other operation keeps the entity_type scope it has always used.
+    """
+    fp = full_payload or {}
+    if operation == "inventory_week_update" and fp.get("month") and fp.get("year"):
+        week = fp.get("week")
+        direction = fp.get("direction") or ""
+        return f"{entity_type}:w{week}:{direction}:{fp['month']}:{fp['year']}"
+    return entity_type
 
 
 def _chunks(values: list, size: int = BULK_CHUNK_SIZE):
@@ -370,6 +410,58 @@ def _finalize_applied_entries(
     _finalize_pull_request(
         pr_id=pr_id, commit_id=commit_id, author_id=author_id, now=now
     )
+
+
+# ── in-process concurrency guard for commit replay ─────────────────────────
+# `_apply_entries` clears an inventory scope and replays writes onto it in
+# several separate, non-transactional Supabase calls (see
+# `_apply_confirmed_inventory_overwrites` + the replay loop below). Two
+# `_apply_entries` calls touching the SAME (month, year) can interleave their
+# clear/insert steps and silently drop each other's data.
+#
+# Today this is deployment-accident-safe, not architecture-safe: the Dockerfile
+# runs a single uvicorn process with no `--workers` flag and no Render
+# autoscaling (render.yaml has neither), `_apply_entries` is a plain `def`
+# called without `await`, and `supabase_service` is the SYNC Supabase client —
+# so its blocking HTTP calls occupy the sole asyncio event-loop thread for
+# their whole duration, which happens to serialize every request through this
+# path already. That's an accident of topology, not a guarantee: adding
+# `--workers N`, enabling Render autoscaling, or making this path genuinely
+# async (real `await` points) would silently reintroduce the race with no
+# warning. This lock makes the serialization explicit and correct within one
+# process regardless of how that changes. It does NOT protect against
+# multiple worker PROCESSES or horizontally-scaled instances — a Python lock
+# only synchronizes within one process's memory; cross-process correctness
+# needs a database-level advisory lock, which is a schema-layer decision.
+_INVENTORY_PERIOD_LOCKS: dict[tuple, threading.Lock] = {}
+_INVENTORY_PERIOD_LOCKS_GUARD = threading.Lock()
+
+
+def _inventory_period_lock(key: tuple) -> threading.Lock:
+    with _INVENTORY_PERIOD_LOCKS_GUARD:
+        lock = _INVENTORY_PERIOD_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _INVENTORY_PERIOD_LOCKS[key] = lock
+        return lock
+
+
+def _inventory_periods_touched(entries: list[dict]) -> list[tuple]:
+    """Distinct (month, year) periods this batch writes to monthly_inventory/
+    inventory_transactions for — the shared resource `_apply_entries` clears
+    and replays onto. Locked at period (not week) granularity: simpler to
+    reason about, and staging/merge is human-paced, not high-throughput, so
+    the extra contention from a whole-month lock is negligible."""
+    periods: set[tuple] = set()
+    for entry in entries:
+        op = entry.get("operation")
+        fp = entry.get("full_payload") or {}
+        if op not in ("inventory_save", "inventory_week_update"):
+            continue
+        month, year = fp.get("month"), fp.get("year")
+        if month is not None and year is not None:
+            periods.add((int(month), int(year)))
+    return sorted(periods)
 
 
 def _inventory_overwrite_key(payload: dict) -> tuple | None:
@@ -753,217 +845,243 @@ def _apply_entries(
     #     error result or exception — restores them so a failed commit can never
     #     leave a period empty.
     overwrite_backups: list[dict] = []
+    # Hold every (month, year) lock this batch touches for the whole
+    # clear-then-replay critical section — see _inventory_period_lock's
+    # docstring for why. Sorted so two batches spanning overlapping periods
+    # always acquire in the same order (no lock-ordering deadlock).
+    period_locks = [
+        _inventory_period_lock(p) for p in _inventory_periods_touched(entries)
+    ]
+    for lock in period_locks:
+        lock.acquire()
     try:
-        overwrite_clears = _apply_confirmed_inventory_overwrites(
-            entries, overwrite_backups
-        )
-    except Exception:
-        _restore_inventory_overwrites(overwrite_backups)
-        raise
-    # Batch inventory_save entries by (month, year) so the 3 fixed Supabase overhead
-    # queries (month_status, categories, new_items_cat) run once per period instead of
-    # once per entry. 266 entries → 1 dispatch call; items carry per-item _staging_entry_id.
-    _inv_save_groups: dict[tuple, list] = {}
-    _inv_week_groups: dict[tuple, list] = {}
-    _other_entries = []
-    for entry in entries:
-        op = entry.get("operation")
-        fp = entry.get("full_payload")
-        if not op or not fp:
-            continue
-        if op == "inventory_save":
-            key = (fp.get("month"), fp.get("year"))
-            _inv_save_groups.setdefault(key, []).append(entry)
-        elif op == "inventory_week_update":
-            key = tuple(
-                fp.get(field)
-                for field in (
-                    "month",
-                    "year",
-                    "week",
-                    "direction",
-                    "review_new",
-                    "source_file",
-                    "source_hash",
-                    "invoice_number",
-                    "import_batch_id",
-                    "_author_id",
-                    "created_by",
-                    "txn_date",
-                )
+        try:
+            overwrite_clears = _apply_confirmed_inventory_overwrites(
+                entries, overwrite_backups
             )
-            _inv_week_groups.setdefault(key, []).append(entry)
-        else:
-            _other_entries.append(entry)
-
-    replay_results = []
-    try:
-        for group in _inv_save_groups.values():
-            first_fp = group[0]["full_payload"]
-            merged_items = [
-                {**item, "_staging_entry_id": e["entry_id"]}
-                for e in group
-                for item in (e["full_payload"].get("items") or [])
-            ]
-            merged_payload = {
-                **first_fp,
-                "items": merged_items,
-                "_staging_entry_id": group[0]["entry_id"],
-                "_batch_staging_ids": [e["entry_id"] for e in group],
-                "review_new": any(e["full_payload"].get("review_new") for e in group),
-            }
-            result = replay("inventory_save", merged_payload)
-            for e in group:
-                replay_results.append(
-                    {
-                        "entry_id": e["entry_id"],
-                        "operation": "inventory_save",
-                        "result": result,
-                    }
-                )
-
-        for group in _inv_week_groups.values():
-            first_fp = group[0]["full_payload"]
-            merged_items = [
-                {**item, "_staging_entry_id": entry["entry_id"]}
-                for entry in group
-                for item in (entry["full_payload"].get("items") or [])
-            ]
-            merged_payload = {
-                **first_fp,
-                "items": merged_items,
-                "_staging_entry_id": group[0]["entry_id"],
-                "_batch_staging_ids": [entry["entry_id"] for entry in group],
-                "review_new": any(
-                    entry["full_payload"].get("review_new") for entry in group
-                ),
-            }
-            result = replay("inventory_week_update", merged_payload)
-            for entry in group:
-                replay_results.append(
-                    {
-                        "entry_id": entry["entry_id"],
-                        "operation": "inventory_week_update",
-                        "result": result,
-                    }
-                )
-
-        for entry in _other_entries:
+        except Exception:
+            _restore_inventory_overwrites(overwrite_backups)
+            raise
+        # Batch inventory_save entries by (month, year) so the 3 fixed Supabase overhead
+        # queries (month_status, categories, new_items_cat) run once per period instead of
+        # once per entry. 266 entries → 1 dispatch call; items carry per-item _staging_entry_id.
+        _inv_save_groups: dict[tuple, list] = {}
+        _inv_week_groups: dict[tuple, list] = {}
+        _other_entries = []
+        for entry in entries:
             op = entry.get("operation")
             fp = entry.get("full_payload")
-            result = replay(op, {**fp, "_staging_entry_id": entry["entry_id"]})
-            replay_results.append(
-                {"entry_id": entry["entry_id"], "operation": op, "result": result}
-            )
-    except Exception:
-        # An uncaught replay exception would otherwise 500 with the overwrite
-        # scopes already cleared — restore the snapshots before propagating.
-        _restore_inventory_overwrites(overwrite_backups)
-        raise
+            if not op or not fp:
+                continue
+            if op == "inventory_save":
+                key = (fp.get("month"), fp.get("year"))
+                _inv_save_groups.setdefault(key, []).append(entry)
+            elif op == "inventory_week_update":
+                key = tuple(
+                    fp.get(field)
+                    for field in (
+                        "month",
+                        "year",
+                        "week",
+                        "direction",
+                        "review_new",
+                        "source_file",
+                        "source_hash",
+                        "invoice_number",
+                        "import_batch_id",
+                        "_author_id",
+                        "created_by",
+                        "txn_date",
+                    )
+                )
+                _inv_week_groups.setdefault(key, []).append(entry)
+            else:
+                _other_entries.append(entry)
 
-    # 2 — all-or-nothing. If ANY entry failed to replay, abort the WHOLE commit:
-    #     create no commit, mark nothing merged, leave every entry pending with a
-    #     clear note. Dispatch operations are idempotent upserts, so any writes
-    #     that already landed are harmless and reconcile when the fixed commit is
-    #     retried. This guarantees a commit can never represent a partial change.
-    replayed_ids = {r["entry_id"] for r in replay_results}
-    failed_results = [r for r in replay_results if r["result"].get("error")]
-    if failed_results:
-        # Put back everything the overwrite clears removed, so an aborted commit
-        # leaves the period exactly as it was rather than empty until a retry.
-        _restore_inventory_overwrites(overwrite_backups)
-        for r in replay_results:
-            err = r["result"].get("error")
-            note = (
-                f"Commit aborted — left pending. {r['operation']}: {err}"
-                if err
-                else "Commit aborted (another change in this commit failed) — left pending for retry."
-            )
-            supabase_service.table("staging_entries").update({"review_note": note}).eq(
-                "entry_id", r["entry_id"]
-            ).execute()
-        detail = "; ".join(
-            f"{r['operation']}: {r['result']['error']}" for r in failed_results
-        )
-        # Surface the same error the UI sees into the live tail / Render logs so
-        # commit failures are observable without reproducing them in the browser.
-        log.warning(
-            "[COMMIT] aborted — %d of %d change(s) failed; nothing committed | %s",
-            len(failed_results),
-            len(replay_results),
-            detail,
-        )
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Commit aborted — {len(failed_results)} of {len(replay_results)} "
-                f"change(s) failed; nothing was committed. Fix and retry: {detail}"
-            ),
-        )
-
-    # All entries replayed cleanly → commit the whole set as one unit.
-    applied_results = replay_results
-    applied_entry_ids = list(replayed_ids)
-    applied_entries = [e for e in entries if e["entry_id"] in replayed_ids]
-
-    # 3 — create commit row for the applied set
-    commit_row: dict = {
-        "message": message,
-        "author_id": author_id,
-        "status": "merged",
-        "branch": "main",
-        "merged_at": now,
-        "merged_by": author_id,
-        "source": source,
-        "file_ref": file_ref,
-    }
-    if commit_month is not None and commit_year is not None:
-        commit_row["month"] = commit_month
-        commit_row["year"] = commit_year
-    if pr_id:
-        commit_row["pull_request_id"] = pr_id
-
-    commit_r = supabase_service.table("commits").insert(commit_row).execute()
-    if not commit_r.data:
-        raise HTTPException(status_code=500, detail="Failed to create commit.")
-    commit = commit_r.data[0]
-    commit_id = commit["commit_id"]
-
-    # 4 — commit_changes for the applied set. Prefer GRANULAR rows (one per SKU per
-    #     changed field, with old -> new) built from the pre-replay diff, so the
-    #     Source Control tree shows what actually changed. Fall back to one summary
-    #     row per entry only if the diff was unavailable (tree is never empty).
-    # Tree rows are for DISPLAY — the data is already applied + committed above, so
-    # a commit_changes failure must NEVER abort the commit. Best-effort with a
-    # summary-row fallback if the granular insert fails.
-    changes: list[dict] = []
-    try:
-        changes = _granular_commit_changes(commit_id, precomputed_diffs)
-        if not changes:
-            changes = _summary_commit_changes(commit_id, applied_entries)
-        if changes:
-            _insert_commit_changes(changes)
-    except Exception as exc:
-        log.warning(
-            "[COMMIT] granular commit_changes failed, retrying summary rows: %s", exc
-        )
+        replay_results = []
         try:
-            changes = _summary_commit_changes(commit_id, applied_entries)
-            _insert_commit_changes(changes)
-        except Exception as exc2:
-            log.warning("[COMMIT] summary commit_changes also failed: %s", exc2)
-            changes = []
+            for group in _inv_save_groups.values():
+                first_fp = group[0]["full_payload"]
+                merged_items = [
+                    {**item, "_staging_entry_id": e["entry_id"]}
+                    for e in group
+                    for item in (e["full_payload"].get("items") or [])
+                ]
+                merged_payload = {
+                    **first_fp,
+                    "items": merged_items,
+                    "_staging_entry_id": group[0]["entry_id"],
+                    "_batch_staging_ids": [e["entry_id"] for e in group],
+                    "review_new": any(
+                        e["full_payload"].get("review_new") for e in group
+                    ),
+                }
+                result = replay("inventory_save", merged_payload)
+                for e in group:
+                    replay_results.append(
+                        {
+                            "entry_id": e["entry_id"],
+                            "operation": "inventory_save",
+                            "result": result,
+                        }
+                    )
 
-    # 5 — mark the whole set merged
-    if applied_entry_ids:
-        _update_staging_entries(
-            applied_entry_ids,
-            {
-                "status": "merged",
-                "reviewed_by": author_id,
-                "reviewed_at": now,
-            },
-        )
+            for group in _inv_week_groups.values():
+                first_fp = group[0]["full_payload"]
+                merged_items = [
+                    {**item, "_staging_entry_id": entry["entry_id"]}
+                    for entry in group
+                    for item in (entry["full_payload"].get("items") or [])
+                ]
+                merged_payload = {
+                    **first_fp,
+                    "items": merged_items,
+                    "_staging_entry_id": group[0]["entry_id"],
+                    "_batch_staging_ids": [entry["entry_id"] for entry in group],
+                    "review_new": any(
+                        entry["full_payload"].get("review_new") for entry in group
+                    ),
+                }
+                result = replay("inventory_week_update", merged_payload)
+                for entry in group:
+                    replay_results.append(
+                        {
+                            "entry_id": entry["entry_id"],
+                            "operation": "inventory_week_update",
+                            "result": result,
+                        }
+                    )
+
+            for entry in _other_entries:
+                op = entry.get("operation")
+                fp = entry.get("full_payload")
+                result = replay(op, {**fp, "_staging_entry_id": entry["entry_id"]})
+                replay_results.append(
+                    {"entry_id": entry["entry_id"], "operation": op, "result": result}
+                )
+        except Exception:
+            # An uncaught replay exception would otherwise 500 with the overwrite
+            # scopes already cleared — restore the snapshots before propagating.
+            _restore_inventory_overwrites(overwrite_backups)
+            raise
+
+        # 2 — all-or-nothing. If ANY entry failed to replay, abort the WHOLE commit:
+        #     create no commit, mark nothing merged, leave every entry pending with a
+        #     clear note. Dispatch operations are idempotent upserts, so any writes
+        #     that already landed are harmless and reconcile when the fixed commit is
+        #     retried. This guarantees a commit can never represent a partial change.
+        replayed_ids = {r["entry_id"] for r in replay_results}
+        failed_results = [r for r in replay_results if r["result"].get("error")]
+        if failed_results:
+            # Put back everything the overwrite clears removed, so an aborted commit
+            # leaves the period exactly as it was rather than empty until a retry.
+            _restore_inventory_overwrites(overwrite_backups)
+            for r in replay_results:
+                err = r["result"].get("error")
+                note = (
+                    f"Commit aborted — left pending. {r['operation']}: {err}"
+                    if err
+                    else "Commit aborted (another change in this commit failed) — left pending for retry."
+                )
+                supabase_service.table("staging_entries").update(
+                    {"review_note": note}
+                ).eq("entry_id", r["entry_id"]).execute()
+            detail = "; ".join(
+                f"{r['operation']}: {r['result']['error']}" for r in failed_results
+            )
+            # Surface the same error the UI sees into the live tail / Render logs so
+            # commit failures are observable without reproducing them in the browser.
+            log.warning(
+                "[COMMIT] aborted — %d of %d change(s) failed; nothing committed | %s",
+                len(failed_results),
+                len(replay_results),
+                detail,
+            )
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Commit aborted — {len(failed_results)} of {len(replay_results)} "
+                    f"change(s) failed; nothing was committed. Fix and retry: {detail}"
+                ),
+            )
+        # All entries replayed cleanly → commit the whole set as one unit.
+        # Steps 3-5 stay INSIDE the lock (Codex review finding, 2026-07-29):
+        # releasing it right after replay left the exact same race the lock
+        # was meant to close, just moved a few lines later — a second commit
+        # for the same period could clear-and-replay again before this
+        # commit's data was durably recorded as merged, so THIS commit would
+        # still go on to create a commit row and mark its entries "merged"
+        # over data that had already been silently replaced. Holding the
+        # lock through "staging_entries marked merged" (the point this
+        # commit's data is authoritative) closes that window. Steps 5b+
+        # (import_batches, github sync, PR finalization, audit log) don't
+        # touch monthly_inventory/inventory_transactions and stay unlocked.
+        applied_results = replay_results
+        applied_entry_ids = list(replayed_ids)
+        applied_entries = [e for e in entries if e["entry_id"] in replayed_ids]
+
+        # 3 — create commit row for the applied set
+        commit_row: dict = {
+            "message": message,
+            "author_id": author_id,
+            "status": "merged",
+            "branch": "main",
+            "merged_at": now,
+            "merged_by": author_id,
+            "source": source,
+            "file_ref": file_ref,
+        }
+        if commit_month is not None and commit_year is not None:
+            commit_row["month"] = commit_month
+            commit_row["year"] = commit_year
+        if pr_id:
+            commit_row["pull_request_id"] = pr_id
+
+        commit_r = supabase_service.table("commits").insert(commit_row).execute()
+        if not commit_r.data:
+            raise HTTPException(status_code=500, detail="Failed to create commit.")
+        commit = commit_r.data[0]
+        commit_id = commit["commit_id"]
+
+        # 4 — commit_changes for the applied set. Prefer GRANULAR rows (one per SKU per
+        #     changed field, with old -> new) built from the pre-replay diff, so the
+        #     Source Control tree shows what actually changed. Fall back to one summary
+        #     row per entry only if the diff was unavailable (tree is never empty).
+        # Tree rows are for DISPLAY — the data is already applied + committed above, so
+        # a commit_changes failure must NEVER abort the commit. Best-effort with a
+        # summary-row fallback if the granular insert fails.
+        changes: list[dict] = []
+        try:
+            changes = _granular_commit_changes(commit_id, precomputed_diffs)
+            if not changes:
+                changes = _summary_commit_changes(commit_id, applied_entries)
+            if changes:
+                _insert_commit_changes(changes)
+        except Exception as exc:
+            log.warning(
+                "[COMMIT] granular commit_changes failed, retrying summary rows: %s",
+                exc,
+            )
+            try:
+                changes = _summary_commit_changes(commit_id, applied_entries)
+                _insert_commit_changes(changes)
+            except Exception as exc2:
+                log.warning("[COMMIT] summary commit_changes also failed: %s", exc2)
+                changes = []
+
+        # 5 — mark the whole set merged
+        if applied_entry_ids:
+            _update_staging_entries(
+                applied_entry_ids,
+                {
+                    "status": "merged",
+                    "reviewed_by": author_id,
+                    "reviewed_at": now,
+                },
+            )
+    finally:
+        for lock in period_locks:
+            lock.release()
 
     # 5b — flip weekly import_batches for this commit's staging batches to merged.
     #      The active-dedup unique index now enforces one-merged-per-scope; the
@@ -1395,17 +1513,23 @@ async def submit_staging(
             raise HTTPException(status_code=500, detail="Insert returned no data.")
         entry = r.data[0]
         # Auto-wrap in a PR so it's reviewable as a unit, not a loose pending row.
+        entry_summary = str(
+            (body.metadata or {}).get("summary") or body.summary or body.new_value or ""
+        )
+        pr_scope = _pr_scope_for_entry(
+            body.entity_type, body.full_payload, body.operation
+        )
+        pr_title = (
+            f"{entry_summary} - {auth_user.get('display_name', 'staff')}"
+            if pr_scope != body.entity_type and entry_summary
+            else f"{body.entity_type} changes - {auth_user.get('display_name', 'staff')}"
+        )
         pr = ensure_pr_for_entries(
             [entry["entry_id"]],
             auth_user["id"],
-            title=f"{body.entity_type} changes - {auth_user.get('display_name', 'staff')}",
-            description=str(
-                (body.metadata or {}).get("summary")
-                or body.summary
-                or body.new_value
-                or ""
-            ),
-            entity_scope=body.entity_type,
+            title=pr_title,
+            description=entry_summary,
+            entity_scope=pr_scope,
         )
         if pr:
             entry["pr_id"] = pr.get("pr_id")

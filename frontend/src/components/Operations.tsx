@@ -593,13 +593,37 @@ export function MonthlyInventory({
       );
       stagingIds.push(bulkEntry.entry_id);
 
-      // Auto-commit for managers (stage + commit = single action)
-      if (lvl >= 30 && stagingIds.length) {
-        await api.approveCommit({
-          staging_ids: stagingIds,
-          message: `Monthly inventory — ${MONTHS[m]} ${y} (${stagingIds.length} change${stagingIds.length !== 1 ? 's' : ''})`,
-          author_id: user.id,
-        });
+      // Auto-commit (stage + commit = single action) only for the roles the
+      // backend exempts from segregation of duties — admin (40) and sudo (50).
+      // POST /api/commits rejects an author approving their OWN entries, so the
+      // old `lvl >= 30` gate always 403'd for `manager`: the save had already
+      // staged successfully, but the throw landed in catch and reported
+      // "Save failed", left the draft dirty, and never cleared the form.
+      let committed = false;
+      let commitStateUncertain = false;
+      if (lvl >= 40 && stagingIds.length) {
+        try {
+          await api.approveCommit({
+            staging_ids: stagingIds,
+            message: `Monthly inventory — ${MONTHS[m]} ${y} (${stagingIds.length} change${stagingIds.length !== 1 ? 's' : ''})`,
+            author_id: user.id,
+          });
+          committed = true;
+        } catch (e: any) {
+          // _apply_entries marks staging_entries "merged" INSIDE its now-locked
+          // critical section, but a handful of post-commit steps (github sync
+          // enqueue, PR finalization) still run un-guarded after that point —
+          // if one of THOSE throws, the commit already landed server-side even
+          // though this call still rejects. Only the pre-flight/replay failure
+          // paths explicitly say nothing was written; treat anything else as
+          // ambiguous rather than confidently telling the user it's still
+          // pending when it may already be merged (Codex review finding,
+          // 2026-07-29).
+          const detail = String(e?.message || '');
+          const nothingWasWritten = /nothing was (written|committed)|no pending staging entries/i.test(detail);
+          if (!nothingWasWritten) commitStateUncertain = true;
+          if (import.meta.env.DEV) console.warn('[Operations] auto-commit error:', e?.message || e);
+        }
       }
 
       clearDraft();
@@ -608,10 +632,12 @@ export function MonthlyInventory({
       setSavedAt(new Date());
       openSC?.();
 
-      if (lvl >= 30) {
+      if (committed) {
         (window as any).toast?.('Inventory saved and committed successfully');
+      } else if (commitStateUncertain) {
+        (window as any).toast?.('Inventory staged, but the commit step returned an error — it may have partially completed. Check Source Control before retrying.');
       } else {
-        (window as any).toast?.('Changes staged. A manager must approve them in Source Control.');
+        (window as any).toast?.('Changes staged. Another reviewer must approve them in Source Control.');
       }
     } catch (e: any) {
       (window as any).toast?.(`Save failed: ${e?.message || 'please try again'}`);
@@ -735,7 +761,7 @@ export function MonthlyInventory({
               style={{ marginBottom: 12, padding: '10px 14px', display: 'flex', gap: 12, alignItems: 'center', borderLeft: '4px solid var(--amber, #d97706)' }}
             >
               <span style={{ fontSize: 13 }}>
-                <b>Unsaved draft restored</b> from {new Date(draftRestoredAt).toLocaleString()} — these edits exist only on this device until you {lvl >= 30 ? 'save & commit' : 'stage'} them.
+                <b>Unsaved draft restored</b> from {new Date(draftRestoredAt).toLocaleString()} — these edits exist only on this device until you {lvl >= 40 ? 'save & commit' : 'stage'} them.
               </span>
               <button
                 className="btn"
@@ -983,7 +1009,7 @@ export function MonthlyInventory({
         </div>
         {canEdit && (
           <button className="btn primary" onClick={handleSave} disabled={saved || saving}>
-            {saving ? 'Saving…' : <><I.save /> {lvl >= 30 ? 'Save & commit' : 'Stage changes'}</>}
+            {saving ? 'Saving…' : <><I.save /> {lvl >= 40 ? 'Save & commit' : 'Stage changes'}</>}
           </button>
         )}
       </div>
