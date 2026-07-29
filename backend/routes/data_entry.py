@@ -1491,16 +1491,25 @@ async def upload_file(
 
             if reconciliation and reconciliation.get("net_total", 0) > 0:
                 log.info(
-                    "[DATA-ENTRY] Reconcile | file=%s subtotal=%.2f net_total=%.2f "
-                    "vizient=%.2f factor=%.4f delta_pct=%.2f%% ok=%s",
+                    "[DATA-ENTRY] Reconcile | file=%s line_items=%.2f vs %s=%.2f "
+                    "(payable net_total=%.2f) vizient=%.2f factor=%.4f "
+                    "delta_pct=%.2f%% ok=%s",
                     fname,
                     recon.get("computed_subtotal", 0),
+                    recon.get("reference_label", "product total"),
+                    recon.get("reference_total", 0),
                     recon.get("net_total", 0),
                     recon.get("vizient_discount", 0),
                     recon.get("discount_factor", 1),
                     recon.get("delta_pct", 0),
                     recon.get("reconciled", False),
                 )
+                if not recon.get("goods_control_present", True):
+                    log.warning(
+                        "[DATA-ENTRY] no goods total on invoice | file=%s — line "
+                        "items could not be independently reconciled",
+                        fname,
+                    )
                 delta_pct = recon.get("delta_pct", 0)
                 max_delta_pct = float(
                     period_settings.get("reconcile_max_delta_pct", 5.0) or 5.0
@@ -1517,8 +1526,12 @@ async def upload_file(
                             "error": "reconciliation_failed",
                             "message": (
                                 f"Invoice line items sum to ${recon['computed_subtotal']:,.2f} "
-                                f"but the invoice total is ${recon['net_total']:,.2f} "
+                                f"but the {recon.get('reference_label', 'invoice product total')} "
+                                f"is ${recon.get('reference_total', 0):,.2f} "
                                 f"(delta {delta_pct:.1f}%). "
+                                f"Payable net total is ${recon['net_total']:,.2f} — that "
+                                "figure includes discounts, fuel and tax and is NOT what "
+                                "the line items were compared against. "
                                 "Fix the parse or re-upload a corrected file."
                             ),
                             "reconciliation": recon,

@@ -144,7 +144,6 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
   // backend owns durable pull data via stageWeeklyPull.
   const draftKey = `pull_${user.id}_${year}_${month}_w${week}`;
   const draftKeyForWeek = useCallback((wk: number) => `pull_${user.id}_${year}_${month}_w${wk}`, [month, year, user.id]);
-  const legacyKeyForWeek = useCallback((wk: number) => `mjcc_pull_${year}_${month}_w${wk}`, [month, year]);
 
   useEffect(() => {
     if (initialMonth) setMonth(initialMonth);
@@ -217,28 +216,22 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
   // with unsaved edits sitting in compactQtys[week] — silently discarding
   // them with no warning.
   useEffect(() => {
-    draftsLib.migrateLegacyDraft<Record<string, number>>(
-      legacyKeyForWeek(week), draftKey, (p) => p?.items ?? null,
-    );
     const restored = draftsLib.restoreDraft<Record<string, number>>(draftKey);
     setQtys(restored?.data || {});
     // In Compact mode, changing the selector must not clear the shared dirty
     // guard: another week may still have unsaved quantities in compactQtys.
     // Regular mode owns only qtys, so restoring its draft starts clean.
     if (viewMode !== 'compact') setDirty(false);
-  }, [draftKey, week, legacyKeyForWeek, viewMode]);
+  }, [draftKey, week, viewMode]);
 
   useEffect(() => {
     const next: Record<number, Record<string, number>> = {};
     for (const wk of PULL_WEEKS) {
-      draftsLib.migrateLegacyDraft<Record<string, number>>(
-        legacyKeyForWeek(wk), draftKeyForWeek(wk), (p) => p?.items ?? null,
-      );
       next[wk] = draftsLib.restoreDraft<Record<string, number>>(draftKeyForWeek(wk))?.data || {};
     }
     setCompactQtys(next);
     setDirty(false);
-  }, [draftKeyForWeek, legacyKeyForWeek]);
+  }, [draftKeyForWeek]);
 
   const setQty = (sku: string, val: number) => {
     const qty = Math.max(0, val);

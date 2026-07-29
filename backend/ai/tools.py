@@ -82,17 +82,13 @@ def _ending_value(
 ) -> float:
     if not row:
         return 0.0
-    if row.get("ending_value") is not None:
-        return fi.num(row.get("ending_value"))
     if any(
         row.get(key) is not None
-        for key in ("opening_value", "received_value", "pulled_value")
+        for key in ("ending_value", "opening_value", "received_value", "pulled_value")
     ):
-        return fi.ending_value(
-            row.get("opening_value"),
-            row.get("received_value"),
-            row.get("pulled_value"),
-        )
+        # Canonical resolver: re-derives ending under the quantity rule instead
+        # of trusting a stored ending_value that may be stale or negative.
+        return fi.resolve_row_financials(row)["ending_value"]
     unit_price = row.get("unit_price")
     return _ending_qty(row) * fi.num(
         unit_price if unit_price is not None else fallback_unit_price

@@ -118,21 +118,27 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
         total_received = int(fi.total_received(w1r, w2r, w3r))
         total_pulled = int(fi.total_pulled(w1p, w2p, w3p))
         running_total = int(fi.ending_qty(oh, total_received, total_pulled))
-        price = _to_float(row.get("unit_price"))
-        opening_unit_cost = _to_float(row.get("opening_unit_cost"), price)
-        opening_value = _to_float(
-            row.get("opening_value"), fi.opening_value(oh, opening_unit_cost)
-        )
-        received_value = _to_float(
-            row.get("received_value"), fi.received_value(total_received, price)
-        )
-        pulled_value = _to_float(
-            row.get("pulled_value"), fi.pulled_value(total_pulled, price)
-        )
-        ending_value = _to_float(
-            row.get("ending_value"),
-            fi.ending_value(opening_value, received_value, pulled_value),
-        )
+        # Single canonical resolver — the ending value is re-derived under the
+        # quantity rule here, so a stale/negative stored ending_value in
+        # monthly_inventory can never reach the UI (see fi.resolve_row_financials).
+        fin = fi.resolve_row_financials(row)
+        price = fin["unit_price"]
+        opening_unit_cost = fin["opening_unit_cost"]
+        opening_value = fin["opening_value"]
+        received_value = fin["received_value"]
+        pulled_value = fin["pulled_value"]
+        ending_value = fin["ending_value"]
+        if fin["ending_value_adjustment"]:
+            logger.warning(
+                "[inventory] stale stored value suppressed | item_id=%s month=%s "
+                "year=%s ending_qty=%s stored_raw=%.4f displayed=%.2f",
+                item_id,
+                row.get("month"),
+                row.get("year"),
+                fin["ending_qty"],
+                fin["ending_value_raw"],
+                ending_value,
+            )
         items.append(
             InventoryItem(
                 id=item_id,
@@ -354,9 +360,12 @@ async def get_inventory(
         if not result.data:
             raise HTTPException(status_code=404, detail="Inventory not found")
 
-        items = [
-            item for item in _flatten_rows(result.data) if not item.needs_attention
-        ]
+        # New/unreviewed items are real inventory and must remain in the main
+        # response.  `needs_attention` is a review flag, not an exclusion
+        # rule; filtering these rows here made New Items disappear from the
+        # dashboard totals and from the inventory table until a manager found
+        # the notification drawer.
+        items = _flatten_rows(result.data)
         period_id = f"{year}-{month:02d}"
         created_at = _serialize_dt(result.data[0].get("created_at"))
 
@@ -378,6 +387,25 @@ async def get_inventory(
                 category_totals.get(category, 0) + (item.value or 0),
                 2,
             )
+        # Keep zero-value categories visible too.  A category is part of the
+        # inventory taxonomy even when this period has no quantity/value in
+        # it; omitting it makes the dashboard look as if Dairy/New Items do
+        # not exist.
+        try:
+            category_rows = (
+                supabase_service.table("inventory_categories")
+                .select("name")
+                .order("sort_order")
+                .execute()
+                .data
+                or []
+            )
+            for category_row in category_rows:
+                name = (category_row.get("name") or "").strip()
+                if name:
+                    category_totals.setdefault(name, 0.0)
+        except Exception:
+            logger.exception("Could not load zero-value inventory categories")
         weekly_invoice_totals = None
         try:
             snap = (
@@ -436,6 +464,9 @@ async def get_inventory(
                 "period": period_id,
                 "weeks_in_period": weeks_in_month(month, year),
                 "item_count": len(items),
+                "needs_attention_count": sum(
+                    1 for item in items if item.needs_attention
+                ),
                 "reorder_count": sum(
                     1
                     for item in items

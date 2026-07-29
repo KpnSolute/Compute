@@ -24,26 +24,83 @@ class ApiError extends Error {
   }
 }
 
-async function req<T>(path: string, opts?: RequestInit): Promise<T> {
-  const token = getBackendToken();
+/**
+ * Report a session lifecycle event so the reason survives in the durable audit
+ * log. Raw fetch on purpose: this must work when the session is already dead,
+ * and it must never recurse back into req()'s 401 handling.
+ */
+export function reportSessionEvent(reason: string, detail = '', path = ''): void {
+  try {
+    const token = getBackendToken();
+    void fetch(BASE + '/api/auth/session-event', {
+      method: 'POST',
+      keepalive: true,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ reason, detail, path }),
+    }).catch(() => {});
+  } catch {
+    // Never let telemetry break a teardown.
+  }
+}
+
+// One in-flight refresh shared by every concurrent 401, so a burst of parallel
+// requests triggers a single token exchange instead of a stampede.
+let _refreshInFlight: Promise<void> | null = null;
+function refreshOnce(): Promise<void> {
+  if (!_refreshInFlight) {
+    _refreshInFlight = ensureFreshBackendAuth(Number.POSITIVE_INFINITY)
+      .catch(() => {})
+      .finally(() => { _refreshInFlight = null; });
+  }
+  return _refreshInFlight;
+}
+
+function buildInit(opts: RequestInit | undefined, token: string | null): RequestInit {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'Cache-Control': 'no-cache',
     'Pragma': 'no-cache',
   };
-
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const res = await fetch(BASE + path, {
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return {
     headers: { ...headers, ...opts?.headers },
     cache: opts?.cache ?? 'no-store',
     ...opts,
-  });
+  };
+}
+
+async function req<T>(path: string, opts?: RequestInit): Promise<T> {
+  // A request generated while the app is being used is activity.  This also
+  // covers users who are reading/working in a view whose controls do not emit
+  // mouse or keyboard events frequently enough for the idle watcher.
+  markSessionActivity();
+  let res = await fetch(BASE + path, buildInit(opts, getBackendToken()));
 
   if (res.status === 401) {
-    // Stale or expired token — clear session and signal re-login
+    // A 401 is not proof the session is over — the far more common cause is a
+    // backend token that simply aged out while the underlying Supabase session
+    // is still perfectly valid. Try one refresh + replay before tearing the
+    // user's work down; only a second 401 is treated as a real expiry.
+    //
+    // The retry is safe for non-GET requests because the first attempt was
+    // rejected at the auth boundary: a 401 means the handler never ran, so
+    // nothing was written and there is nothing to double-apply.
+    await refreshOnce();
+    const retryToken = getBackendToken();
+    if (retryToken) {
+      res = await fetch(BASE + path, buildInit(opts, retryToken));
+      if (res.status !== 401) {
+        reportSessionEvent('refresh_recovered', 'token refreshed after 401', path);
+      }
+    }
+  }
+
+  if (res.status === 401) {
+    // Refresh did not help — the session really is gone.
+    reportSessionEvent('unauthorized', `401 on ${path} after refresh retry`, path);
     clearBackendToken();
     window.dispatchEvent(new CustomEvent('mjc:session-expired', { detail: { reason: 'unauthorized' } }));
     let body: string;
@@ -71,12 +128,30 @@ async function req<T>(path: string, opts?: RequestInit): Promise<T> {
 }
 
 async function reqForm<T>(path: string, form: FormData): Promise<T> {
-  const token = getBackendToken();
-  const res = await fetch(BASE + path, {
+  markSessionActivity();
+  let token = getBackendToken();
+  let res = await fetch(BASE + path, {
     method: 'POST',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: form,
   });
+  if (res.status === 401) {
+    await refreshOnce();
+    token = getBackendToken();
+    if (token) {
+      res = await fetch(BASE + path, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+    }
+  }
+  if (res.status === 401) {
+    reportSessionEvent('unauthorized', `401 on ${path} after refresh retry`, path);
+    clearBackendToken();
+    window.dispatchEvent(new CustomEvent('mjc:session-expired', { detail: { reason: 'unauthorized' } }));
+    throw new ApiError(401, 'Session expired');
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
     throw new ApiError(res.status, body.detail || body);
@@ -1299,7 +1374,26 @@ export const api = {
     if (direction !== undefined) form.append('direction', direction);
     if (description?.trim()) form.append('description', description.trim());
     if (overwrite !== undefined) form.append('overwrite', String(overwrite));
-    const res = await fetch(BASE + '/api/data-entry/upload', { method: 'POST', headers, body: form, signal, cache: 'no-store' });
+    let res = await fetch(BASE + '/api/data-entry/upload', { method: 'POST', headers, body: form, signal, cache: 'no-store' });
+    if (res.status === 401) {
+      await refreshOnce();
+      const retryToken = getBackendToken();
+      if (retryToken) {
+        res = await fetch(BASE + '/api/data-entry/upload', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${retryToken}` },
+          body: form,
+          signal,
+          cache: 'no-store',
+        });
+      }
+    }
+    if (res.status === 401) {
+      reportSessionEvent('unauthorized', '401 on /api/data-entry/upload after refresh retry', '/api/data-entry/upload');
+      clearBackendToken();
+      window.dispatchEvent(new CustomEvent('mjc:session-expired', { detail: { reason: 'unauthorized' } }));
+      throw new ApiError(401, 'Session expired');
+    }
     if (!res.ok) {
       let body: string;
       try { const json = await res.json(); body = json.detail || JSON.stringify(json); }
@@ -1405,6 +1499,7 @@ export const api = {
   },
 
   async uploadMyAvatar(file: File): Promise<any> {
+    markSessionActivity();
     const token = getBackendToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -1420,6 +1515,7 @@ export const api = {
     });
 
     if (res.status === 401) {
+      reportSessionEvent('unauthorized', '401 on /api/users/me/avatar', '/api/users/me/avatar');
       clearBackendToken();
       window.dispatchEvent(new CustomEvent('mjc:session-expired', { detail: { reason: 'unauthorized' } }));
       throw new ApiError(401, 'Session expired');

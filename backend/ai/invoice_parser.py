@@ -990,11 +990,21 @@ def reconcile_and_adjust(items: list[dict], meta: dict) -> tuple[list[dict], dic
         fuel_surcharge     — surcharge amount from invoice header
         net_total          — net_total from invoice header
         discount_factor    — multiplier applied to every unit_price/ext_price
-        adjusted_total     — sum of ext_price after adjustment (should == net_total)
-        delta              — abs(adjusted_total - net_total)
-        delta_pct          — delta as % of net_total
+        adjusted_total     — sum of ext_price after adjustment
+        reference_total    — the GOODS figure the line items were measured
+                             against (product total, else merchandise subtotal)
+        reference_label    — human-readable name of that reference, so the UI
+                             and error messages state the real comparison
+        goods_control_present — False when the document carries no goods total
+                             at all, i.e. nothing independent to check against
+        delta              — abs(computed_subtotal - reference_total)
+        delta_pct          — delta as % of reference_total
         reconciled         — True when delta_pct < 1.0
         item_count         — number of items after adjustment
+
+    NOTE: net_total is deliberately NOT the reference. It is the payable amount
+    (goods - GPO discount + fuel + tax); measuring line items against it
+    reports the adjustments as a variance.
     """
 
     def _f(v: Any) -> float:
@@ -1051,8 +1061,22 @@ def reconcile_and_adjust(items: list[dict], meta: dict) -> tuple[list[dict], dic
         net_total = round(product_cost - vizient + fuel + tax, 2)
 
     # Reconciliation CHECK (flags a bad parse; does NOT drive valuation): how close
-    # the raw parsed line items are to the stated product total.
-    ref = valuation_target or computed_subtotal
+    # the raw parsed line items are to the stated product/goods total.
+    #
+    # net_total is deliberately NOT the reference. It is the payable amount —
+    # goods minus the GPO discount plus fuel and tax — so comparing line items
+    # against it manufactures a variance equal to those adjustments (the
+    # 2026-07-18 "$101.09" report). Whatever is compared here is also reported
+    # in `reference_label` so the user is shown the comparison actually made.
+    if product_total > 0:
+        ref, reference_label = product_total, "invoice product total"
+    elif stated_subtotal > 0:
+        ref, reference_label = stated_subtotal, "invoice merchandise subtotal"
+    else:
+        # No goods control on the document: nothing independent to check the
+        # line items against. Report that honestly instead of comparing the
+        # line-item sum to itself and always declaring success.
+        ref, reference_label = computed_subtotal, "none (no goods total on invoice)"
     delta = round(abs(computed_subtotal - ref), 2)
     delta_pct = round(delta / ref * 100, 3) if ref > 0 else 0.0
 
@@ -1088,6 +1112,12 @@ def reconcile_and_adjust(items: list[dict], meta: dict) -> tuple[list[dict], dic
         "net_total": net_total,
         "discount_factor": round(valuation_factor, 6),
         "adjusted_total": product_cost,
+        # What the line-item sum was actually measured against, so the UI and the
+        # error message can state the real comparison instead of implying the
+        # payable net_total was the yardstick.
+        "reference_total": ref,
+        "reference_label": reference_label,
+        "goods_control_present": bool(product_total > 0 or stated_subtotal > 0),
         "delta": delta,
         "delta_pct": delta_pct,
         "reconciled": delta_pct < 1.0,

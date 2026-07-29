@@ -33,11 +33,26 @@ export function markSessionActivity() {
 }
 
 function checkIdle() {
+  // A visible app is an active session from the user's perspective.  Do not
+  // sign someone out while they are reading or working in the open portal;
+  // background/API activity also refreshes this timestamp through api.ts.
+  if (document.visibilityState === 'visible') {
+    throttledWriteActivity();
+    return;
+  }
   const last = readLastActivity();
   if (last > 0 && Date.now() - last > IDLE_LIMIT_MS) {
     stopSessionWatch();
     window.dispatchEvent(
-      new CustomEvent('mjc:session-expired', { detail: { reason: 'idle' } }),
+      new CustomEvent('mjc:session-expired', {
+        // `origin` is the precise audit reason; `reason` stays one of the three
+        // values the UI branches on. App.tsx's teardown reports `origin`.
+        detail: {
+          reason: 'idle',
+          origin: 'idle',
+          detail: `no activity for ${Math.round((Date.now() - last) / 60000)} min`,
+        },
+      }),
     );
   }
 }
@@ -51,7 +66,13 @@ function onStorageEvent(e: StorageEvent) {
     // Token removed in another tab (logout or expiry elsewhere).
     stopSessionWatch();
     window.dispatchEvent(
-      new CustomEvent('mjc:session-expired', { detail: { reason: 'logout' } }),
+      new CustomEvent('mjc:session-expired', {
+        detail: {
+          reason: 'logout',
+          origin: 'cross_tab_logout',
+          detail: 'backend token cleared in another tab',
+        },
+      }),
     );
   }
 }

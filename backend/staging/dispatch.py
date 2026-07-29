@@ -40,6 +40,73 @@ def _unresolved_items_rejected(dropped: int, **scope) -> dict:
     }
 
 
+_VALUE_INVARIANT_SELECT = (
+    "item_id,opening_oh,w1_received,w2_received,w3_received,"
+    "w1_pulled,w2_pulled,w3_pulled,unit_price,opening_unit_cost,"
+    "opening_value,received_value,pulled_value,ending_value"
+)
+
+
+def _enforce_value_invariants(sup, db_month: int, year: int, item_ids) -> int:
+    """Re-settle the financial columns of rows this dispatch just touched.
+
+    Both inventory dispatchers write SPARSELY: monthly_inventory upserts carry
+    only the columns present in the payload, and `recompute_week_totals`
+    rewrites quantities plus received/pulled value but leaves opening_value
+    alone. Omitted columns keep their previous contents, so zeroing a
+    category's quantities leaves last period's dollars sitting on rows that now
+    hold nothing — the stale `-$1.14` and `$1,752.11` rows found in the
+    2026-07 production audit.
+
+    Reading the rows back after the write and settling them against
+    `fi.value_invariant_updates` is the one place that sees the FULL post-write
+    row (payload columns plus untouched ones), which is exactly what the
+    invariant needs. Returns the number of rows corrected.
+    """
+    ids = [i for i in dict.fromkeys(item_ids) if i]
+    if not ids:
+        return 0
+    corrected = 0
+    # Chunked so a whole-month save (300+ items) stays inside URL length limits.
+    for start in range(0, len(ids), 100):
+        chunk = ids[start : start + 100]
+        try:
+            res = (
+                sup.table("monthly_inventory")
+                .select(_VALUE_INVARIANT_SELECT)
+                .eq("month", db_month)
+                .eq("year", year)
+                .in_("item_id", chunk)
+                .execute()
+            )
+        except Exception as exc:
+            log.warning("[dispatch] value-invariant read failed: %s", exc)
+            continue
+        for row in res.data or []:
+            updates = fi.value_invariant_updates(row)
+            if not updates:
+                continue
+            try:
+                sup.table("monthly_inventory").update(updates).eq(
+                    "item_id", row["item_id"]
+                ).eq("month", db_month).eq("year", year).execute()
+                corrected += 1
+                log.info(
+                    "[dispatch] value invariant settled | item_id=%s month=%s year=%s %s",
+                    row["item_id"],
+                    db_month,
+                    year,
+                    updates,
+                )
+            except Exception as exc:
+                log.warning(
+                    "[dispatch] value-invariant write failed for item_id=%s: %s",
+                    row.get("item_id"),
+                    exc,
+                )
+    return corrected
+
+
 def _is_month_published(sup, db_month: int, year: int) -> bool:
     """Return True if this period is published/closed — writes should be rejected."""
     try:
@@ -237,25 +304,11 @@ def _rollover_opening_balances(
         )
         closing = fi.ending_qty(prev.get("opening_oh"), prev_received, prev_pulled)
         if closing > 0:
-            ending_value = prev.get("ending_value")
-            if ending_value is None:
-                opening_value = prev.get("opening_value")
-                if opening_value is None:
-                    opening_value = fi.opening_value(
-                        prev.get("opening_oh"),
-                        prev.get("opening_unit_cost") or prev.get("unit_price"),
-                    )
-                received_value = prev.get("received_value")
-                if received_value is None:
-                    received_value = fi.received_value(
-                        prev_received, prev.get("unit_price")
-                    )
-                pulled_value = prev.get("pulled_value")
-                if pulled_value is None:
-                    pulled_value = fi.pulled_value(prev_pulled, prev.get("unit_price"))
-                ending_value = fi.ending_value(
-                    opening_value, received_value, pulled_value
-                )
+            # Re-derive through the canonical resolver rather than trusting the
+            # stored ending_value: a stale or negative prior balance would
+            # otherwise become next month's opening_value AND opening_unit_cost,
+            # propagating one bad row forward indefinitely.
+            ending_value = fi.resolve_row_financials(prev)["ending_value"]
             opening_unit_cost = (ending_value / closing) if closing else None
             sup.table("monthly_inventory").upsert(
                 {
@@ -551,6 +604,12 @@ def dispatch_inventory_save(payload: dict) -> dict:
             ).execute()
         sup.table("inventory_transactions").insert(txn_rows).execute()
 
+    # Settle financial columns against the post-write row state (see
+    # _enforce_value_invariants) so a sparse upsert can't strand stale dollars.
+    settled = _enforce_value_invariants(
+        sup, db_month, year, [r["item_id"] for r in rows]
+    )
+
     result = {
         "applied": count,
         "dropped": dropped,
@@ -558,6 +617,8 @@ def dispatch_inventory_save(payload: dict) -> dict:
         "year": year,
         "notes": notes,
     }
+    if settled:
+        result["value_rows_settled"] = settled
     # Auto-rollover: carry previous month closing balances forward as opening on_hand
     try:
         overwrite_scope = payload.get("overwrite_scope") or {}
@@ -861,6 +922,10 @@ def dispatch_inventory_week(payload: dict) -> dict:
             "recompute_week_totals",
             {"p_item_id": iid, "p_month": db_month, "p_year": year},
         ).execute()
+    # recompute_week_totals derives ending_value WITHOUT a zero-clamp and
+    # without the quantity rule, so it is the writer that produced the negative
+    # stored balances in the audit. Settle every row it just touched.
+    settled = _enforce_value_invariants(sup, db_month, year, affected_items)
 
     result = {
         "applied": count,
@@ -871,6 +936,8 @@ def dispatch_inventory_week(payload: dict) -> dict:
         "direction": direction,
         "ledger": True,
     }
+    if settled:
+        result["value_rows_settled"] = settled
     try:
         rolled = _rollover_opening_balances(sup, db_month, year)
         if rolled:

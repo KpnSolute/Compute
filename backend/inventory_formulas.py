@@ -84,8 +84,152 @@ def opening_value(opening, opening_unit_cost) -> float:
     return num(opening) * num(opening_unit_cost)
 
 
-def ending_value(opening_val, received_val, pulled_val) -> float:
-    return max(0.0, num(opening_val) + num(received_val) - num(pulled_val))
+def raw_ending_value(opening_val, received_val, pulled_val) -> float:
+    """Unclamped value residual — an AUDIT signal, never a displayed stock value.
+
+    Goes negative whenever the period's outflow was valued higher than its
+    inflow. That happens routinely and legitimately: received value is priced
+    from the invoice actually paid, pulled value from the catalog `unit_price`,
+    so a period that receives and pulls the same quantity still leaves a small
+    residual (the live 2026-07 Disposables FORK row: received 268.36 for 7 cases
+    at an invoice-derived price, pulled 7 x 38.50 catalog = 269.50, residual
+    -1.14). Surface it as drift to review; never show it as inventory worth.
+    """
+    return num(opening_val) + num(received_val) - num(pulled_val)
+
+
+def ending_value(opening_val, received_val, pulled_val, ending_quantity=None) -> float:
+    """Ending Value = max(0, Opening Value + Received Value - Pulled Value).
+
+    When `ending_quantity` is supplied it GOVERNS: zero physical stock holds
+    zero dollars, whatever the value columns residually say. Quantity is the
+    counted fact; the value columns are priced derivations of it, and letting
+    them disagree is what put stale money on rows that hold nothing.
+
+    Callers that have the period's quantities must always pass
+    `ending_quantity` — omitting it falls back to the value-only clamp, which
+    stops negatives but cannot catch a positive stale balance on an empty row.
+    """
+    if ending_quantity is not None and num(ending_quantity) <= 0:
+        return 0.0
+    return max(0.0, raw_ending_value(opening_val, received_val, pulled_val))
+
+
+def resolve_row_financials(row: dict, unit_price=None) -> dict:
+    """Canonical read-path resolver for one `monthly_inventory` row.
+
+    Every consumer (inventory API, cost API, dashboard, AI tools, reports) runs
+    a row through here so they cannot drift apart on which stored column to
+    trust. Stored workbook-audited values win when present — they are the
+    accountant's number — EXCEPT that the ending value is always re-derived
+    under the quantity rule above, so a stale or negative stored `ending_value`
+    can never reach a display surface.
+
+    Returns opening/received/pulled/ending values, the quantities they belong
+    to, and two audit fields: `ending_value_raw` (what the columns literally
+    add up to) and `ending_value_adjustment` (what the invariant had to
+    suppress; nonzero means this row needs review).
+    """
+    opening_qty = max(0.0, num(row.get("opening_oh")))
+    recv_qty = total_received(
+        row.get("w1_received"), row.get("w2_received"), row.get("w3_received")
+    )
+    pull_qty = total_pulled(
+        row.get("w1_pulled"), row.get("w2_pulled"), row.get("w3_pulled")
+    )
+    end_qty = ending_qty(opening_qty, recv_qty, pull_qty)
+
+    price = num(row.get("unit_price") if unit_price is None else unit_price)
+    stored_ouc = row.get("opening_unit_cost")
+    ouc = num(stored_ouc) if stored_ouc is not None else price
+
+    stored_open = row.get("opening_value")
+    open_val = (
+        num(stored_open) if stored_open is not None else opening_value(opening_qty, ouc)
+    )
+    stored_recv = row.get("received_value")
+    recv_val = (
+        num(stored_recv) if stored_recv is not None else received_value(recv_qty, price)
+    )
+    stored_pull = row.get("pulled_value")
+    pull_val = (
+        num(stored_pull) if stored_pull is not None else pulled_value(pull_qty, price)
+    )
+
+    raw = raw_ending_value(open_val, recv_val, pull_val)
+    end_val = ending_value(open_val, recv_val, pull_val, ending_quantity=end_qty)
+    return {
+        "opening_qty": opening_qty,
+        "received_qty": recv_qty,
+        "pulled_qty": pull_qty,
+        "ending_qty": end_qty,
+        "unit_price": price,
+        "opening_unit_cost": ouc,
+        "opening_value": open_val,
+        "received_value": recv_val,
+        "pulled_value": pull_val,
+        "ending_value": end_val,
+        "ending_value_raw": raw,
+        "ending_value_adjustment": round(end_val - raw, 6),
+    }
+
+
+def value_invariant_updates(row: dict) -> dict:
+    """Columns that must change for a stored row to satisfy the value contract.
+
+    The contract, applied at every write so no read path has to compensate:
+
+      * A stored value column is authoritative only while ITS OWN quantity is
+        nonzero. Zero quantity means zero dollars — this is what a sparse
+        upsert cannot express on its own, because omitting a column preserves
+        whatever was there before (the zeroed-category bug: `opening_oh` goes
+        to 0, `opening_value` silently keeps last month's money).
+      * `ending_value` is never stored as anything but the derived, clamped,
+        quantity-governed figure.
+
+    Returns `{}` when the row is already conformant, so callers can skip the
+    write entirely.
+    """
+    opening_qty = num(row.get("opening_oh"))
+    recv_qty = total_received(
+        row.get("w1_received"), row.get("w2_received"), row.get("w3_received")
+    )
+    pull_qty = total_pulled(
+        row.get("w1_pulled"), row.get("w2_pulled"), row.get("w3_pulled")
+    )
+
+    open_val = num(row.get("opening_value"))
+    recv_val = num(row.get("received_value"))
+    pull_val = num(row.get("pulled_value"))
+    if opening_qty <= 0:
+        open_val = 0.0
+    if recv_qty <= 0:
+        recv_val = 0.0
+    if pull_qty <= 0:
+        pull_val = 0.0
+
+    end_val = ending_value(
+        open_val,
+        recv_val,
+        pull_val,
+        ending_quantity=ending_qty(opening_qty, recv_qty, pull_qty),
+    )
+
+    updates: dict = {}
+    for column, wanted in (
+        ("opening_value", open_val),
+        ("received_value", recv_val),
+        ("pulled_value", pull_val),
+        ("ending_value", end_val),
+    ):
+        current = row.get(column)
+        if current is None or abs(num(current) - wanted) > 1e-6:
+            updates[column] = round(wanted, 6)
+    # An opening unit cost with no opening quantity is a stale price tag on an
+    # empty row; it would resurrect a value the moment a quantity is entered.
+    if opening_qty <= 0 and row.get("opening_unit_cost") is not None:
+        updates["opening_unit_cost"] = None
+    return updates
 
 
 # ── weekly invoice-register reconciliation ───────────────────────────────────

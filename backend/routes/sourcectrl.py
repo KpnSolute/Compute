@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from typing import Optional
 import re as _re
 from backend.routes import supabase_service
+from backend.audit_events import record_audit_event
 from backend.staging.dispatch import replay, validate_payload
 from backend.ai import diff as diff_engine
 from backend.routes._deps import (
@@ -1492,7 +1493,23 @@ async def submit_staging(
                 raise HTTPException(
                     status_code=500, detail="Dedup update returned no data."
                 )
-            return r.data[0]
+            deduped = r.data[0]
+            _dedup_period = _entry_payload_period(deduped) or (None, None)
+            record_audit_event(
+                action=f"staging.submit:{body.operation or body.entity_type}",
+                result="staged",
+                actor=auth_user,
+                method="POST",
+                path="/api/staging",
+                target_type=body.entity_type,
+                target_id=body.entity_id,
+                period_month=_dedup_period[0],
+                period_year=_dedup_period[1],
+                staging_id=entry_id,
+                status_code=201,
+                detail="updated existing pending entry (dedup)",
+            )
+            return deduped
 
         row = {
             "entity_type": body.entity_type,
@@ -1536,10 +1553,50 @@ async def submit_staging(
             entry["pr_number"] = pr.get("pr_number")
         else:
             entry["warning"] = "Staging entry saved, but pull request auto-wrap failed."
+        _period = _entry_payload_period(entry) or (None, None)
+        record_audit_event(
+            action=f"staging.submit:{body.operation or body.entity_type}",
+            result="staged",
+            actor=auth_user,
+            method="POST",
+            path="/api/staging",
+            target_type=body.entity_type,
+            target_id=body.entity_id,
+            period_month=_period[0],
+            period_year=_period[1],
+            staging_id=entry.get("entry_id"),
+            pr_id=entry.get("pr_id"),
+            status_code=201,
+            detail=entry.get("warning") or entry_summary,
+        )
         return entry
-    except HTTPException:
+    except HTTPException as exc:
+        record_audit_event(
+            action=f"staging.submit:{body.operation or body.entity_type}",
+            result="rejected" if exc.status_code < 500 else "failed",
+            actor=auth_user,
+            method="POST",
+            path="/api/staging",
+            target_type=body.entity_type,
+            target_id=body.entity_id,
+            status_code=exc.status_code,
+            error_type="HTTPException",
+            detail=exc.detail,
+        )
         raise
     except Exception as e:
+        record_audit_event(
+            action=f"staging.submit:{body.operation or body.entity_type}",
+            result="failed",
+            actor=auth_user,
+            method="POST",
+            path="/api/staging",
+            target_type=body.entity_type,
+            target_id=body.entity_id,
+            status_code=500,
+            error_type=type(e).__name__,
+            detail=str(e),
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1569,16 +1626,57 @@ async def approve_commit(
                 status_code=403,
                 detail="You cannot approve your own staged changes — ask another assistant, manager, admin, or sudo to review them.",
             )
-        return _apply_entries(
+        result = _apply_entries(
             entries,
             author_id=auth_user["id"],
             message=body.message,
             source="dashboard",
         )
-    except HTTPException:
+        _commit_period = _infer_commit_period(entries)
+        record_audit_event(
+            action="commit.approve",
+            result="merged" if result.get("applied") else "failed",
+            actor=auth_user,
+            method="POST",
+            path="/api/commits",
+            target_type="commit",
+            target_id=result.get("commit_id"),
+            period_month=_commit_period[0],
+            period_year=_commit_period[1],
+            commit_id=result.get("commit_id"),
+            status_code=201,
+            detail=(
+                f"applied={result.get('applied')} replayed={result.get('replayed')} "
+                f"failed={len(result.get('failed') or [])} entries={len(entries)}"
+            ),
+        )
+        return result
+    except HTTPException as exc:
+        record_audit_event(
+            action="commit.approve",
+            result="rejected" if exc.status_code < 500 else "failed",
+            actor=auth_user,
+            method="POST",
+            path="/api/commits",
+            target_type="commit",
+            status_code=exc.status_code,
+            error_type="HTTPException",
+            detail=exc.detail,
+        )
         raise
     except Exception as e:
         log.exception("[COMMIT] unexpected failure on POST /commits: %s", e)
+        record_audit_event(
+            action="commit.approve",
+            result="failed",
+            actor=auth_user,
+            method="POST",
+            path="/api/commits",
+            target_type="commit",
+            status_code=500,
+            error_type=type(e).__name__,
+            detail=str(e),
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1626,10 +1724,38 @@ async def reject_staging(
                     invoice_id,
                     exc,
                 )
+        _reject_period = _infer_commit_period(entries)
+        record_audit_event(
+            action="staging.reject",
+            result="rejected",
+            actor=auth_user,
+            method="DELETE",
+            path=f"/api/staging/{entry_id}",
+            target_type="staging_entry",
+            target_id=entry_id,
+            period_month=_reject_period[0],
+            period_year=_reject_period[1],
+            staging_id=entry_id,
+            status_code=204,
+            detail=review_note or "rejected by reviewer",
+        )
         return None
     except HTTPException:
         raise
     except Exception as e:
+        record_audit_event(
+            action="staging.reject",
+            result="failed",
+            actor=auth_user,
+            method="DELETE",
+            path=f"/api/staging/{entry_id}",
+            target_type="staging_entry",
+            target_id=entry_id,
+            staging_id=entry_id,
+            status_code=500,
+            error_type=type(e).__name__,
+            detail=str(e),
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1996,6 +2122,22 @@ async def merge_pull_request(
                 )
                 updated_pr = (updated_pr_r.data or [pr])[0]
                 change_count = _count_commit_changes(existing_commit["commit_id"])
+                record_audit_event(
+                    action="pull_request.merge",
+                    result="merged",
+                    actor=auth_user,
+                    method="POST",
+                    path=f"/api/pulls/{pr_id}/merge",
+                    target_type="pull_request",
+                    target_id=pr.get("pr_number") or pr_id,
+                    pr_id=pr_id,
+                    commit_id=existing_commit["commit_id"],
+                    status_code=200,
+                    detail=(
+                        "recovered: entries already merged, PR finalized against "
+                        f"existing commit ({change_count} changes)"
+                    ),
+                )
                 return {
                     **existing_commit,
                     "change_count": change_count,
@@ -2032,10 +2174,56 @@ async def merge_pull_request(
             .execute()
         )
         updated_pr = (updated_pr_r.data or [pr])[0]
+        _merge_period = _infer_commit_period(entries)
+        record_audit_event(
+            action="pull_request.merge",
+            # A merge that applied nothing but reported failures is not a merge.
+            result="merged" if result.get("applied") else "failed",
+            actor=auth_user,
+            method="POST",
+            path=f"/api/pulls/{pr_id}/merge",
+            target_type="pull_request",
+            target_id=pr.get("pr_number") or pr_id,
+            period_month=_merge_period[0],
+            period_year=_merge_period[1],
+            pr_id=pr_id,
+            commit_id=result.get("commit_id"),
+            status_code=200,
+            detail=(
+                f"applied={result.get('applied')} replayed={result.get('replayed')} "
+                f"failed={len(result.get('failed') or [])} entries={len(entries)}"
+            ),
+        )
         return {**result, "pr": updated_pr}
-    except HTTPException:
+    except HTTPException as exc:
+        record_audit_event(
+            action="pull_request.merge",
+            result="rejected" if exc.status_code < 500 else "failed",
+            actor=auth_user,
+            method="POST",
+            path=f"/api/pulls/{pr_id}/merge",
+            target_type="pull_request",
+            target_id=pr_id,
+            pr_id=pr_id,
+            status_code=exc.status_code,
+            error_type="HTTPException",
+            detail=exc.detail,
+        )
         raise
     except Exception as e:
+        record_audit_event(
+            action="pull_request.merge",
+            result="failed",
+            actor=auth_user,
+            method="POST",
+            path=f"/api/pulls/{pr_id}/merge",
+            target_type="pull_request",
+            target_id=pr_id,
+            pr_id=pr_id,
+            status_code=500,
+            error_type=type(e).__name__,
+            detail=str(e),
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 

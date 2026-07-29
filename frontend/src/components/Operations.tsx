@@ -316,18 +316,9 @@ export function MonthlyInventory({
   const saveDraft = (data: any[]) => draftsLib.saveDraft(draftScope, data);
   const clearDraft = () => { draftsLib.clearDraft(draftScope); setDraftRestoredAt(null); };
   const restoreDraft = (): any[] | null => {
-    // one-time migrations: the original un-expiring key, then the brief
-    // user-unscoped drafts-lib key.
-    draftsLib.migrateLegacyDraft<any[]>(
-      `mjcc_ops_draft_${m + 1}_${y}`,
-      draftScope,
-      (parsed) => (Array.isArray(parsed?.rows) ? parsed.rows : null),
-    );
-    draftsLib.migrateLegacyDraft<any[]>(
-      draftsLib.draftKey(`ops_${m + 1}_${y}`),
-      draftScope,
-      (parsed) => (Array.isArray(parsed?.data) ? parsed.data : null),
-    );
+    // Do not migrate historical unscoped keys here.  They cannot be
+    // attributed to a user, so restoring one would make another user's
+    // unsaved edits appear in this session.  New drafts are user-scoped below.
     const restored = draftsLib.restoreDraft<any[]>(draftScope);
     if (restored && Array.isArray(restored.data)) {
       setDraftRestoredAt(restored.savedAt);
