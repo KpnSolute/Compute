@@ -8788,4 +8788,4 @@ complete on the mapped checkout.
 
 **Verified:** Ruff clean; full backend tests **186 passed, 20 skipped**; frontend TypeScript build check passed. No production data mutation has been performed in this change.
 
-**Push:** pending - user requested correction before release.
+**Push:** Codex -> `c209139` pushed to `main`; Render backend live on `c209139` at 2026-07-30 11:25 UTC. `/health` returned HTTP 200.
