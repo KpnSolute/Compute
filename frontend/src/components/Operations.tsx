@@ -28,13 +28,14 @@ function Loading({ label = 'Loading…' }) {
   return <div className="load-wrap"><div className="spinner"></div><div>{label}</div></div>;
 }
 
-function cellN(val: number, onChange: (v: string) => void, canEdit: boolean, step = 1, w = 50) {
+function cellN(val: number, onChange: (v: string) => void, canEdit: boolean, step = 1, w = 50, invalid = false) {
   if (!canEdit) return <span className="num">{val}</span>;
   return (
     <input
-      className="sheet-inp ai-ring"
+      className={`sheet-inp ai-ring${invalid ? ' inventory-overpull-cell' : ''}`}
       type="number" min="0" step={step}
-      style={{ width: w }}
+      style={{ width: w, ...(invalid ? { borderColor: '#dc2626', background: '#fef2f2', color: '#991b1b' } : {}) }}
+      aria-invalid={invalid || undefined}
       value={val ?? 0}
       onChange={(e) => onChange(e.target.value)}
     />
@@ -467,6 +468,16 @@ export function MonthlyInventory({
   const wIssF = week > 0 ? `w${week}p` : null;
   const wRcv = (r: any) => week > 0 ? (r[`w${week}r`] || 0) : totalRcv(r);
   const wIss = (r: any) => week > 0 ? (r[`w${week}p`] || 0) : totalIss(r);
+  const availableBeforeWeek = (r: any, wk: number) => Math.max(0,
+    Number(r.opening || 0)
+      + Array.from({ length: wk }, (_, i) => Number(r[`w${i + 1}r`] || 0)).reduce((a, b) => a + b, 0)
+      - Array.from({ length: wk - 1 }, (_, i) => Number(r[`w${i + 1}p`] || 0)).reduce((a, b) => a + b, 0),
+  );
+  const isOverpullWeek = (r: any, wk: number) => Number(r[`w${wk}p`] || 0) > availableBeforeWeek(r, wk);
+  const overpullRows = useMemo(
+    () => rows.filter((r: any) => [1, 2, 3].some((wk) => isOverpullWeek(r, wk))),
+    [rows],
+  );
 
   const sum = rows.reduce(
     (a: any, r: any) => ({
@@ -557,6 +568,10 @@ export function MonthlyInventory({
   }
 
   async function handleSave() {
+    if (overpullRows.length) {
+      (window as any).toast?.(`Cannot save: fix ${overpullRows.length} over-pull row${overpullRows.length === 1 ? '' : 's'} first.`);
+      return;
+    }
     setSaving(true);
     try {
       const notes = `${MONTHS[m]} ${y}`;
@@ -664,7 +679,7 @@ export function MonthlyInventory({
         </td>
         <td className="r">
           {week > 0
-            ? cellN(r[wIssF!] || 0, (v) => setR(r.id, wIssF!, v), canEdit)
+            ? cellN(r[wIssF!] || 0, (v) => setR(r.id, wIssF!, v), canEdit, 1, 50, isOverpullWeek(r, week))
             : <span className="num" style={{ color: wIss(r) > 0 ? 'var(--amber)' : undefined }}>{wIss(r)}</span>
           }
         </td>
@@ -683,6 +698,12 @@ export function MonthlyInventory({
             <strong>{MONTHS[m]} {y}</strong> has not been published — figures for this period are still provisional and remain editable.
             {canPublish ? ' Publish it once the month is reconciled.' : ' Ask a manager to publish it once reconciled.'}
           </span>
+        </div>
+      )}
+      {overpullRows.length > 0 && (
+        <div className="overpull-notice overpull-notice--critical" role="alert" style={{ marginBottom: 12 }}>
+          <strong>{overpullRows.length} over-pull row{overpullRows.length === 1 ? '' : 's'} must be fixed before saving.</strong>{' '}
+          Pull cells turn red when the requested quantity exceeds stock available at that week. Set the pull to zero or reduce it.
         </div>
       )}
       <div className="page-head">
@@ -1001,7 +1022,7 @@ export function MonthlyInventory({
           {saved && savedAt && <span className="formbar-saved">Saved {savedAt.toLocaleTimeString()}</span>}
         </div>
         {canEdit && (
-          <button className="btn primary" onClick={handleSave} disabled={saved || saving}>
+            <button className="btn primary" onClick={handleSave} disabled={saved || saving || overpullRows.length > 0}>
             {saving ? 'Saving…' : <><I.save /> {lvl >= 40 ? 'Save & commit' : 'Stage changes'}</>}
           </button>
         )}
