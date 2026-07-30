@@ -1,5 +1,30 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.32] — 2026-07-30 — show Pull Sheet action bar only for edits
+
+**Codex:** Fixed the Pull Sheet bottom bar showing `137 items` immediately on
+load. The prior condition treated every already-saved live pull as a new staged
+edit. The bar, staged status pill, and bottom spacing now require `dirty` user
+edits or a restored draft; existing live pulls remain available in the full
+week replacement payload when the user actually stages. Restored drafts now
+also correctly mark the editor dirty.
+
+**Push:** pending — source follow-up not committed or pushed.
+
+## [v0.1.31] — 2026-07-30 — expose exact over-pull rows in the editor
+
+**Codex:** Confirmed the over-pull notice is computed dynamically from weekly
+quantities and week-specific available stock. Improved the Pull Sheet notice so
+it names each invalid description/SKU, week, requested quantity, and available
+quantity. Matching inputs expose `data-overpull`, `aria-invalid`, a red style,
+and an explanatory tooltip; the list is limited to 12 rows with an overflow
+count so the notice remains usable.
+
+**Verified:** TypeScript clean; frontend lint with `--quiet` clean; diff check
+clean. This source-only follow-up is not yet committed or pushed.
+
+**Push:** pending — source follow-up not committed or pushed.
+
 ## [v0.1.30] — 2026-07-30 — block and clear July inventory over-pulls
 
 **Codex:** Audited live July 2026 inventory and found five raw over-pull rows:

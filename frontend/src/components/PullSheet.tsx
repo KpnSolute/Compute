@@ -221,7 +221,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
     // In Compact mode, changing the selector must not clear the shared dirty
     // guard: another week may still have unsaved quantities in compactQtys.
     // Regular mode owns only qtys, so restoring its draft starts clean.
-    if (viewMode !== 'compact') setDirty(false);
+    if (viewMode !== 'compact') setDirty(Boolean(restored?.data && Object.keys(restored.data).length));
   }, [draftKey, week, viewMode]);
 
   useEffect(() => {
@@ -230,7 +230,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
       next[wk] = draftsLib.restoreDraft<Record<string, number>>(draftKeyForWeek(wk))?.data || {};
     }
     setCompactQtys(next);
-    setDirty(false);
+    setDirty(Object.values(next).some((draft) => Object.keys(draft).length > 0));
   }, [draftKeyForWeek]);
 
   const setQty = (sku: string, val: number) => {
@@ -385,7 +385,10 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
     : stagedItems.length;
   const actionTotalValue = viewMode === 'compact' ? compactTotalValue : totalValue;
   const anyPulled = pulledItems.length > 0;
-  const anyStaged = viewMode === 'compact' ? compactStagedByWeek.length > 0 : stagedItems.length > 0;
+  // Existing live pulls are not unsaved edits. Keep the action bar hidden until
+  // the user changes a quantity, while stagedItems still carries the complete
+  // week replacement payload when the user actually stages.
+  const anyStaged = dirty && (viewMode === 'compact' ? compactStagedByWeek.length > 0 : stagedItems.length > 0);
   const filteredGroups = useMemo(() => {
     const groups = new Map<string, any[]>();
     filtered.forEach((it) => {
@@ -657,6 +660,14 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
         <div className="overpull-notice overpull-notice--critical" role="alert">
           <strong>{overpulls.length} over-pull cell{overpulls.length === 1 ? '' : 's'} require correction.</strong>{' '}
           Red cells exceed the stock available at that week. Set them to zero or reduce the quantity before staging.
+          <div className="overpull-items" aria-label="Over-pull items">
+            {overpulls.slice(0, 12).map((entry) => (
+              <div key={`${entry.sku}-w${entry.week}`}>
+                {entry.desc} ({entry.sku}) — W{entry.week}: {entry.requested} requested, {entry.available} available
+              </div>
+            ))}
+            {overpulls.length > 12 && <div>…and {overpulls.length - 12} more.</div>}
+          </div>
         </div>
       )}
 
@@ -759,6 +770,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
                           placeholder="0"
                           aria-label={`Pull quantity for ${desc}`}
                           aria-invalid={isOverpull || undefined}
+                          data-overpull={isOverpull || undefined}
                           title={isOverpull ? `Over-pull: ${qty} requested, ${available} available` : undefined}
                           onChange={e => setQty(sku, Number(e.target.value) || 0)}
                           onFocus={e => e.target.select()}
@@ -847,6 +859,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
                               placeholder="0"
                               aria-label={`Week ${wk} pull quantity for ${desc}`}
                               aria-invalid={isOverpull || undefined}
+                              data-overpull={isOverpull || undefined}
                               title={isOverpull ? `Over-pull: ${qty} requested, ${available} available` : undefined}
                               onChange={e => setCompactQty(wk, sku, Number(e.target.value) || 0)}
                               onFocus={e => e.target.select()}

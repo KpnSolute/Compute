@@ -394,6 +394,7 @@ select option:checked{
    rank it visually above the over-pull notice. */
 .overpull-notice--critical{border-color:#DC2626;background:#FEF2F2;color:#7F1D1D}
 .overpull-notice--critical strong{color:#B91C1C}
+.overpull-items{margin-top:6px;padding-top:6px;border-top:1px solid rgba(220,38,38,.22);font-size:12px;line-height:1.55}
 
 /* ── Week receipt tile strip ── */
 .wk-tile-row{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap}
