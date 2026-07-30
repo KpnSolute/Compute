@@ -22,7 +22,7 @@ completed from the mapped `Z:` checkout because the local Node tooling returns
 Access Denied/hangs on the network drive. The Supabase migration is tracked but
 not applied; the available MCP connection targeted Scena rather than MJCC.
 
-**Push:** pending — local changes awaiting review.
+**Push:** Codex → `d092fc1` — 2026-07-29 21:26 -04:00.
 
 ## [v0.1.8] — 2026-07-29 — fix(logging): expose durable audit events through legacy log routes
 
