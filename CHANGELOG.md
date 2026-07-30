@@ -8789,3 +8789,11 @@ complete on the mapped checkout.
 **Verified:** Ruff clean; full backend tests **186 passed, 20 skipped**; frontend TypeScript build check passed. No production data mutation has been performed in this change.
 
 **Push:** Codex -> `c209139` pushed to `main`; Render backend live on `c209139` at 2026-07-30 11:25 UTC. `/health` returned HTTP 200.
+
+## [v0.1.14] - 2026-07-30 - fix(valuation): keep invoice-priced ledger values authoritative
+
+**Codex:** The database writer still rebuilt received and pulled dollars from catalog price after ledger writes, so invoice-backed July received value could regress from $30,087.95 to $25,562.14. Added mirrored invoice-backed valuation migrations and an application settlement backstop that re-reads `inventory_transactions` before saving the monthly cache. Ledger transaction prices now remain authoritative; imported values are preserved when no ledger exists; zero-quantity rows cannot retain stale dollars; ending stock is clamped.
+
+**Verified:** production `/health` HTTP 200; protected inventory/dashboard endpoints correctly return 401 without a user token; Render backend deploy `8a6ae01` is Live; Ruff clean; pytest 186 passed, 20 skipped; TypeScript `tsc -b` clean; `git diff --check` clean. No production database mutation was performed because the connected Supabase target is not MJCCv1.
+
+**Push:** pending - production migration application requires the project-scoped Supabase connection.
