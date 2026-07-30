@@ -526,14 +526,13 @@ async def get_inventory(
         if not weekly_invoice_totals:
             weekly_invoice_totals = _weekly_received_values_from_ledger(db_month, year)
 
-        received_value_reconciliation = fi.received_value_reconciliation(
-            received_value, weekly_invoice_totals
-        )
         # The period headline must be reproducible from the visible weekly
-        # invoice cards. Keep the row-level amount in the reconciliation object
-        # instead of exposing a silently competing total to dashboard/report
-        # consumers.
-        received_value = received_value_reconciliation["headline"]
+        # invoice cards. Do not expose a competing row aggregate.
+        if weekly_invoice_totals and weekly_invoice_totals.get("weeks"):
+            received_value = round(
+                sum(fi.num(value) for value in weekly_invoice_totals["weeks"].values()),
+                2,
+            )
 
         # Reconcile the headline weekly totals against the invoice register so
         # the UI can explain (goods vs payable) instead of silently showing two
@@ -572,7 +571,6 @@ async def get_inventory(
                 "total_pulled": total_pulled,
                 "opening_value": opening_value,
                 "received_value": received_value,
-                "received_value_reconciliation": received_value_reconciliation,
                 "pulled_value": pulled_value,
                 "closing_value": closing_value,
                 "category_totals": category_totals,

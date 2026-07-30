@@ -313,40 +313,6 @@ def value_reconciliation_audit(rows: Iterable[dict]) -> dict:
     }
 
 
-def received_value_reconciliation(row_total, weekly_totals: dict | None) -> dict:
-    """Choose the period receipt headline and expose competing-source drift.
-
-    ``monthly_inventory.received_value`` is item-level evidence, while the
-    uploaded weekly invoice schedule is the period-level receipt source of
-    truth.  When the schedule exists, the headline must equal its numeric
-    weekly sum; otherwise the dashboard can show a total that cannot be
-    reproduced by adding the visible week cards.
-    """
-    row_value = round(max(0.0, num(row_total)), 2)
-    weeks = (
-        (weekly_totals or {}).get("weeks") if isinstance(weekly_totals, dict) else None
-    )
-    if not isinstance(weeks, dict) or not weeks:
-        return {
-            "headline": row_value,
-            "row_total": row_value,
-            "weekly_total": None,
-            "gap": None,
-            "reconciled": True,
-            "source": "monthly_inventory_rows",
-        }
-
-    weekly_value = round(sum(max(0.0, num(value)) for value in weeks.values()), 2)
-    return {
-        "headline": weekly_value,
-        "row_total": row_value,
-        "weekly_total": weekly_value,
-        "gap": round(row_value - weekly_value, 2),
-        "reconciled": abs(row_value - weekly_value) <= 0.005,
-        "source": "weekly_invoice_totals",
-    }
-
-
 def opening_continuity(
     prior_rows: Iterable[dict], current_rows: Iterable[dict]
 ) -> dict:

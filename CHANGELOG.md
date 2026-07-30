@@ -495,6 +495,14 @@ from effc765, and all OCR/concurrency changes from earlier tonight are untouched
 
 **Push:** pending.
 
+## [v0.1.18] - 2026-07-30 - remove competing receipt aggregate
+
+**Codex:** Removed the alternate row-level receipt aggregate from the API
+contract. Receipt totals now come from the numeric weekly invoice values when
+they exist; no competing total is retained for dashboard or report consumers.
+
+**Push:** pending.
+
 ---
 
 ## 2026-07-17 — fix(ai): vision path multi-line Vizient/GPO discount summing
