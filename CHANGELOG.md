@@ -8779,4 +8779,4 @@ complete on the mapped checkout.
 
 **Verified:** `ruff check backend/`, `ruff format --check backend/`, `import backend.main`, and **pytest 186 passed, 20 skipped, 0 failed**. Frontend `tsc -b` passed. Frontend lint timed out on the mapped `Z:` checkout without returning diagnostics; Vite build reached the known mapped-drive native Rolldown failure (`ERR_DLOPEN_FAILED` / Access denied), not a TypeScript or application error.
 
-**Push:** pending - awaiting release verification.
+**Push:** Codex → `60e16e7` pushed to `main`; Render deployment verification pending.
