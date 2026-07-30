@@ -8697,3 +8697,19 @@ were copied or stored.
 task; the active Codex MCP connection must be reloaded before MJCC schema work.
 
 **Push:** pending - configuration isolation awaiting commit/push.
+
+## [v0.1.11] - 2026-07-30 - unify inventory movement totals
+
+**Codex:** Fixed the production-facing dashboard and Monthly Inventory week
+tiles so inventory received value always comes from the monthly ledger's
+weekly quantities multiplied by each row's monthly unit price. Invoice-register
+goods totals remain reconciliation data and no longer override inventory
+movement totals. This makes the received, issued, and closing cards use one
+consistent valuation basis.
+
+**Verification:** Backend tests passed: 173 passed, 20 skipped. Backend import
+passed. Frontend TypeScript build passed; Vite build is blocked by the known
+mapped-drive Rolldown native-binding access error, and frontend lint did not
+complete on the mapped checkout.
+
+**Push:** pending - local fix awaiting commit/push.

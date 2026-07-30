@@ -100,21 +100,10 @@ function num(v: any): number {
     return Number.isFinite(n) ? n : 0;
 }
 
-function invoiceTotalFromMeta(metadata: any): number | null {
-    const totals = metadata?.weekly_invoice_totals;
-    if (!totals) return null;
-    const explicit = Number(totals.total);
-    if (Number.isFinite(explicit) && explicit > 0) return explicit;
-    const weeks = totals.weeks && typeof totals.weeks === "object" ? totals.weeks : {};
-    const value = Object.values(weeks).reduce((sum: number, wk: any) => sum + num(wk), 0);
-    return value > 0 ? value : null;
-}
-
 function moneyTotalsFromMeta(metadata: any) {
-    const invoiceReceived = invoiceTotalFromMeta(metadata);
     return {
         open: num(metadata?.opening_value),
-        recv: invoiceReceived ?? num(metadata?.received_value),
+        recv: num(metadata?.received_value),
         iss: num(metadata?.pulled_value),
         close: num(metadata?.closing_value),
     };

@@ -54,20 +54,6 @@ function cellT(val: string, onChange: (v: string) => void, canEdit: boolean) {
   );
 }
 
-function weeklyInvoiceSchedule(metadata: any) {
-  const totals = metadata?.weekly_invoice_totals;
-  const weeks = totals?.weeks && typeof totals.weeks === 'object' ? totals.weeks : null;
-  if (!weeks) return null;
-  const rows = [1, 2, 3, 4, 5]
-    .map((wk) => ({ wk, total: Number(weeks[String(wk)] ?? weeks[wk] ?? 0) || 0 }))
-    .filter((row) => row.total > 0);
-  if (!rows.length) return null;
-  return {
-    weeks: rows,
-    total: Number(totals.total) || rows.reduce((sum, row) => sum + row.total, 0),
-  };
-}
-
 export function SnackBar({ user }: { user: User }) {
   const lvl = ROLE_LEVEL[user.role] || 0;
   const canEdit = lvl >= 10;
@@ -485,7 +471,6 @@ export function MonthlyInventory({
     }),
     { open: 0, recv: 0, iss: 0, close: 0 },
   );
-  const invoiceSchedule = useMemo(() => weeklyInvoiceSchedule(inventoryMeta), [inventoryMeta]);
   // Inventory valuation is quantity × the monthly row price. Invoice schedule
   // totals are goods/payable reconciliation data, not a replacement for this
   // card's inventory movement value.
@@ -513,14 +498,13 @@ export function MonthlyInventory({
   const rcvColLabel = week === 0 ? 'Rcvd (total)' : `W${week} Received`;
   const issColLabel = week === 0 ? 'Issued (total)' : `W${week} Issued`;
 
-  // Week tiles use workbook invoice totals when present; qty x price is only a fallback.
+  // Week tiles use the same inventory ledger valuation as the summary cards.
   const weekTotals = useMemo(() => {
-    if (invoiceSchedule) return invoiceSchedule.weeks;
     return Array.from({ length: maxWeeks }, (_, i) => i + 1).map((wk) => ({
       wk,
       total: rows.reduce((s, r) => s + (r[`w${wk}r`] || 0) * r.price, 0),
     })).filter((wt) => wt.total > 0);
-  }, [rows, maxWeeks, invoiceSchedule]);
+  }, [rows, maxWeeks]);
 
   // Per-week issued qty totals — determines which weeks have pull sheets recorded.
   const pullTotals = useMemo(() =>
