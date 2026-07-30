@@ -8683,3 +8683,17 @@ Frontend (`frontend/src/lib/supabase.ts`) intentionally untouched — that's the
 
 **Verification addendum:** Backend `142 passed, 20 skipped`; frontend typecheck and lint pass; frontend Vitest passes `9/9` from a clean local NTFS checkout after `npm ci`. Vitest still fails before startup from mapped `Z:` because Rolldown's native `.node` binding returns `Access is denied` (`ERR_DLOPEN_FAILED`).
 **Build follow-up:** local NTFS `npm run build` exposed and fixed the `onClick={load}` handler type mismatch introduced by the silent-load option (`onClick={() => { void load(); }}`). Local build now passes; mapped `Z:` remains unsuitable for native Rolldown execution.
+
+## [v0.1.10] - 2026-07-30 - isolate project MCP targets
+
+**Codex:** Added a repository-local `.mcp.json` targeting the active MJCCv1
+Supabase project (`mgvyylvmkxhhataavqjz`) and using only the local
+`SUPABASE_MCP_TOKEN` environment variable for credentials. Scena's separate
+MCP URL was also pinned to its own project ref (`zglbgqeccebqnijcqfkb`), so a
+shared project-ref variable cannot redirect either project. No credentials
+were copied or stored.
+
+**Verification:** JSON parsing passed. No MCP migration was applied in this
+task; the active Codex MCP connection must be reloaded before MJCC schema work.
+
+**Push:** pending - configuration isolation awaiting commit/push.
