@@ -189,6 +189,42 @@ def test_invoice_register_weeks_uses_one_indexed_month_and_aggregates():
     assert w2["line_item_count"] == 92  # 10 Multi-Flow + 82 US Foods lines
 
 
+def test_weekly_invoice_line_totals_are_numeric_and_additive():
+    from backend.routes import inventory as inv
+
+    totals = inv._weekly_invoice_line_totals(
+        {
+            "1": {"line_goods_total": 20866.92},
+            "2": {"line_goods_total": 7792.62 + 1652.70},
+        }
+    )
+
+    assert totals == {
+        "source": "invoice_items.extended_price",
+        "weeks": {"1": 20866.92, "2": 9445.32},
+        "total": 30312.24,
+        "notes": {},
+    }
+
+
+def test_reconciliation_prefers_line_goods_total_over_stale_header():
+    from backend.inventory_formulas import reconcile_weekly_invoices
+
+    result = reconcile_weekly_invoices(
+        {"1": 20866.92},
+        {
+            "1": {
+                "goods_subtotal": 20454.59,
+                "line_goods_total": 20866.92,
+                "net_total": 20454.59,
+            }
+        },
+    )
+
+    assert result["1"]["register_goods"] == 20866.92
+    assert result["1"]["residual"] == 0.0
+
+
 # ── GET /api/invoices item_count ─────────────────────────────────────────────
 
 

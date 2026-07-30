@@ -165,6 +165,52 @@ def _validate_inventory_item_numbers(
                     _non_negative(item.get(field), field, sku)
 
 
+def _overpull_error(sku: str | None, opening, received, pulled) -> str | None:
+    """Reject a submitted physical pull that exceeds available stock.
+
+    Clamping the displayed ending quantity to zero is an audit presentation
+    rule, not permission to write an impossible movement.  The write path must
+    stop before an invalid pull reaches either the ledger or monthly cache.
+    """
+    available = max(0.0, float(opening or 0) + float(received or 0))
+    requested = max(0.0, float(pulled or 0))
+    if requested <= available + 1e-9:
+        return None
+    return (
+        f"Pull quantity for SKU {sku or 'unknown'} exceeds available stock: "
+        f"requested {requested:g}, available {available:g}. "
+        "Correct the opening/receipt quantity or reduce the pull before saving."
+    )
+
+
+def _validate_monthly_rows_no_overpull(sup, rows: list[dict]) -> str | None:
+    """Validate merged monthly rows before the atomic upsert occurs."""
+    for row in rows:
+        current = (
+            sup.table("monthly_inventory")
+            .select(
+                "opening_oh,w1_received,w2_received,w3_received,"
+                "w1_pulled,w2_pulled,w3_pulled"
+            )
+            .eq("item_id", row["item_id"])
+            .eq("month", row["month"])
+            .eq("year", row["year"])
+            .limit(1)
+            .execute()
+        )
+        base = (current.data or [{}])[0]
+        merged = {**base, **row}
+        error = _overpull_error(
+            row.get("sku"),
+            merged.get("opening_oh"),
+            sum(float(merged.get(f"w{i}_received") or 0) for i in range(1, 4)),
+            sum(float(merged.get(f"w{i}_pulled") or 0) for i in range(1, 4)),
+        )
+        if error:
+            return error
+    return None
+
+
 def _weekly_invoice_amount(raw: dict, week: int):
     for key in (
         str(week),
@@ -550,6 +596,10 @@ def dispatch_inventory_save(payload: dict) -> dict:
     if dropped:
         return _unresolved_items_rejected(dropped, month=month, year=year, notes=notes)
 
+    overpull_error = _validate_monthly_rows_no_overpull(sup, rows)
+    if overpull_error:
+        return {"applied": 0, "error": overpull_error}
+
     # Batched, atomic write. Rows are grouped by their exact column signature so a
     # batched upsert never introduces NULLs for columns a row omitted (which would
     # wipe existing weekly data). Each group is a single statement -> one snapshot
@@ -925,6 +975,45 @@ def dispatch_inventory_week(payload: dict) -> dict:
         )
         affected_items.add(item_id)
         count += 1
+
+    if direction == "issued":
+        pending_by_item: dict[str, float] = {}
+        sku_by_item: dict[str, str] = {}
+        for movement in txn_rows:
+            if movement["txn_type"] != "issued":
+                continue
+            pending_by_item[movement["item_id"]] = pending_by_item.get(
+                movement["item_id"], 0.0
+            ) + float(movement["quantity"] or 0)
+            sku_by_item[movement["item_id"]] = movement.get("sku") or "unknown"
+        for item_id, pending_pull in pending_by_item.items():
+            current = (
+                sup.table("monthly_inventory")
+                .select(
+                    "opening_oh,w1_received,w2_received,w3_received,"
+                    "w1_pulled,w2_pulled,w3_pulled"
+                )
+                .eq("item_id", item_id)
+                .eq("month", db_month)
+                .eq("year", year)
+                .limit(1)
+                .execute()
+            )
+            row = (current.data or [{}])[0]
+            existing_received = sum(
+                float(row.get(f"w{i}_received") or 0) for i in range(1, 4)
+            )
+            existing_pulled = sum(
+                float(row.get(f"w{i}_pulled") or 0) for i in range(1, 4)
+            )
+            overpull_error = _overpull_error(
+                sku_by_item.get(item_id),
+                row.get("opening_oh"),
+                existing_received,
+                existing_pulled + pending_pull,
+            )
+            if overpull_error:
+                return {"applied": 0, "error": overpull_error}
 
     if dropped:
         return _unresolved_items_rejected(

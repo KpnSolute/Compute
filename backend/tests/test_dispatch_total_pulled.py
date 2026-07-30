@@ -162,7 +162,7 @@ class _FakeRpc:
 
 
 class FakeSup:
-    def __init__(self, items=None, categories=None, txns=None):
+    def __init__(self, items=None, categories=None, txns=None, monthly=None):
         cats = categories or [
             {"id": DRY_CAT_ID, "name": "Dry Goods"},
             {"id": NEW_ITEMS_CAT_ID, "name": "New Items"},
@@ -180,7 +180,7 @@ class FakeSup:
                 ]
             ),
             "inventory_categories": _FakeTable(cats),
-            "monthly_inventory": _FakeTable([]),
+            "monthly_inventory": _FakeTable(monthly or []),
             "inventory_transactions": _FakeTable(txns or []),
             "month_status": _FakeTable([]),  # empty = not published
         }
@@ -273,7 +273,21 @@ def test_issued_week_uses_backend_item_price_not_client_price():
                 "category_id": DRY_CAT_ID,
                 "unit_price": 9.99,
             }
-        ]
+        ],
+        monthly=[
+            {
+                "item_id": ITEM_ID,
+                "month": 6,
+                "year": 2026,
+                "opening_oh": 2,
+                "w1_received": 0,
+                "w2_received": 0,
+                "w3_received": 0,
+                "w1_pulled": 0,
+                "w2_pulled": 0,
+                "w3_pulled": 0,
+            }
+        ],
     )
     payload = {
         "month": 7,
@@ -289,6 +303,50 @@ def test_issued_week_uses_backend_item_price_not_client_price():
 
     assert result["applied"] == 1, result
     assert sup.txns[0]["unit_price"] == 9.99
+
+
+def test_issued_week_rejects_pull_above_available_stock():
+    from backend.staging.dispatch import dispatch_inventory_week
+
+    sup = FakeSup(
+        items=[
+            {
+                "id": ITEM_ID,
+                "sku": "DRY-001",
+                "description": "Rice",
+                "category_id": DRY_CAT_ID,
+                "unit_price": 9.99,
+            }
+        ],
+        monthly=[
+            {
+                "item_id": ITEM_ID,
+                "month": 6,
+                "year": 2026,
+                "opening_oh": 1,
+                "w1_received": 1,
+                "w2_received": 0,
+                "w3_received": 0,
+                "w1_pulled": 0,
+                "w2_pulled": 0,
+                "w3_pulled": 0,
+            }
+        ],
+    )
+    payload = {
+        "month": 7,
+        "year": 2026,
+        "week": 1,
+        "direction": "issued",
+        "items": [{"sku": "DRY-001", "desc": "Rice", "qty": 3}],
+    }
+
+    with patch("backend.staging.dispatch.supabase_service", sup):
+        result = dispatch_inventory_week(payload)
+
+    assert result["applied"] == 0
+    assert "exceeds available stock" in result["error"]
+    assert sup.txns == []
 
 
 def test_total_pulled_raw_writes_week3_transaction_and_column():
@@ -842,6 +900,7 @@ def test_inventory_save_retry_replaces_weekly_and_week0_rows_for_same_staging_id
                 "sku": "DRY-001",
                 "desc": "Rice",
                 "category": "Dry Goods",
+                "onHand": 5,
                 "w1r": 2,
                 "total_pulled_raw": 4,
             }

@@ -215,6 +215,7 @@ def _invoice_register_weeks(db_month: int, year: int) -> dict | None:
             str(week),
             {
                 "goods_subtotal": 0.0,
+                "line_goods_total": 0.0,
                 "vizient_discount": 0.0,
                 "fuel_surcharge": 0.0,
                 "tax": 0.0,
@@ -242,7 +243,7 @@ def _invoice_register_weeks(db_month: int, year: int) -> dict | None:
         try:
             items_res = (
                 supabase_service.table("invoice_items")
-                .select("invoice_id")
+                .select("invoice_id,extended_price")
                 .in_("invoice_id", list(invoice_week))
                 .range(0, 49999)
                 .execute()
@@ -251,10 +252,39 @@ def _invoice_register_weeks(db_month: int, year: int) -> dict | None:
                 wk = invoice_week.get(row.get("invoice_id") or "")
                 if wk and wk in weeks:
                     weeks[wk]["line_item_count"] += 1
+                    weeks[wk]["line_goods_total"] = round(
+                        weeks[wk]["line_goods_total"]
+                        + _to_float(row.get("extended_price")),
+                        2,
+                    )
         except Exception:
             # Counts are display metadata — never fail reconciliation for them.
             logger.exception("Could not load invoice line-item counts")
     return weeks or None
+
+
+def _weekly_invoice_line_totals(register_weeks: dict | None) -> dict | None:
+    """Return numeric weekly receipt totals from invoice line extensions.
+
+    Snapshot week totals are historical display caches and can be stale after
+    line reimports.  The invoice line extension sum is the authoritative goods
+    receipt amount; payable adjustments remain in ``invoice_register``.
+    """
+    if not register_weeks:
+        return None
+    weeks = {
+        str(week): round(_to_float(data.get("line_goods_total")), 2)
+        for week, data in register_weeks.items()
+        if _to_float(data.get("line_goods_total")) > 0
+    }
+    if not weeks:
+        return None
+    return {
+        "source": "invoice_items.extended_price",
+        "weeks": weeks,
+        "total": round(sum(weeks.values()), 2),
+        "notes": {},
+    }
 
 
 def _weekly_received_values_from_ledger(db_month: int, year: int) -> dict | None:
@@ -510,37 +540,42 @@ async def get_inventory(
         except Exception:
             logger.exception("Could not evaluate opening-balance continuity")
 
-        weekly_invoice_totals = None
+        # Build this from the live invoice register before consulting snapshot
+        # caches.  Snapshots are historical display artifacts and were the
+        # reason Week 1/2 receivables no longer added to the uploaded invoices.
+        invoice_register = _invoice_register_weeks(db_month, year)
+        weekly_invoice_totals = _weekly_invoice_line_totals(invoice_register)
         try:
-            snap = (
-                supabase_service.table("monthly_snapshots")
-                .select("wk1_total,wk2_total,wk3_total,wk4_total,wk5_total,data")
-                .eq("month", db_month)
-                .eq("year", year)
-                .limit(1)
-                .execute()
-            )
-            snap_row = (snap.data or [None])[0]
-            if snap_row:
-                snap_data = snap_row.get("data") or {}
-                weekly_invoice_totals = (
-                    snap_data.get("weekly_invoice_totals")
-                    if isinstance(snap_data, dict)
-                    else None
+            if not weekly_invoice_totals:
+                snap = (
+                    supabase_service.table("monthly_snapshots")
+                    .select("wk1_total,wk2_total,wk3_total,wk4_total,wk5_total,data")
+                    .eq("month", db_month)
+                    .eq("year", year)
+                    .limit(1)
+                    .execute()
                 )
-                if not weekly_invoice_totals:
-                    weeks = {
-                        str(idx): _to_float(snap_row.get(f"wk{idx}_total"))
-                        for idx in range(1, 6)
-                        if snap_row.get(f"wk{idx}_total") is not None
-                    }
-                    if weeks:
-                        weekly_invoice_totals = {
-                            "source": "monthly_snapshots",
-                            "weeks": weeks,
-                            "total": round(sum(weeks.values()), 2),
-                            "notes": {},
+                snap_row = (snap.data or [None])[0]
+                if snap_row:
+                    snap_data = snap_row.get("data") or {}
+                    weekly_invoice_totals = (
+                        snap_data.get("weekly_invoice_totals")
+                        if isinstance(snap_data, dict)
+                        else None
+                    )
+                    if not weekly_invoice_totals:
+                        weeks = {
+                            str(idx): _to_float(snap_row.get(f"wk{idx}_total"))
+                            for idx in range(1, 6)
+                            if snap_row.get(f"wk{idx}_total") is not None
                         }
+                        if weeks:
+                            weekly_invoice_totals = {
+                                "source": "monthly_snapshots",
+                                "weeks": weeks,
+                                "total": round(sum(weeks.values()), 2),
+                                "notes": {},
+                            }
         except Exception:
             weekly_invoice_totals = None
         if not weekly_invoice_totals:
@@ -557,7 +592,6 @@ async def get_inventory(
         # Reconcile the headline weekly totals against the invoice register so
         # the UI can explain (goods vs payable) instead of silently showing two
         # different numbers — the 2026-07-18 audit's "$101.09 variance".
-        invoice_register = _invoice_register_weeks(db_month, year)
         weekly_reconciliation = None
         if invoice_register:
             headline_weeks = (

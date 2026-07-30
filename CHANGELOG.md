@@ -9033,3 +9033,26 @@ frontend TypeScript passed. The original screenshots were stale API behavior;
 the live database had already been corrected by the carry-forward migrations.
 
 **Push:** pending - source fix ready for commit and push.
+
+## [v0.1.28] - 2026-07-30 - reconcile weekly invoice receivables and block over-pulls
+
+**Codex:** Audited `Julywk1.pdf`, `Julywk2.pdf`, `invoice_items`, and the July
+monthly rows. Week 1 has 199 lines / 451 shipped units / `$20,866.92` line
+goods; Week 2 has 92 lines / 184 shipped units / `$9,445.32` line goods. The
+old weekly cards came from stale snapshot values and did not add to the
+uploaded invoices. Weekly receivables now derive from numeric
+`invoice_items.extended_price` totals; invoice delivery adjustments remain a
+separate payable metric.
+
+**Codex:** Added atomic staging validation that rejects a pull when requested
+quantity exceeds opening stock plus received quantity. Existing July source
+data contains five genuine over-pull rows totaling 8 units; they match the
+submitted pull quantities and were not silently rewritten. The CSV also has
+four malformed rows caused by unescaped commas/quotes in item descriptions,
+which are ingestion-quality failures rather than inventory movements.
+
+**Verified:** Live invoice line quantities match monthly receipts exactly:
+Week 1 `451/451`, Week 2 `184/184`. Targeted backend tests **24 passed**;
+full verification pending after final formatting.
+
+**Push:** pending - source fix ready for commit and push.
