@@ -138,3 +138,21 @@ def test_weekly_received_values_come_from_ledger_prices(monkeypatch):
         "total": 135.5,
         "notes": {},
     }
+
+
+def test_received_value_headline_matches_visible_week_cards():
+    from backend.inventory_formulas import received_value_reconciliation
+
+    result = received_value_reconciliation(
+        30087.95,
+        {"weeks": {"1": 17989.79, "2": 7437.67, "3": 134.68}},
+    )
+
+    assert result == {
+        "headline": 25562.14,
+        "row_total": 30087.95,
+        "weekly_total": 25562.14,
+        "gap": 4525.81,
+        "reconciled": False,
+        "source": "weekly_invoice_totals",
+    }

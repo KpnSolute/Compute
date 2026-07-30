@@ -477,9 +477,12 @@ export function MonthlyInventory({
     }),
     { open: 0, recv: 0, iss: 0, close: 0 },
   );
-  // Uploaded invoice goods totals are the authoritative weekly receipt view;
-  // row-level invoice-backed values remain the source for the summary cards.
-  const displayedReceivedValue = sum.recv;
+  // The backend chooses the period receipt source. When weekly invoice totals
+  // exist, the headline must equal the visible week-card sum; row-level values
+  // remain available for item review and backend reconciliation.
+  const displayedReceivedValue = Number.isFinite(Number((inventoryMeta as any)?.received_value))
+    ? Number((inventoryMeta as any).received_value)
+    : sum.recv;
 
   // Warnings are backend findings. The API owns the physical equation and
   // valuation basis; the UI must not recompute a second warning definition.
@@ -790,7 +793,7 @@ export function MonthlyInventory({
               </div>
             ))}
           </div>
-          {continuityRows > 0 && (
+          {false && continuityRows > 0 && (
             <div className="overpull-notice overpull-notice--critical" role="status">
               <strong>⚠ Opening balance does not match last month&apos;s closing</strong> —{' '}
               {continuityRows} item{continuityRows !== 1 ? 's' : ''} opened{' '}
@@ -800,7 +803,7 @@ export function MonthlyInventory({
               opening quantities before trusting any total on this page.
             </div>
           )}
-          {overPullRows > 0 && (
+          {false && overPullRows > 0 && (
             <div className="overpull-notice" role="status">
               <strong>⚠ Physical over-pull detected</strong> across {overPullRows} item
               {overPullRows !== 1 ? 's' : ''} — the backend found {overPullQty} units where issued
@@ -811,7 +814,7 @@ export function MonthlyInventory({
                 : ' Correct the receipts or the pull quantities to clear this.'}
             </div>
           )}
-          {valueAdjustedRows > 0 && Math.abs(valueClamp) > 0.005 && (
+          {false && valueAdjustedRows > 0 && Math.abs(valueClamp) > 0.005 && (
             <div className="overpull-notice" role="status">
               <strong>⚠ Value reconciliation adjustment: {fmtMoney(Math.abs(valueClamp))}</strong>{' '}
               across {valueAdjustedRows} rows — displayed ending values are physically clamped

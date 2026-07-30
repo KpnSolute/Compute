@@ -8808,6 +8808,21 @@ complete on the mapped checkout.
 
 **Push:** pending - source fix ready for commit and Render deployment.
 
+## [v0.1.17] - 2026-07-30 - align receipt headline with weekly invoice totals
+
+**Codex:** The July API exposed $30,087.95 from row-level received values while
+the visible weekly invoice cards summed to $25,562.14. Added a canonical
+receipt reconciliation helper and changed the period headline to use the
+numeric weekly invoice total when present. The row-level amount and $4,525.81
+gap remain explicit API reconciliation data instead of silently competing with
+the headline. Removed calculation/audit findings from the normal inventory
+banner area; backend audit fields remain available for operational tooling.
+
+**Verified:** Backend **190 passed, 20 skipped**, Ruff clean, TypeScript clean.
+Deployment and live API verification pending.
+
+**Push:** pending.
+
 ## [v0.1.16] - 2026-07-30 - fix(inventory): expose value reconciliation as a backend finding
 
 **Codex:** After the opening repair, live July reads now show Opening `$9,505.58`, Received `$30,087.95`, Issued `$24,991.43`, no continuity warning, and 5 genuine physical over-pull rows / 8 units / `$288.57`. Added `value_reconciliation_audit()` so the API reports the raw component balance, displayed clamped ending total, adjustment amount, affected-row count, and reconciliation status. Operations now renders that backend finding when row-level physical clamping creates a nonzero value adjustment.
