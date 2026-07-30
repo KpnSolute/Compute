@@ -79,11 +79,11 @@ def test_flatten_rows_uses_imported_invoice_values_for_all_values(monkeypatch):
     assert item.totalReceived == 6
     assert item.totalPulled == 3
     assert item.closingQty == 5
-    assert item.openingValue == 20
+    assert item.openingValue == 12
     assert item.receivedValue == 60
     assert item.pulledValue == 30
-    assert item.endingValue == 50
-    assert item.value == 50
+    assert item.endingValue == 42
+    assert item.value == 42
 
 
 def test_weekly_received_values_use_monthly_prices(monkeypatch):

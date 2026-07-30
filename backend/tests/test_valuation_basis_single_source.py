@@ -51,6 +51,24 @@ def test_resolver_uses_the_monthly_price_basis():
     assert fin["ending_value"] == 115.50
 
 
+def test_opening_value_preserves_prior_period_carry_basis():
+    row = {
+        "opening_oh": 10,
+        "opening_unit_cost": 9.75,
+        "unit_price": 10.25,
+        "w1_received": 0,
+        "w2_received": 0,
+        "w3_received": 0,
+        "w1_pulled": 0,
+        "w2_pulled": 0,
+        "w3_pulled": 0,
+    }
+    fin = fi.resolve_row_financials(row)
+    assert fin["opening_value"] == 97.50
+    assert fin["opening_unit_cost"] == 9.75
+    assert fin["ending_value"] == 97.50
+
+
 def test_the_identity_holds_on_the_single_basis():
     fin = fi.resolve_row_financials(LEGACY_BASIS_ROW)
     assert (

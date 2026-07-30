@@ -9016,3 +9016,20 @@ Deployment and live API verification pending.
 **Verified:** Canonical inventory-valued Week 1 total is `$20,798.11`. The invoice delivered total `$20,454.59` remains a separate adjusted/payables metric and is not substituted into inventory valuation. No duplicate ledger rows were created.
 
 **Push:** pending - live data repair completed; source migration pending commit and push.
+
+## [v0.1.27] - 2026-07-30 - restore API closing-to-opening continuity
+
+**Codex:** Traced the June-to-July mismatch to the FastAPI resolver: it ignored
+`opening_unit_cost` and recalculated carried July opening stock at July's
+current price. The resolver and write invariant now preserve the prior
+period's carried basis for positive opening stock and clear stale cost when
+opening quantity is zero. This makes API, dashboard, reports, and editor rows
+agree with the database carry-forward.
+
+**Verified:** Live MJCCv1 June closing `$9,751.73` equals July opening
+`$9,751.73` with a `$0.00` gap; zero item-level quantity/value carry gaps.
+Backend **193 passed, 20 skipped**, Ruff clean, backend import clean, and
+frontend TypeScript passed. The original screenshots were stale API behavior;
+the live database had already been corrected by the carry-forward migrations.
+
+**Push:** pending - source fix ready for commit and push.

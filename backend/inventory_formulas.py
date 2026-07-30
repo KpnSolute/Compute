@@ -143,11 +143,18 @@ def resolve_row_financials(row: dict, unit_price=None) -> dict:
     end_qty = ending_qty(opening_qty, recv_qty, pull_qty)
 
     price = num(row.get("unit_price") if unit_price is None else unit_price)
-    ouc = price
+    # Opening stock is the prior period's closing stock.  Preserve its carried
+    # cost basis when present; revaluing it at the current period price breaks
+    # the closing-to-opening continuity invariant whenever prices change.
+    ouc = num(row.get("opening_unit_cost"))
+    if opening_qty <= 0:
+        ouc = 0.0
+    elif ouc <= 0:
+        ouc = price
     raw_open = row.get("opening_value")
     raw_recv = row.get("received_value")
     raw_pull = row.get("pulled_value")
-    open_val = opening_value(opening_qty, price)
+    open_val = opening_value(opening_qty, ouc)
     recv_val = received_value(recv_qty, price)
     pull_val = pulled_value(pull_qty, price)
 
@@ -198,7 +205,12 @@ def value_invariant_updates(row: dict) -> dict:
     )
 
     price = num(row.get("unit_price"))
-    open_val = opening_value(opening_qty, price)
+    opening_cost = num(row.get("opening_unit_cost"))
+    if opening_qty <= 0:
+        opening_cost = 0.0
+    elif opening_cost <= 0:
+        opening_cost = price
+    open_val = opening_value(opening_qty, opening_cost)
     recv_val = received_value(recv_qty, price)
     pull_val = pulled_value(pull_qty, price)
     if opening_qty <= 0:
@@ -226,11 +238,12 @@ def value_invariant_updates(row: dict) -> dict:
             updates[column] = round(wanted, 6)
     # An opening unit cost with no opening quantity is a stale price tag on an
     # empty row; it would resurrect a value the moment a quantity is entered.
+    wanted_opening_cost = 0.0 if opening_qty <= 0 else opening_cost
     if (
         row.get("opening_unit_cost") is None
-        or abs(num(row.get("opening_unit_cost")) - price) > 1e-6
+        or abs(num(row.get("opening_unit_cost")) - wanted_opening_cost) > 1e-6
     ):
-        updates["opening_unit_cost"] = round(price, 6)
+        updates["opening_unit_cost"] = round(wanted_opening_cost, 6)
     return updates
 
 

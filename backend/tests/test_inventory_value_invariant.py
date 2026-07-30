@@ -241,7 +241,7 @@ def test_value_invariant_respects_a_legitimate_zero_unit_price():
     }
     updates = fi.value_invariant_updates(row)
     assert updates["received_value"] == 0.0
-    assert updates["ending_value"] == 0.0
+    assert updates["ending_value"] == 19.98
 
 
 def test_value_invariant_updates_ignores_ledger_prices():
@@ -334,7 +334,7 @@ def test_api_uses_monthly_price_on_a_row_holding_stock(monkeypatch):
     }
     item = inv._flatten_rows([row])[0]
     assert item.closingQty == 5
-    assert item.endingValue == 50
+    assert item.endingValue == 42
 
 
 def test_category_totals_match_item_totals(monkeypatch):
