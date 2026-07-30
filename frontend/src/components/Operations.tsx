@@ -961,7 +961,7 @@ export function MonthlyInventory({
                   <tr>
                     <td colSpan={5} style={{ fontWeight: 700 }}>Total ({rows.length} items)</td>
                     <td className="r num" style={{ fontWeight: 700 }}>{fmtMoney(sum.open)}</td>
-                    <td className={`r num${week > 0 ? ' rcv-cell' : ''}`} style={{ fontWeight: 700, color: 'var(--green-ink)' }}>{fmtMoney(sum.recv)}</td>
+                    <td className={`r num${week > 0 ? ' rcv-cell' : ''}`} style={{ fontWeight: 700, color: 'var(--green-ink)' }}>{fmtMoney(displayedReceivedValue)}</td>
                     <td className="r num" style={{ fontWeight: 700, color: 'var(--amber)' }}>{fmtMoney(sum.iss)}</td>
                     <td className="r num" style={{ fontWeight: 700 }}>{fmtMoney(sum.close)}</td>
                     <td></td>

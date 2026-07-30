@@ -495,6 +495,20 @@ from effc765, and all OCR/concurrency changes from earlier tonight are untouched
 
 **Push:** pending.
 
+## [v0.1.20] - 2026-07-30 - align cost and inventory receipt math
+
+**Codex:** Cost-period totals now use the inventory movement ledger when it
+exists, including backend-priced issued movements, and recompute ending value
+from the canonical quantity equation. The Monthly Inventory table footer now
+uses the same backend period receipt total as its summary card. This prevents
+the table, cost page, and summary cards from silently using different sources.
+
+**Verified:** Backend **192 passed, 20 skipped**; Ruff clean; TypeScript clean.
+The MJCCv1 database trigger migration remains unapplied until the project-scoped
+Supabase connection is corrected.
+
+**Push:** pending.
+
 ## [v0.1.19] - 2026-07-30 - formula-only weekly import enforcement
 
 **Codex:** Strengthened the write invariant so caller-supplied financial

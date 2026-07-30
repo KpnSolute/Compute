@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cost", tags=["cost"])
 
 _INV_JOIN_SELECT = (
-    "opening_oh, w1_received, w2_received, w3_received, w1_pulled, w2_pulled, w3_pulled, "
+    "item_id, opening_oh, w1_received, w2_received, w3_received, w1_pulled, w2_pulled, w3_pulled, "
     "unit_price, opening_unit_cost, opening_value, received_value, pulled_value, "
     "inventory_items!inner(category_id, inventory_categories!inner(id, name, color, icon))"
 )
@@ -114,6 +114,35 @@ def _period_totals(db_month: int, year: int) -> dict:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
+    ledger_values: dict[str, dict[str, float]] = {}
+    try:
+        ledger_r = (
+            supabase_service.table("inventory_transactions")
+            .select("item_id, quantity, unit_price, txn_type")
+            .eq("month", db_month)
+            .eq("year", year)
+            .execute()
+        )
+        for movement in ledger_r.data or []:
+            item_id = movement.get("item_id")
+            if not item_id:
+                continue
+            bucket = ledger_values.setdefault(
+                item_id, {"received_value": 0.0, "pulled_value": 0.0}
+            )
+            amount = max(0.0, fi.num(movement.get("quantity"))) * max(
+                0.0, fi.num(movement.get("unit_price"))
+            )
+            if movement.get("txn_type") in ("received", "adjustment_increase"):
+                bucket["received_value"] += amount
+            elif movement.get("txn_type") in ("issued", "adjustment_decrease"):
+                bucket["pulled_value"] += amount
+        for bucket in ledger_values.values():
+            bucket["received_value"] = round(bucket["received_value"], 2)
+            bucket["pulled_value"] = round(bucket["pulled_value"], 2)
+    except Exception:
+        logger.exception("Could not load inventory movement ledger for cost totals")
+
     categories: dict[str, dict] = {}
     total_starting = total_pulled = total_received = total_ending = 0.0
     for row in inv_r.data or []:
@@ -137,9 +166,19 @@ def _period_totals(db_month: int, year: int) -> dict:
         # item totals cannot disagree about a row's ending value (release gate).
         fin = fi.resolve_row_financials(row)
         opening = fin["opening_value"]
-        received = fin["received_value"]
-        pulled = fin["pulled_value"]
-        ending = fin["ending_value"]
+        ledger = ledger_values.get(row.get("item_id"))
+        received = ledger["received_value"] if ledger else fin["received_value"]
+        pulled = ledger["pulled_value"] if ledger else fin["pulled_value"]
+        ending = fi.ending_value(
+            opening,
+            received,
+            pulled,
+            ending_quantity=fi.ending_qty(
+                row.get("opening_oh"),
+                fin["received_qty"],
+                fin["pulled_qty"],
+            ),
+        )
         bucket["opening_value"] += opening
         bucket["pulled_value"] += pulled
         bucket["received_value"] += received
