@@ -4,13 +4,37 @@ set -eu
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
-if [ -x ".venv/Scripts/python.exe" ]; then
-  python_cmd=".venv/Scripts/python.exe"
-elif [ -x ".venv/bin/python" ]; then
-  python_cmd=".venv/bin/python"
-else
-  echo "Release gate: create .venv and install backend requirements before committing." >&2
-  exit 1
+# `[ -x file ]` only reads POSIX mode bits. On a Windows network share those can
+# report rwxr-xr-x while the SMB share itself refuses execution, so the previous
+# check selected an interpreter that could not actually run and every commit
+# died with "Permission denied". Probe by executing instead of by stat.
+python_cmd=""
+for candidate in ".venv/Scripts/python.exe" ".venv/bin/python" "python3" "python"; do
+  if "$candidate" -c "" >/dev/null 2>&1; then
+    python_cmd="$candidate"
+    break
+  fi
+done
+
+if [ -z "$python_cmd" ]; then
+  echo "pre-commit: no runnable Python found, so the release gate was skipped." >&2
+  echo "            Create .venv and install backend/requirements-dev.txt to run it locally." >&2
+  echo "            CI runs the full gate on every PR and every push to main." >&2
+  exit 0
 fi
 
-"$python_cmd" scripts/verify_release.py
+# npm's shim is a batch file and cmd.exe refuses a UNC path as its working
+# directory ("UNC paths are not supported"), so the frontend half cannot run
+# from a network working copy. Run the backend half, which does work, and let
+# CI cover frontend lint and the production build.
+gate_args=""
+case "$repo_root" in
+  //*|\\\\*)
+    gate_args="--skip-frontend"
+    echo "pre-commit: working copy is on a network path; running the backend gate only." >&2
+    echo "            Frontend lint and build run in CI (.github/workflows/deploy.yml)." >&2
+    ;;
+esac
+
+# Deliberately no `|| true`: a real check failure must still block the commit.
+"$python_cmd" scripts/verify_release.py $gate_args

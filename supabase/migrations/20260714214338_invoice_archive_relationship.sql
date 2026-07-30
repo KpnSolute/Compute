@@ -1,0 +1,1 @@
+alter table public.invoices add column if not exists archive_file_id uuid references public.archived_files(id) on delete restrict; create index if not exists invoices_archive_file_id_idx on public.invoices (archive_file_id) where archive_file_id is not null;;
