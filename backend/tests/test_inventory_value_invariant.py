@@ -194,7 +194,7 @@ def test_value_invariant_updates_clears_a_zeroed_category_row():
     updates = fi.value_invariant_updates(row)
     assert updates["opening_value"] == 0
     assert updates["ending_value"] == 0
-    assert "opening_unit_cost" not in updates
+    assert updates["opening_unit_cost"] == 0
 
 
 def test_value_invariant_updates_settles_the_live_fork_row():
@@ -211,6 +211,7 @@ def test_value_invariant_updates_rejects_caller_supplied_values():
         "w1_pulled": 0,
         "w2_pulled": 0,
         "w3_pulled": 0,
+        "unit_price": 6.0,
         "opening_unit_cost": 6.0,
         "opening_value": 12.0,
         "received_value": 10.0,
@@ -240,10 +241,10 @@ def test_value_invariant_respects_a_legitimate_zero_unit_price():
     }
     updates = fi.value_invariant_updates(row)
     assert updates["received_value"] == 0.0
-    assert updates["ending_value"] == 19.98
+    assert updates["ending_value"] == 0.0
 
 
-def test_value_invariant_updates_accepts_only_explicit_ledger_values():
+def test_value_invariant_updates_ignores_ledger_prices():
     row = {
         "opening_oh": 0,
         "w1_received": 1,
@@ -257,8 +258,8 @@ def test_value_invariant_updates_accepts_only_explicit_ledger_values():
         "_ledger_pulled_value": 0.0,
     }
     updates = fi.value_invariant_updates(row)
-    assert updates["received_value"] == 12.34
-    assert updates["ending_value"] == 12.34
+    assert updates["received_value"] == 10.0
+    assert updates["ending_value"] == 10.0
 
 
 def test_value_invariant_drops_value_on_a_direction_with_no_quantity():
@@ -270,6 +271,7 @@ def test_value_invariant_drops_value_on_a_direction_with_no_quantity():
         "w1_pulled": 0,
         "w2_pulled": 0,
         "w3_pulled": 0,
+        "unit_price": 4.0,
         "opening_unit_cost": 4.0,
         "opening_value": 20.0,
         "received_value": 99.0,  # stale: nothing was received
@@ -304,7 +306,7 @@ def test_api_never_emits_a_negative_ending_value(monkeypatch):
     assert item.value == 0
 
 
-def test_api_uses_imported_invoice_values_on_a_row_holding_stock(monkeypatch):
+def test_api_uses_monthly_price_on_a_row_holding_stock(monkeypatch):
     inv = _import_inventory(monkeypatch)
     row = {
         "item_id": "item-2",
@@ -332,7 +334,7 @@ def test_api_uses_imported_invoice_values_on_a_row_holding_stock(monkeypatch):
     }
     item = inv._flatten_rows([row])[0]
     assert item.closingQty == 5
-    assert item.endingValue == 62
+    assert item.endingValue == 50
 
 
 def test_category_totals_match_item_totals(monkeypatch):

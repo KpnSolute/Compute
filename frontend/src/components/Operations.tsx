@@ -486,22 +486,6 @@ export function MonthlyInventory({
 
   // Warnings are backend findings. The API owns the physical equation and
   // valuation basis; the UI must not recompute a second warning definition.
-  const overPull = (inventoryMeta as any)?.over_pull;
-  const overPullValue = Number(overPull?.value ?? 0) || 0;
-  const overPullQty = Number(overPull?.quantity ?? 0) || 0;
-  const overPullRows = Number(overPull?.count ?? 0) || 0;
-  const valueAudit = (inventoryMeta as any)?.value_reconciliation;
-  const valueClamp = Number(valueAudit?.clamp_adjustment ?? 0) || 0;
-  const valueAdjustedRows = Number(valueAudit?.adjusted_rows ?? 0) || 0;
-
-  // Opening-balance continuity (backend: fi.opening_continuity). This period
-  // must open with exactly what the prior period closed with; a full-month
-  // workbook upload can silently overwrite the carried balance. This is the
-  // UPSTREAM cause of most phantom over-pulls, so it is reported first.
-  const continuity = (inventoryMeta as any)?.opening_continuity;
-  const continuityDrift = Number(continuity?.value_drift ?? 0) || 0;
-  const continuityRows = Number(continuity?.drift_rows ?? 0) || 0;
-
   const searchQuery = useMemo(() => parseInventoryQuery(q), [q]);
   const filtered = q.trim()
     ? rows.filter((r: any) => matchesInventoryQuery(r, searchQuery))
@@ -793,35 +777,6 @@ export function MonthlyInventory({
               </div>
             ))}
           </div>
-          {false && continuityRows > 0 && (
-            <div className="overpull-notice overpull-notice--critical" role="status">
-              <strong>⚠ Opening balance does not match last month&apos;s closing</strong> —{' '}
-              {continuityRows} item{continuityRows !== 1 ? 's' : ''} opened{' '}
-              {continuityDrift < 0 ? 'short by' : 'over by'} {fmtMoney(Math.abs(continuityDrift))}.
-              Stock that was on hand at month end did not carry forward, so this period starts from
-              the wrong baseline and items can appear over-pulled when they were not. Fix the
-              opening quantities before trusting any total on this page.
-            </div>
-          )}
-          {false && overPullRows > 0 && (
-            <div className="overpull-notice" role="status">
-              <strong>⚠ Physical over-pull detected</strong> across {overPullRows} item
-              {overPullRows !== 1 ? 's' : ''} — the backend found {overPullQty} units where issued
-              quantity exceeded opening plus received quantity. Physical ending stock is clamped
-              to zero for those rows; affected value is {fmtMoney(overPullValue)}.
-              {continuityRows > 0
-                ? ' Some of these are caused by the opening-balance gap above — fix that first.'
-                : ' Correct the receipts or the pull quantities to clear this.'}
-            </div>
-          )}
-          {false && valueAdjustedRows > 0 && Math.abs(valueClamp) > 0.005 && (
-            <div className="overpull-notice" role="status">
-              <strong>⚠ Value reconciliation adjustment: {fmtMoney(Math.abs(valueClamp))}</strong>{' '}
-              across {valueAdjustedRows} rows — displayed ending values are physically clamped
-              while the raw opening + received − issued residual is retained in the backend audit.
-            </div>
-          )}
-
           {/* ── Week receipt tile strip ── */}
           {(weekTotals.length > 0 || nextWeek) && (
             <div className="wk-tile-row">

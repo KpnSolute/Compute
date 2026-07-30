@@ -1,5 +1,14 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.12] — 2026-07-30 — audit: MCP and CLI availability
+**Codex:** Read-only tooling audit. The project MCP files configure Supabase for MJCCv1 (`mgvyylvmkxhhataavqjz`) in `.mcp.json`, `.cursor/mcp.json`, and `.vscode/mcp.json`. The active MCP runtime is not correctly bound: direct Supabase MCP calls succeeded but returned Scena (`zglbgqeccebqnijcqfkb`) tables and project URL; Claude reports the project Supabase server pending approval with missing `SUPABASE_MCP_TOKEN`, while OpenCode reports a failed Supabase server pointed at Scena. No project files configure TestSprite, chrome-devtools, GitHub, or sequential-thinking MCP servers.
+
+**Codex:** CLI checks: GitHub CLI 2.96.0 authenticated as `KpnWorld`; Render CLI 2.21.0 authenticated and listed the KpnCompute and MJCC-Compute services/deploys; Codex CLI 0.146.0 doctor/login passed; Claude Code 2.1.220, OpenCode 1.18.3, MiMo 0.1.6, Agy 1.1.4, Git, Node, npm, and Python launch. Supabase CLI 2.109.1 is not operational because its required `supabase-go.exe` companion is missing. OpenCode has zero stored credentials; MiMo has no MCP entries; Agy has no registered agents.
+
+**Codex:** Production OpenAPI returned HTTP 200. Findings requiring owner review: `frontend/.env` currently sets `VITE_API_BASE=http://localhost:8000` contrary to the production-only rule, and `origin` is `https://github.com/KpnSolute/Compute` rather than the source repository stated in `AGENTS.md`. No configuration was changed.
+
+**Push:** pending — read-only audit; existing worktree changes preserved.
+
 ## [v0.1.11] — 2026-07-29 — fix(inventory): July opened with $281.12 less than June closed with
 
 **Claude:** othniel pushed back twice on my read of the July summary cards — correctly. I had diagnosed the Closing-value discrepancy as an over-pull display artifact and shipped a disclosure banner. That treated a symptom. The actual defect is upstream: **the ending value of one period does not carry into the next**.
@@ -8847,6 +8856,14 @@ complete on the mapped checkout.
 
 **Push:** pending - source fix ready for commit and Render deployment.
 
+## [v0.1.21] - 2026-07-30 - verify project-scoped Supabase MCP isolation
+
+**Codex:** Read-only MCP/config audit completed with subagent verification. `Z:\KpnCompute\.mcp.json` targets MJCCv1 (`mgvyylvmkxhhataavqjz`) and `Z:\Scena\.mcp.json` targets its separate project (`zglbgqeccebqnijcqfkb`). No SQL or migrations were run. The currently exposed MCP session reports Scena's project URL, so it is stale/misrouted for KpnCompute and must be reloaded before any MJCC schema operation.
+
+**Verified:** No project-scoped MCP configs were found for Lunchvoice, Tradora, KpnRelay, or KpnSolute-Events at their inspected roots; no target was invented for those projects. No credentials were read or displayed.
+
+**Push:** pending - verification only; no production database change.
+
 ## [v0.1.17] - 2026-07-30 - align receipt headline with weekly invoice totals
 
 **Codex:** The July API exposed $30,087.95 from row-level received values while
@@ -8869,3 +8886,24 @@ Deployment and live API verification pending.
 **Verified:** backend **189 passed, 20 skipped**; Ruff clean; TypeScript clean. No further production data mutation was performed in this pass.
 
 **Push:** pending - source fix ready for commit and Render deployment.
+# Codex MCP configuration note (2026-07-30): Added matching project-scoped Supabase MCP skeletons at the root, `.cursor\\mcp.json`, and `.vscode\\mcp.json`, all targeting MJCCv1 (`mgvyylvmkxhhataavqjz`). No credentials or database operations were added.
+
+## [v0.1.22] - 2026-07-30 - verify local Supabase CLI scope
+
+**Codex:** Read-only `supabase projects list --output-format json` from `Z:\KpnCompute` succeeded, but the authenticated CLI profile exposes only Scena (`zglbgqeccebqnijcqfkb`). MJCCv1 (`mgvyylvmkxhhataavqjz`) was not available to this CLI identity, so no link, query, migration, or production database operation was attempted.
+
+**Push:** pending - local CLI requires authentication to an identity with MJCCv1 access.
+
+## [v0.1.23] - 2026-07-30 - restore remote-only Supabase CLI access
+
+**Codex:** Repaired the incomplete Supabase CLI installation by installing the CLI package globally; no local database or containers were installed or started. Verified `supabase db query --linked` against the linked remote project with read-only schema probes confirming `public.monthly_inventory`, `public.inventory_items`, and `public.user_profiles`.
+
+**Push:** pending - tooling-only change; no database mutation.
+
+## [v0.1.24] - 2026-07-30 - apply formula enforcement to remote MJCCv1
+
+**Codex:** Remote-only CLI preflight confirmed MJCCv1 and required inventory columns. Applied and recorded migration versions `20260730130000` and `20260730140000`. The database now has `monthly_inventory_value_standard`; its function uses monthly unit price only and does not use ledger/invoice prices. July 2026 (open period, 347 rows) was reconciled to the ten quantity/value formulas with zero opening, received, pulled, or ending mismatches.
+
+**Verified:** Inventory formula gate **48 passed**; full backend **184 passed, 14 skipped**; Ruff clean; TypeScript clean. The aggregate release script still reports frontend lint failure when launched from the UNC working directory; direct mapped-drive TypeScript passed. June 2026 remains protected as published and has 11 opening, 21 received, and 29 pulled formula mismatches pending an approved reopen/reconciliation workflow.
+
+**Push:** pending - remote schema/data verification complete; source branch not pushed or merged.

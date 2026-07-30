@@ -79,17 +79,20 @@ def test_flatten_rows_uses_imported_invoice_values_for_all_values(monkeypatch):
     assert item.totalReceived == 6
     assert item.totalPulled == 3
     assert item.closingQty == 5
-    assert item.openingValue == 12
-    assert item.receivedValue == 75
-    assert item.pulledValue == 25
-    assert item.endingValue == 62
-    assert item.value == 62
+    assert item.openingValue == 20
+    assert item.receivedValue == 60
+    assert item.pulledValue == 30
+    assert item.endingValue == 50
+    assert item.value == 50
 
 
-def test_weekly_received_values_come_from_ledger_prices(monkeypatch):
+def test_weekly_received_values_use_monthly_prices(monkeypatch):
     inv = _import_inventory(monkeypatch)
 
     class FakeQuery:
+        def __init__(self, data):
+            self.data = data
+
         def select(self, *_args, **_kwargs):
             return self
 
@@ -100,33 +103,35 @@ def test_weekly_received_values_come_from_ledger_prices(monkeypatch):
             return self
 
         def execute(self):
-            return SimpleNamespace(
-                data=[
-                    {
-                        "week_number": 1,
-                        "quantity": 2,
-                        "unit_price": 50.25,
-                        "txn_type": "received",
-                    },
-                    {
-                        "week_number": 1,
-                        "quantity": 1,
-                        "unit_price": 5,
-                        "txn_type": "received",
-                    },
-                    {
-                        "week_number": 2,
-                        "quantity": 3,
-                        "unit_price": 10,
-                        "txn_type": "adjustment_increase",
-                    },
-                ]
-            )
+            return SimpleNamespace(data=self.data)
 
     class FakeSupabase:
         def table(self, name):
-            assert name == "inventory_transactions"
-            return FakeQuery()
+            if name == "inventory_transactions":
+                return FakeQuery(
+                    [
+                        {
+                            "item_id": "item-1",
+                            "week_number": 1,
+                            "quantity": 2,
+                            "txn_type": "received",
+                        },
+                        {
+                            "item_id": "item-1",
+                            "week_number": 1,
+                            "quantity": 1,
+                            "txn_type": "received",
+                        },
+                        {
+                            "item_id": "item-1",
+                            "week_number": 2,
+                            "quantity": 3,
+                            "txn_type": "adjustment_increase",
+                        },
+                    ]
+                )
+            assert name == "monthly_inventory"
+            return FakeQuery([{"item_id": "item-1", "unit_price": 10}])
 
     monkeypatch.setattr(inv, "supabase_service", FakeSupabase())
 
@@ -134,8 +139,8 @@ def test_weekly_received_values_come_from_ledger_prices(monkeypatch):
 
     assert totals == {
         "source": "inventory_transactions",
-        "weeks": {"1": 105.5, "2": 30.0},
-        "total": 135.5,
+        "weeks": {"1": 30.0, "2": 30.0},
+        "total": 60.0,
         "notes": {},
     }
 

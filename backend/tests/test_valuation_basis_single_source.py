@@ -1,4 +1,4 @@
-"""Every surface must value inventory on ONE invoice-backed basis.
+"""Every surface must value inventory on ONE monthly-price basis.
 
 The July 2026 report: the Operations editor showed Total Received $25,562.14
 while the API's stored `received_value` summed to $30,087.95 for the same
@@ -6,9 +6,9 @@ period and the same label — a $4,525.81 disagreement caused by the invoice
 schedule (goods/payable amounts) being substituted for inventory movement
 value on some surfaces but not others.
 
-Invoice-backed figures are the source of truth for imported rows. Quantity x
-period price is only a fallback for rows without imported value controls. These
-tests pin the single basis so a future edit that reaches for a second one fails.
+Invoice goods totals remain a separate payable/reconciliation metric. Inventory
+values always equal quantity x monthly period price. These tests pin the single
+basis so a future edit that reaches for a second one fails.
 """
 
 import importlib
@@ -24,9 +24,8 @@ def _import(monkeypatch, module):
     return importlib.import_module(module)
 
 
-# A row whose STORED value columns are on the old invoice-actual basis: the
-# receipt was invoiced at 268.36 for 7 cases while the period's catalog price
-# is 38.50/case. Every surface must report the invoice-backed figure.
+# A row whose STORED value columns are on the old invoice-actual basis. Every
+# surface must ignore those audit inputs and recompute at 38.50/case.
 LEGACY_BASIS_ROW = {
     "item_id": "fork",
     "opening_oh": 0,
@@ -38,19 +37,18 @@ LEGACY_BASIS_ROW = {
     "w3_pulled": 0,
     "unit_price": 38.50,
     "opening_value": 0.00,
-    "received_value": 268.36,  # invoice-actual — must NOT be echoed
+    "received_value": 268.36,  # legacy invoice amount — must NOT be echoed
     "pulled_value": 154.00,
     "ending_value": 114.36,
 }
 
 
-def test_resolver_uses_the_stored_invoice_basis():
+def test_resolver_uses_the_monthly_price_basis():
     fin = fi.resolve_row_financials(LEGACY_BASIS_ROW)
-    # The uploaded invoice/review value is authoritative for received goods.
-    assert fin["received_value"] == 268.36
+    assert fin["received_value"] == 269.50
     assert fin["pulled_value"] == 154.00
     assert fin["ending_qty"] == 3
-    assert fin["ending_value"] == 114.36
+    assert fin["ending_value"] == 115.50
 
 
 def test_the_identity_holds_on_the_single_basis():

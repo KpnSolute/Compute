@@ -83,46 +83,7 @@ def _enforce_value_invariants(sup, db_month: int, year: int, item_ids) -> int:
         except Exception as exc:
             log.warning("[dispatch] value-invariant read failed: %s", exc)
             continue
-        # The database RPC may be an older deployed function that has already
-        # rebuilt money at catalog price. Re-read the ledger here and make the
-        # application writer authoritative until migration 047 is applied.
-        ledger_values: dict[str, dict[str, float]] = {}
-        try:
-            ledger_res = (
-                sup.table("inventory_transactions")
-                .select("item_id,quantity,unit_price,txn_type")
-                .eq("month", db_month)
-                .eq("year", year)
-                .in_("item_id", chunk)
-                .execute()
-            )
-            for movement in ledger_res.data or []:
-                item_id = movement.get("item_id")
-                if not item_id:
-                    continue
-                bucket = ledger_values.setdefault(
-                    item_id, {"received_value": 0.0, "pulled_value": 0.0}
-                )
-                amount = max(0.0, fi.num(movement.get("quantity"))) * max(
-                    0.0, fi.num(movement.get("unit_price"))
-                )
-                if movement.get("txn_type") in ("received", "adjustment_increase"):
-                    bucket["received_value"] += amount
-                elif movement.get("txn_type") in ("issued", "adjustment_decrease"):
-                    bucket["pulled_value"] += amount
-            for bucket in ledger_values.values():
-                for field in ("received_value", "pulled_value"):
-                    bucket[field] = round(bucket[field], 2)
-        except Exception as exc:
-            log.warning("[dispatch] ledger valuation read failed: %s", exc)
         for row in res.data or []:
-            if row.get("item_id") in ledger_values:
-                ledger = ledger_values[row["item_id"]]
-                row = {
-                    **row,
-                    "_ledger_received_value": ledger["received_value"],
-                    "_ledger_pulled_value": ledger["pulled_value"],
-                }
             item_meta = row.get("inventory_items") or {}
             if (
                 row.get("unit_price") is None

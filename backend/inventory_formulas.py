@@ -124,11 +124,9 @@ def resolve_row_financials(row: dict, unit_price=None) -> dict:
     """Canonical read-path resolver for one `monthly_inventory` row.
 
     Every consumer (inventory API, cost API, dashboard, AI tools, reports) runs
-    a row through here so they cannot drift apart on which stored column to
-    trust. Stored workbook-audited values win when present — they are the
-    accountant's number — EXCEPT that the ending value is always re-derived
-    under the quantity rule above, so a stale or negative stored `ending_value`
-    can never reach a display surface.
+    a row through here so they cannot drift apart. Stored financial columns are
+    audit inputs only; every displayed value is recomputed from quantities and
+    the period's monthly unit price.
 
     Returns opening/received/pulled/ending values, the quantities they belong
     to, and two audit fields: `ending_value_raw` (the legacy stored-column
@@ -145,22 +143,19 @@ def resolve_row_financials(row: dict, unit_price=None) -> dict:
     end_qty = ending_qty(opening_qty, recv_qty, pull_qty)
 
     price = num(row.get("unit_price") if unit_price is None else unit_price)
-    raw_ouc = row.get("opening_unit_cost")
-    ouc = num(raw_ouc if raw_ouc is not None else price)
+    ouc = price
     raw_open = row.get("opening_value")
     raw_recv = row.get("received_value")
     raw_pull = row.get("pulled_value")
-    open_val = (
-        num(raw_open)
-        if raw_open is not None and (num(raw_open) > 0 or opening_qty <= 0)
-        else opening_value(opening_qty, ouc)
-    )
-    recv_val = (
-        num(raw_recv) if raw_recv is not None else received_value(recv_qty, price)
-    )
-    pull_val = num(raw_pull) if raw_pull is not None else pulled_value(pull_qty, price)
+    open_val = opening_value(opening_qty, price)
+    recv_val = received_value(recv_qty, price)
+    pull_val = pulled_value(pull_qty, price)
 
-    raw = raw_ending_value(open_val, recv_val, pull_val)
+    raw = raw_ending_value(
+        num(raw_open) if raw_open is not None else open_val,
+        num(raw_recv) if raw_recv is not None else recv_val,
+        num(raw_pull) if raw_pull is not None else pull_val,
+    )
     end_val = ending_value(open_val, recv_val, pull_val, ending_quantity=end_qty)
     return {
         "opening_qty": opening_qty,
@@ -202,20 +197,10 @@ def value_invariant_updates(row: dict) -> dict:
         row.get("w1_pulled"), row.get("w2_pulled"), row.get("w3_pulled")
     )
 
-    raw_price = row.get("unit_price")
-    raw_ouc = row.get("opening_unit_cost")
-    price = num(raw_price if raw_price is not None else raw_ouc)
-    open_val = opening_value(opening_qty, raw_ouc if raw_ouc is not None else price)
-    recv_val = (
-        num(row["_ledger_received_value"])
-        if row.get("_ledger_received_value") is not None
-        else received_value(recv_qty, price)
-    )
-    pull_val = (
-        num(row["_ledger_pulled_value"])
-        if row.get("_ledger_pulled_value") is not None
-        else pulled_value(pull_qty, price)
-    )
+    price = num(row.get("unit_price"))
+    open_val = opening_value(opening_qty, price)
+    recv_val = received_value(recv_qty, price)
+    pull_val = pulled_value(pull_qty, price)
     if opening_qty <= 0:
         open_val = 0.0
     if recv_qty <= 0:
@@ -241,7 +226,10 @@ def value_invariant_updates(row: dict) -> dict:
             updates[column] = round(wanted, 6)
     # An opening unit cost with no opening quantity is a stale price tag on an
     # empty row; it would resurrect a value the moment a quantity is entered.
-    if row.get("opening_unit_cost") is None:
+    if (
+        row.get("opening_unit_cost") is None
+        or abs(num(row.get("opening_unit_cost")) - price) > 1e-6
+    ):
         updates["opening_unit_cost"] = round(price, 6)
     return updates
 
