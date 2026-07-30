@@ -229,6 +229,100 @@ def value_invariant_updates(row: dict) -> dict:
     return updates
 
 
+def opening_continuity(
+    prior_rows: Iterable[dict], current_rows: Iterable[dict]
+) -> dict:
+    """Check that this period opened with exactly what last period closed with.
+
+    THE INVARIANT: opening qty of month N == ending qty of month N-1, per item.
+
+    Nothing enforced this, and nothing detected when it broke. A full-month
+    workbook upload writes `opening_oh` straight from the sheet's Opening
+    column and `_rollover_opening_balances` is skipped for those rows (they are
+    "explicit"), so a sheet that disagrees with the prior period's computed
+    ending silently wins and the difference simply vanishes from inventory.
+
+    Live 2026-07: the July sheet opened SKU 4785416 (BGAS 9X9) and 2961001 (CUP
+    PET 9Z) at 0 when June closed each at 2. $281.12 disappeared at the month
+    boundary — and because those two items then had less opening stock than was
+    pulled from them, July also showed an impossible over-pull of exactly 2 on
+    each, which the display clamp added back into Closing value. One broken
+    invariant, three visible symptoms.
+
+    Rows are dicts of monthly_inventory columns; `item_id` joins them.
+    Returns the per-item drift plus totals, worst first. `drift_value` is
+    signed: negative means the period opened with LESS than it should have.
+    """
+    prior_end: dict = {}
+    for row in prior_rows:
+        item_id = row.get("item_id")
+        if not item_id:
+            continue
+        prior_end[item_id] = {
+            "qty": ending_qty(
+                row.get("opening_oh"),
+                total_received(
+                    row.get("w1_received"),
+                    row.get("w2_received"),
+                    row.get("w3_received"),
+                ),
+                total_pulled(
+                    row.get("w1_pulled"), row.get("w2_pulled"), row.get("w3_pulled")
+                ),
+            ),
+            "price": num(row.get("unit_price")),
+        }
+
+    drifted: list[dict] = []
+    seen: set = set()
+    for row in current_rows:
+        item_id = row.get("item_id")
+        if not item_id:
+            continue
+        seen.add(item_id)
+        expected = prior_end.get(
+            item_id, {"qty": 0.0, "price": num(row.get("unit_price"))}
+        )
+        opened = num(row.get("opening_oh"))
+        if abs(opened - expected["qty"]) < 1e-9:
+            continue
+        raw_price = row.get("unit_price")
+        price = expected["price"] if raw_price is None else num(raw_price)
+        drifted.append(
+            {
+                "item_id": item_id,
+                "expected_opening_qty": expected["qty"],
+                "actual_opening_qty": opened,
+                "qty_drift": round(opened - expected["qty"], 6),
+                "value_drift": round((opened - expected["qty"]) * price, 2),
+            }
+        )
+    # An item that closed with stock but has no row at all this period has
+    # silently dropped its whole balance — the most severe form of the defect.
+    for item_id, expected in prior_end.items():
+        if item_id in seen or expected["qty"] <= 0:
+            continue
+        drifted.append(
+            {
+                "item_id": item_id,
+                "expected_opening_qty": expected["qty"],
+                "actual_opening_qty": 0.0,
+                "qty_drift": round(-expected["qty"], 6),
+                "value_drift": round(-expected["qty"] * expected["price"], 2),
+                "missing_row": True,
+            }
+        )
+
+    drifted.sort(key=lambda d: abs(d["value_drift"]), reverse=True)
+    return {
+        "reconciled": not drifted,
+        "drift_rows": len(drifted),
+        "qty_drift": round(sum(d["qty_drift"] for d in drifted), 6),
+        "value_drift": round(sum(d["value_drift"] for d in drifted), 2),
+        "items": drifted,
+    }
+
+
 # ── weekly invoice-register reconciliation ───────────────────────────────────
 
 

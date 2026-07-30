@@ -409,6 +409,46 @@ async def get_inventory(
                     category_totals.setdefault(name, 0.0)
         except Exception:
             logger.exception("Could not load zero-value inventory categories")
+        # Period continuity: this month must open with exactly what last month
+        # closed with. A full-month workbook upload writes opening_oh straight
+        # from the sheet and bypasses rollover, so a sheet that disagrees with
+        # the prior period silently wins and the difference vanishes. Detect it
+        # here rather than letting it surface later as a phantom over-pull.
+        opening_continuity = None
+        try:
+            prior_month = db_month - 1 if db_month > 0 else 11
+            prior_year = year if db_month > 0 else year - 1
+            prior_rows = (
+                supabase_service.table("monthly_inventory")
+                .select(
+                    "item_id,opening_oh,w1_received,w2_received,w3_received,"
+                    "w1_pulled,w2_pulled,w3_pulled,unit_price"
+                )
+                .eq("month", prior_month)
+                .eq("year", prior_year)
+                .execute()
+                .data
+                or []
+            )
+            if prior_rows:
+                opening_continuity = fi.opening_continuity(prior_rows, result.data)
+                opening_continuity["prior_period"] = {
+                    "month": prior_month,
+                    "year": prior_year,
+                }
+                if not opening_continuity["reconciled"]:
+                    logger.warning(
+                        "[inventory] opening balance discontinuity | period=%s/%s "
+                        "rows=%s qty_drift=%s value_drift=%.2f",
+                        db_month,
+                        year,
+                        opening_continuity["drift_rows"],
+                        opening_continuity["qty_drift"],
+                        opening_continuity["value_drift"],
+                    )
+        except Exception:
+            logger.exception("Could not evaluate opening-balance continuity")
+
         weekly_invoice_totals = None
         try:
             snap = (
@@ -486,6 +526,7 @@ async def get_inventory(
                 "weekly_invoice_totals": weekly_invoice_totals,
                 "invoice_register": invoice_register,
                 "weekly_reconciliation": weekly_reconciliation,
+                "opening_continuity": opening_continuity,
             },
             notes="",
             created_at=created_at or datetime.now(timezone.utc).isoformat(),

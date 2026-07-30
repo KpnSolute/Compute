@@ -476,6 +476,30 @@ export function MonthlyInventory({
   // card's inventory movement value.
   const displayedReceivedValue = sum.recv;
 
+  // Over-pull disclosure. `closing()` floors each row at zero (physical stock
+  // never displays negative) while `pulledValue()` counts every unit issued, so
+  // the four cards do NOT satisfy Opening + Received - Issued = Closing whenever
+  // a row was pulled below zero: the shortfall is silently added back into
+  // Closing and reads as stock that is on the shelf. Compute it explicitly and
+  // show it, so the over-pull stays an audit finding instead of a rounding
+  // mystery. (July 2026 live: 7 rows, $569.69.)
+  const overPullValue = rows.reduce(
+    (a: number, r: any) =>
+      a + Math.max(0, -(r.opening || 0) - totalRcv(r) + totalIss(r)) * (r.price || 0),
+    0,
+  );
+  const overPullRows = rows.filter(
+    (r: any) => (r.opening || 0) + totalRcv(r) - totalIss(r) < 0,
+  ).length;
+
+  // Opening-balance continuity (backend: fi.opening_continuity). This period
+  // must open with exactly what the prior period closed with; a full-month
+  // workbook upload can silently overwrite the carried balance. This is the
+  // UPSTREAM cause of most phantom over-pulls, so it is reported first.
+  const continuity = (inventoryMeta as any)?.opening_continuity;
+  const continuityDrift = Number(continuity?.value_drift ?? 0) || 0;
+  const continuityRows = Number(continuity?.drift_rows ?? 0) || 0;
+
   const searchQuery = useMemo(() => parseInventoryQuery(q), [q]);
   const filtered = q.trim()
     ? rows.filter((r: any) => matchesInventoryQuery(r, searchQuery))
@@ -752,6 +776,27 @@ export function MonthlyInventory({
               </div>
             ))}
           </div>
+          {continuityRows > 0 && (
+            <div className="overpull-notice overpull-notice--critical" role="status">
+              <strong>⚠ Opening balance does not match last month&apos;s closing</strong> —{' '}
+              {continuityRows} item{continuityRows !== 1 ? 's' : ''} opened{' '}
+              {continuityDrift < 0 ? 'short by' : 'over by'} {fmtMoney(Math.abs(continuityDrift))}.
+              Stock that was on hand at month end did not carry forward, so this period starts from
+              the wrong baseline and items can appear over-pulled when they were not. Fix the
+              opening quantities before trusting any total on this page.
+            </div>
+          )}
+          {overPullRows > 0 && (
+            <div className="overpull-notice" role="status">
+              <strong>⚠ {fmtMoney(overPullValue)} over-pulled</strong> across {overPullRows} item
+              {overPullRows !== 1 ? 's' : ''} — issued more than was ever on hand. Physical stock is
+              shown at zero for those rows, so Closing value is {fmtMoney(overPullValue)} higher than
+              Opening + Received − Issued ({fmtMoney(sum.open + sum.recv - sum.iss)}).
+              {continuityRows > 0
+                ? ' Some of these are caused by the opening-balance gap above — fix that first.'
+                : ' Correct the receipts or the pull quantities to clear this.'}
+            </div>
+          )}
 
           {/* ── Week receipt tile strip ── */}
           {(weekTotals.length > 0 || nextWeek) && (

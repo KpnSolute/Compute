@@ -384,6 +384,17 @@ select option:checked{
 
 .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:12px}
 
+/* Over-pull disclosure: the summary cards cannot satisfy
+   Opening + Received - Issued = Closing while any row was pulled below zero,
+   because physical stock floors at zero. Name the difference instead of
+   leaving it as an unexplained gap between the cards. */
+.overpull-notice{display:block;padding:10px 14px;margin-bottom:12px;border-radius:var(--radius);border:1px solid #F0B429;background:#FEF9E7;color:#7A4E00;font-size:13px;line-height:1.5}
+.overpull-notice strong{color:#8A3B00}
+/* Continuity break is upstream of (and usually the cause of) an over-pull —
+   rank it visually above the over-pull notice. */
+.overpull-notice--critical{border-color:#DC2626;background:#FEF2F2;color:#7F1D1D}
+.overpull-notice--critical strong{color:#B91C1C}
+
 /* ── Week receipt tile strip ── */
 .wk-tile-row{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap}
 .wk-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:10px 18px;border-radius:var(--radius);border:1px solid var(--line);background:var(--surface);cursor:pointer;transition:background .12s,border-color .12s;min-width:110px;font-family:inherit}

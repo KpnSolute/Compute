@@ -77,22 +77,10 @@ def _ending_qty(row: dict | None) -> float:
     return fi.ending_qty(row.get("opening_oh"), received, pulled)
 
 
-def _ending_value(
-    row: dict | None, fallback_unit_price: float | int | None = 0
-) -> float:
-    if not row:
-        return 0.0
-    if any(
-        row.get(key) is not None
-        for key in ("ending_value", "opening_value", "received_value", "pulled_value")
-    ):
-        # Canonical resolver: re-derives ending under the quantity rule instead
-        # of trusting a stored ending_value that may be stale or negative.
-        return fi.resolve_row_financials(row)["ending_value"]
-    unit_price = row.get("unit_price")
-    return _ending_qty(row) * fi.num(
-        unit_price if unit_price is not None else fallback_unit_price
-    )
+# NOTE: a local _ending_value() helper lived here and was removed once every
+# caller moved to fi.resolve_row_financials(). Do not reintroduce a per-module
+# valuation helper — a second implementation is how the read paths drifted onto
+# different bases in the first place.
 
 
 def _wrap_in_pr(
@@ -197,7 +185,16 @@ def get_inventory(args: dict, user_role: str) -> dict:
             row_data = inv_map.get(item["id"], {})
             oh = _ending_qty(row_data)
             par = item.get("par_level") or 0
-            val = _ending_value(row_data, item.get("unit_price"))
+            # All four values come from the one resolver. Reading opening/
+            # received/pulled straight off the stored columns while deriving
+            # ending separately mixed two valuation bases in a single row, so
+            # the AI saw figures that did not satisfy
+            # opening + received - pulled = ending.
+            fin = fi.resolve_row_financials(
+                row_data,
+                unit_price=row_data.get("unit_price") or item.get("unit_price"),
+            )
+            val = fin["ending_value"]
             total_val += val
             row = {
                 "sku": sku or f"(new:{item['id'][:8]})",
@@ -208,9 +205,9 @@ def get_inventory(args: dict, user_role: str) -> dict:
                 "below_par": oh < par,
                 "unit": item.get("unit", ""),
                 "value": round(val, 2),
-                "opening_value": round(float(row_data.get("opening_value") or 0), 2),
-                "received_value": round(float(row_data.get("received_value") or 0), 2),
-                "pulled_value": round(float(row_data.get("pulled_value") or 0), 2),
+                "opening_value": round(fin["opening_value"], 2),
+                "received_value": round(fin["received_value"], 2),
+                "pulled_value": round(fin["pulled_value"], 2),
                 "ending_value": round(val, 2),
                 "is_new_item": is_new,
             }

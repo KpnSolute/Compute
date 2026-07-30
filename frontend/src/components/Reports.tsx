@@ -108,10 +108,16 @@ function weeklyInvoiceSchedule(metadata: any) {
 }
 
 function metadataMoneyTotals(metadata: any) {
-  const invoiceSchedule = weeklyInvoiceSchedule(metadata);
+  // Inventory movement valuation is quantity × the monthly row price, on every
+  // surface. The invoice schedule is goods/payable reconciliation data and must
+  // NOT substitute for received value here — doing so made this report disagree
+  // with the Operations editor by $4,525.81 for July 2026 (invoice-actual
+  // $30,087.95 vs standardized $25,562.14) for the same period and label.
+  // Operations.tsx and Portal.tsx dropped the same override in 7b7c732; the
+  // invoice figures keep their own clearly-labelled section below.
   return {
     opening: num(metadata?.opening_value),
-    received: invoiceSchedule?.total ?? num(metadata?.received_value),
+    received: num(metadata?.received_value),
     pulled: num(metadata?.pulled_value),
     closing: num(metadata?.closing_value),
   };
@@ -534,17 +540,30 @@ function buildReports(period: [number, number], invItems: any[], events: any[], 
       reviewSections: (_rows?: any[]) => buildMonthlyReviewSections(periodLbl, moninvRows, inventoryMeta),
       summary: (_rows: any[]) => {
         const metaTotals = metadataMoneyTotals(inventoryMeta);
+        // Inventory movement block — always the standardized qty × monthly
+        // price valuation, same as the Operations editor and the dashboard.
         const summary = [
           { label: 'Starting Balance', value: fmtMoney(metaTotals.opening) },
-          { label: invoiceSchedule ? 'Invoice Received' : 'Total Received', value: fmtMoney(metaTotals.received) },
+          { label: 'Total Received',   value: fmtMoney(metaTotals.received) },
           { label: 'Total Pulled',     value: fmtMoney(metaTotals.pulled) },
           { label: 'Ending Balance',   value: fmtMoney(metaTotals.closing) },
         ];
+        // Invoice block — payable/goods amounts. A different measure of a
+        // different thing, so it is labelled as such and never relabelled as
+        // "Received"; the two are bridged by the Invoice Register
+        // Reconciliation section rather than silently swapped.
         if (invoiceSchedule) {
           invoiceSchedule.weeks.forEach((week) => {
-            summary.push({ label: `Invoice W${week.week}`, value: fmtMoney(week.value) });
+            summary.push({ label: `Invoice W${week.week} (goods)`, value: fmtMoney(week.value) });
           });
-          summary.push({ label: 'Invoice Total', value: fmtMoney(invoiceSchedule.total) });
+          summary.push({ label: 'Invoice Total (goods)', value: fmtMoney(invoiceSchedule.total) });
+          const bridge = invoiceSchedule.total - metaTotals.received;
+          summary.push({
+            label: Math.abs(bridge) < 0.01
+              ? 'Invoice vs inventory ✓'
+              : 'Invoice vs inventory Δ',
+            value: fmtMoney(bridge),
+          });
         }
         return summary;
       },

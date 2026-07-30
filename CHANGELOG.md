@@ -1,5 +1,55 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.11] — 2026-07-29 — fix(inventory): July opened with $281.12 less than June closed with
+
+**Claude:** othniel pushed back twice on my read of the July summary cards — correctly. I had diagnosed the Closing-value discrepancy as an over-pull display artifact and shipped a disclosure banner. That treated a symptom. The actual defect is upstream: **the ending value of one period does not carry into the next**.
+
+**The finding.** Per-period, on the standardized basis:
+
+| Period | Opening | Received | Issued | Closing |
+|---|---|---|---|---|
+| May (m=4) | 7,850.32 | 29,797.25 | 28,072.55 | 9,575.02 |
+| Jun (m=5) | 9,662.32 | 25,414.78 | 25,571.52 | 9,505.58 |
+| Jul (m=6) | **9,224.46** | 25,562.14 | 24,991.43 | 10,364.85 |
+
+June closed at **$9,505.58**. July opened at **$9,224.46**. **$281.12 disappeared at the month boundary.** (May→June drifts +$87.30 the other way.) Two rows account for July exactly: SKU **4785416** BGAS 9X9 and **2961001** CUP PET 9Z — each closed June at qty 2 and opened July at qty **0**. 2 × $71.80 + 2 × $68.76 = $281.12, and $9,505.58 − $281.12 = $9,224.46 to the cent. Prices are identical across both months, so this is a **quantity** carry failure, not a revaluation.
+
+**Why it happened.** `dispatch_inventory_save` writes `opening_oh` straight from an uploaded sheet's Opening column, and `_rollover_opening_balances` deliberately skips rows whose on-hand was supplied explicitly (plus it is bypassed entirely for `overwrite_scope.kind == "month"`). So a full-month workbook whose Opening column disagrees with the prior period's computed ending simply wins, silently. Nothing compared the two. Timestamps confirm the sequence: June rows last updated 2026-06-30 22:01, July rows created 2026-07-01 11:05 in one batch — June's correct ending of 2 was available and was not used.
+
+**This is also the cause of the "over-pull" I reported earlier.** With 2 cases of opening stock erased, July's recorded pulls exceeded what those rows could hold, so both showed an impossible over-pull of **exactly 2** — and the per-row zero-clamp then added that shortfall back into Closing value. One broken invariant produced three visible symptoms: the missing $281.12, the phantom over-pull, and summary cards that would not reconcile. Of the $569.69 over-pull total, **$281.12 is this bug**; the remaining $288.57 across 5 rows (POTATO SC 3/8" $147.27, Passionfruit $55.70, NourisH2O $36.70, Gatorade $36.14, Yogurt $12.75) is genuine.
+
+**Fixed.** New `fi.opening_continuity(prior_rows, current_rows)` — pure and testable — asserts the real invariant: *opening qty of month N == ending qty of month N−1, per item*. It returns signed per-item drift (so opening with too MUCH is caught as well), flags items that closed with stock and have no row at all next period as the worst case, and does not mistake a genuinely new item for drift. `GET /api/inventory` now evaluates it against the prior period and returns `metadata.opening_continuity`, logging a warning when it breaks. `Operations.tsx` surfaces it as a red banner ranked ABOVE the over-pull notice, and the over-pull notice now points at it as the likely cause instead of blaming the pull quantities.
+
+**Tests.** New `test_opening_continuity.py` (6 tests) built from the live rows verbatim: reproduces the −$281.12 / −4 qty drift and names BGAS as the worst row, proves the phantom over-pull vanishes once opening is restored to 2 (both rows land exactly at 0, not below), plus clean-rollover, missing-row, new-item, and opened-with-too-much cases.
+
+**HELD FOR APPROVAL — production data repair, 2 rows.** The code now *detects* this; it does not rewrite history. Proposed:
+`UPDATE monthly_inventory SET opening_oh = 2 WHERE year = 2026 AND month = 6 AND item_id IN (SELECT id FROM inventory_items WHERE sku IN ('4785416','2961001'));`
+Effect: July opening 9,224.46 → **9,505.58** (matching June's close), both phantom over-pulls resolve to exactly zero ending, and the over-pull total drops from 7 rows/$569.69 to 5 rows/$288.57. **Confirm first that these two items genuinely had 2 cases on hand entering July** — the arithmetic says so, but the storeroom is the authority.
+
+**Not fixed, flagged.** Prevention is still open: an upload can still overwrite a carried balance. The guard is deliberate (it protects genuine manager corrections), so making it *block* rather than *report* is a policy change needing sign-off. Detection closes the invisibility, not the hole.
+
+**Verified:** ruff clean; `import backend.main` clean; **pytest 184 passed, 20 skipped, 0 failed**; `tsc` clean; ESLint 0 errors; `vite build` clean (323ms).
+
+**Push:** pending — awaiting user approval.
+
+## [v0.1.10] — 2026-07-29 — fix(valuation): close the last three surfaces still on a second basis
+
+**Claude:** Follow-up to Codex's v0.1.9 standardization. The monthly-unit-price contract was in place in `inventory_formulas.py`, and `7b7c732` had already stripped the invoice-schedule override out of `Operations.tsx` and `Portal.tsx` — but three surfaces were still reading a different basis, so the July 2026 "$4,525.81 disagreement about what Total Received means" was only partly closed. Found by re-auditing every consumer rather than assuming the sweep was complete.
+
+**1. `Reports.tsx` — the monthly review export still substituted invoice goods for inventory value.** `metadataMoneyTotals()` did `received: invoiceSchedule?.total ?? num(metadata?.received_value)` — the exact override removed from the other two components, left behind here (flagged in obs 678). The export therefore reported a different Total Received than the Operations editor for the same period. Removed; the report now uses the standardized value like everything else. The invoice figures were NOT deleted — they keep their own block, relabelled `Invoice W1 (goods)` / `Invoice Total (goods)` so they can never again be read as "Received", plus a new explicit `Invoice vs inventory Δ` bridge line (✓ when it reconciles). The conditional `invoiceSchedule ? 'Invoice Received' : 'Total Received'` label is gone — one label, one meaning.
+
+**2. `ai/tools.py::get_inventory` — mixed two bases inside a single row.** `opening_value`/`received_value`/`pulled_value` were echoed raw off the stored columns while `ending_value` came from the resolver, so the rows handed to the agent did not satisfy `opening + received − pulled = ending`. All four now come from one `resolve_row_financials()` call.
+
+**3. Removed the private `_ending_value()` helper in `ai/tools.py`.** Its last caller is gone. A second valuation implementation is precisely how these paths drifted apart, so it is deleted with a note where it stood rather than left as a convenient thing to reach for.
+
+**Guard added.** New `backend/tests/test_valuation_basis_single_source.py` (5 tests) pins the single basis using a row whose stored columns are deliberately on the old invoice-actual basis (received 268.36 invoiced vs 7 × 38.50 catalog): the resolver must ignore the stored figure, the identity must hold, the inventory API and the resolver must agree field-for-field, the AI row's four values must reconcile, and `tools._ending_value` must not exist. That last assertion is deliberately structural — it fails if someone reintroduces a per-module valuation helper.
+
+**Also fixed this session — the summary cards did not add up.** othniel screenshotted July 2026: Opening $9,224.46 + Received $25,562.14 − Issued $24,991.43 = $9,795.17, but Closing read **$10,364.85**. All four cards reproduced exactly against live SQL; the **$569.69** gap equals, to the cent, the over-pull clamped across **7 rows**. Cause: `closing()` floors each row at zero (correct — stock never displays negative) while `pulledValue()` counts every unit issued, so a row pulled below zero contributes its full outflow to Issued but 0 rather than a negative to Closing, and the shortfall silently reads as stock on the shelf. Worst: `7172992` POTATO SC 3/8" $147.27 (recv 4, issued 7), `4785416` BGAS 9X9 $143.60 (recv 2, issued 4 — visible in the screenshot at Closing 0), `2961001` CUP PET 9Z $137.52, then four beverage/dairy rows. Per Phase 3 ("keep over-pulled quantity visible as an audit finding while displaying physical stock at zero") a new `.overpull-notice` banner names the amount, the row count, and the reconciled figure. The over-pull is disclosed, not absorbed. **These 7 rows are a real operational discrepancy — stock was issued that was never received — and need othniel to correct either the receipts or the pull quantities.**
+
+**Verified:** ruff check clean; ruff format clean (73 files); `import backend.main` clean; **pytest 178 passed, 20 skipped, 0 failed**; `tsc --noEmit` clean; ESLint 0 errors on all touched files; **`vite build` clean** (328ms, from the local-disk copy — the `Z:` drive still cannot load the Rolldown native binding).
+
+**Push:** pending — awaiting user approval.
+
 ## [v0.1.9] — 2026-07-29 — standardize inventory valuation math
 
 **Codex:** Replaced mixed stored/invoice/catalog valuation behavior with one
@@ -80,6 +130,14 @@ not applied; the available MCP connection targeted Scena rather than MJCC.
    Effect: removes $4,338.40 of stale positive and $173.92 of negative value from rows holding no stock — a **$4,164.48 net reduction** in the dashboard inventory total. The underlying quantities are NOT touched, and the residuals stay derivable from the component columns. Note the API/read-path fixes alone already make these rows display correctly without any data write; the repair is for the stored record.
 
 **Not fixed, flagged.** The root pricing asymmetry remains: received value is invoice-actual, pulled value is catalog `unit_price`, and 94 ledger rows carry a `unit_price` differing from their period's `monthly_inventory.unit_price`. That is a valuation-policy decision (which price values an outflow), not a bug I should settle unilaterally — the invariant above stops it from producing wrong displayed numbers, but the two bases still disagree by design.
+
+**Follow-up — the July 2026 summary cards do not add up (diagnosed + fixed).** othniel screenshotted the Monthly Inventory editor: Opening $9,224.46 + Received $25,562.14 − Issued $24,991.43 = **$9,795.17**, but Closing reads **$10,364.85** — **$569.69 too high**. All four cards reproduced exactly against live SQL, and the gap equals, to the cent, the clamped over-pull across **7 rows**.
+
+Cause is in `Operations.tsx`, not the backend. All four cards are computed client-side as `qty × r.price`; only the Closing accessor floors at zero (`closing()` → `fEndingQty` = max(0, …)). Opening/Received/Issued sum raw quantities. So a row pulled below zero contributes its full outflow to Issued but contributes 0 rather than a negative to Closing, and the shortfall is silently added back — reading as stock sitting on the shelf. Worst offenders: `7172992` POTATO SC 3/8" $147.27 (recv 4, issued 7), `4785416` BGAS 9X9 $143.60 (recv 2, issued 4 — visible in the screenshot showing Closing 0), `2961001` CUP PET 9Z $137.52, then four beverage/dairy rows.
+
+Fixed per Phase 3 ("keep over-pulled quantity visible as an audit finding while displaying physical stock at zero"): a new `.overpull-notice` banner under the cards names the amount, the row count, and the reconciled figure the cards would otherwise imply. The over-pull is now disclosed rather than absorbed. `tsc` clean, ESLint clean, `vite build` clean.
+
+**Second finding from the same screen — FLAGGED, not changed.** `Operations.tsx` maps the API's `openingValue/receivedValue/pulledValue/endingValue` into its rows (lines ~336-339) and then never reads them; the accessors recompute everything from `qty × price`. So this editor is on the catalog-price basis while the API/dashboard are on the invoice-actual basis: stored `received_value` for July sums to **$30,087.95** against this card's **$25,562.14**, a **$4,525.81** disagreement about what "total received" means depending on the screen. The existing code comment says this was deliberate, so I did not reverse it — but it means the Phase 2/3 backend resolver does not reach this screen at all. Picking one basis is the same valuation-policy decision flagged above and needs your call.
 
 **Push:** pending — awaiting user approval (no commit/push without explicit request).
 
