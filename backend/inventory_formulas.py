@@ -291,6 +291,28 @@ def overpull_audit(rows: Iterable[dict]) -> dict:
     }
 
 
+def value_reconciliation_audit(rows: Iterable[dict]) -> dict:
+    """Reconcile component money with displayed, quantity-clamped ending money."""
+    raw_total = 0.0
+    displayed_total = 0.0
+    adjusted_rows = 0
+    for row in rows:
+        financials = resolve_row_financials(row)
+        raw_total += financials["ending_value_raw"]
+        displayed_total += financials["ending_value"]
+        if abs(financials["ending_value_adjustment"]) > 0.005:
+            adjusted_rows += 1
+    adjustment = displayed_total - raw_total
+    return {
+        "raw_balance": round(raw_total, 2),
+        "displayed_ending": round(displayed_total, 2),
+        "clamp_adjustment": round(adjustment, 2),
+        "adjusted_rows": adjusted_rows,
+        "reconciled": abs(adjustment) <= 0.005,
+        "basis": "row_component_values_with_physical_clamp",
+    }
+
+
 def opening_continuity(
     prior_rows: Iterable[dict], current_rows: Iterable[dict]
 ) -> dict:

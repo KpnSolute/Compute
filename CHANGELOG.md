@@ -8807,3 +8807,11 @@ complete on the mapped checkout.
 **Verified:** live authenticated UI showed the two corrected opening quantities and 5 remaining genuine over-pull rows; backend **188 passed, 20 skipped**; Ruff clean; TypeScript clean. The currently deployed frontend still shows the old warning wording until this source change is deployed.
 
 **Push:** pending - source fix ready for commit and Render deployment.
+
+## [v0.1.16] - 2026-07-30 - fix(inventory): expose value reconciliation as a backend finding
+
+**Codex:** After the opening repair, live July reads now show Opening `$9,505.58`, Received `$30,087.95`, Issued `$24,991.43`, no continuity warning, and 5 genuine physical over-pull rows / 8 units / `$288.57`. Added `value_reconciliation_audit()` so the API reports the raw component balance, displayed clamped ending total, adjustment amount, affected-row count, and reconciliation status. Operations now renders that backend finding when row-level physical clamping creates a nonzero value adjustment.
+
+**Verified:** backend **189 passed, 20 skipped**; Ruff clean; TypeScript clean. No further production data mutation was performed in this pass.
+
+**Push:** pending - source fix ready for commit and Render deployment.

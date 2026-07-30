@@ -417,6 +417,7 @@ async def get_inventory(
 
         over_pull = fi.overpull_audit(result.data)
         over_pulled_count = over_pull["count"]
+        value_reconciliation = fi.value_reconciliation_audit(result.data)
         total_received = sum(item.totalReceived or 0 for item in items)
         total_pulled = sum(item.totalPulled or 0 for item in items)
         opening_value = sum(item.openingValue or 0 for item in items)
@@ -557,6 +558,7 @@ async def get_inventory(
                 ),
                 "over_pulled_count": over_pulled_count,
                 "over_pull": over_pull,
+                "value_reconciliation": value_reconciliation,
                 "total_received": total_received,
                 "total_pulled": total_pulled,
                 "opening_value": opening_value,

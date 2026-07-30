@@ -143,3 +143,14 @@ def test_overpull_audit_is_backend_owned_and_uses_row_pull_value():
         "triggered": True,
         "basis": "physical_quantity_equation",
     }
+
+
+def test_value_reconciliation_audit_reports_physical_clamp_adjustment():
+    result = fi.value_reconciliation_audit(
+        [_row("empty", opening=0, w1r=1, w1p=2, price=10.0)]
+    )
+    assert result["raw_balance"] == -10.0
+    assert result["displayed_ending"] == 0.0
+    assert result["clamp_adjustment"] == 10.0
+    assert result["adjusted_rows"] == 1
+    assert result["reconciled"] is False

@@ -487,6 +487,9 @@ export function MonthlyInventory({
   const overPullValue = Number(overPull?.value ?? 0) || 0;
   const overPullQty = Number(overPull?.quantity ?? 0) || 0;
   const overPullRows = Number(overPull?.count ?? 0) || 0;
+  const valueAudit = (inventoryMeta as any)?.value_reconciliation;
+  const valueClamp = Number(valueAudit?.clamp_adjustment ?? 0) || 0;
+  const valueAdjustedRows = Number(valueAudit?.adjusted_rows ?? 0) || 0;
 
   // Opening-balance continuity (backend: fi.opening_continuity). This period
   // must open with exactly what the prior period closed with; a full-month
@@ -806,6 +809,13 @@ export function MonthlyInventory({
               {continuityRows > 0
                 ? ' Some of these are caused by the opening-balance gap above — fix that first.'
                 : ' Correct the receipts or the pull quantities to clear this.'}
+            </div>
+          )}
+          {valueAdjustedRows > 0 && Math.abs(valueClamp) > 0.005 && (
+            <div className="overpull-notice" role="status">
+              <strong>⚠ Value reconciliation adjustment: {fmtMoney(Math.abs(valueClamp))}</strong>{' '}
+              across {valueAdjustedRows} rows — displayed ending values are physically clamped
+              while the raw opening + received − issued residual is retained in the backend audit.
             </div>
           )}
 
