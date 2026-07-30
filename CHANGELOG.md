@@ -9008,3 +9008,11 @@ Deployment and live API verification pending.
 **Codex:** Merged `codex/inventory-formula-enforcement` into `main` after remote MJCCv1 verification, July reconciliation, backend/formula tests, Ruff, frontend lint with zero errors, and TypeScript checks. Claude may begin week-by-week receivables updates through the staged inventory workflow.
 
 **Push:** Codex -> `f806b4b` -> `origin/main` - pushed successfully.
+
+## [v0.1.26] - 2026-07-30 - restore missing Week 1 invoice ledger lines
+
+**Codex:** Reconciled invoice `1736605` against July Week 1. All 199 invoice lines were linked and the monthly quantities were present, but four movement-ledger rows were missing: SKUs `2328193` (6), `2809291` (4), `4218103` (1), and `7536303` (1). Added them through a tracked staging/audit batch with invoice provenance. Week 1 now has 451 ledger units, matching the invoice's 451 shipped units.
+
+**Verified:** Canonical inventory-valued Week 1 total is `$20,798.11`. The invoice delivered total `$20,454.59` remains a separate adjusted/payables metric and is not substituted into inventory valuation. No duplicate ledger rows were created.
+
+**Push:** pending - live data repair completed; source migration pending commit and push.
