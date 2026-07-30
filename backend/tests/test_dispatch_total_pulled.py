@@ -261,6 +261,36 @@ def test_inventory_week_batch_preserves_per_entry_ids_and_replaces_all_retries()
     }
 
 
+def test_issued_week_uses_backend_item_price_not_client_price():
+    from backend.staging.dispatch import dispatch_inventory_week
+
+    sup = FakeSup(
+        items=[
+            {
+                "id": ITEM_ID,
+                "sku": "DRY-001",
+                "description": "Rice",
+                "category_id": DRY_CAT_ID,
+                "unit_price": 9.99,
+            }
+        ]
+    )
+    payload = {
+        "month": 7,
+        "year": 2026,
+        "week": 1,
+        "direction": "issued",
+        "_staging_entry_id": "pull-price-test",
+        "items": [{"sku": "DRY-001", "desc": "Rice", "qty": 2, "price": 1.0}],
+    }
+
+    with patch("backend.staging.dispatch.supabase_service", sup):
+        result = dispatch_inventory_week(payload)
+
+    assert result["applied"] == 1, result
+    assert sup.txns[0]["unit_price"] == 9.99
+
+
 def test_total_pulled_raw_writes_week3_transaction_and_column():
     """An item with total_pulled_raw gets a week_number=3 issued transaction AND
     its verified monthly pull is written into the w3_pulled column so the stored

@@ -495,6 +495,23 @@ from effc765, and all OCR/concurrency changes from earlier tonight are untouched
 
 **Push:** pending.
 
+## [v0.1.19] - 2026-07-30 - formula-only weekly import enforcement
+
+**Codex:** Strengthened the write invariant so caller-supplied financial
+columns cannot survive a save unless they are explicit movement-ledger values.
+Pull-sheet issued movements now use the backend catalog price instead of a
+client-supplied price. Added a release-gate subset covering calculations,
+value invariants, data-entry week validation, pull-sheet dispatch, and the
+single valuation basis. Added migration 048 to make the database trigger
+formula-only for rows without ledger movements.
+
+**Verified:** Backend **192 passed, 20 skipped**; Ruff clean. The migration
+has not been applied because the available Supabase MCP session reported the
+Scena schema despite this repository's MJCCv1 project reference. No production
+data or schema was changed.
+
+**Push:** pending.
+
 ## [v0.1.18] - 2026-07-30 - remove competing receipt aggregate
 
 **Codex:** Removed the alternate row-level receipt aggregate from the API

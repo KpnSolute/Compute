@@ -205,20 +205,15 @@ def value_invariant_updates(row: dict) -> dict:
     raw_price = row.get("unit_price")
     raw_ouc = row.get("opening_unit_cost")
     price = num(raw_price if raw_price is not None else raw_ouc)
-    raw_open = row.get("opening_value")
-    open_val = (
-        num(raw_open)
-        if raw_open is not None and (num(raw_open) > 0 or opening_qty <= 0)
-        else opening_value(opening_qty, raw_ouc if raw_ouc is not None else price)
-    )
+    open_val = opening_value(opening_qty, raw_ouc if raw_ouc is not None else price)
     recv_val = (
-        num(row.get("received_value"))
-        if row.get("received_value") is not None
+        num(row["_ledger_received_value"])
+        if row.get("_ledger_received_value") is not None
         else received_value(recv_qty, price)
     )
     pull_val = (
-        num(row.get("pulled_value"))
-        if row.get("pulled_value") is not None
+        num(row["_ledger_pulled_value"])
+        if row.get("_ledger_pulled_value") is not None
         else pulled_value(pull_qty, price)
     )
     if opening_qty <= 0:

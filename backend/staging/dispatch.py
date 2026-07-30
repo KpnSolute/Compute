@@ -117,7 +117,12 @@ def _enforce_value_invariants(sup, db_month: int, year: int, item_ids) -> int:
             log.warning("[dispatch] ledger valuation read failed: %s", exc)
         for row in res.data or []:
             if row.get("item_id") in ledger_values:
-                row = {**row, **ledger_values[row["item_id"]]}
+                ledger = ledger_values[row["item_id"]]
+                row = {
+                    **row,
+                    "_ledger_received_value": ledger["received_value"],
+                    "_ledger_pulled_value": ledger["pulled_value"],
+                }
             item_meta = row.get("inventory_items") or {}
             if (
                 row.get("unit_price") is None
@@ -888,13 +893,16 @@ def dispatch_inventory_week(payload: dict) -> dict:
     affected_items: set[str] = set()
     for item in items:
         cat_id = cat_map.get(item.get("category", ""))
+        # Received invoices provide the source unit price. Pull sheets do not:
+        # their prices must come from the backend item record.
+        source_price = item.get("price") if direction == "received" else None
         item_id, _sku, _created = resolve_and_write_item(
             sup,
             sku=item.get("sku"),
             desc=item.get("desc"),
             category_id=cat_id,
             fallback_category_id=new_items_cat_id,
-            price=item.get("price"),
+            price=source_price,
             par=None,  # par is item-level; use dispatch_item_update for par changes
             unit=item.get("unit") or None,
             force_review_category=review_new,
@@ -912,11 +920,29 @@ def dispatch_inventory_week(payload: dict) -> dict:
             dropped += 1
             continue
 
+        item_price_row = (
+            sup.table("inventory_items")
+            .select("unit_price")
+            .eq("id", item_id)
+            .limit(1)
+            .execute()
+        )
+        backend_price = (item_price_row.data or [{}])[0].get("unit_price")
+        if backend_price is None and direction == "issued":
+            return {"applied": 0, "error": f"No backend price for SKU {_sku}"}
+
         qty = item.get("qty")
         if qty is None:
             qty = item.get("onHand", 0)
         qty = _non_negative(qty, "qty", item.get("sku"))
-        price = _non_negative(item.get("price"), "price", item.get("sku")) or 0
+        price = (
+            _non_negative(
+                backend_price if direction == "issued" else item.get("price"),
+                "price",
+                item.get("sku"),
+            )
+            or 0
+        )
         txn_rows.append(
             {
                 "item_id": item_id,

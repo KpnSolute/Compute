@@ -202,7 +202,7 @@ def test_value_invariant_updates_settles_the_live_fork_row():
     assert updates["ending_value"] == 0
 
 
-def test_value_invariant_updates_preserves_imported_invoice_values():
+def test_value_invariant_updates_rejects_caller_supplied_values():
     row = {
         "opening_oh": 2,
         "w1_received": 1,
@@ -218,8 +218,8 @@ def test_value_invariant_updates_preserves_imported_invoice_values():
         "ending_value": 22.0,
     }
     updates = fi.value_invariant_updates(row)
-    assert "opening_value" not in updates
-    assert updates == {}
+    assert updates["received_value"] == 6.0
+    assert updates["ending_value"] == 18.0
 
 
 def test_value_invariant_respects_a_legitimate_zero_unit_price():
@@ -239,7 +239,26 @@ def test_value_invariant_respects_a_legitimate_zero_unit_price():
         "ending_value": 29.97,
     }
     updates = fi.value_invariant_updates(row)
-    assert updates == {}
+    assert updates["received_value"] == 0.0
+    assert updates["ending_value"] == 19.98
+
+
+def test_value_invariant_updates_accepts_only_explicit_ledger_values():
+    row = {
+        "opening_oh": 0,
+        "w1_received": 1,
+        "w2_received": 0,
+        "w3_received": 0,
+        "w1_pulled": 0,
+        "w2_pulled": 0,
+        "w3_pulled": 0,
+        "unit_price": 10.0,
+        "_ledger_received_value": 12.34,
+        "_ledger_pulled_value": 0.0,
+    }
+    updates = fi.value_invariant_updates(row)
+    assert updates["received_value"] == 12.34
+    assert updates["ending_value"] == 12.34
 
 
 def test_value_invariant_drops_value_on_a_direction_with_no_quantity():
