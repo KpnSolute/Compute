@@ -189,10 +189,10 @@ def test_invoice_register_weeks_uses_one_indexed_month_and_aggregates():
     assert w2["line_item_count"] == 92  # 10 Multi-Flow + 82 US Foods lines
 
 
-def test_weekly_invoice_line_totals_are_numeric_and_additive():
+def test_weekly_invoice_receivables_exclude_invoice_level_surcharges():
     from backend.routes import inventory as inv
 
-    totals = inv._weekly_invoice_line_totals(
+    totals = inv._weekly_invoice_receivable_totals(
         {
             "1": {"line_goods_total": 20866.92},
             "2": {"line_goods_total": 7792.62 + 1652.70},

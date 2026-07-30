@@ -436,12 +436,12 @@ def reconcile_weekly_invoices(headline_weeks: dict, register_weeks: dict) -> dic
     for wk in sorted(set(headline_weeks) | set(register_weeks), key=str):
         headline = round(num(headline_weeks.get(wk)), 2)
         reg = register_weeks.get(wk) or {}
-        # Prefer the sum of invoice line extensions.  Header subtotals can be
-        # stale after a line reimport; line totals are the receivables source of
-        # truth and are what the weekly cards must add.
+        # Inventory receivables exclude all invoice-level charges. Use the
+        # numeric invoice line-goods total as the reconciliation basis.
+        line_goods = round(num(reg.get("line_goods_total")), 2)
         goods = round(
             num(
-                reg.get("line_goods_total")
+                line_goods
                 if reg.get("line_goods_total") is not None
                 else reg.get("goods_subtotal")
             ),
@@ -461,6 +461,7 @@ def reconcile_weekly_invoices(headline_weeks: dict, register_weeks: dict) -> dic
         weeks[str(wk)] = {
             "headline_goods": headline,
             "register_goods": goods if has_register else None,
+            "register_line_goods": line_goods if has_register else None,
             "register_net": net if has_register else None,
             "vizient_discount": vizient if has_register else None,
             "fuel_surcharge": fuel if has_register else None,

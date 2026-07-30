@@ -9034,6 +9034,18 @@ the live database had already been corrected by the carry-forward migrations.
 
 **Push:** pending - source fix ready for commit and push.
 
+## [v0.1.29] - 2026-07-30 - include invoice-level receivable charges
+
+**Codex:** Confirmed the explicit inventory rule: fuel surcharges are never
+added to inventory receivables. Multi-Flow invoice `898561` has a `$1,657.70`
+invoice total but only `$1,652.70` of inventory goods line extensions. Weekly
+receivables use invoice goods line extensions only.
+
+**Verified target:** Week 2 is `$7,792.62 + $1,652.70 = $9,445.32`; July
+receivables are `$20,866.92 + $9,445.32 = $30,312.24`.
+
+**Push:** pending - correction ready for verification and push.
+
 ## [v0.1.28] - 2026-07-30 - reconcile weekly invoice receivables and block over-pulls
 
 **Codex:** Audited `Julywk1.pdf`, `Julywk2.pdf`, `invoice_items`, and the July

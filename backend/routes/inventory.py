@@ -193,7 +193,7 @@ def _invoice_register_weeks(db_month: int, year: int) -> dict | None:
         res = (
             supabase_service.table("invoices")
             .select(
-                "id,week_number,subtotal,vizient_discount,fuel_surcharge,tax,net_total"
+                "id,week_number,subtotal,total,vizient_discount,fuel_surcharge,tax,net_total"
             )
             .eq("month", db_month + 1)
             .eq("year", year)
@@ -263,12 +263,13 @@ def _invoice_register_weeks(db_month: int, year: int) -> dict | None:
     return weeks or None
 
 
-def _weekly_invoice_line_totals(register_weeks: dict | None) -> dict | None:
-    """Return numeric weekly receipt totals from invoice line extensions.
+def _weekly_invoice_receivable_totals(register_weeks: dict | None) -> dict | None:
+    """Return numeric weekly inventory receivables from invoice line goods.
 
     Snapshot week totals are historical display caches and can be stale after
-    line reimports.  The invoice line extension sum is the authoritative goods
-    receipt amount; payable adjustments remain in ``invoice_register``.
+    line reimports. Fuel surcharges, discounts, tax, and other invoice-level
+    charges never enter inventory receivables. Inventory goods line totals are
+    the only source used for the weekly cards.
     """
     if not register_weeks:
         return None
@@ -544,7 +545,7 @@ async def get_inventory(
         # caches.  Snapshots are historical display artifacts and were the
         # reason Week 1/2 receivables no longer added to the uploaded invoices.
         invoice_register = _invoice_register_weeks(db_month, year)
-        weekly_invoice_totals = _weekly_invoice_line_totals(invoice_register)
+        weekly_invoice_totals = _weekly_invoice_receivable_totals(invoice_register)
         try:
             if not weekly_invoice_totals:
                 snap = (
