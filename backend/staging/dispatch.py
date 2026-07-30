@@ -43,7 +43,8 @@ def _unresolved_items_rejected(dropped: int, **scope) -> dict:
 _VALUE_INVARIANT_SELECT = (
     "item_id,opening_oh,w1_received,w2_received,w3_received,"
     "w1_pulled,w2_pulled,w3_pulled,unit_price,opening_unit_cost,"
-    "opening_value,received_value,pulled_value,ending_value"
+    "opening_value,received_value,pulled_value,ending_value,"
+    "inventory_items!inner(unit_price)"
 )
 
 
@@ -83,6 +84,9 @@ def _enforce_value_invariants(sup, db_month: int, year: int, item_ids) -> int:
             log.warning("[dispatch] value-invariant read failed: %s", exc)
             continue
         for row in res.data or []:
+            item_meta = row.get("inventory_items") or {}
+            if not row.get("unit_price") and item_meta.get("unit_price"):
+                row = {**row, "unit_price": item_meta["unit_price"]}
             updates = fi.value_invariant_updates(row)
             if not updates:
                 continue

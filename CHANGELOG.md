@@ -1,5 +1,29 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.9] — 2026-07-29 — standardize inventory valuation math
+
+**Codex:** Replaced mixed stored/invoice/catalog valuation behavior with one
+monthly-unit-price contract. For every `monthly_inventory` row: received and
+pulled quantities are the three weekly sums; ending quantity is the non-negative
+opening + received - pulled result; opening, received, pulled, and ending values
+are each the corresponding quantity multiplied by `monthly_inventory.unit_price`.
+The Operations page now uses that same contract for all cards and rows, while
+invoice-register goods/payable totals remain separate reconciliation metrics.
+
+**Codex:** Updated the canonical resolver, write-side settlement, inventory API
+price fallback, weekly projected totals, AI inventory instructions, governance
+rules in `AGENTS.md`, and regression tests. Added
+`supabase/migrations/20260729150000_standardize_inventory_valuation.sql` to
+rebuild existing monetary columns and replace the ledger recompute function.
+
+**Verification:** `pytest` 173 passed / 20 skipped; Ruff check and format clean;
+backend import clean; frontend TypeScript clean. Frontend lint/build were not
+completed from the mapped `Z:` checkout because the local Node tooling returns
+Access Denied/hangs on the network drive. The Supabase migration is tracked but
+not applied; the available MCP connection targeted Scena rather than MJCC.
+
+**Push:** pending — local changes awaiting review.
+
 ## [v0.1.8] — 2026-07-29 — fix(logging): expose durable audit events through legacy log routes
 
 **Codex:** Verified `audit_events` and `error_logs` schemas against their writers. The durable audit schema includes actor, action, target, result, status, duration, session reason, and request ID; `error_logs` includes request ID. Fixed legacy API visibility: `/api/system/logs` now merges durable audit events when available, `/api/system/logs/audit` exposes the normalized durable audit feed, `/api/system/logs/errors` now returns `request_id`, and the legacy portal can filter Audit events. If migration 046 is pending, the in-memory legacy tail continues working and durable reads degrade safely.

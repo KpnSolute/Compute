@@ -462,21 +462,14 @@ export function MonthlyInventory({
   const totalRcv = (r: any) => fTotalReceived(r.w1r, r.w2r, r.w3r);
   const totalIss = (r: any) => fTotalPulled(r.w1p, r.w2p, r.w3p);
   const closing = (r: any) => fEndingQty(r.opening, totalRcv(r), totalIss(r));
-  const rowChanged = (r: any) => {
-    const original = initRows.find((base: any) => base.id === r.id);
-    if (!original) return true;
-    return ['opening', 'price', 'w1r', 'w2r', 'w3r', 'w1p', 'w2p', 'w3p'].some(
-      (key) => Number(original[key] || 0) !== Number(r[key] || 0),
-    );
-  };
   const openingValue = (r: any) =>
-    !rowChanged(r) && typeof r.openingValue === 'number' ? r.openingValue : (r.opening || 0) * r.price;
+    (r.opening || 0) * (r.price || 0);
   const receivedValue = (r: any) =>
-    !rowChanged(r) && typeof r.receivedValue === 'number' ? r.receivedValue : totalRcv(r) * r.price;
+    totalRcv(r) * (r.price || 0);
   const pulledValue = (r: any) =>
-    !rowChanged(r) && typeof r.pulledValue === 'number' ? r.pulledValue : totalIss(r) * r.price;
+    totalIss(r) * (r.price || 0);
   const endingValue = (r: any) =>
-    !rowChanged(r) && typeof r.endingValue === 'number' ? r.endingValue : closing(r) * r.price;
+    closing(r) * (r.price || 0);
 
   // Week-scoped accessors
   const wRcvF = week > 0 ? `w${week}r` : null;
@@ -494,7 +487,10 @@ export function MonthlyInventory({
     { open: 0, recv: 0, iss: 0, close: 0 },
   );
   const invoiceSchedule = useMemo(() => weeklyInvoiceSchedule(inventoryMeta), [inventoryMeta]);
-  const displayedReceivedValue = invoiceSchedule?.total ?? sum.recv;
+  // Inventory valuation is quantity × the monthly row price. Invoice schedule
+  // totals are goods/payable reconciliation data, not a replacement for this
+  // card's inventory movement value.
+  const displayedReceivedValue = sum.recv;
 
   const searchQuery = useMemo(() => parseInventoryQuery(q), [q]);
   const filtered = q.trim()
@@ -509,7 +505,7 @@ export function MonthlyInventory({
 
   const SUM_CARDS = [
     { lbl: 'Opening value', val: sum.open, tint: '#1B3A6B', bg: '#EEF2F8' },
-    { lbl: invoiceSchedule ? 'Invoice received' : 'Total received', val: displayedReceivedValue, tint: '#059669', bg: '#F0FDF4' },
+    { lbl: 'Total received', val: displayedReceivedValue, tint: '#059669', bg: '#F0FDF4' },
     { lbl: 'Total issued', val: sum.iss, tint: '#D97706', bg: '#FEF3C7' },
     { lbl: 'Closing value', val: sum.close, tint: '#1E73E8', bg: '#EFF5FE' },
   ];

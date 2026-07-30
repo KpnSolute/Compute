@@ -134,6 +134,30 @@ def test_resolve_row_financials_derives_values_when_columns_absent():
     assert fin["ending_value_adjustment"] == 0
 
 
+def test_standard_value_contract_reconciles_every_row_component():
+    fin = fi.resolve_row_financials(
+        {
+            "opening_oh": 3,
+            "w1_received": 2,
+            "w2_received": 1,
+            "w3_received": 0,
+            "w1_pulled": 1,
+            "w2_pulled": 0,
+            "w3_pulled": 1,
+            "unit_price": 12.34,
+        }
+    )
+    assert fin["ending_qty"] == 4
+    assert fin["opening_value"] == 37.02
+    assert fin["received_value"] == 37.02
+    assert fin["pulled_value"] == 24.68
+    assert fin["ending_value"] == 49.36
+    assert (
+        round(fin["opening_value"] + fin["received_value"] - fin["pulled_value"], 2)
+        == fin["ending_value"]
+    )
+
+
 # ── the write-side invariant ─────────────────────────────────────────────────
 
 
@@ -157,7 +181,7 @@ def test_value_invariant_updates_clears_a_zeroed_category_row():
     updates = fi.value_invariant_updates(row)
     assert updates["opening_value"] == 0
     assert updates["ending_value"] == 0
-    assert updates["opening_unit_cost"] is None
+    assert "opening_unit_cost" not in updates
 
 
 def test_value_invariant_updates_settles_the_live_fork_row():
@@ -165,7 +189,7 @@ def test_value_invariant_updates_settles_the_live_fork_row():
     assert updates["ending_value"] == 0
 
 
-def test_value_invariant_updates_is_a_noop_on_a_conformant_row():
+def test_value_invariant_updates_rebuilds_legacy_values_from_monthly_price():
     row = {
         "opening_oh": 2,
         "w1_received": 1,
@@ -180,7 +204,10 @@ def test_value_invariant_updates_is_a_noop_on_a_conformant_row():
         "pulled_value": 0.0,
         "ending_value": 22.0,
     }
-    assert fi.value_invariant_updates(row) == {}
+    updates = fi.value_invariant_updates(row)
+    assert "opening_value" not in updates
+    assert updates["received_value"] == 6.0
+    assert updates["ending_value"] == 18.0
 
 
 def test_value_invariant_drops_value_on_a_direction_with_no_quantity():
@@ -226,7 +253,7 @@ def test_api_never_emits_a_negative_ending_value(monkeypatch):
     assert item.value == 0
 
 
-def test_api_still_honours_audited_values_on_a_row_holding_stock(monkeypatch):
+def test_api_uses_monthly_unit_price_on_a_row_holding_stock(monkeypatch):
     inv = _import_inventory(monkeypatch)
     row = {
         "item_id": "item-2",
@@ -254,7 +281,7 @@ def test_api_still_honours_audited_values_on_a_row_holding_stock(monkeypatch):
     }
     item = inv._flatten_rows([row])[0]
     assert item.closingQty == 5
-    assert item.endingValue == 62
+    assert item.endingValue == 50
 
 
 def test_category_totals_match_item_totals(monkeypatch):

@@ -73,15 +73,15 @@ def is_temp_sku(sku) -> bool:
 
 
 def received_value(received, unit_price) -> float:
-    return num(received) * num(unit_price)
+    return round(max(0.0, num(received)) * max(0.0, num(unit_price)), 2)
 
 
 def pulled_value(pulled, unit_price) -> float:
-    return num(pulled) * num(unit_price)
+    return round(max(0.0, num(pulled)) * max(0.0, num(unit_price)), 2)
 
 
 def opening_value(opening, opening_unit_cost) -> float:
-    return num(opening) * num(opening_unit_cost)
+    return round(max(0.0, num(opening)) * max(0.0, num(opening_unit_cost)), 2)
 
 
 def raw_ending_value(opening_val, received_val, pulled_val) -> float:
@@ -112,7 +112,12 @@ def ending_value(opening_val, received_val, pulled_val, ending_quantity=None) ->
     """
     if ending_quantity is not None and num(ending_quantity) <= 0:
         return 0.0
-    return max(0.0, raw_ending_value(opening_val, received_val, pulled_val))
+    return round(max(0.0, raw_ending_value(opening_val, received_val, pulled_val)), 2)
+
+
+def row_value(quantity, unit_price) -> float:
+    """Value a quantity with the approved unit price for its month."""
+    return round(max(0.0, num(quantity)) * max(0.0, num(unit_price)), 2)
 
 
 def resolve_row_financials(row: dict, unit_price=None) -> dict:
@@ -126,9 +131,9 @@ def resolve_row_financials(row: dict, unit_price=None) -> dict:
     can never reach a display surface.
 
     Returns opening/received/pulled/ending values, the quantities they belong
-    to, and two audit fields: `ending_value_raw` (what the columns literally
-    add up to) and `ending_value_adjustment` (what the invariant had to
-    suppress; nonzero means this row needs review).
+    to, and two audit fields: `ending_value_raw` (the legacy stored-column
+    residual) and `ending_value_adjustment` (the difference from the standard
+    monthly-price value; nonzero means the legacy row needs review).
     """
     opening_qty = max(0.0, num(row.get("opening_oh")))
     recv_qty = total_received(
@@ -140,24 +145,22 @@ def resolve_row_financials(row: dict, unit_price=None) -> dict:
     end_qty = ending_qty(opening_qty, recv_qty, pull_qty)
 
     price = num(row.get("unit_price") if unit_price is None else unit_price)
-    stored_ouc = row.get("opening_unit_cost")
-    ouc = num(stored_ouc) if stored_ouc is not None else price
+    ouc = price
+    open_val = opening_value(opening_qty, price)
+    recv_val = received_value(recv_qty, price)
+    pull_val = pulled_value(pull_qty, price)
 
-    stored_open = row.get("opening_value")
-    open_val = (
-        num(stored_open) if stored_open is not None else opening_value(opening_qty, ouc)
+    # Keep the old stored-column residual as an audit diagnostic, while the
+    # displayed/accounting value below uses the standardized monthly price.
+    stored_raw = raw_ending_value(
+        row.get("opening_value") if row.get("opening_value") is not None else open_val,
+        row.get("received_value")
+        if row.get("received_value") is not None
+        else recv_val,
+        row.get("pulled_value") if row.get("pulled_value") is not None else pull_val,
     )
-    stored_recv = row.get("received_value")
-    recv_val = (
-        num(stored_recv) if stored_recv is not None else received_value(recv_qty, price)
-    )
-    stored_pull = row.get("pulled_value")
-    pull_val = (
-        num(stored_pull) if stored_pull is not None else pulled_value(pull_qty, price)
-    )
-
-    raw = raw_ending_value(open_val, recv_val, pull_val)
-    end_val = ending_value(open_val, recv_val, pull_val, ending_quantity=end_qty)
+    raw = stored_raw
+    end_val = row_value(end_qty, price)
     return {
         "opening_qty": opening_qty,
         "received_qty": recv_qty,
@@ -198,22 +201,13 @@ def value_invariant_updates(row: dict) -> dict:
         row.get("w1_pulled"), row.get("w2_pulled"), row.get("w3_pulled")
     )
 
-    open_val = num(row.get("opening_value"))
-    recv_val = num(row.get("received_value"))
-    pull_val = num(row.get("pulled_value"))
-    if opening_qty <= 0:
-        open_val = 0.0
-    if recv_qty <= 0:
-        recv_val = 0.0
-    if pull_qty <= 0:
-        pull_val = 0.0
-
-    end_val = ending_value(
-        open_val,
-        recv_val,
-        pull_val,
-        ending_quantity=ending_qty(opening_qty, recv_qty, pull_qty),
-    )
+    price = num(row.get("unit_price"))
+    if price <= 0:
+        price = num(row.get("opening_unit_cost"))
+    open_val = opening_value(opening_qty, price)
+    recv_val = received_value(recv_qty, price)
+    pull_val = pulled_value(pull_qty, price)
+    end_val = row_value(ending_qty(opening_qty, recv_qty, pull_qty), price)
 
     updates: dict = {}
     for column, wanted in (
@@ -227,8 +221,11 @@ def value_invariant_updates(row: dict) -> dict:
             updates[column] = round(wanted, 6)
     # An opening unit cost with no opening quantity is a stale price tag on an
     # empty row; it would resurrect a value the moment a quantity is entered.
-    if opening_qty <= 0 and row.get("opening_unit_cost") is not None:
-        updates["opening_unit_cost"] = None
+    if (
+        row.get("opening_unit_cost") is None
+        or abs(num(row.get("opening_unit_cost")) - price) > 1e-6
+    ):
+        updates["opening_unit_cost"] = round(price, 6)
     return updates
 
 

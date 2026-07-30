@@ -98,6 +98,23 @@ This is the **authoritative schema**. 38 tables, RLS enabled on all. Key tables 
 
 **STILL fiction (do not use):** `cycle_menu`, `inventory_sync`. **`pending_changes`, `staging_area`, `transaction_history`** are dead legacy schema (0 rows) — DROP candidates, do not build on them.
 
+### 4A. STANDARD COMPUTE RULES — INVENTORY MATH
+
+These rules are mandatory for all inventory formulas, API responses, dashboards, reports, imports, AI tools, database functions, and tests:
+
+- Monthly valuation price is `monthly_inventory.unit_price` for the period. If absent, use catalog price only as an explicit fallback; never mix invoice line prices into inventory valuation.
+- `Total Received = w1_received + w2_received + w3_received`.
+- `Total Pulled = w1_pulled + w2_pulled + w3_pulled`.
+- `Ending Quantity = MAX(0, opening_oh + Total Received - Total Pulled)`. Over-pulls remain an audit signal, but displayed stock cannot be negative.
+- `Opening Value = opening_oh × monthly unit price`.
+- `Received Value = Total Received × monthly unit price`.
+- `Pulled Value = Total Pulled × monthly unit price`.
+- `Ending Value = Ending Quantity × monthly unit price`.
+- Monthly totals are sums of row-level quantities and values. The dollar control identity must hold: `Opening Value + Received Value - Pulled Value = Ending Value`.
+- Monetary results are rounded to cents at row-calculation boundaries; totals sum rounded row values. Quantities are never inferred from dollars.
+- Invoice goods totals and invoice `net_total` are separate reconciliation/payables metrics. They must not replace inventory received value or be silently presented as inventory value.
+- Imported/stored `opening_value`, `received_value`, `pulled_value`, and `ending_value` are audit inputs only. Writers and readers recompute them from quantities and the monthly unit price.
+
 ---
 
 ## 5. FILE OWNERSHIP & FORBIDDEN ZONES

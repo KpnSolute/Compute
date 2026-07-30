@@ -45,7 +45,7 @@ def test_flatten_rows_uses_three_week_pulled_schema(monkeypatch):
     assert item.value == 25.0
 
 
-def test_flatten_rows_prefers_audited_value_controls(monkeypatch):
+def test_flatten_rows_uses_monthly_unit_price_for_all_values(monkeypatch):
     inv = _import_inventory(monkeypatch)
     rows = [
         {
@@ -79,11 +79,11 @@ def test_flatten_rows_prefers_audited_value_controls(monkeypatch):
     assert item.totalReceived == 6
     assert item.totalPulled == 3
     assert item.closingQty == 5
-    assert item.openingValue == 12
-    assert item.receivedValue == 75
-    assert item.pulledValue == 25
-    assert item.endingValue == 62
-    assert item.value == 62
+    assert item.openingValue == 20
+    assert item.receivedValue == 60
+    assert item.pulledValue == 30
+    assert item.endingValue == 50
+    assert item.value == 50
 
 
 def test_weekly_received_values_come_from_ledger_prices(monkeypatch):

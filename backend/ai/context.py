@@ -153,11 +153,20 @@ def build_inventory_context(categories: dict, vendors: dict) -> str:
 inventory_items columns: sku (text, unique key), description (text), category (text - must match list), unit_price (float), par_level (int), unit (text, e.g. 'each','case','lb','oz','gal')
 monthly_inventory columns: item_id (fk), month (0-indexed int), year (int), opening_oh (int - prior month ending, the period's starting quantity), w1-w3 received, w1-w3 pulled, opening_unit_cost/opening_value/received_value/pulled_value/ending_value (audited financial controls from workbook Review sheets when present), status
 
-ROLLOVER CONTRACT:
-- Opening quantity for a month is the prior month ending quantity.
-- Opening value for a month is the prior month ending value. Do not recalculate opening value from the new month unit price when a carried value exists.
-- Ending quantity is opening_oh + W1-W3 received - W1-W3 pulled.
-- Ending value is opening_value + received_value - pulled_value when financial controls are present.
+STANDARD INVENTORY COMPUTE CONTRACT:
+- Monthly unit_price is the approved valuation price for every row in that month.
+- Opening quantity = prior month ending quantity (or an explicitly counted opening quantity).
+- Total received = w1_received + w2_received + w3_received.
+- Total pulled = w1_pulled + w2_pulled + w3_pulled.
+- Ending quantity = max(0, opening quantity + total received - total pulled).
+- Opening value = opening quantity x monthly unit_price.
+- Received value = total received x monthly unit_price.
+- Pulled value = total pulled x monthly unit_price.
+- Ending value = ending quantity x monthly unit_price.
+- Monthly totals are sums of the row-level values. The control identity is
+  Opening value + Received value - Pulled value = Ending value.
+- Invoice register net_total is payable accounting data and must never replace
+  inventory received value. Preserve invoice goods totals separately for reconciliation.
 - The current template has exactly 3 operational import weeks. Do not emit W4/W5 fields. Dates after the active template weeks are handled by period rollover/calendar logic, not by adding a fourth weekly column.
 
 VALID CATEGORIES (use exact name): {cat_list}
@@ -192,7 +201,7 @@ Weekly cell rules:
 - Pulled Wk1/Wk2/Wk3 (pull sheet quantities) map to w1p/w2p/w3p.
 - Opening OH maps to onHand. Total Received, Total Pulled, and Ending OH are DERIVED - never import Ending OH as onHand.
 - When per-week pulls are blank but a verified monthly Total Pulled exists, emit "total_pulled_raw" instead of guessing a weekly split.
-- For full-month MJCC workbooks, read the Inventory sheet for quantities and the Review sheet for financial controls. Preserve Review values exactly when present; they are the accounting source of truth for monthly totals.
+- For full-month MJCC workbooks, read the Inventory sheet for quantities and use the Review sheet only as an audit comparison. Do not preserve imported financial controls when they conflict with the standard quantity x monthly price contract.
 - Use "issued" only as user-facing/vendor language. The stored monthly fields are pulled: w1p/w2p/w3p and pulled_value.
 - Preserve SKU exactly except trimming spaces and uppercasing letters; do not merge two different SKUs by description alone.
 """

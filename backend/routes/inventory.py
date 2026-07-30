@@ -121,7 +121,10 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
         # Single canonical resolver — the ending value is re-derived under the
         # quantity rule here, so a stale/negative stored ending_value in
         # monthly_inventory can never reach the UI (see fi.resolve_row_financials).
-        fin = fi.resolve_row_financials(row)
+        fin = fi.resolve_row_financials(
+            row,
+            unit_price=row.get("unit_price") or inv_item.get("unit_price"),
+        )
         price = fin["unit_price"]
         opening_unit_cost = fin["opening_unit_cost"]
         opening_value = fin["opening_value"]
@@ -298,7 +301,7 @@ _JOIN_SELECT = (
     "w1_received, w2_received, w3_received, "
     "w1_pulled, w2_pulled, w3_pulled, "
     "unit_price, opening_unit_cost, opening_value, received_value, pulled_value, ending_value, created_at, "
-    "inventory_items!inner(id, sku, description, par_level, unit, sku_pending, needs_attention, "
+    "inventory_items!inner(id, sku, description, par_level, unit, unit_price, sku_pending, needs_attention, "
     "  inventory_categories!inner(name)"
     ")"
 )

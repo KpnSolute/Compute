@@ -4,6 +4,7 @@ Given staged entries (batch), compute before/after per row against live DB.
 """
 
 from backend.routes import supabase_service
+from backend import inventory_formulas as fi
 
 
 # Payload weekly key → monthly_inventory column name.
@@ -271,13 +272,16 @@ def _diff_inventory_week(payload: dict) -> dict:
         try:
             mi_total_r = (
                 svc.table("monthly_inventory")
-                .select("ending_value")
+                .select(
+                    "opening_oh,w1_received,w2_received,w3_received,w1_pulled,w2_pulled,w3_pulled,unit_price"
+                )
                 .eq("month", db_month)
                 .eq("year", year)
                 .execute()
             )
             current_total = sum(
-                float(r.get("ending_value") or 0) for r in (mi_total_r.data or [])
+                fi.resolve_row_financials(r)["ending_value"]
+                for r in (mi_total_r.data or [])
             )
             projected_month_total = round(current_total + batch_cost_delta, 2)
         except Exception:
