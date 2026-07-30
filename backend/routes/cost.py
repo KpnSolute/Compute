@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cost", tags=["cost"])
 
 _INV_JOIN_SELECT = (
-    "opening_oh, w1_received, w2_received, w3_received, w1_pulled, w2_pulled, w3_pulled, "
+    "item_id, opening_oh, w1_received, w2_received, w3_received, w1_pulled, w2_pulled, w3_pulled, "
     "unit_price, opening_unit_cost, opening_value, received_value, pulled_value, "
     "inventory_items!inner(category_id, inventory_categories!inner(id, name, color, icon))"
 )

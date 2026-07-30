@@ -261,7 +261,7 @@ def _weekly_received_values_from_ledger(db_month: int, year: int) -> dict | None
     try:
         txns = (
             supabase_service.table("inventory_transactions")
-            .select("week_number,quantity,unit_price,txn_type")
+            .select("item_id,week_number,quantity,txn_type")
             .eq("month", db_month)
             .eq("year", year)
             .in_("txn_type", ["received", "adjustment_increase"])
@@ -271,12 +271,32 @@ def _weekly_received_values_from_ledger(db_month: int, year: int) -> dict | None
         logger.exception("Could not load weekly received values from ledger")
         return None
 
+    item_prices: dict[str, float] = {}
+    try:
+        price_rows = (
+            supabase_service.table("monthly_inventory")
+            .select("item_id,unit_price")
+            .eq("month", db_month)
+            .eq("year", year)
+            .execute()
+        )
+        item_prices = {
+            row["item_id"]: max(0.0, _to_float(row.get("unit_price")))
+            for row in price_rows.data or []
+            if row.get("item_id")
+        }
+    except Exception:
+        logger.exception("Could not load monthly inventory prices for weekly totals")
+        return None
+
     weeks: dict[str, float] = {}
     for row in txns.data or []:
         week = int(_to_float(row.get("week_number")))
         if week <= 0:
             continue
-        value = _to_float(row.get("quantity")) * _to_float(row.get("unit_price"))
+        value = _to_float(row.get("quantity")) * item_prices.get(
+            row.get("item_id"), 0.0
+        )
         if value <= 0:
             continue
         key = str(week)

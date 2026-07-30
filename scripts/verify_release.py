@@ -84,6 +84,20 @@ def main() -> None:
     run("Backend lint", [python, "-m", "ruff", "check", "backend"])
     run("Backend format check", [python, "-m", "ruff", "format", "--check", "backend"])
     run("Backend tests", [python, "-m", "pytest", "backend/tests", "-q"])
+    run(
+        "Weekly inventory formula gate",
+        [
+            python,
+            "-m",
+            "pytest",
+            "backend/tests/test_inventory_calculations.py",
+            "backend/tests/test_inventory_value_invariant.py",
+            "backend/tests/test_dispatch_total_pulled.py",
+            "backend/tests/test_data_entry_week_validation.py",
+            "backend/tests/test_valuation_basis_single_source.py",
+            "-q",
+        ],
+    )
     run("Frontend lint", [npm, "run", "lint"], ROOT / "frontend")
     run("Frontend production build", [npm, "run", "build"], ROOT / "frontend")
     print(f"\nAll release checks passed for v{version} ({channel}).")
