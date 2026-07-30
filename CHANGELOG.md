@@ -8907,3 +8907,9 @@ Deployment and live API verification pending.
 **Verified:** Inventory formula gate **48 passed**; full backend **184 passed, 14 skipped**; Ruff clean; TypeScript clean. The aggregate release script still reports frontend lint failure when launched from the UNC working directory; direct mapped-drive TypeScript passed. June 2026 remains protected as published and has 11 opening, 21 received, and 29 pulled formula mismatches pending an approved reopen/reconciliation workflow.
 
 **Push:** pending - remote schema/data verification complete; source branch not pushed or merged.
+
+## [v0.1.25] - 2026-07-30 - merge inventory formula enforcement to main
+
+**Codex:** Merged `codex/inventory-formula-enforcement` into `main` after remote MJCCv1 verification, July reconciliation, backend/formula tests, Ruff, frontend lint with zero errors, and TypeScript checks. Claude may begin week-by-week receivables updates through the staged inventory workflow.
+
+**Push:** Codex -> `f806b4b` -> `origin/main` - pushed successfully.
