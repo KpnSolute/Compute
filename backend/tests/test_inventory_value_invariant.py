@@ -134,6 +134,19 @@ def test_resolve_row_financials_derives_values_when_columns_absent():
     assert fin["ending_value_adjustment"] == 0
 
 
+def test_resolve_row_repairs_zero_opening_value_when_stock_is_carried():
+    fin = fi.resolve_row_financials(
+        {
+            "opening_oh": 2,
+            "opening_unit_cost": 71.80,
+            "opening_value": 0,
+            "unit_price": 71.80,
+        }
+    )
+    assert fin["opening_value"] == 143.60
+    assert fin["ending_value"] == 143.60
+
+
 def test_standard_value_contract_reconciles_every_row_component():
     fin = fi.resolve_row_financials(
         {

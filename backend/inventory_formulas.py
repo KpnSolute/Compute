@@ -151,7 +151,9 @@ def resolve_row_financials(row: dict, unit_price=None) -> dict:
     raw_recv = row.get("received_value")
     raw_pull = row.get("pulled_value")
     open_val = (
-        num(raw_open) if raw_open is not None else opening_value(opening_qty, ouc)
+        num(raw_open)
+        if raw_open is not None and (num(raw_open) > 0 or opening_qty <= 0)
+        else opening_value(opening_qty, ouc)
     )
     recv_val = (
         num(raw_recv) if raw_recv is not None else received_value(recv_qty, price)
@@ -203,9 +205,10 @@ def value_invariant_updates(row: dict) -> dict:
     raw_price = row.get("unit_price")
     raw_ouc = row.get("opening_unit_cost")
     price = num(raw_price if raw_price is not None else raw_ouc)
+    raw_open = row.get("opening_value")
     open_val = (
-        num(row.get("opening_value"))
-        if row.get("opening_value") is not None
+        num(raw_open)
+        if raw_open is not None and (num(raw_open) > 0 or opening_qty <= 0)
         else opening_value(opening_qty, raw_ouc if raw_ouc is not None else price)
     )
     recv_val = (
@@ -246,6 +249,46 @@ def value_invariant_updates(row: dict) -> dict:
     if row.get("opening_unit_cost") is None:
         updates["opening_unit_cost"] = round(price, 6)
     return updates
+
+
+def overpull_audit(rows: Iterable[dict]) -> dict:
+    """Return a backend-owned audit for quantities issued beyond available stock.
+
+    This is a finding only when a row's physical equation is negative:
+    ``opening + received - pulled < 0``.  The value uses the same pulled-value
+    basis as the row resolver, so the UI cannot invent a warning or price it
+    with a different unit cost.
+    """
+    count = 0
+    quantity = 0.0
+    value = 0.0
+    for row in rows:
+        opening = max(0.0, num(row.get("opening_oh")))
+        received = total_received(
+            row.get("w1_received"), row.get("w2_received"), row.get("w3_received")
+        )
+        pulled = total_pulled(
+            row.get("w1_pulled"), row.get("w2_pulled"), row.get("w3_pulled")
+        )
+        excess = max(0.0, pulled - opening - received)
+        if excess <= 0:
+            continue
+        count += 1
+        quantity += excess
+        financials = resolve_row_financials(row)
+        pull_unit = (
+            financials["pulled_value"] / pulled
+            if pulled > 0
+            else financials["unit_price"]
+        )
+        value += excess * max(0.0, pull_unit)
+    return {
+        "count": count,
+        "quantity": round(quantity, 6),
+        "value": round(value, 2),
+        "triggered": count > 0,
+        "basis": "physical_quantity_equation",
+    }
 
 
 def opening_continuity(

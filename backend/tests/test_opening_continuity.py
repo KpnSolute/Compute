@@ -126,3 +126,20 @@ def test_legitimate_zero_current_price_is_not_replaced_by_prior_price():
     result = fi.opening_continuity(prior, current)
     assert result["qty_drift"] == 1
     assert result["value_drift"] == 0.0
+
+
+def test_overpull_audit_is_backend_owned_and_uses_row_pull_value():
+    result = fi.overpull_audit(
+        [
+            _row("over", opening=0, w1p=3, price=10.0),
+            _row("ok", opening=3, w1r=1, w1p=4, price=10.0),
+        ]
+    )
+
+    assert result == {
+        "count": 1,
+        "quantity": 3.0,
+        "value": 30.0,
+        "triggered": True,
+        "basis": "physical_quantity_equation",
+    }

@@ -415,11 +415,8 @@ async def get_inventory(
         period_id = f"{year}-{month:02d}"
         created_at = _serialize_dt(result.data[0].get("created_at"))
 
-        over_pulled_count = sum(
-            1
-            for item in items
-            if (item.onHand or 0) + (item.totalReceived or 0) < (item.totalPulled or 0)
-        )
+        over_pull = fi.overpull_audit(result.data)
+        over_pulled_count = over_pull["count"]
         total_received = sum(item.totalReceived or 0 for item in items)
         total_pulled = sum(item.totalPulled or 0 for item in items)
         opening_value = sum(item.openingValue or 0 for item in items)
@@ -559,6 +556,7 @@ async def get_inventory(
                     if (item.closingQty or 0) < (item.par or 0) and (item.par or 0) > 0
                 ),
                 "over_pulled_count": over_pulled_count,
+                "over_pull": over_pull,
                 "total_received": total_received,
                 "total_pulled": total_pulled,
                 "opening_value": opening_value,

@@ -481,22 +481,12 @@ export function MonthlyInventory({
   // row-level invoice-backed values remain the source for the summary cards.
   const displayedReceivedValue = sum.recv;
 
-  // Over-pull disclosure. `closing()` floors each row at zero (physical stock
-  // never displays negative) while `pulledValue()` counts every unit issued, so
-  // the four cards do NOT satisfy Opening + Received - Issued = Closing whenever
-  // a row was pulled below zero: the shortfall is silently added back into
-  // Closing and reads as stock that is on the shelf. Compute it explicitly and
-  // show it, so the over-pull stays an audit finding instead of a rounding
-  // mystery. (July 2026 live: 7 rows, $569.69.)
-  const overPullValue = rows.reduce((a: number, r: any) => {
-    const overQty = Math.max(0, -(r.opening || 0) - totalRcv(r) + totalIss(r));
-    const issued = totalIss(r);
-    const issuedUnitValue = issued > 0 ? pulledValue(r) / issued : (r.price || 0);
-    return a + overQty * issuedUnitValue;
-  }, 0);
-  const overPullRows = rows.filter(
-    (r: any) => (r.opening || 0) + totalRcv(r) - totalIss(r) < 0,
-  ).length;
+  // Warnings are backend findings. The API owns the physical equation and
+  // valuation basis; the UI must not recompute a second warning definition.
+  const overPull = (inventoryMeta as any)?.over_pull;
+  const overPullValue = Number(overPull?.value ?? 0) || 0;
+  const overPullQty = Number(overPull?.quantity ?? 0) || 0;
+  const overPullRows = Number(overPull?.count ?? 0) || 0;
 
   // Opening-balance continuity (backend: fi.opening_continuity). This period
   // must open with exactly what the prior period closed with; a full-month
@@ -809,10 +799,10 @@ export function MonthlyInventory({
           )}
           {overPullRows > 0 && (
             <div className="overpull-notice" role="status">
-              <strong>⚠ {fmtMoney(overPullValue)} over-pulled</strong> across {overPullRows} item
-              {overPullRows !== 1 ? 's' : ''} — issued more than was ever on hand. Physical stock is
-              shown at zero for those rows, so Closing value is {fmtMoney(overPullValue)} higher than
-              Opening + Received − Issued ({fmtMoney(sum.open + sum.recv - sum.iss)}).
+              <strong>⚠ Physical over-pull detected</strong> across {overPullRows} item
+              {overPullRows !== 1 ? 's' : ''} — the backend found {overPullQty} units where issued
+              quantity exceeded opening plus received quantity. Physical ending stock is clamped
+              to zero for those rows; affected value is {fmtMoney(overPullValue)}.
               {continuityRows > 0
                 ? ' Some of these are caused by the opening-balance gap above — fix that first.'
                 : ' Correct the receipts or the pull quantities to clear this.'}

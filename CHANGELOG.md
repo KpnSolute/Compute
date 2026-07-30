@@ -8797,3 +8797,13 @@ complete on the mapped checkout.
 **Verified:** production `/health` HTTP 200; protected inventory/dashboard endpoints correctly return 401 without a user token; Render backend deploy `8a6ae01` is Live; Ruff clean; pytest 186 passed, 20 skipped; TypeScript `tsc -b` clean; `git diff --check` clean. No production database mutation was performed because the connected Supabase target is not MJCCv1.
 
 **Push:** pending - production migration application requires the project-scoped Supabase connection.
+
+## [v0.1.15] - 2026-07-30 - fix(inventory): make audit warnings backend-owned
+
+**Codex:** Authenticated live verification found July opening still at `$9,224.46`; corrected SKUs `4785416` and `2961001` from opening quantity 0 to 2 through the authenticated Monthly Inventory workflow. The repair committed in Source Control as `d4b3d54`, and the physical over-pull finding reduced from 7 rows / `$569.69` to 5 rows / `$288.57`.
+
+**Codex:** Added `fi.overpull_audit()` as the backend source of truth. It triggers only when `opening + received - pulled < 0`, returns affected quantity/value, and uses the row's pulled-value basis. Operations now renders that backend finding instead of recomputing a second UI-only warning. Fixed the write/read invariant so a carried positive opening quantity with stale zero `opening_value` is revalued from its opening unit cost; this is required for the opening card to move to June's `$9,505.58`.
+
+**Verified:** live authenticated UI showed the two corrected opening quantities and 5 remaining genuine over-pull rows; backend **188 passed, 20 skipped**; Ruff clean; TypeScript clean. The currently deployed frontend still shows the old warning wording until this source change is deployed.
+
+**Push:** pending - source fix ready for commit and Render deployment.
