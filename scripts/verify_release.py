@@ -69,6 +69,15 @@ def main() -> None:
         action="store_true",
         help="Validate and print version metadata without running the test suite.",
     )
+    parser.add_argument(
+        "--skip-frontend",
+        action="store_true",
+        help=(
+            "Run only the backend half of the gate. For working copies where npm "
+            "cannot run -- notably a Windows UNC/network path, which cmd.exe "
+            "refuses as a working directory. CI always runs the full gate."
+        ),
+    )
     args = parser.parse_args()
 
     version, channel = version_info()
@@ -80,7 +89,6 @@ def main() -> None:
         return
 
     python = sys.executable
-    npm = executable("npm")
     run("Backend lint", [python, "-m", "ruff", "check", "backend"])
     run("Backend format check", [python, "-m", "ruff", "format", "--check", "backend"])
     run("Backend tests", [python, "-m", "pytest", "backend/tests", "-q"])
@@ -98,6 +106,16 @@ def main() -> None:
             "-q",
         ],
     )
+    if args.skip_frontend:
+        print(
+            "\n==> Frontend lint / build SKIPPED (--skip-frontend)."
+            "\n    The full gate, including these steps, runs in CI on every PR"
+            "\n    and every push to main (.github/workflows/deploy.yml)."
+        )
+        print(f"\nBackend release checks passed for v{version} ({channel}).")
+        return
+
+    npm = executable("npm")
     run("Frontend lint", [npm, "run", "lint"], ROOT / "frontend")
     run("Frontend production build", [npm, "run", "build"], ROOT / "frontend")
     print(f"\nAll release checks passed for v{version} ({channel}).")

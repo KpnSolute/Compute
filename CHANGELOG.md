@@ -1,5 +1,100 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.14] — 2026-07-30 — fix(inventory): opening value now carries over from the prior month's close
+
+**Claude:** July opened at **9,775.39** against a June close of **9,505.58** — a **269.81** break. Root cause was not the quantity carry (v0.1.11 fixed that; verified here as **0 rows** where July `opening_oh` differs from June's ending qty). It was **revaluation**.
+
+**The defect.** `enforce_monthly_inventory_value_standard` (20260730130000) wrote:
+
+```sql
+NEW.opening_unit_cost := round(v_price, 6);              -- v_price = THIS month
+NEW.opening_value     := round(opening_oh * v_price, 2);
+```
+
+`opening_unit_cost` exists to hold the prior close's basis, and the trigger overwrote it on every write — then valued opening stock at the current month's price. So whenever a price moved between months, "opening value of month N == ending value of month N−1" could not hold. Re-pricing 226 SKUs in v0.1.13 is what made the latent break visible.
+
+**Fixed** in `20260730220000_opening_value_carry_forward.sql`, now matching `backend/inventory_formulas.py` exactly:
+
+```
+opening_value  = opening_qty  * opening_unit_cost   (carried basis, preserved)
+received_value = received_qty * unit_price
+pulled_value   = pulled_qty   * unit_price
+ending_value   = max(0, opening_value + received_value - pulled_value), 0 when ending qty is 0
+```
+
+`ending_value` also changed: it was `ending_qty * unit_price`, which only agrees with the formula module when the opening basis happens to equal the current price. Deriving it from the value residual is what closes the chain month over month. July 2026's carried basis was seeded from June's closing unit cost.
+
+| | Before | After |
+|---|---|---|
+| July opening | 9,775.39 | **9,505.58** |
+| June closing | 9,505.58 | 9,505.58 |
+| **Break** | **269.81** | **0.00** |
+| July closing | 10,773.07 | 10,756.56 |
+
+Verified per-item, not just in aggregate: **0 rows** with a quantity break, **0 rows** with a value break, **0 rows** violating `ending = max(0, opening + received − pulled)`. Receipts untouched — 281 invoice lines / 28,659.54.
+
+**June's weight-billed chicken corrected** (owner authorised the reopen). SKU **2723641** carried a June `unit_price` of **$1.67** — the per-**pound** rate applied to *case* quantities, the same weight-billing defect fixed for July in v0.1.13. The corrected price came from **June's own data, not another month**: its stored `received_value` of 1,674.41 over 20 cases received implies **83.7205/case** (cross-check: May 86.0250, July 86.3207 — the value column was already right, only `unit_price` was wrong).
+
+`20260730230000_june_weight_price_correction.sql` reopens June, corrects the price, re-carries into July, and republishes — **all in one transaction**, so June is never observable in an open state and `published_at` / `published_by` survive (verified). The value columns were not hand-written: updating `unit_price` fires the corrected trigger, which recomputes them from the canonical formula.
+
+| June SKU 2723641 | Before | After |
+|---|---|---|
+| unit_price | 1.67 | **83.7205** |
+| received_value | 1,674.41 | 1,674.41 *(unchanged)* |
+| pulled_value | 1,669.40 | 1,423.25 |
+| ending_value | 5.01 | **251.16** |
+
+| | Before | After |
+|---|---|---|
+| June closing | 9,505.58 | **9,751.73** |
+| July opening | 9,505.58 | **9,751.73** |
+| Break | 0.00 | **0.00** |
+
+The other four per-lb-priced June rows (`4527271`, `5712666`, `7416663`, `8470437`) each have `received_value == pulled_value` and zero ending quantity, so their `unit_price` cannot reach June's close or the carry — left untouched rather than disturbed for cosmetics. July's closing is unchanged at 10,756.56 because this SKU ends July at zero quantity (opening 3 + received 14 − pulled 17), and quantity governs value.
+
+**Push:** applied to production via `supabase db push` (the ledger repaired below made this usable again).
+
+## [v0.1.13] — 2026-07-30 — fix(inventory): July receivables understated $4,750.10; invoice #1736605 was never loaded
+
+**Claude:** Re-imported July 2026 US Foods receivables from the source PDFs. Three defects, all now closed.
+
+**1. Invoice #1736605 ($20,454.59) did not exist in the database.** The July 1 delivery — 199 line items, the larger of the two July US Foods invoices — had no `invoices` row and no `invoice_items`. Its receipts were partially present in `monthly_inventory` from some other path, at the wrong quantities and wrong prices.
+
+**2. The item master had lost the product noun on 143 of 226 descriptions.** `inventory_items.description` held brand and pack text where the product name belonged. SKU `1032443` read `MW BLK PLST REFL DIX ULT SS` — it is a **KNIFE**; `3383435` (FORK) and `8738348` (SPOON) were near-identical strings. Others: `SCLPD DHY BASIC AM` → `POTATO, SCLPD DHY`; `TORTLA COOL RANCH SS DORITOS` → `CHIP, TORTLA COOL RANCH SS`. All 226 SKUs now carry a noun prefix; brand and pack moved to `invoice_items.label` / `pack_size` where those columns already existed.
+
+**3. Invoice #2140189 carried 3 phantom lines and wrong header components.** 85 stored lines vs 82 on the invoice; the extras (`132209`, `1457100`, `5000641` — the last is not on the invoice at all) were zero-quantity/zero-price so the total masked them. Header had `vizient_discount 106.09 / fuel 0.00`, which nets to the right total from the wrong parts; actual is `109.09 / 3.00`.
+
+**Where the numbers came from.** Both PDFs are image-only scans stored rotated 270°. Regex over a flat OCR dump was unusable — Tesseract read SKU digits as letters (`4716180` → `avt6180`, `7536303` → `roassie`), so those rows silently vanished. Replaced with coordinate-based table extraction (`scratchpad/extract_invoices.py`): locate the column headers per page, then re-OCR **each column as its own cropped strip with a character whitelist**, and anchor one row per unit-price rather than per full-page OCR line. Both invoices then reconciled **to the cent** against their own stated Product Total and DELIVERED AMOUNT — 199 lines / $20,866.92 and 82 lines / $7,792.62 — which is what proves no line was dropped or double-counted. One rejected row is reported, not silently dropped: a $2,661.41 page-total row on WK2 p6.
+
+**July 2026 receivables, before → after:**
+
+| Component | Before | After |
+|---|---|---|
+| US Foods W1+W2 (verified) | 23,909.44 | **28,659.54** |
+| Multi-Flow #898561 (untouched) | 1,652.70 | 1,652.70 |
+| Pre-existing W3 receipt, SKU 2328193 | — | 140.68 |
+| **Total received value** | **25,562.14** | **30,452.92** |
+
+W1 quantity 439 → 451. The $140.68 is a week-3 rice receipt that predates these invoices and is now valued at the corrected July price; it is not new stock.
+
+**Scope and safety.** Only the 226 US Foods SKUs were touched — invoice #898561 (Multi-Flow, `F000*` SKUs) was left alone. `w1_pulled/w2_pulled/w3_pulled` and `opening_oh` were **never written**: verified `pulls_changed = 0` and `opening_changed = 0` against a pre-import snapshot, so Othniel's 68 merged pull sheets are byte-identical. Value columns were not set directly — the existing `monthly_inventory_value_standard` trigger recomputes them from `unit_price` × quantities, and all 347 July rows match that formula exactly (`rows_off_formula = 0`). Received quantities are stored in **cases** so they stay commensurable with the pull sheets; weight-billed meat lines therefore carry an effective per-case cost, which reproduces the invoice value with **zero drift**. Every mutated table was snapshotted to `july_reimport_backup_*` first.
+
+**Note:** `pulled_value` rose $4,717.08 with pull *quantities* unchanged — pulls are valued at the monthly unit price, which was previously wrong. Closing value 10,364.86 → 10,773.07; the $253.27 gap between the raw identity and stored closing is exactly the per-row zero-clamp on 5 over-pulled rows (verified `clamp_effect = expected_clamp`). Three of those five are genuine over-pulls on US Foods SKUs (`7172992`, `8043424`, `227645`); two are pre-existing beverage rows. Left as audit signal, not silently zeroed.
+
+**Migrations:** `20260730150000_july_invoice_import_scratch.sql`, `20260730160000_july_invoice_reimport.sql`, plus RLS lockdown on the scratch/backup tables (PostgREST exposes public tables; these now have RLS on and no anon grant).
+
+**Migration history repaired (same session).** `db push` had been unusable: ~160 remote migrations had no local file and 20 local files were never applied. Fixed in both directions — `supabase migration fetch` materialised the 174 remote versions as local files (the 8 that overlapped local copies differed only in CRLF vs LF, content identical; local copies kept), and 18 of the 20 local-only files were marked `--status applied` because their effects are already present in the database: the `_bak_*` and `menu_entries`/`menu_cycles` drops were already done, and every table, column, index and function they create already exists. Ledger is now **194 total / 192 synced / 2 pending / 0 orphans**.
+
+**The two remaining pending migrations are the only genuine gaps**, both additive and verified safe: `20260729130000_inventory_value_invariant` (adds the missing `ending_value >= 0` CHECK; its trigger is redundant under the live `_standard` trigger but harmless, since `_standard` sorts after it and fully recomputes) and `20260729130100_categories_and_audit_events` (creates the missing `audit_events` table; its Dairy / New Items categories already exist). They need `db push --include-all` because both sort before the last remote version.
+
+**⚠ `20260730120000_invoice_backed_valuation_writer` must never execute** — marked applied so it cannot. It redefines `enforce_monthly_inventory_value_standard` to derive received/pulled value from `inventory_transactions` and ends with a bulk `UPDATE` of every `monthly_inventory` row. It is superseded by `20260730130000` (live — confirmed: the installed function is the unit_price form, not the transaction form), but its version number sorts *earlier*, so a plain push would have run it and clobbered the July figures above. Same reasoning retired `20260729150000`.
+
+**Also fixed:** the Supabase CLI `supabase-go.exe` gap reported in v0.1.12 — the binary ships with the npm global package at `node_modules/supabase/node_modules/@supabase/cli-windows-x64/bin/`. Export `SUPABASE_GO_BINARY` to that path and the CLI works (`migration list` succeeded; api.supabase.com returns intermittent Cloudflare 502s, retry).
+
+**Note:** `.env` `SUPABASE_URL` points at `http://127.0.0.1:54321`, so those keys are local-only and cannot reach the cloud project.
+
+**Push:** pending — awaiting owner review.
+
 ## [v0.1.12] — 2026-07-30 — audit: MCP and CLI availability
 **Codex:** Read-only tooling audit. The project MCP files configure Supabase for MJCCv1 (`mgvyylvmkxhhataavqjz`) in `.mcp.json`, `.cursor/mcp.json`, and `.vscode/mcp.json`. The active MCP runtime is not correctly bound: direct Supabase MCP calls succeeded but returned Scena (`zglbgqeccebqnijcqfkb`) tables and project URL; Claude reports the project Supabase server pending approval with missing `SUPABASE_MCP_TOKEN`, while OpenCode reports a failed Supabase server pointed at Scena. No project files configure TestSprite, chrome-devtools, GitHub, or sequential-thinking MCP servers.
 
@@ -8913,3 +9008,11 @@ Deployment and live API verification pending.
 **Codex:** Merged `codex/inventory-formula-enforcement` into `main` after remote MJCCv1 verification, July reconciliation, backend/formula tests, Ruff, frontend lint with zero errors, and TypeScript checks. Claude may begin week-by-week receivables updates through the staged inventory workflow.
 
 **Push:** Codex -> `f806b4b` -> `origin/main` - pushed successfully.
+
+## [v0.1.26] - 2026-07-30 - restore missing Week 1 invoice ledger lines
+
+**Codex:** Reconciled invoice `1736605` against July Week 1. All 199 invoice lines were linked and the monthly quantities were present, but four movement-ledger rows were missing: SKUs `2328193` (6), `2809291` (4), `4218103` (1), and `7536303` (1). Added them through a tracked staging/audit batch with invoice provenance. Week 1 now has 451 ledger units, matching the invoice's 451 shipped units.
+
+**Verified:** Canonical inventory-valued Week 1 total is `$20,798.11`. The invoice delivered total `$20,454.59` remains a separate adjusted/payables metric and is not substituted into inventory valuation. No duplicate ledger rows were created.
+
+**Push:** pending - live data repair completed; source migration pending commit and push.

@@ -28,3 +28,6 @@ Thumbs.db
 testsprite_tests/
 
 testsprite_tests\tmp\config.json
+
+# Codex remote session scratch (local only)
+.codex-remote-attachments/

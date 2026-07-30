@@ -1,0 +1,10 @@
+CREATE INDEX IF NOT EXISTS idx_ai_provider_keys_created_by ON public.ai_provider_keys(created_by);
+CREATE INDEX IF NOT EXISTS idx_ai_stack_config_key_id ON public.ai_stack_config(key_id);
+CREATE INDEX IF NOT EXISTS idx_ai_stack_config_updated_by ON public.ai_stack_config(updated_by);
+CREATE INDEX IF NOT EXISTS idx_pull_requests_closed_by ON public.pull_requests(closed_by);
+CREATE INDEX IF NOT EXISTS idx_pull_requests_commit_id ON public.pull_requests(commit_id);
+CREATE INDEX IF NOT EXISTS idx_pull_requests_merged_by ON public.pull_requests(merged_by);
+CREATE INDEX IF NOT EXISTS idx_sku_review_queue_resolved_by ON public.sku_review_queue(resolved_by);
+CREATE INDEX IF NOT EXISTS idx_sku_review_queue_resolved_item_id ON public.sku_review_queue(resolved_item_id);
+CREATE INDEX IF NOT EXISTS idx_sku_review_queue_suggested_item_id ON public.sku_review_queue(suggested_item_id);
+CREATE INDEX IF NOT EXISTS idx_week_status_locked_by ON public.week_status(locked_by);;
