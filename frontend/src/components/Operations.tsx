@@ -447,14 +447,20 @@ export function MonthlyInventory({
   const totalRcv = (r: any) => fTotalReceived(r.w1r, r.w2r, r.w3r);
   const totalIss = (r: any) => fTotalPulled(r.w1p, r.w2p, r.w3p);
   const closing = (r: any) => fEndingQty(r.opening, totalRcv(r), totalIss(r));
+  // Financial values come from the API's invoice-backed resolver. The quantity
+  // x price fallback is only for legacy rows with no imported value controls.
+  const rowMoney = (value: any, fallback: number) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  };
   const openingValue = (r: any) =>
-    (r.opening || 0) * (r.price || 0);
+    rowMoney(r.openingValue, (r.opening || 0) * (r.price || 0));
   const receivedValue = (r: any) =>
-    totalRcv(r) * (r.price || 0);
+    rowMoney(r.receivedValue, totalRcv(r) * (r.price || 0));
   const pulledValue = (r: any) =>
-    totalIss(r) * (r.price || 0);
+    rowMoney(r.pulledValue, totalIss(r) * (r.price || 0));
   const endingValue = (r: any) =>
-    closing(r) * (r.price || 0);
+    rowMoney(r.endingValue ?? r.value, closing(r) * (r.price || 0));
 
   // Week-scoped accessors
   const wRcvF = week > 0 ? `w${week}r` : null;
@@ -471,9 +477,8 @@ export function MonthlyInventory({
     }),
     { open: 0, recv: 0, iss: 0, close: 0 },
   );
-  // Inventory valuation is quantity × the monthly row price. Invoice schedule
-  // totals are goods/payable reconciliation data, not a replacement for this
-  // card's inventory movement value.
+  // Uploaded invoice goods totals are the authoritative weekly receipt view;
+  // row-level invoice-backed values remain the source for the summary cards.
   const displayedReceivedValue = sum.recv;
 
   // Over-pull disclosure. `closing()` floors each row at zero (physical stock
@@ -483,11 +488,12 @@ export function MonthlyInventory({
   // Closing and reads as stock that is on the shelf. Compute it explicitly and
   // show it, so the over-pull stays an audit finding instead of a rounding
   // mystery. (July 2026 live: 7 rows, $569.69.)
-  const overPullValue = rows.reduce(
-    (a: number, r: any) =>
-      a + Math.max(0, -(r.opening || 0) - totalRcv(r) + totalIss(r)) * (r.price || 0),
-    0,
-  );
+  const overPullValue = rows.reduce((a: number, r: any) => {
+    const overQty = Math.max(0, -(r.opening || 0) - totalRcv(r) + totalIss(r));
+    const issued = totalIss(r);
+    const issuedUnitValue = issued > 0 ? pulledValue(r) / issued : (r.price || 0);
+    return a + overQty * issuedUnitValue;
+  }, 0);
   const overPullRows = rows.filter(
     (r: any) => (r.opening || 0) + totalRcv(r) - totalIss(r) < 0,
   ).length;
@@ -522,13 +528,28 @@ export function MonthlyInventory({
   const rcvColLabel = week === 0 ? 'Rcvd (total)' : `W${week} Received`;
   const issColLabel = week === 0 ? 'Issued (total)' : `W${week} Issued`;
 
-  // Week tiles use the same inventory ledger valuation as the summary cards.
+  // Use uploaded invoice goods totals when present so weekly tiles and the
+  // receipt card cannot silently switch to catalog-price math.
+  const invoiceSchedule = useMemo(() => {
+    const totals = (inventoryMeta as any)?.weekly_invoice_totals;
+    const weeks = totals?.weeks && typeof totals.weeks === 'object' ? totals.weeks : null;
+    if (!weeks) return null;
+    const rows = [1, 2, 3, 4, 5]
+      .map((wk) => ({ wk, total: Number(weeks[String(wk)] ?? weeks[wk] ?? 0) || 0 }))
+      .filter((row) => row.total > 0);
+    if (!rows.length) return null;
+    return {
+      weeks: rows,
+      total: Number(totals.total) || rows.reduce((sum, row) => sum + row.total, 0),
+    };
+  }, [inventoryMeta]);
   const weekTotals = useMemo(() => {
+    if (invoiceSchedule) return invoiceSchedule.weeks;
     return Array.from({ length: maxWeeks }, (_, i) => i + 1).map((wk) => ({
       wk,
       total: rows.reduce((s, r) => s + (r[`w${wk}r`] || 0) * r.price, 0),
     })).filter((wt) => wt.total > 0);
-  }, [rows, maxWeeks]);
+  }, [rows, maxWeeks, invoiceSchedule]);
 
   // Per-week issued qty totals — determines which weeks have pull sheets recorded.
   const pullTotals = useMemo(() =>

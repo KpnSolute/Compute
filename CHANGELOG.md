@@ -8780,3 +8780,12 @@ complete on the mapped checkout.
 **Verified:** `ruff check backend/`, `ruff format --check backend/`, `import backend.main`, and **pytest 186 passed, 20 skipped, 0 failed**. Frontend `tsc -b` passed. Frontend lint timed out on the mapped `Z:` checkout without returning diagnostics; Vite build reached the known mapped-drive native Rolldown failure (`ERR_DLOPEN_FAILED` / Access denied), not a TypeScript or application error.
 
 **Push:** Codex → `d0c9ff9` pushed to `main`; Render backend live on `d0c9ff9` at 2026-07-30 03:49 UTC. `/health` returned HTTP 200. UI visual verification was unavailable because the local Chrome capture returned access denied; authenticated inventory totals were not re-read from the browser.
+## [v0.1.13] - 2026-07-30 - fix(inventory): restore invoice-backed valuation across all surfaces
+
+**Codex:** Traced the July `$30,087.95` to `$25,562.14` drop to the valuation standardization path: `resolve_row_financials()` and `Operations.tsx` replaced uploaded invoice-backed values with quantity x monthly catalog price. Restored invoice-backed `opening_value`, `received_value`, and `pulled_value` as authoritative when present; missing fields still use the documented quantity x price fallback. Ending value is recomputed from those same components and the physical ending-quantity rule.
+
+**Codex:** Operations summary cards now consume the API row financials, and week tiles use `weekly_invoice_totals` when uploaded invoice goods totals exist. This keeps UI, API, reports, and storage on one invoice-backed basis. New Items visibility and category inclusion were preserved.
+
+**Verified:** Ruff clean; full backend tests **186 passed, 20 skipped**; frontend TypeScript build check passed. No production data mutation has been performed in this change.
+
+**Push:** pending - user requested correction before release.

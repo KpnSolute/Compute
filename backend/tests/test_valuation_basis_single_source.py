@@ -1,4 +1,4 @@
-"""Every surface must value inventory on ONE basis: qty x monthly unit price.
+"""Every surface must value inventory on ONE invoice-backed basis.
 
 The July 2026 report: the Operations editor showed Total Received $25,562.14
 while the API's stored `received_value` summed to $30,087.95 for the same
@@ -6,10 +6,9 @@ period and the same label — a $4,525.81 disagreement caused by the invoice
 schedule (goods/payable amounts) being substituted for inventory movement
 value on some surfaces but not others.
 
-Invoice figures are a different measure of a different thing. They belong in
-the invoice register and the reconciliation bridge, never swapped in as
-"Received". These tests pin the single basis so a future edit that reaches for
-a second one fails here.
+Invoice-backed figures are the source of truth for imported rows. Quantity x
+period price is only a fallback for rows without imported value controls. These
+tests pin the single basis so a future edit that reaches for a second one fails.
 """
 
 import importlib
@@ -27,8 +26,7 @@ def _import(monkeypatch, module):
 
 # A row whose STORED value columns are on the old invoice-actual basis: the
 # receipt was invoiced at 268.36 for 7 cases while the period's catalog price
-# is 38.50/case. Every surface must report the standardized figure, not the
-# stored one.
+# is 38.50/case. Every surface must report the invoice-backed figure.
 LEGACY_BASIS_ROW = {
     "item_id": "fork",
     "opening_oh": 0,
@@ -46,13 +44,13 @@ LEGACY_BASIS_ROW = {
 }
 
 
-def test_resolver_ignores_the_stored_invoice_basis():
+def test_resolver_uses_the_stored_invoice_basis():
     fin = fi.resolve_row_financials(LEGACY_BASIS_ROW)
-    # 7 received x 38.50 catalog = 269.50, not the stored 268.36.
-    assert fin["received_value"] == 269.50
+    # The uploaded invoice/review value is authoritative for received goods.
+    assert fin["received_value"] == 268.36
     assert fin["pulled_value"] == 154.00
     assert fin["ending_qty"] == 3
-    assert fin["ending_value"] == 115.50
+    assert fin["ending_value"] == 114.36
 
 
 def test_the_identity_holds_on_the_single_basis():
