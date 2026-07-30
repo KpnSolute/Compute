@@ -1144,6 +1144,7 @@ table.data.logtbl td{padding:6px 10px}
 .pull-qty-input{width:80px;height:32px;text-align:center;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--ink);font:700 12.5px var(--mono);box-shadow:var(--shadow-sm);transition:border-color .12s,background .12s,box-shadow .12s}
 .pull-qty-input:hover{border-color:var(--muted);background:var(--surface)}
 .pull-qty-input:focus{outline:none;border-color:var(--accent);background:var(--surface);box-shadow:0 0 0 2px rgba(30,115,232,.10)}
+.pull-qty-input--invalid{border-color:#dc2626!important;background:#fef2f2!important;color:#991b1b!important;box-shadow:0 0 0 2px rgba(220,38,38,.14)!important}
 .pull-sheet-compact .pull-qty-input{width:50px;height:28px;font-size:11.5px}
 .pull-sheet-compact td:first-child{font-weight:650;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pull-category-row td{background:var(--surface-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:10px 13px!important}

@@ -257,6 +257,16 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
     const draft = compactQtys[wk] || {};
     return Object.prototype.hasOwnProperty.call(draft, sku) ? draft[sku] || 0 : pnum(it[`w${wk}p`]);
   }, [compactQtys]);
+  const availableBeforeWeek = useCallback((it: any, wk: number) => Math.max(0,
+    pnum(it.onHand)
+      + Array.from({ length: wk }, (_, i) => pnum(it[`w${i + 1}r`])).reduce((a, b) => a + b, 0)
+      - Array.from({ length: wk - 1 }, (_, i) => pullQtyForWeek(it, i + 1)).reduce((a, b) => a + b, 0),
+  ), [pullQtyForWeek]);
+  const overpulls = useMemo(() => items.flatMap((it) => PULL_WEEKS.flatMap((wk) => {
+    const requested = pullQtyForWeek(it, wk);
+    const available = availableBeforeWeek(it, wk);
+    return requested > available ? [{ sku: String(it.sku), desc: pdesc(it), week: wk, requested, available }] : [];
+  })), [availableBeforeWeek, items, pullQtyForWeek]);
 
   const categories = useMemo(() => {
     const names = items
@@ -424,6 +434,11 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
 
   async function confirmPull() {
     if (!canStage) { t('Insufficient permissions'); return; }
+    if (overpulls.length) {
+      const first = overpulls[0];
+      t(`Cannot stage: ${first.desc} W${first.week} requests ${first.requested}, but only ${first.available} is available. Fix the red cell first.`);
+      return;
+    }
     if (viewMode === 'compact') {
       if (!compactStagedByWeek.length) { t('Enter or clear at least one pull quantity before staging.'); return; }
       setStaging(true);
@@ -638,6 +653,13 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
         })}
       </div>
 
+      {overpulls.length > 0 && (
+        <div className="overpull-notice overpull-notice--critical" role="alert">
+          <strong>{overpulls.length} over-pull cell{overpulls.length === 1 ? '' : 's'} require correction.</strong>{' '}
+          Red cells exceed the stock available at that week. Set them to zero or reduce the quantity before staging.
+        </div>
+      )}
+
       {viewMode === 'regular' && (
         <div className="pull-week-tabs">
           {weekOpts.map((o) => (
@@ -715,6 +737,8 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
                       const rowValue = qty * price;
                       const isEdited = Object.prototype.hasOwnProperty.call(qtys, sku);
                       const isDirty = qty > 0 || isEdited;
+                      const available = availableBeforeWeek(it, week);
+                      const isOverpull = qty > available;
                       const status = onHand <= 0 ? 'Out' : par > 0 && onHand <= par ? 'Low' : 'OK';
                   return (
                     <tr key={`${group.name}-${sku}`} style={isDirty ? { background: 'var(--accent-soft)' } : undefined}>
@@ -727,13 +751,15 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
                       <td><span className="pull-status" data-status={status.toLowerCase()}>{status}</span></td>
                       <td style={{ textAlign: 'center' }}>
                         <input
-                          className="pull-qty-input"
+                          className={`pull-qty-input${isOverpull ? ' pull-qty-input--invalid' : ''}`}
                           type="number"
                           min={0}
                           step={1}
                           value={qty === 0 ? '' : qty}
                           placeholder="0"
                           aria-label={`Pull quantity for ${desc}`}
+                          aria-invalid={isOverpull || undefined}
+                          title={isOverpull ? `Over-pull: ${qty} requested, ${available} available` : undefined}
                           onChange={e => setQty(sku, Number(e.target.value) || 0)}
                           onFocus={e => e.target.select()}
                         />
@@ -807,21 +833,27 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
                       <td data-label="OH" className="r num">{onHand}</td>
                       <td data-label="Par" className="r num">{par}</td>
                       <td data-label="Status"><span className="pull-status" data-status={status.toLowerCase()}>{status}</span></td>
-                      {weekQtys.map(({ wk, qty }) => (
-                        <td key={`${sku}-w${wk}`} data-label={`W${wk} Pull`} className="r">
-                          <input
-                            className="cinp pull-qty-input"
-                            type="number"
-                            min={0}
-                            step={1}
-                            value={qty === 0 ? '' : qty}
-                            placeholder="0"
-                            aria-label={`Week ${wk} pull quantity for ${desc}`}
-                            onChange={e => setCompactQty(wk, sku, Number(e.target.value) || 0)}
-                            onFocus={e => e.target.select()}
-                          />
-                        </td>
-                      ))}
+                      {weekQtys.map(({ wk, qty }) => {
+                        const available = availableBeforeWeek(it, wk);
+                        const isOverpull = qty > available;
+                        return (
+                          <td key={`${sku}-w${wk}`} data-label={`W${wk} Pull`} className="r">
+                            <input
+                              className={`cinp pull-qty-input${isOverpull ? ' pull-qty-input--invalid' : ''}`}
+                              type="number"
+                              min={0}
+                              step={1}
+                              value={qty === 0 ? '' : qty}
+                              placeholder="0"
+                              aria-label={`Week ${wk} pull quantity for ${desc}`}
+                              aria-invalid={isOverpull || undefined}
+                              title={isOverpull ? `Over-pull: ${qty} requested, ${available} available` : undefined}
+                              onChange={e => setCompactQty(wk, sku, Number(e.target.value) || 0)}
+                              onFocus={e => e.target.select()}
+                            />
+                          </td>
+                        );
+                      })}
                       <td data-label="Value" className="r num" style={{ color: isDirty ? 'var(--green)' : 'var(--muted)' }}>
                         {isDirty ? fmt(rowValue) : '-'}
                       </td>
@@ -863,7 +895,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
             {I.check({ style: { width: 14, height: 14 } })} Save Draft
           </button>
           {canStage && (
-            <button className="btn primary" onClick={() => setShowConfirm(true)}>
+            <button className="btn primary" onClick={() => setShowConfirm(true)} disabled={staging || overpulls.length > 0}>
               {I.branch({ style: { width: 14, height: 14 } })} Stage Pull
             </button>
           )}

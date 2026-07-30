@@ -1,5 +1,33 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.30] — 2026-07-30 — block and clear July inventory over-pulls
+
+**Codex:** Audited live July 2026 inventory and found five raw over-pull rows:
+`227645`, `7172992`, `8043424`, `F00523005`, and `F00928037`, totaling 8
+impossible units. Their issued ledger quantities were explicitly reset to zero
+per owner instruction, then `recompute_week_totals` rebuilt the monthly pull
+columns. Verified: all five rows now have W1/W2/W3 pulls of zero and raw ending
+balances of 6, 4, 5, 2, and 4 respectively; the period now has 0 negative raw
+ending rows.
+
+**Codex:** Added `20260730233023_prevent_inventory_overpulls.sql`, installing
+the `monthly_inventory_no_overpull` database trigger. It rejects any insert or
+update where total pulled exceeds opening plus all receipts. A live test write
+was rejected and the row remained unchanged. The existing API staging guards
+remain active as the user-facing error path.
+
+**Codex:** Updated the Monthly Inventory editor and Pull Sheet. Invalid weekly
+pull cells are red with an explanatory tooltip, and Save/Stage is disabled until
+every over-pull is corrected. Validation uses stock available at that week,
+including prior-week pulls, rather than the clamped month-ending display.
+
+**Verified:** live trigger and data correction; backend `196 passed, 20 skipped`;
+Ruff clean; frontend lint has 0 errors (existing warnings remain); TypeScript
+clean. `vite build` was blocked by the mapped-drive Rolldown native binding
+`Access is denied`, not by source/type errors.
+
+**Push:** pending — source changes not committed or pushed.
+
 ## [v0.1.14] — 2026-07-30 — fix(inventory): opening value now carries over from the prior month's close
 
 **Claude:** July opened at **9,775.39** against a June close of **9,505.58** — a **269.81** break. Root cause was not the quantity carry (v0.1.11 fixed that; verified here as **0 rows** where July `opening_oh` differs from June's ending qty). It was **revaluation**.
