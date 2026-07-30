@@ -290,7 +290,6 @@ export function MonthlyInventory({
   const [m, y] = period;
 
   const [rows, setRows] = useState<any[]>([]);
-  const [initRows, setInitRows] = useState<any[]>([]);
   const [inventoryMeta, setInventoryMeta] = useState<any>({});
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -365,9 +364,9 @@ export function MonthlyInventory({
           }
           // A restored draft IS unsaved work — reflect that so the draft
           // banner shows and the save bar arms instead of reporting "saved".
-          if (alive) { setRows(merged); setInitRows(flat); setMaxWeeks(wip); setInventoryMeta(inv.metadata || {}); setSaved(false); }
+          if (alive) { setRows(merged); setMaxWeeks(wip); setInventoryMeta(inv.metadata || {}); setSaved(false); }
         } else {
-          if (alive) { setRows(flat); setInitRows(flat); setMaxWeeks(wip); setInventoryMeta(inv.metadata || {}); }
+          if (alive) { setRows(flat); setMaxWeeks(wip); setInventoryMeta(inv.metadata || {}); }
         }
         try {
           const ivs = await api.getInvoices(m + 1, y);
@@ -614,7 +613,6 @@ export function MonthlyInventory({
       }
 
       clearDraft();
-      setInitRows([...rows]);
       setSaved(true);
       setSavedAt(new Date());
       openSC?.();
