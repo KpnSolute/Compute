@@ -123,7 +123,11 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
         # monthly_inventory can never reach the UI (see fi.resolve_row_financials).
         fin = fi.resolve_row_financials(
             row,
-            unit_price=row.get("unit_price") or inv_item.get("unit_price"),
+            unit_price=(
+                row.get("unit_price")
+                if row.get("unit_price") is not None
+                else inv_item.get("unit_price")
+            ),
         )
         price = fin["unit_price"]
         opening_unit_cost = fin["opening_unit_cost"]
@@ -305,6 +309,45 @@ _JOIN_SELECT = (
     "  inventory_categories!inner(name)"
     ")"
 )
+
+_VALUE_INVARIANT_SELECT = (
+    "item_id,opening_oh,w1_received,w2_received,w3_received,"
+    "w1_pulled,w2_pulled,w3_pulled,unit_price,opening_unit_cost,"
+    "opening_value,received_value,pulled_value,ending_value,"
+    "inventory_items!inner(unit_price)"
+)
+
+
+def _settle_value_invariants(item_ids: list[str], db_month: int, year: int) -> int:
+    """Persist canonical values after a direct inventory snapshot write."""
+    ids = [item_id for item_id in dict.fromkeys(item_ids) if item_id]
+    if not ids:
+        return 0
+    result = (
+        supabase_service.table("monthly_inventory")
+        .select(_VALUE_INVARIANT_SELECT)
+        .eq("month", db_month)
+        .eq("year", year)
+        .in_("item_id", ids)
+        .execute()
+    )
+    settled = 0
+    for row in result.data or []:
+        item_meta = row.get("inventory_items") or {}
+        if row.get("unit_price") is None and item_meta.get("unit_price") is not None:
+            row = {**row, "unit_price": item_meta["unit_price"]}
+        updates = fi.value_invariant_updates(row)
+        if updates:
+            (
+                supabase_service.table("monthly_inventory")
+                .update(updates)
+                .eq("item_id", row["item_id"])
+                .eq("month", db_month)
+                .eq("year", year)
+                .execute()
+            )
+            settled += 1
+    return settled
 
 
 @router.get("", response_model=InventoryResponse)
@@ -730,6 +773,7 @@ async def _save_inventory_retired(payload: "InventorySnapshot", auth_user: dict)
 
         created_at = datetime.now(timezone.utc).isoformat()
 
+        written_item_ids: list[str] = []
         for item in payload.items:
             # Identity resolved by SKU only (sku is NOT NULL + UNIQUE). An
             # unknown/blank category resolves to None so a brand-new item lands
@@ -788,6 +832,12 @@ async def _save_inventory_retired(payload: "InventorySnapshot", auth_user: dict)
                 monthly_fields,
                 on_conflict="item_id,month,year",
             ).execute()
+            written_item_ids.append(inv_item_id)
+
+        # Legacy financial inputs are compatibility fields, never a second
+        # calculation authority. Settle the complete post-write rows so storage,
+        # API reads, and UI calculations share one invariant.
+        _settle_value_invariants(written_item_ids, db_month, year)
 
         # Rebuild and return the full snapshot
         result = (

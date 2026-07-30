@@ -8771,3 +8771,12 @@ mapped-drive Rolldown native-binding access error, and frontend lint did not
 complete on the mapped checkout.
 
 **Push:** pending - local fix awaiting commit/push.
+## [v0.1.12] - 2026-07-30 - fix(inventory): make storage and dashboard use the canonical valuation contract
+
+**Codex:** Completed a repository-wide calculation-path audit. The canonical contract is now enforced at direct `POST /api/inventory` writes as well as staging dispatch writes: received/pulled quantities are the three weekly columns, ending quantity is the non-negative physical balance, and all stored dollar columns are settled from quantity x period unit price. Legacy caller-supplied financial fields remain accepted for compatibility but are not authoritative. Fixed zero-price fallback logic so an explicit `0` is not replaced by an older opening cost.
+
+**Codex:** The dashboard stats endpoint no longer sums the legacy `live_inventory.sub_total` view. It selects the latest monthly period and runs the same `resolve_row_financials` resolver used by the inventory API, preventing a separate stale-value headline. Added a regression test for legitimate zero unit prices.
+
+**Verified:** `ruff check backend/`, `ruff format --check backend/`, `import backend.main`, and **pytest 186 passed, 20 skipped, 0 failed**. Frontend `tsc -b` passed. Frontend lint timed out on the mapped `Z:` checkout without returning diagnostics; Vite build reached the known mapped-drive native Rolldown failure (`ERR_DLOPEN_FAILED` / Access denied), not a TypeScript or application error.
+
+**Push:** pending - awaiting release verification.

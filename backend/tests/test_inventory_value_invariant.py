@@ -210,6 +210,29 @@ def test_value_invariant_updates_rebuilds_legacy_values_from_monthly_price():
     assert updates["ending_value"] == 18.0
 
 
+def test_value_invariant_respects_a_legitimate_zero_unit_price():
+    row = {
+        "opening_oh": 2,
+        "w1_received": 1,
+        "w2_received": 0,
+        "w3_received": 0,
+        "w1_pulled": 0,
+        "w2_pulled": 0,
+        "w3_pulled": 0,
+        "unit_price": 0.0,
+        "opening_unit_cost": 9.99,
+        "opening_value": 19.98,
+        "received_value": 9.99,
+        "pulled_value": 0.0,
+        "ending_value": 29.97,
+    }
+    updates = fi.value_invariant_updates(row)
+    assert updates["opening_value"] == 0
+    assert updates["received_value"] == 0
+    assert updates["ending_value"] == 0
+    assert updates["opening_unit_cost"] == 0
+
+
 def test_value_invariant_drops_value_on_a_direction_with_no_quantity():
     row = {
         "opening_oh": 5,

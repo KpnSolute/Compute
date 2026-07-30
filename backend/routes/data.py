@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 from backend.routes import supabase_service
 from backend.routes._deps import _get_auth_user, _require_admin_or_manager
+from backend import inventory_formulas as fi
 
 router = APIRouter(prefix="/api", tags=["data"])
 
@@ -435,32 +436,47 @@ async def delete_category(cat_id: str, auth_user: dict = Depends(_require_manage
 @router.get("/dashboard/stats")
 async def get_dashboard_stats(auth_user: dict = Depends(_get_auth_user)):
     try:
-        # total_value = current inventory value for the open period. The
-        # live_inventory view prefers monthly_inventory.ending_value so dashboard
-        # totals follow workbook Review controls instead of recomputing value
-        # from quantity x current catalog price.
-        # The view's sub_total COALESCEs to the stored ending_value, which is not
-        # clamped in SQL — a stale or negative stored balance would otherwise be
-        # summed straight into the headline. Apply the canonical invariant here:
-        # a row holding no stock contributes no value, and no row contributes
-        # negative value. (See fi.ending_value / the Phase 3 migration.)
+        # total_value = the latest monthly inventory period, using the same
+        # quantity x period-price resolver as /api/inventory. Do not use the
+        # live_inventory view here: its stored sub_total can lag a sparse write
+        # and create a second dashboard calculation authority.
         total_value = 0.0
+        used_monthly_period = False
         try:
             tv = (
-                supabase_service.table("live_inventory")
-                .select("sub_total,on_hand")
+                supabase_service.table("monthly_inventory")
+                .select(
+                    "month,year,opening_oh,w1_received,w2_received,w3_received,"
+                    "w1_pulled,w2_pulled,w3_pulled,unit_price,opening_unit_cost,"
+                    "opening_value,received_value,pulled_value,ending_value,"
+                    "inventory_items!inner(unit_price)"
+                )
+                .order("year", desc=True)
+                .order("month", desc=True)
                 .execute()
             )
             if tv.data:
-                total_value = sum(
-                    0.0
-                    if float(r.get("on_hand", 0) or 0) <= 0
-                    else max(0.0, float(r.get("sub_total", 0) or 0))
+                latest_period = (tv.data[0].get("year"), tv.data[0].get("month"))
+                latest_rows = [
+                    r
                     for r in tv.data
+                    if (r.get("year"), r.get("month")) == latest_period
+                ]
+                total_value = sum(
+                    fi.resolve_row_financials(
+                        r,
+                        unit_price=(
+                            r.get("unit_price")
+                            if r.get("unit_price") is not None
+                            else (r.get("inventory_items") or {}).get("unit_price")
+                        ),
+                    )["ending_value"]
+                    for r in latest_rows
                 )
+                used_monthly_period = True
         except Exception:
             pass
-        if not total_value:
+        if not used_monthly_period:
             # Fallback: the latest filed period snapshot's grand_total (also an
             # ending-based figure). Never fall back to summing on_hand alone —
             # that ignores the month's receipts/issues and understates value.

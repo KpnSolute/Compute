@@ -85,7 +85,10 @@ def _enforce_value_invariants(sup, db_month: int, year: int, item_ids) -> int:
             continue
         for row in res.data or []:
             item_meta = row.get("inventory_items") or {}
-            if not row.get("unit_price") and item_meta.get("unit_price"):
+            if (
+                row.get("unit_price") is None
+                and item_meta.get("unit_price") is not None
+            ):
                 row = {**row, "unit_price": item_meta["unit_price"]}
             updates = fi.value_invariant_updates(row)
             if not updates:

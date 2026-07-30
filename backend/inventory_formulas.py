@@ -201,9 +201,8 @@ def value_invariant_updates(row: dict) -> dict:
         row.get("w1_pulled"), row.get("w2_pulled"), row.get("w3_pulled")
     )
 
-    price = num(row.get("unit_price"))
-    if price <= 0:
-        price = num(row.get("opening_unit_cost"))
+    raw_price = row.get("unit_price")
+    price = num(raw_price if raw_price is not None else row.get("opening_unit_cost"))
     open_val = opening_value(opening_qty, price)
     recv_val = received_value(recv_qty, price)
     pull_val = pulled_value(pull_qty, price)
