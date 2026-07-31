@@ -4,6 +4,21 @@ from backend.routes.api_logs import (
     _summarize_request_events,
     _token_actor_hint,
 )
+from backend.diagnostic_access import diagnostic_principal
+
+
+def test_diagnostic_key_requires_exact_server_secret(monkeypatch):
+    monkeypatch.setenv("MJCC_DIAGNOSTIC_LOG_KEY", "test-secret")
+    assert (
+        diagnostic_principal(x_diagnostic_key="test-secret")["id"]
+        == "codex-diagnostics"
+    )
+    try:
+        diagnostic_principal(x_diagnostic_key="wrong")
+    except Exception as exc:
+        assert getattr(exc, "status_code", None) == 401
+    else:
+        raise AssertionError("invalid diagnostic key was accepted")
 
 
 def test_audit_event_maps_to_legacy_log_shape():

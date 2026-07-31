@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 import traceback
 from collections import deque
@@ -13,11 +14,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncGenerator
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
 from backend.routes import jwt_validator, supabase, supabase_service
 from backend.routes._deps import ROLE_LEVEL, _get_auth_user
+from backend.diagnostic_access import diagnostic_principal
 
 MAX_EVENTS = 1000
 HISTORY_ON_CONNECT = 80
@@ -285,7 +287,8 @@ def install_log_capture() -> None:
     if _handler_installed:
         return
     handler = InMemoryLogHandler()
-    handler.setLevel(logging.INFO)
+    mode = os.getenv("MJCC_LOG_MODE", "live").strip().lower()
+    handler.setLevel(logging.DEBUG if mode in {"debug", "dev"} else logging.INFO)
     logging.getLogger().addHandler(handler)
     _handler_installed = True
     record_log("info", "mjcc.api_logs", "API log capture initialized.")
@@ -296,6 +299,19 @@ def require_elevated_user(auth_user: dict = Depends(_get_auth_user)) -> dict:
     if ROLE_LEVEL.get(role, 0) < ROLE_LEVEL["manager"]:
         raise HTTPException(status_code=403, detail="Admin or manager role required")
     return auth_user
+
+
+def require_log_reader(
+    authorization: str = Header(""),
+    x_diagnostic_key: str = Header(""),
+) -> dict:
+    """Allow manager+ humans or the read-only CLI diagnostic principal."""
+    if x_diagnostic_key or authorization.lower().startswith("diagnostic "):
+        return diagnostic_principal(authorization, x_diagnostic_key)
+    user = _get_auth_user(authorization)
+    if ROLE_LEVEL.get(user.get("role", ""), 0) < ROLE_LEVEL["manager"]:
+        raise HTTPException(status_code=403, detail="Admin or manager role required")
+    return user
 
 
 def _user_from_token(token: str) -> dict:
@@ -333,7 +349,7 @@ async def get_api_logs(
     kind: str = Query("all", pattern="^(all|request|log|audit)$"),
     level: str = Query("all"),
     include_durable: bool = Query(True),
-    auth_user: dict = Depends(require_elevated_user),
+    auth_user: dict = Depends(require_log_reader),
 ) -> JSONResponse:
     _ = auth_user
     entries = list(_events)
@@ -355,7 +371,7 @@ async def get_api_logs(
 @router.get("/api/system/logs/audit")
 async def get_audit_logs(
     limit: int = Query(250, ge=1, le=500),
-    auth_user: dict = Depends(require_elevated_user),
+    auth_user: dict = Depends(require_log_reader),
 ) -> JSONResponse:
     """Durable who/what/when audit events for the legacy operator surface."""
     _ = auth_user
@@ -367,7 +383,7 @@ async def get_persisted_errors(
     limit: int = Query(100, ge=1, le=500),
     status_min: int = Query(400, ge=400, le=599),
     since_hours: int = Query(168, ge=1, le=2160),
-    auth_user: dict = Depends(require_elevated_user),
+    auth_user: dict = Depends(require_log_reader),
 ) -> JSONResponse:
     """Durable error history from error_logs — survives restarts/redeploys.
 
@@ -397,7 +413,7 @@ async def get_persisted_errors(
 @router.get("/api/system/logs/stats")
 async def get_log_stats(
     since_hours: int = Query(24, ge=1, le=2160),
-    auth_user: dict = Depends(require_elevated_user),
+    auth_user: dict = Depends(require_log_reader),
 ) -> JSONResponse:
     """Return durable request/error statistics for backend diagnosis."""
     _ = auth_user
@@ -436,6 +452,42 @@ async def get_log_stats(
         raise HTTPException(
             status_code=500, detail=f"Could not load log statistics: {exc}"
         )
+
+
+@router.get("/api/diagnostics/logs")
+async def get_diagnostic_logs(
+    limit: int = Query(250, ge=1, le=MAX_EVENTS),
+    kind: str = Query("all", pattern="^(all|request|log|audit)$"),
+    level: str = Query("all"),
+    principal: dict = Depends(diagnostic_principal),
+) -> JSONResponse:
+    """Stable read-only CLI endpoint; never exposes business records."""
+    _ = principal
+    return await get_api_logs(
+        limit=limit, kind=kind, level=level, include_durable=True, auth_user=principal
+    )
+
+
+@router.get("/api/diagnostics/logs/stats")
+async def get_diagnostic_log_stats(
+    since_hours: int = Query(24, ge=1, le=2160),
+    principal: dict = Depends(diagnostic_principal),
+) -> JSONResponse:
+    _ = principal
+    return await get_log_stats(since_hours=since_hours, auth_user=principal)
+
+
+@router.get("/api/diagnostics/logs/errors")
+async def get_diagnostic_errors(
+    limit: int = Query(100, ge=1, le=500),
+    status_min: int = Query(400, ge=400, le=599),
+    since_hours: int = Query(168, ge=1, le=2160),
+    principal: dict = Depends(diagnostic_principal),
+) -> JSONResponse:
+    _ = principal
+    return await get_persisted_errors(
+        limit=limit, status_min=status_min, since_hours=since_hours, auth_user=principal
+    )
 
 
 @router.get("/api/system/logs/stream")

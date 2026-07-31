@@ -1,5 +1,29 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.40] — 2026-07-31 — CLI diagnostic identity and logging modes
+
+**Codex:** Added the read-only `codex-diagnostics` service principal backed by
+the server-only `MJCC_DIAGNOSTIC_LOG_KEY` environment variable. The new
+`/api/diagnostics/logs`, `/api/diagnostics/logs/stats`, and
+`/api/diagnostics/logs/errors` endpoints accept only the diagnostic key and
+cannot access business data or mutate state. Human manager/admin log access
+continues to work through the existing Supabase login.
+
+**Codex:** Added `scripts/kpncompute_diag.py`, which reads
+`KPNCOMPUTE_DIAGNOSTIC_KEY` from the process environment and never accepts the
+secret as a command-line argument. Added `MJCC_LOG_MODE` modes: `live` (INFO),
+`light` (WARNING), `debug` (DEBUG app logs), and `dev` (DEBUG including noisy
+third-party console logs). Existing `LOG_LEVEL` remains an override.
+
+**Verified:** Backend tests `192 passed, 14 skipped`; Ruff check/format clean;
+backend import clean; local mode levels verified. Production endpoint currently
+returns `404` because this source change has not been deployed and
+`MJCC_DIAGNOSTIC_LOG_KEY` has not yet been configured in Render. No credential
+was generated, stored, or committed.
+
+**Push:** pending — deployment requires the Render environment secret to be
+configured first.
+
 ## [v0.1.39] — 2026-07-31 — durable per-request staff diagnostics
 
 **Codex:** Added durable `http.request` audit events for every backend request
@@ -9219,3 +9243,20 @@ Week 1 `451/451`, Week 2 `184/184`. Targeted backend tests **24 passed**;
 full verification pending after final formatting.
 
 **Push:** pending - source fix ready for commit and push.
+## [v0.1.31] - 2026-07-31 - July inventory operational audit
+
+**Codex:** Verified the authenticated production July 2026 monthly editor: 347
+items; opening `$9,751.73`; received `$30,312.24`; issued `$28,634.67`; closing
+`$11,577.13`. The visible aggregate values reconcile, and the W1/W2 invoice
+groups are marked reconciled. The monthly period remains **Open**.
+
+**Codex:** Render logs show repeated successful `GET /api/inventory?month=7&year=2026`
+requests from Othniel's session, but no July rollover/publish, report download, or
+archive-file request in the inspected 2026-07-31 window. Publishing was therefore
+not performed: row-level opening-to-prior-ending continuity was not exposed by
+the current UI, so readiness could not be proven safely.
+
+**Automation:** The hourly read-only Othniel inventory audit heartbeat is active:
+`kpncompute-hourly-othniel-inventory-audit`.
+
+**Push:** not applicable - operational audit only.

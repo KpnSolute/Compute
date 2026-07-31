@@ -6,19 +6,41 @@ import time
 import traceback
 import uuid
 
+# Load local environment before configuring logging. Render supplies environment
+# variables directly, while this keeps local CLI diagnostics consistent.
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+def _log_level() -> int:
+    """Resolve the operational logging mode with LOG_LEVEL compatibility."""
+    explicit = os.getenv("LOG_LEVEL", "").strip().upper()
+    if explicit:
+        return getattr(logging, explicit, logging.INFO)
+    mode = os.getenv("MJCC_LOG_MODE", "live").strip().lower()
+    return {
+        "light": logging.WARNING,
+        "live": logging.INFO,
+        "debug": logging.DEBUG,
+        "dev": logging.DEBUG,
+    }.get(mode, logging.INFO)
+
+
 # Configure root logging BEFORE any module-level `logging.getLogger(...)` calls
 # happen on import (engine.py, data_entry.py, etc.) -- otherwise those loggers
 # inherit the default WARNING level and every log.info()/log.warning() call
 # (including AI request start/done lines and data-entry pipeline progress)
 # is silently dropped and never reaches Render's log stream.
 logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    level=_log_level(),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     stream=sys.stdout,  # Render captures stdout/stderr as the log stream
 )
 # Quiet noisy third-party libraries at INFO -- httpx/httpcore log every single
 # outbound request line by line, which would drown out the [AI]/[DATA-ENTRY]
 # lines we actually care about. Our own loggers (mjcc.*) stay at the level above.
+_log_mode = os.getenv("MJCC_LOG_MODE", "live").strip().lower()
 for _noisy in (
     "httpx",
     "httpcore",
@@ -28,14 +50,15 @@ for _noisy in (
     "gotrue",
     "storage3",
 ):
-    logging.getLogger(_noisy).setLevel(logging.WARNING)
+    logging.getLogger(_noisy).setLevel(
+        logging.DEBUG if _log_mode in {"debug", "dev"} else logging.WARNING
+    )
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from dotenv import load_dotenv
 from backend.routes.auth import router as auth_router
 from backend.routes.users import router as users_router
 from backend.routes.inventory import router as inventory_router
@@ -68,8 +91,6 @@ from backend.routes.api_logs import (
 from backend.error_log import record_error
 from backend.audit_events import current_request_id, record_audit_event
 from fastapi.responses import HTMLResponse
-
-load_dotenv()
 
 app = FastAPI(title="MJCC API")
 install_log_capture()
