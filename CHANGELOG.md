@@ -1,5 +1,17 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.45] — 2026-07-31 — display local portal log times
+
+**Codex:** The live-tail portal now renders each event timestamp in the
+viewer’s local timezone using a regular 12-hour clock with minute precision
+(for example, `1:26 PM`). The UTC timestamp remains unchanged in the API and
+audit data so cross-service investigation retains an unambiguous source time.
+
+**Verified:** Focused portal rendering and backend checks are pending release
+validation.
+
+**Push:** pending — local-time display ready for release.
+
 ## [v0.1.44] — 2026-07-31 — advance release metadata for session fix
 
 **Codex:** The required release gate found that `v0.1.4` already exists on
