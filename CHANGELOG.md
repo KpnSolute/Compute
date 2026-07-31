@@ -23,6 +23,9 @@ change.
 
 **Push:** pending — gate follow-up.
 
+**Gate follow-up:** The first metadata retry also required the lockfile root
+version; `frontend/package-lock.json` now agrees with `VERSION` at `0.1.3`.
+
 ## [v0.1.34] — 2026-07-31 — make Pull Sheet corrections source-control safe
 
 **Codex:** Production Render logs confirmed the in-site commit was rejected by
