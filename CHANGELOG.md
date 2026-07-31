@@ -15,7 +15,7 @@ failure.
 **Verified:** Added regression coverage for the replay exception path. Full
 release checks pending.
 
-**Push:** pending — source-control audit guard not yet committed or pushed.
+**Push:** Codex → `52608db` on `codex/source-control-audit-guard` — committed; push pending.
 
 ## [v0.1.33] — 2026-07-30 — prevent duplicate release-tag failures
 
