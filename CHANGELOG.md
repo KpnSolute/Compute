@@ -1,5 +1,19 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.35] — 2026-07-31 — stage authoritative weekly pull replacements
+
+**Codex:** Fixed the live Pull Sheet/source-control mismatch where a pending
+weekly replacement could retain a stale pull for an item that had been cleared
+in the editor. Regular and compact weekly staging now send every inventory item
+with its computed quantity, including explicit zeroes, so the backend overwrite
+scope and the UI payload represent the same complete week.
+
+**Verified:** `git diff --check` clean. Frontend lint/typecheck/build could not
+complete on the mapped workspace because the npm process hung before producing
+results; rerun in CI/local Render build environment.
+
+**Push:** pending — source follow-up not yet committed or pushed.
+
 ## [v0.1.34] — 2026-07-31 — make Pull Sheet corrections source-control safe
 
 **Codex:** Production Render logs confirmed the in-site commit was rejected by
