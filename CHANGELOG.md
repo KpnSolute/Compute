@@ -1,5 +1,18 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.42] — 2026-07-31 — verify zero-stock warning fix in production
+
+**Codex:** Render deployment `e42d10c` reached Live at `16:58:33Z`. The two
+stale-warning lines at `16:58:26Z` were emitted during the old-instance
+handoff; the first fresh post-startup July inventory request at `16:58:50Z`
+returned `200` with no `stale stored value suppressed` warnings. Zero-stock
+residuals are now debug-only while live-stock residuals remain warnings.
+
+**Verified:** Production warning stream is clean after the new instance became
+ready. No inventory data was edited by this fix.
+
+**Push:** pending — verification entry ready for commit.
+
 ## [v0.1.41] — 2026-07-31 — classify zero-stock value residuals correctly
 
 **Codex:** Fixed the recurring July inventory warning spam. The two production
