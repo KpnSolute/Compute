@@ -14,6 +14,15 @@ results; rerun in CI/local Render build environment.
 
 **Push:** pending — source follow-up not yet committed or pushed.
 
+## [v0.1.36] — 2026-07-31 — advance release metadata for required gate
+
+**Codex:** The PR gate rejected the branch before testing because `v0.1.2`
+already exists on the current main commit. Advanced `VERSION` and the frontend
+package version to `0.1.3` so the required release gate can evaluate the actual
+change.
+
+**Push:** pending — gate follow-up.
+
 ## [v0.1.34] — 2026-07-31 — make Pull Sheet corrections source-control safe
 
 **Codex:** Production Render logs confirmed the in-site commit was rejected by
