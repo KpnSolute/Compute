@@ -1,5 +1,30 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.37] — 2026-07-31 — fix source-control weekly replay rejection
+
+**Codex:** Identified the actual source-control commit defect. The live
+`recompute_week_totals` function rebuilt weekly ledger totals without carrying
+the existing `monthly_inventory.opening_oh` into its upsert tuple. The database
+over-pull trigger then evaluated valid later-week pulls against an opening
+balance of zero and rejected the commit (`requested 2.00, available 0.00`).
+Migration `052_preserve_opening_balance_on_week_recompute.sql` now preserves
+the opening balance and updates only derived weekly totals. It was applied to
+the live MJCCv1 database, and the corrected pending Week 1 pull-sheet commit
+merged successfully as commit `0eb9f5a8-928f-4771-9296-f5c3d70744fb`.
+
+**Verified:** Live `commit.approve` recorded `result=merged`, `status_code=201`,
+`applied=1`, `replayed=1`, `failed=0`. The over-pull guard remains active; no
+guard bypass was added.
+
+**Push:** pending — tracked migration and changelog entry not yet committed or pushed.
+
+## [v0.1.38] — 2026-07-31 — advance release metadata for merge gate
+
+**Codex:** The required PR gate correctly blocked merge because `v0.1.3`
+already exists on `main`. Advanced synchronized release metadata to `0.1.4`.
+
+**Push:** pending — release metadata follow-up.
+
 ## [v0.1.35] — 2026-07-31 — stage authoritative weekly pull replacements
 
 **Codex:** Fixed the live Pull Sheet/source-control mismatch where a pending
