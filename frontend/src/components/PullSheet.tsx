@@ -349,6 +349,19 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
     [items, pullQtyFor, qtys]
   );
 
+  // A weekly pull is staged as an authoritative replacement.  The payload must
+  // therefore include every item, including explicit zeroes.  Sending only
+  // positive/edited rows lets a stale pending payload reintroduce a pull for an
+  // item that was cleared in the editor.
+  const authoritativeItems = useMemo(() => items.map(it => ({
+    sku: String(it.sku),
+    desc: pdesc(it),
+    qty: pullQtyFor(it),
+    price: pprice(it),
+    category: pcat(it),
+    unit: punit(it),
+  })), [items, pullQtyFor]);
+
   const compactStagedByWeek = useMemo(() =>
     PULL_WEEKS.map(wk => ({
       week: wk,
@@ -455,14 +468,17 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
             month,
             year,
             week: group.week,
-            items: group.items.map(i => ({
-              sku: i.sku,
-              desc: i.desc,
-              qty: i.qty,
-              price: i.price,
-              category: i.category,
-              unit: i.unit,
-            })),
+            items: items.map(it => {
+              const qty = pullQtyForWeek(it, group.week);
+              return {
+                sku: String(it.sku),
+                desc: pdesc(it),
+                qty,
+                price: pprice(it),
+                category: pcat(it),
+                unit: punit(it),
+              };
+            }),
             note: `Pull sheet W${group.week} - ${MONTHS[month - 1]} ${year}`,
           }).then(() => ({ week: group.week, ok: true as const }))
             .catch((e: any) => ({ week: group.week, ok: false as const, message: e?.message || 'Unknown error' }))
@@ -528,14 +544,7 @@ export function PullSheet({ user, initialMonth, initialYear, onStagingDone }: Pu
         month,
         year,
         week,
-        items: stagedItems.map(i => ({
-          sku: i.sku,
-          desc: i.desc,
-          qty: i.qty,
-          price: i.price,
-          category: i.category,
-          unit: i.unit,
-        })),
+        items: authoritativeItems,
         note: `Pull sheet W${week} · ${MONTHS[month - 1]} ${year}`,
       });
       // ponytail: keep the draft — see compact-mode comment above, same reason.
