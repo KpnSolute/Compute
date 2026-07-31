@@ -27,3 +27,17 @@ def test_pr_commit_message_does_not_duplicate_title(monkeypatch):
     )
 
     assert message == "May 2026"
+
+
+def test_dispatch_exception_becomes_auditable_replay_failure(monkeypatch):
+    sourcectrl = _import_sourcectrl(monkeypatch)
+
+    def reject(_operation, _payload):
+        raise RuntimeError(
+            "Inventory over-pull rejected: requested 7.00, available 5.00"
+        )
+
+    result = sourcectrl._safe_replay(reject, "inventory_week_update", {})
+
+    assert result["applied"] == 0
+    assert "requested 7.00, available 5.00" in result["error"]

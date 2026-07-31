@@ -1,5 +1,36 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.34] — 2026-07-31 — make Pull Sheet corrections source-control safe
+
+**Codex:** Production Render logs confirmed the in-site commit was rejected by
+the database over-pull guard (`requested 7.00, available 5.00`) but escaped the
+dispatcher as an HTTP 500. Weekly staging now supersedes an existing pending
+entry for the same period/week/direction across users, transfers ownership to
+the latest correction, and records that supersession in the audit event.
+Dispatcher/database exceptions are converted into the normal atomic commit
+rejection path, so the exact error remains pending, returns HTTP 409, and is
+recorded by `commit.approve` instead of appearing as an unexplained server
+failure.
+
+**Verified:** Added regression coverage for the replay exception path. Full
+release checks pending.
+
+**Push:** Codex → `52608db` on `codex/source-control-audit-guard` — committed; push pending.
+
+## [v0.1.33] — 2026-07-30 — prevent duplicate release-tag failures
+
+**Codex:** Root cause confirmed for the failed `Verify and Release` run:
+the source commit and push succeeded, but `VERSION` remained `0.1.1` after
+the `v0.1.1` Git tag had already shipped. Bumped the next release metadata to
+`0.1.2`, added duplicate-tag validation to the shared release gate, and made
+the verify job fetch complete tag history so the check runs before the release
+job. The release job's existing check remains as defense in depth.
+
+**Verified:** `v0.1.1` is present on the remote; local version metadata now
+agrees on `0.1.2`. Full test/build verification pending after the gate check.
+
+**Push:** Codex → `a8b4c32` on `codex/release-tag-guard` — pushed 2026-07-30.
+
 ## [v0.1.32] — 2026-07-30 — show Pull Sheet action bar only for edits
 
 **Codex:** Fixed the Pull Sheet bottom bar showing `137 items` immediately on

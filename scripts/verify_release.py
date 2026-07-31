@@ -46,6 +46,30 @@ def version_info() -> tuple[str, str]:
     return version, channel
 
 
+def ensure_tag_available(version: str) -> None:
+    tag = f"v{version}"
+    tag_check = subprocess.run(
+        ["git", "rev-parse", "--verify", f"refs/tags/{tag}"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if tag_check.returncode != 0:
+        return
+
+    tagged_sha = subprocess.run(
+        ["git", "rev-list", "-n", "1", tag],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    raise SystemExit(
+        f"{tag} already exists on {tagged_sha}. Bump VERSION before merging or rerunning release."
+    )
+
+
 def executable(name: str) -> str:
     resolved = shutil.which(name)
     if not resolved and os.name == "nt":
@@ -81,6 +105,7 @@ def main() -> None:
     args = parser.parse_args()
 
     version, channel = version_info()
+    ensure_tag_available(version)
     print(f"Version v{version} validated as channel={channel}")
     if args.version_only:
         if os.getenv("GITHUB_OUTPUT"):
