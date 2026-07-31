@@ -1,10 +1,12 @@
 export const IDLE_LIMIT_MS = 30 * 60 * 1000;
+export const IDLE_WARNING_MS = 10 * 1000;
 export const LAST_ACTIVITY_KEY = 'mjc_last_activity';
 const BACKEND_TOKEN_KEY = 'mjc_backend_token';
 
 let _intervalId: ReturnType<typeof setInterval> | null = null;
 let _cleanup: Array<() => void> = [];
 let _lastWrite = 0;
+let _idleWarningActive = false;
 
 function readLastActivity(): number {
   try {
@@ -29,6 +31,10 @@ function throttledWriteActivity() {
 }
 
 export function markSessionActivity() {
+  if (_idleWarningActive) {
+    _idleWarningActive = false;
+    window.dispatchEvent(new CustomEvent('mjc:session-idle-warning-cancelled'));
+  }
   throttledWriteActivity();
 }
 
@@ -41,7 +47,8 @@ function checkIdle() {
     return;
   }
   const last = readLastActivity();
-  if (last > 0 && Date.now() - last > IDLE_LIMIT_MS) {
+  const idleMs = last > 0 ? Date.now() - last : 0;
+  if (last > 0 && idleMs >= IDLE_LIMIT_MS) {
     stopSessionWatch();
     window.dispatchEvent(
       new CustomEvent('mjc:session-expired', {
@@ -54,6 +61,16 @@ function checkIdle() {
         },
       }),
     );
+    return;
+  }
+  if (last > 0 && idleMs >= IDLE_LIMIT_MS - IDLE_WARNING_MS) {
+    _idleWarningActive = true;
+    window.dispatchEvent(new CustomEvent('mjc:session-idle-warning', {
+      detail: { remainingMs: Math.max(0, IDLE_LIMIT_MS - idleMs) },
+    }));
+  } else if (_idleWarningActive) {
+    _idleWarningActive = false;
+    window.dispatchEvent(new CustomEvent('mjc:session-idle-warning-cancelled'));
   }
 }
 
@@ -79,8 +96,7 @@ function onStorageEvent(e: StorageEvent) {
 
 function onVisibilityChange() {
   if (!document.hidden) {
-    throttledWriteActivity();
-    checkIdle();
+    markSessionActivity();
   }
 }
 
@@ -99,7 +115,8 @@ export function startSessionWatch() {
   document.addEventListener('visibilitychange', onVisibilityChange);
   window.addEventListener('storage', onStorageEvent);
 
-  _intervalId = setInterval(checkIdle, 30_000);
+  // Check every second so the full ten-second warning window is reliable.
+  _intervalId = setInterval(checkIdle, 1_000);
 
   _cleanup = [
     () => {

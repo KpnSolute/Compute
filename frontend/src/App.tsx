@@ -7,7 +7,7 @@ import {
   isBackendTokenPersistent,
   realLogout,
 } from './lib/supabase';
-import { startSessionWatch, stopSessionWatch, IDLE_LIMIT_MS, LAST_ACTIVITY_KEY } from './lib/session';
+import { startSessionWatch, stopSessionWatch, markSessionActivity, IDLE_LIMIT_MS, LAST_ACTIVITY_KEY } from './lib/session';
 import { api, reportSessionEvent } from './lib/api';
 import { Login } from './components/Login';
 import { Portal } from './components/Portal';
@@ -75,6 +75,7 @@ function showToast(html: string, duration = 4000) {
 function App() {
   const [user, setUser] = useState<User | null>(loadSession);
   const [newVersionAvailable, setNewVersionAvailable] = useState(false);
+  const [idleWarningSeconds, setIdleWarningSeconds] = useState<number | null>(null);
   const ssoLaunchStarted = useRef(false);
 
   useEffect(() => {
@@ -102,6 +103,7 @@ function App() {
     detail?: string,
   ) => {
     stopSessionWatch();
+    setIdleWarningSeconds(null);
     // Record WHY before the token goes away, so the audit event can still be
     // attributed. 'unauthorized' is skipped: api.ts already reported it with
     // the failing request path, which is the more useful record.
@@ -120,6 +122,20 @@ function App() {
   }, []);
 
   // Boot: register auth-refresh bridge; if session is restored, start watcher + validate token once.
+  useEffect(() => {
+    const onIdleWarning = (e: Event) => {
+      const remainingMs = Number((e as CustomEvent<{ remainingMs?: number }>).detail?.remainingMs || 0);
+      setIdleWarningSeconds(Math.max(1, Math.ceil(remainingMs / 1000)));
+    };
+    const onIdleWarningCancelled = () => setIdleWarningSeconds(null);
+    window.addEventListener('mjc:session-idle-warning', onIdleWarning);
+    window.addEventListener('mjc:session-idle-warning-cancelled', onIdleWarningCancelled);
+    return () => {
+      window.removeEventListener('mjc:session-idle-warning', onIdleWarning);
+      window.removeEventListener('mjc:session-idle-warning-cancelled', onIdleWarningCancelled);
+    };
+  }, []);
+
   useEffect(() => {
     initAuthRefresh();
     if (user) {
@@ -248,6 +264,26 @@ function App() {
         <Login onLogin={handleLogin} layout="split" />
       ) : (
         <Portal user={user} onLogout={handleLogout} density="comfortable" />
+      )}
+      {user && idleWarningSeconds !== null && (
+        <div role="alertdialog" aria-live="assertive" aria-label="Session timeout warning" style={{
+          position: 'fixed', top: 18, left: '50%', transform: 'translateX(-50%)',
+          width: 'min(460px, calc(100vw - 28px))', zIndex: 10000,
+          background: 'var(--surface, #fff)', color: 'var(--ink, #0f172a)',
+          border: '2px solid #d97706', borderRadius: 12, padding: '14px 16px',
+          boxShadow: '0 12px 32px rgba(0,0,0,.22)',
+        }}>
+          <strong>Still working?</strong>
+          <div style={{ marginTop: 5, fontSize: 13, lineHeight: 1.45 }}>
+            You will be signed out in {idleWarningSeconds} second{idleWarningSeconds === 1 ? '' : 's'} because there has been no activity.
+          </div>
+          <button type="button" onClick={() => markSessionActivity()} style={{
+            marginTop: 10, padding: '7px 12px', borderRadius: 7, border: 0,
+            background: 'var(--accent, #2563eb)', color: '#fff', cursor: 'pointer', fontWeight: 700,
+          }}>
+            Keep me signed in
+          </button>
+        </div>
       )}
       {newVersionAvailable && (
         <div style={{

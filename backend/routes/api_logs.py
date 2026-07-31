@@ -15,7 +15,7 @@ from typing import Any, AsyncGenerator
 
 import jwt
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 
 from backend.routes import jwt_validator, supabase, supabase_service
 from backend.routes._deps import ROLE_LEVEL, _get_auth_user
@@ -28,6 +28,14 @@ _subscribers: list[asyncio.Queue] = []
 _handler_installed = False
 
 router = APIRouter(tags=["api-logs"])
+
+_FAVICON_SVG = """<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 32 32\"><rect width=\"32\" height=\"32\" rx=\"7\" fill=\"#0f274d\"/><path d=\"M8 8h16v4H12v4h9v4h-9v4H8z\" fill=\"#fff\"/></svg>"""
+
+
+@router.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """Handle the conventional browser favicon request without a 404."""
+    return Response(content=_FAVICON_SVG, media_type="image/svg+xml")
 
 
 def _now_iso() -> str:
