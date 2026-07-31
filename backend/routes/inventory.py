@@ -135,10 +135,21 @@ def _flatten_rows(rows: list[dict]) -> list[InventoryItem]:
         received_value = fin["received_value"]
         pulled_value = fin["pulled_value"]
         ending_value = fin["ending_value"]
-        if fin["ending_value_adjustment"]:
+        if fi.should_warn_stale_value(fin):
             logger.warning(
                 "[inventory] stale stored value suppressed | item_id=%s month=%s "
                 "year=%s ending_qty=%s stored_raw=%.4f displayed=%.2f",
+                item_id,
+                row.get("month"),
+                row.get("year"),
+                fin["ending_qty"],
+                fin["ending_value_raw"],
+                ending_value,
+            )
+        elif abs(fin["ending_value_adjustment"]) > 0.005:
+            logger.debug(
+                "[inventory] zero-stock value residual suppressed | item_id=%s "
+                "month=%s year=%s ending_qty=%s raw=%.4f displayed=%.2f",
                 item_id,
                 row.get("month"),
                 row.get("year"),

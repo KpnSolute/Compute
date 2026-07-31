@@ -90,6 +90,7 @@ def test_resolve_row_financials_suppresses_the_live_fork_row():
     # The suppressed residual is reported, not silently dropped.
     assert round(fin["ending_value_raw"], 2) == -1.14
     assert round(fin["ending_value_adjustment"], 2) == 1.14
+    assert fi.should_warn_stale_value(fin) is False
 
 
 def test_resolve_row_financials_suppresses_stale_positive_balance():
@@ -112,6 +113,28 @@ def test_resolve_row_financials_suppresses_stale_positive_balance():
     fin = fi.resolve_row_financials(row)
     assert fin["ending_qty"] == 0
     assert fin["ending_value"] == 0.0
+    assert fi.should_warn_stale_value(fin) is False
+
+
+def test_live_stock_value_residual_is_a_warning():
+    fin = fi.resolve_row_financials(
+        {
+            "opening_oh": 10,
+            "w1_received": 1,
+            "w2_received": 0,
+            "w3_received": 0,
+            "w1_pulled": 0,
+            "w2_pulled": 0,
+            "w3_pulled": 0,
+            "unit_price": 11.11,
+            "opening_value": 111.10,
+            "received_value": 12.34,
+            "pulled_value": 0,
+            "ending_value": 99.99,
+        }
+    )
+    assert fin["ending_qty"] == 11
+    assert fi.should_warn_stale_value(fin) is True
 
 
 def test_resolve_row_financials_derives_values_when_columns_absent():

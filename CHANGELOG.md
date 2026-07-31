@@ -1,5 +1,21 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.41] — 2026-07-31 — classify zero-stock value residuals correctly
+
+**Codex:** Fixed the recurring July inventory warning spam. The two production
+rows repeatedly logged as `stale stored value suppressed` both had
+`ending_qty=0`; their residuals are expected over-pull/invoice-vs-catalog audit
+signals while the displayed value is correctly clamped to `$0.00`. Live mode
+now warns only when a residual exists on remaining physical stock and sends
+zero-stock residuals to debug-level diagnostics. The residual remains available
+to the value/over-pull audit and is not hidden from diagnosis.
+
+**Verified:** Added regression coverage for zero-stock and live-stock residuals;
+targeted invariant tests `22 passed`; Ruff clean. Production correction is
+pending deployment and post-deploy log verification.
+
+**Push:** pending — source fix ready for release.
+
 ## [v0.1.40] — 2026-07-31 — CLI diagnostic identity and logging modes
 
 **Codex:** Added the read-only `codex-diagnostics` service principal backed by

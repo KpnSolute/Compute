@@ -180,6 +180,20 @@ def resolve_row_financials(row: dict, unit_price=None) -> dict:
     }
 
 
+def should_warn_stale_value(financials: dict) -> bool:
+    """Return whether a residual indicates stale value on live stock.
+
+    A zero-stock row can legitimately retain a nonzero raw residual when an
+    over-pull or invoice/catalog price difference is present.  The displayed
+    value is already correctly clamped to zero, and that residual belongs in
+    the over-pull/value audit rather than a repeated request-level warning.
+    """
+    return (
+        num(financials.get("ending_qty")) > 0
+        and abs(num(financials.get("ending_value_adjustment"))) > 0.005
+    )
+
+
 def value_invariant_updates(row: dict) -> dict:
     """Columns that must change for a stored row to satisfy the value contract.
 
