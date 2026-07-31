@@ -302,7 +302,7 @@ async def health_check():
     return {"status": "ok", "service": "MJCC Management API"}
 
 
-@app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
+@app.get("/", response_class=HTMLResponse)
 async def root():
     return HTMLResponse(render_status_page(collect_system_status()))
 
