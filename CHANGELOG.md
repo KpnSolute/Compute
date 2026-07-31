@@ -12,7 +12,7 @@ job. The release job's existing check remains as defense in depth.
 **Verified:** `v0.1.1` is present on the remote; local version metadata now
 agrees on `0.1.2`. Full test/build verification pending after the gate check.
 
-**Push:** pending — release guard fix is on `codex/release-tag-guard`.
+**Push:** Codex → `a8b4c32` on `codex/release-tag-guard` — pushed 2026-07-30.
 
 ## [v0.1.32] — 2026-07-30 — show Pull Sheet action bar only for edits
 
