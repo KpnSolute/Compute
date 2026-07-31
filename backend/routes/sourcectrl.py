@@ -720,6 +720,18 @@ def _pr_commit_message(pr: dict) -> str:
     return title
 
 
+def _safe_replay(replay_fn, operation: str, payload: dict) -> dict:
+    """Convert dispatcher/database exceptions into an auditable failure result."""
+    try:
+        return replay_fn(operation, payload)
+    except Exception as exc:
+        error = str(exc).strip() or type(exc).__name__
+        log.warning(
+            "[COMMIT] replay rejected | operation=%s error=%s", operation, error
+        )
+        return {"applied": 0, "error": error}
+
+
 # ── core replay→commit helper ─────────────────────────────────────────────────
 
 
@@ -899,6 +911,9 @@ def _apply_entries(
             else:
                 _other_entries.append(entry)
 
+        def replay_safely(operation: str, payload: dict) -> dict:
+            return _safe_replay(replay, operation, payload)
+
         replay_results = []
         try:
             for group in _inv_save_groups.values():
@@ -917,7 +932,7 @@ def _apply_entries(
                         e["full_payload"].get("review_new") for e in group
                     ),
                 }
-                result = replay("inventory_save", merged_payload)
+                result = replay_safely("inventory_save", merged_payload)
                 for e in group:
                     replay_results.append(
                         {
@@ -943,7 +958,7 @@ def _apply_entries(
                         entry["full_payload"].get("review_new") for entry in group
                     ),
                 }
-                result = replay("inventory_week_update", merged_payload)
+                result = replay_safely("inventory_week_update", merged_payload)
                 for entry in group:
                     replay_results.append(
                         {
@@ -956,7 +971,9 @@ def _apply_entries(
             for entry in _other_entries:
                 op = entry.get("operation")
                 fp = entry.get("full_payload")
-                result = replay(op, {**fp, "_staging_entry_id": entry["entry_id"]})
+                result = replay_safely(
+                    op, {**fp, "_staging_entry_id": entry["entry_id"]}
+                )
                 replay_results.append(
                     {"entry_id": entry["entry_id"], "operation": op, "result": result}
                 )
@@ -1464,24 +1481,33 @@ async def submit_staging(
         # Uses the shared helper from _deps so data_entry.py enforces the same rule.
         check_direction_role(caller_role, body.operation, body.full_payload)
         # Dedup: update existing pending entry rather than stacking duplicates
-        existing_r = (
+        existing_query = (
             supabase_service.table("staging_entries")
-            .select("entry_id")
+            .select("entry_id,submitted_by")
             .eq("entity_id", body.entity_id)
             .eq("field_name", body.field_name)
-            .eq("submitted_by", auth_user["id"])
             .eq("status", "pending")
-            .limit(1)
-            .execute()
         )
+        # A weekly pull is a replacement for one logical week, so a manager's
+        # correction must supersede another user's stale pending pull. Other
+        # staging operations retain per-user deduplication semantics.
+        if body.operation != "inventory_week_update":
+            existing_query = existing_query.eq("submitted_by", auth_user["id"])
+        existing_r = existing_query.limit(1).execute()
         if existing_r.data:
             entry_id = existing_r.data[0]["entry_id"]
+            previous_submitter = existing_r.data[0].get("submitted_by")
             update_fields = {
                 "old_value_text": body.old_value,
                 "new_value_text": body.new_value,
                 "metadata": body.metadata or {},
                 "operation": body.operation,
                 "full_payload": body.full_payload,
+                # A correction is owned by the person who made the latest
+                # correction, even when it supersedes another user's pending
+                # weekly pull. This prevents stale cross-user quantities from
+                # surviving into the eventual commit.
+                "submitted_by": auth_user["id"],
             }
             r = (
                 supabase_service.table("staging_entries")
@@ -1507,7 +1533,11 @@ async def submit_staging(
                 period_year=_dedup_period[1],
                 staging_id=entry_id,
                 status_code=201,
-                detail="updated existing pending entry (dedup)",
+                detail=(
+                    "updated existing pending entry (dedup)"
+                    if previous_submitter == auth_user["id"]
+                    else "superseded pending entry from another user"
+                ),
             )
             return deduped
 
