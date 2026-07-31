@@ -1,5 +1,12 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.44] — 2026-07-31 — advance release metadata for session fix
+
+**Codex:** The required release gate found that `v0.1.4` already exists on
+`main`. Advanced synchronized release metadata to `0.1.5` before PR validation.
+
+**Push:** pending — release metadata follow-up.
+
 ## [v0.1.43] — 2026-07-31 — stabilize idle sessions and close log 404s
 
 **Codex:** Production audit evidence showed recoverable 401s during token
