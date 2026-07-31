@@ -18,6 +18,13 @@ guard bypass was added.
 
 **Push:** pending — tracked migration and changelog entry not yet committed or pushed.
 
+## [v0.1.38] — 2026-07-31 — advance release metadata for merge gate
+
+**Codex:** The required PR gate correctly blocked merge because `v0.1.3`
+already exists on `main`. Advanced synchronized release metadata to `0.1.4`.
+
+**Push:** pending — release metadata follow-up.
+
 ## [v0.1.35] — 2026-07-31 — stage authoritative weekly pull replacements
 
 **Codex:** Fixed the live Pull Sheet/source-control mismatch where a pending
