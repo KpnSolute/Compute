@@ -669,6 +669,13 @@ function connect(){
   source.onerror=()=>{state.className='pill down'; state.lastElementChild.textContent='Reconnecting'};
 }
 function push(event,flash){event.flash=flash; if(!events.find(e=>e.id===event.id)) events.push(event); events=events.slice(-maxRows); draw();}
+function formatTimestamp(value){
+  const date=new Date(value);
+  if(Number.isNaN(date.getTime())) return esc(value || '');
+  const localDate=date.toLocaleDateString([], {year:'numeric', month:'2-digit', day:'2-digit'});
+  const localTime=date.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+  return `${esc(localDate)}<br>${esc(localTime)}`;
+}
 function draw(){
   const f=$('filter').value.toLowerCase(), k=$('kind').value, levels=$('level').value;
   const levelSet=levels==='all'?null:new Set(levels.split(','));
@@ -679,7 +686,7 @@ function draw(){
   $('rows').innerHTML=visible.map(e=>{
     const type=esc(e.type||'log'), level=esc(e.level||''), src=esc(e.type==='request'?e.method:e.source), msg=esc(e.type==='request'?(e.path||e.message):e.message);
     const rowClass=e.flash?' class="flash"':''; e.flash=false;
-    return `<tr${rowClass}><td>${esc((e.ts||'').replace('T',' ').replace(/\\.\\d+\\+00:00/,'Z'))}</td><td class="type ${type}">${type}</td><td class="${level}">${level}</td><td>${src}</td><td class="${e.type==='request'?'path':'msg'}" title="${msg}">${msg}</td><td class="hide-sm ${level}">${esc(e.status||'')}</td><td class="hide-sm">${esc(e.duration_ms||'')}</td><td class="hide-sm">${esc(e.user||'')}</td></tr>`;
+    return `<tr${rowClass}><td>${formatTimestamp(e.ts)}</td><td class="type ${type}">${type}</td><td class="${level}">${level}</td><td>${src}</td><td class="${e.type==='request'?'path':'msg'}" title="${msg}">${msg}</td><td class="hide-sm ${level}">${esc(e.status||'')}</td><td class="hide-sm">${esc(e.duration_ms||'')}</td><td class="hide-sm">${esc(e.user||'')}</td></tr>`;
   }).join('') || '<tr><td colspan="8" style="color:var(--muted);padding:24px;text-align:center">No log events yet.</td></tr>';
 }
 document.addEventListener('keydown',e=>{if(e.key==='Enter' && $('login').style.display!=='none') login()});
