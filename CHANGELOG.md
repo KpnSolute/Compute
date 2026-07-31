@@ -1,5 +1,29 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.44] — 2026-07-31 — advance release metadata for session fix
+
+**Codex:** The required release gate found that `v0.1.4` already exists on
+`main`. Advanced synchronized release metadata to `0.1.5` before PR validation.
+
+**Push:** pending — release metadata follow-up.
+
+## [v0.1.43] — 2026-07-31 — stabilize idle sessions and close log 404s
+
+**Codex:** Production audit evidence showed recoverable 401s during token
+refresh, plus 404s for `/favicon.ico` and the not-yet-deployed diagnostic log
+stats endpoint. Added a ten-second idle warning window: activity or the Keep
+me signed in action cancels the pending logout; only a fully elapsed 30-minute
+hidden/inactive period dispatches session teardown. Added a backend favicon
+response so the log portal no longer requests a missing asset.
+
+**Verified:** Live audit rows showed `refresh_recovered` rather than forced
+logout for observed token refresh events. Backend log tests pass (5); Ruff
+clean. Frontend lint and TypeScript passed; the local mapped-share build is
+blocked by the existing Rolldown native-binding access error, so CI/Render
+provides final frontend build proof.
+
+**Push:** pending — session and 404 fix ready for release.
+
 ## [v0.1.42] — 2026-07-31 — verify zero-stock warning fix in production
 
 **Codex:** Render deployment `e42d10c` reached Live at `16:58:33Z`. The two
