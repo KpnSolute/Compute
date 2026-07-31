@@ -62,10 +62,11 @@ from backend.routes.api_logs import (
     record_log,
     record_request,
     router as api_logs_router,
+    _token_actor_hint,
     _token_user_hint,
 )
 from backend.error_log import record_error
-from backend.audit_events import current_request_id
+from backend.audit_events import current_request_id, record_audit_event
 from fastapi.responses import HTMLResponse
 
 load_dotenv()
@@ -114,6 +115,22 @@ async def api_request_logger(request: Request, call_next):
                 client_ip=client_ip or (request.client.host if request.client else ""),
                 request_id=request_id,
             )
+            actor = _token_actor_hint(request.headers.get("authorization"))
+            record_audit_event(
+                action="http.request",
+                result="failed",
+                actor=actor,
+                method=request.method,
+                path=path,
+                target_type="request",
+                target_id=request_id,
+                status_code=500,
+                duration_ms=duration_ms,
+                error_type=type(exc).__name__,
+                detail=str(exc),
+                request_id=request_id,
+                emit_log=False,
+            )
             record_log(
                 "error",
                 "mjcc.api",
@@ -132,6 +149,25 @@ async def api_request_logger(request: Request, call_next):
             user_hint=_token_user_hint(request.headers.get("authorization")),
             client_ip=client_ip or (request.client.host if request.client else ""),
             request_id=request_id,
+        )
+        actor = _token_actor_hint(request.headers.get("authorization"))
+        result = (
+            "failed"
+            if response.status_code >= 500
+            else ("rejected" if response.status_code >= 400 else "observed")
+        )
+        record_audit_event(
+            action="http.request",
+            result=result,
+            actor=actor,
+            method=request.method,
+            path=path,
+            target_type="request",
+            target_id=request_id,
+            status_code=response.status_code,
+            duration_ms=duration_ms,
+            request_id=request_id,
+            emit_log=False,
         )
     response.headers["X-Request-ID"] = request_id
     if path.startswith("/api/"):

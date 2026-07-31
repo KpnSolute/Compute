@@ -87,6 +87,7 @@ def record_audit_event(
     detail=None,
     session_reason: str | None = None,
     request_id: str | None = None,
+    emit_log: bool = True,
 ) -> None:
     """Durably record one audit event. Fire-and-forget; never raises.
 
@@ -122,22 +123,23 @@ def record_audit_event(
             "session_reason": session_reason,
             "request_id": request_id or current_request_id.get(),
         }
-        _log.info(
-            "[AUDIT] %s -> %s | actor=%s role=%s target=%s/%s period=%s/%s "
-            "staging=%s pr=%s commit=%s req=%s",
-            action,
-            resolved_result,
-            row["actor_name"] or row["actor_id"],
-            row["actor_role"],
-            row["target_type"],
-            row["target_id"],
-            row["period_month"],
-            row["period_year"],
-            row["staging_id"],
-            row["pr_id"],
-            row["commit_id"],
-            row["request_id"],
-        )
+        if emit_log:
+            _log.info(
+                "[AUDIT] %s -> %s | actor=%s role=%s target=%s/%s period=%s/%s "
+                "staging=%s pr=%s commit=%s req=%s",
+                action,
+                resolved_result,
+                row["actor_name"] or row["actor_id"],
+                row["actor_role"],
+                row["target_type"],
+                row["target_id"],
+                row["period_month"],
+                row["period_year"],
+                row["staging_id"],
+                row["pr_id"],
+                row["commit_id"],
+                row["request_id"],
+            )
         _executor.submit(_blocking_insert, row)
     except Exception:
         pass

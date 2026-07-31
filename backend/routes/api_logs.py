@@ -8,6 +8,7 @@ import logging
 import time
 import traceback
 from collections import deque
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncGenerator
 
@@ -86,6 +87,34 @@ def _token_user_hint(authorization: str | None) -> str:
     if role and sub:
         return f"{role}:{sub[:8]}"
     return sub[:8] if sub else "authenticated"
+
+
+def _token_actor_hint(authorization: str | None) -> dict[str, str | None]:
+    """Return safe actor identifiers from a bearer token without a DB lookup."""
+    token = (authorization or "").replace("Bearer ", "").strip()
+    if not token:
+        return {}
+    if token.startswith("pin_"):
+        user_id = token[4:]
+        return {
+            "id": user_id or None,
+            "display_name": f"staff:{user_id[:8]}" if user_id else "staff",
+            "role": "staff",
+        }
+    try:
+        claims = jwt.decode(token, options={"verify_signature": False})
+    except Exception:
+        return {"display_name": "authenticated"}
+    user_id = str(claims.get("sub") or "")
+    email = str(claims.get("email") or "")
+    metadata = claims.get("app_metadata") or claims.get("user_metadata") or {}
+    role = metadata.get("role") if isinstance(metadata, dict) else None
+    return {
+        "id": user_id or None,
+        "display_name": email
+        or (f"user:{user_id[:8]}" if user_id else "authenticated"),
+        "role": str(role) if role else None,
+    }
 
 
 def record_request(
@@ -203,6 +232,39 @@ def _read_audit_events(limit: int) -> list[dict[str, Any]]:
             "Could not read audit_events; migration may be pending", exc_info=True
         )
         return []
+
+
+def _summarize_request_events(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build operator-safe request statistics from durable HTTP audit rows."""
+    actors = Counter()
+    routes = Counter()
+    statuses = Counter()
+    durations = []
+    for event in events:
+        actor = event.get("actor_name") or event.get("actor_id") or "anonymous"
+        path = event.get("path") or "unknown"
+        status = str(event.get("status_code") or "unknown")
+        actors[actor] += 1
+        routes[path] += 1
+        statuses[status] += 1
+        duration = event.get("duration_ms")
+        if isinstance(duration, (int, float)):
+            durations.append(duration)
+    return {
+        "request_count": len(events),
+        "actor_count": len(actors),
+        "by_actor": [
+            {"actor": actor, "requests": count} for actor, count in actors.most_common()
+        ],
+        "by_route": [
+            {"path": path, "requests": count} for path, count in routes.most_common(25)
+        ],
+        "by_status": dict(statuses),
+        "duration_ms": {
+            "avg": round(sum(durations) / len(durations), 1) if durations else None,
+            "max": max(durations) if durations else None,
+        },
+    }
 
 
 class InMemoryLogHandler(logging.Handler):
@@ -330,6 +392,50 @@ async def get_persisted_errors(
         return JSONResponse({"errors": result.data or []})
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Could not load errors: {exc}")
+
+
+@router.get("/api/system/logs/stats")
+async def get_log_stats(
+    since_hours: int = Query(24, ge=1, le=2160),
+    auth_user: dict = Depends(require_elevated_user),
+) -> JSONResponse:
+    """Return durable request/error statistics for backend diagnosis."""
+    _ = auth_user
+    since = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).isoformat()
+    try:
+        result = (
+            supabase_service.table("audit_events")
+            .select(
+                "actor_id,actor_name,actor_role,action,path,status_code,duration_ms,created_at"
+            )
+            .eq("action", "http.request")
+            .gte("created_at", since)
+            .order("created_at", desc=True)
+            .limit(10000)
+            .execute()
+        )
+        errors = (
+            supabase_service.table("error_logs")
+            .select("status_code,error_type,path,created_at,request_id,user_hint")
+            .gte("created_at", since)
+            .order("created_at", desc=True)
+            .limit(1000)
+            .execute()
+        )
+        summary = _summarize_request_events(result.data or [])
+        summary.update(
+            {
+                "since": since,
+                "window_hours": since_hours,
+                "error_count": len(errors.data or []),
+                "recent_errors": errors.data or [],
+            }
+        )
+        return JSONResponse(summary)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Could not load log statistics: {exc}"
+        )
 
 
 @router.get("/api/system/logs/stream")

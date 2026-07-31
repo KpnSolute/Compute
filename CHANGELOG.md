@@ -1,5 +1,21 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.39] — 2026-07-31 — durable per-request staff diagnostics
+
+**Codex:** Added durable `http.request` audit events for every backend request
+except the live log stream, using the existing `request_id` as the correlation
+key. Each event records the safe actor identifier from the bearer token, route,
+method, outcome, status, latency, and request ID without storing credentials or
+request payloads. Added `GET /api/system/logs/stats?since_hours=N` for manager+
+operators with request totals, staff totals, route/status breakdowns, latency
+summary, and recent durable errors. Added tests for actor hints and aggregation.
+
+**Verified:** `ruff check backend/`; `python -c "import backend.main"`; full
+backend suite `191 passed, 14 skipped`; `git diff --check` clean. This is local
+source work only; no commit, push, deploy, or production schema change was made.
+
+**Push:** local `main` — committed locally; not pushed or deployed.
+
 ## [v0.1.37] — 2026-07-31 — fix source-control weekly replay rejection
 
 **Codex:** Identified the actual source-control commit defect. The live
