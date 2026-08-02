@@ -18,7 +18,7 @@ Claude and Codex implement one shared **Frontline Governor** contract defined in
 
 Routine delegation is mandatory, not merely a last-resort throttle. Send simple or repetitive execution to the allowlisted local CLI workers in this order: OpenCode, Mimo, then another configured fallback. Keep the assignment bounded, inspect the result, and run the shared release gate yourself. Worker output does not receive co-author credit unless the user explicitly requests it.
 
-For verified automated work, standing user authority permits branch creation, commit, and push without a second confirmation. Run `scripts/verify_release.py` first and verify the remote ref afterward. Never force-push, rewrite history, disclose secrets, bypass branch protection, or claim a push/deploy that was not verified. Direct `main` pushes require explicit permission in the active KpnRelay project adapter.
+For verified automated work, standing user authority permits branch creation, commit, and push without a second confirmation. Run `scripts/verify_release.py` first and verify the remote ref afterward. Never force-push, rewrite history, disclose secrets, bypass branch protection, or claim a push/deploy that was not verified.
 
 - **Testing & sandboxing** → the **TestSprite MCP** (autonomous test-plan generation + cloud sandbox runs) or a spawned subagent.
 - **Resource-heavy verification** (multi-file parsing, mass structural analysis, dependency/compile checks) → spawn an **`Explore`** or **`general-purpose`** subagent via the `Agent` tool, then re-absorb the summarized result.

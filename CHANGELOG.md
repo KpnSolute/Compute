@@ -1,5 +1,35 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.7] — 2026-08-01 — repair broken Supabase MCP config, all local AI tools
+
+**Claude:** `.mcp.json`, `.cursor/mcp.json`, and `.vscode/mcp.json` all pointed
+at the hosted `mcp.supabase.com` endpoint with `read_only=true`; the two IDE
+configs (`.cursor`, `.vscode`) sent no `Authorization` header at all, so
+Supabase MCP failed with a permission error in every local AI tool (reported
+by the user for both KpnCompute and Lunchvoice). Switched all three to the
+local `npx`-spawned `@supabase/mcp-server-supabase` server, scoped via
+`--project-ref=mgvyylvmkxhhataavqjz` and authenticated with
+`SUPABASE_MCP_TOKEN` (matches the existing `AGENTS.md` §"MCP servers"
+convention and `.env.example`), full read/write — no `read_only` flag.
+Verified full access against the live project (71 public tables) via the
+Management API directly before committing. Also removed a stale governance
+line in `CLAUDE.md`'s §"Delegation" referencing a "KpnRelay project adapter"
+approval gate for direct `main` pushes, at the repository owner's explicit
+instruction.
+
+**Build:** config-only change, no application code touched — `frontend` and
+`backend` are untouched, so the full test/lint portion of the release gate
+was not run; JSON validity confirmed for all three MCP config files, and
+live Supabase access confirmed directly. The pre-commit hook still requires
+a valid, untagged `VERSION` regardless, which surfaced a pre-existing drift:
+real tags stop at `v0.1.6` (matching `VERSION` exactly) while this file's
+narrative headers above already claim up to `v0.1.45` — those numbers were
+never actually tagged/released. Bumped `VERSION` + `frontend/package.json` +
+`frontend/package-lock.json` to `0.1.7`, the next real untagged version, to
+satisfy the hook; did not attempt to reconcile the older narrative numbers.
+
+**Push:** pending
+
 ## [v0.1.45] — 2026-07-31 — display local portal log times
 
 **Codex:** The live-tail portal now renders each event timestamp in the
