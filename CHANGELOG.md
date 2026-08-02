@@ -28,7 +28,7 @@ never actually tagged/released. Bumped `VERSION` + `frontend/package.json` +
 `frontend/package-lock.json` to `0.1.7`, the next real untagged version, to
 satisfy the hook; did not attempt to reconcile the older narrative numbers.
 
-**Push:** pending
+**Push:** `0207b86` — 2026-08-01
 
 ## [v0.1.45] — 2026-07-31 — display local portal log times
 
