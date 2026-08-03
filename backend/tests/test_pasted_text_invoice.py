@@ -8,7 +8,7 @@ FE997 excluded, item total $1,652.70 + $5 fuel = $1,657.70 printed total.
 """
 
 from backend.ai import parser
-from backend.ai.invoice_parser import invoice_items_to_ops
+from backend.ai.invoice_parser import _extract_meta, invoice_items_to_ops
 
 MULTIFLOW_TEXT = """\
   DATE: 07/14/2026
@@ -57,6 +57,18 @@ def test_txt_paste_is_detected_as_invoice_items():
     # 0 — the vendor_name regex must tolerate leading whitespace or the
     # backend rejects the whole upload with "Invoice vendor is unknown".
     assert data["meta"].get("vendor_name") == "Multi-Flow Industries"
+
+
+def test_us_foods_vendor_is_found_in_remit_to_address_row():
+    pages = [
+        "BILL TO SHIP TO REMIT TO\n"
+        "ADAMS & ASSOCIATES MIAMI JOB CORP CAFETERIA US Foods, Inc.\n"
+        "6151 LAKESIDE DR 3050 NW 183RD ST P.O. BOX 281838"
+    ]
+
+    meta = _extract_meta(pages)
+
+    assert meta["vendor_name"] == "US Foods"
 
 
 def test_txt_paste_extracts_all_lines_and_skips_fuel_surcharge():
