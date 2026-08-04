@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { I } from '../lib/icons';
 import { type User, ROLE_LEVEL, MONTHS } from '../lib/constants';
-import { catColor, fmtMoney, fmtMoneyFull } from '../lib/supabase';
+import { catColor } from '../lib/inventoryUtils';
+import { fmtMoney, fmtMoneyFull } from '../lib/format';
 import { api } from '../lib/api';
 import {
   totalReceived as fTotalReceived,

@@ -27,16 +27,9 @@ const cinpKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
 const VIEW_LABELS: Record<string, string> = Object.fromEntries(
     NAV.flatMap((g) => g.items.map((i) => [i.key, i.label])),
 );
-import {
-    loadLog,
-    fetchInventory,
-    invToList,
-    reorders,
-    fmtMoney,
-    fmtMoneyFull,
-    catColor,
-    getBackendToken,
-} from "../lib/supabase";
+import { getBackendToken } from "../lib/supabase";
+import { invToList, reorders, catColor } from "../lib/inventoryUtils";
+import { fmtMoney, fmtMoneyFull } from "../lib/format";
 import { api, type NotificationItem, type PublicMenuToday, type PublicMenuCycleSlot, type PublicMealPeriod } from "../lib/api";
 import { ComplianceHub } from "./ComplianceHub";
 import { DataEntry } from "./DataEntry";
@@ -134,25 +127,26 @@ function useInventory(period: [number, number]): [any, () => Promise<void>] {
     const [m, y] = period;
     const load = useCallback(async () => {
         setState((s) => ({ ...s, loading: true, error: null }));
-        const res = await fetchInventory(m + 1, y); // 1-indexed API
-        if (res.ok)
+        try {
+            const res = await api.getInventoryGrouped(m + 1, y); // 1-indexed API
             setState({
                 loading: false,
                 inv: res.inv,
-                metadata: (res as any).metadata ?? null,
-                syncedBy: (res as any).syncedBy ?? null,
+                metadata: res.metadata ?? null,
+                syncedBy: null,
                 syncedAt: new Date().toISOString(), // timestamp of this fetch, not row created_at
                 error: res.inv && Object.keys(res.inv as object).length > 0 ? null : "empty",
             });
-        else
+        } catch (e: any) {
             setState({
                 loading: false,
                 inv: null,
                 metadata: null,
                 syncedBy: null,
                 syncedAt: null,
-                error: (res as any).error ?? 'Load failed',
+                error: e?.message ?? 'Load failed',
             });
+        }
     }, [m, y]);
     // Load on mount/period change + auto-refresh + reload on tab-focus
     useEffect(() => {
@@ -983,6 +977,15 @@ function Dashboard({
     const [studentMenuOpen, setStudentMenuOpen] = useState(false);
     const [events, setEvents] = useState<any[]>([]);
     const [eventsLoading, setEventsLoading] = useState(true);
+    const [todayMealLog, setTodayMealLog] = useState<any>(null);
+
+    useEffect(() => {
+        let alive = true;
+        api.getComplianceDoc("meal_log", `Meal Log - ${todayISO}`)
+            .then((doc) => { if (alive) setTodayMealLog(doc); })
+            .catch(() => { if (alive) setTodayMealLog(null); });
+        return () => { alive = false; };
+    }, [todayISO]);
 
     useEffect(() => {
         let alive = true;
@@ -1067,8 +1070,7 @@ function Dashboard({
     const studentModalMeal = currentMenuMeal || menuMeals[0] || null;
     const serviceLabel = serviceStatus?.current_period?.label || studentModalMeal?.period || "Today's menu";
 
-    const ml = loadLog("meallog:" + todayISO, null);
-    const mlRows = (ml && ml.rows) || [];
+    const mlRows = todayMealLog?.rows || [];
     const mlCount = (m: string) => mlRows.filter((r: any) => r[m[0]]).length;
     const mlTotals = {
         B: mlCount("B"),

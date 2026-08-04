@@ -1,5 +1,6 @@
 import { getBackendToken, clearBackendToken, ensureFreshBackendAuth } from './supabase';
 import { markSessionActivity } from './session';
+import { groupByCategory } from './inventoryUtils';
 
 const envBase = (import.meta.env as Record<string, string>).VITE_API_BASE;
 if (!envBase) {
@@ -715,6 +716,21 @@ export const api = {
     return req<InventoryResponse>('/api/inventory', { method: 'POST', body: JSON.stringify(body) });
   },
 
+  /** Inventory grouped by category, as the dashboard/reports/editor views need it. */
+  async getInventoryGrouped(month?: number, year?: number): Promise<{
+    inv: Record<string, InventoryItem[]>;
+    syncedAt: string | null;
+    metadata: Record<string, unknown>;
+  }> {
+    try {
+      const data = await this.getInventory(month, year);
+      return { inv: groupByCategory(data.items), syncedAt: data.created_at, metadata: data.metadata };
+    } catch (e: any) {
+      if (e?.status === 404) return { inv: {}, syncedAt: null, metadata: {} };
+      throw e;
+    }
+  },
+
   async stageWeeklyPull(body: {
     month: number;
     year: number;
@@ -1097,6 +1113,92 @@ export const api = {
 
   async saveDailyLog(body: any): Promise<any> {
     return req('/api/logs/daily', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  /**
+   * Generic compliance/meal document persistence (sanitizer log, taste panel,
+   * machine log, cooling log, meal log, inspection, food request). These have
+   * no dedicated table — they live in daily_operations_logs as entry_type +
+   * title + JSON data. Throws on failure; callers must surface that, not
+   * silently keep a local-only copy.
+   */
+  async saveComplianceDoc(entryType: string, title: string, data: unknown): Promise<void> {
+    await this.saveDailyLog({ entry_type: entryType, title, data: JSON.stringify(data) });
+  },
+
+  async getComplianceDoc<T = any>(entryType: string, title: string, limit = 500): Promise<T | null> {
+    const logs = await this.getDailyLogs(limit, entryType);
+    const match = logs.find((row: any) => row?.title === title);
+    if (!match?.data) return null;
+    try {
+      return typeof match.data === 'string' ? JSON.parse(match.data) : match.data;
+    } catch {
+      return null;
+    }
+  },
+
+  /**
+   * HACCP temperature grid: unlike the doc types above, temperature readings
+   * have a real dedicated table (haccp_logs) — one row per AM/PM reading, not
+   * one blob per month. Reconstructs the month x appliance grid the
+   * Compliance Hub UI needs from those rows.
+   */
+  async saveHaccpTempGrid(
+    location: string,
+    year: number,
+    month: number,
+    rows: Record<number, { am?: string; pm?: string; ami?: string; pmi?: string; note?: string }>,
+  ): Promise<void> {
+    const writes: Promise<unknown>[] = [];
+    Object.entries(rows).forEach(([dayStr, row]) => {
+      const day = Number(dayStr);
+      (['am', 'pm'] as const).forEach((session) => {
+        const raw = String(row?.[session] ?? '').trim();
+        if (!raw) return;
+        const temperature = Number.parseFloat(raw);
+        if (Number.isNaN(temperature)) return;
+        const hour = session === 'am' ? 8 : 16;
+        const timestamp = new Date(year, month, day, hour, 0, 0, 0).toISOString();
+        writes.push(
+          this.saveHaccpLog({
+            location,
+            temperature,
+            unit: 'F',
+            timestamp,
+            checked_by: String(row[session === 'am' ? 'ami' : 'pmi'] || ''),
+            notes: String(row.note || ''),
+          }),
+        );
+      });
+    });
+    const results = await Promise.allSettled(writes);
+    const rejected = results.filter((r) => r.status === 'rejected');
+    if (rejected.length) {
+      throw new Error(`${rejected.length} of ${writes.length} temperature readings failed to save`);
+    }
+  },
+
+  async getHaccpTempGrid(
+    location: string,
+    year: number,
+    month: number,
+  ): Promise<Record<number, { am?: string; pm?: string; ami?: string; pmi?: string; note?: string }>> {
+    const logs = await this.getHaccpLogs(2000, location);
+    const rows: Record<number, { am?: string; pm?: string; ami?: string; pmi?: string; note?: string }> = {};
+    for (const log of logs) {
+      const ts = new Date(log.timestamp);
+      if (ts.getFullYear() !== year || ts.getMonth() !== month) continue;
+      const day = ts.getDate();
+      const session: 'am' | 'pm' = ts.getHours() < 12 ? 'am' : 'pm';
+      const initField = session === 'am' ? 'ami' : 'pmi';
+      rows[day] = {
+        ...rows[day],
+        [session]: String(log.temperature),
+        [initField]: log.checked_by || '',
+        note: log.notes || rows[day]?.note || '',
+      };
+    }
+    return rows;
   },
 
   async getSnackBarSales(params?: { start?: string; end?: string; limit?: number }): Promise<SnackBarSale[]> {

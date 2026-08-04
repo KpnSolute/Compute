@@ -165,6 +165,13 @@ def test_missing_vendor_sku_uses_temp_placeholder_for_new_item_review():
 
 
 def test_usfoods_delivery_recap_controls_items_and_pieces():
+    # A real US Foods DELIVERY SUMMARY TOTALS row's "TOTAL ITEMS SHIPPED"
+    # counts every printed line — including a $0.00/qty_shipped=0 backorder
+    # line (confirmed against a live 195-line invoice with exactly one such
+    # line: the recap said 195, matching the full printed line count, not
+    # the 194 lines with quantity > 0). item_count must therefore count ALL
+    # parsed lines; piece_count sums actual shipped quantity (0 contributes
+    # nothing either way, so item B here still nets to 5 pieces).
     items = [
         {"sku": "A", "qty_shipped": 3, "ext_price": 30, "unit_price": 10},
         {"sku": "B", "qty_shipped": 0, "ext_price": 0, "unit_price": 10},
@@ -174,7 +181,7 @@ def test_usfoods_delivery_recap_controls_items_and_pieces():
         items,
         {
             "product_total": 50,
-            "total_items_shipped": 2,
+            "total_items_shipped": 3,
             "total_pieces_delivered": 5,
         },
     )
@@ -182,13 +189,52 @@ def test_usfoods_delivery_recap_controls_items_and_pieces():
         items,
         {
             "product_total": 50,
-            "total_items_shipped": 3,
+            "total_items_shipped": 4,
             "total_pieces_delivered": 6,
         },
     )
 
-    assert matched["item_count"] == 2
+    assert matched["item_count"] == 3
     assert matched["piece_count"] == 5
     assert matched["quantity_controls_present"] is True
     assert matched["quantity_reconciled"] is True
     assert mismatched["quantity_reconciled"] is False
+
+
+def test_usfoods_delivery_summary_totals_split_across_page_boundary():
+    # Regression for a live 422 (invoice_quantity_controls_missing) on a real
+    # 13-page US Foods invoice: the STORAGE LOCATION RECAP table's per-location
+    # rows print on one page while its "DELIVERY SUMMARY TOTALS" grand-total
+    # row prints on the NEXT page (own header block repeated first), and
+    # pdfplumber wraps the table's 3-word column headers ("TOTAL ITEMS
+    # SHIPPED", "TOTAL PIECES DELIVERED") across two lines — so those labels
+    # never appear as one contiguous phrase anywhere in the extracted text.
+    # The recap numbers must still be recovered from the grand-total data row.
+    page_11 = """INVOICE
+Page 11 of 13
+STORAGE LOCATION RECAP(N)
+STORAGE LOCATION TOTAL PIECES TOTAL PIECES TOTAL PIECES TOTAL PIECES TOTAL ITEMS TOTAL WEIGHT TOTAL EXTENDED
+ORDERED SHIPPED ADJUSTED DELIVERED SHIPPED SHIPPED PRICE
+DRY 218 217 2 215 98 4,049.03 $8,269.19
+REFRIGERATED 94 91 0 91 33 2,816.28 $6,416.46
+FROZEN 151 151 0 151 64 2,421.55 $7,824.92
+Page 11 of 13
+"""
+    page_12 = """INVOICE
+Page 12 of 13
+DELIVERY SUMMARY TOTALS 463 459 2 457 195 9,286.86 $22,510.57
+INVOICE SUMMARY
+Product Total $22,510.57
+VIZIENT-.65% AVG DROP INCENTIV -$146.32 CR
+VIZIENT-.75% VOLUME INCENTIVE -$168.83 CR
+FUEL SURCHARGE $3.00
+Page 12 of 13
+"""
+
+    parsed = parse_invoice_text_pages([page_11, page_12], "split-recap.txt")
+    recon = parsed["meta"]["reconciliation"]
+
+    assert recon["stated_item_count"] == 195
+    assert recon["stated_piece_count"] == 457
+    assert recon["product_total"] == 22510.57
+    assert recon["quantity_controls_present"] is True

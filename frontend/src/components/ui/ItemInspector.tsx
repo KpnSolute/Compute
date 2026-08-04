@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { I } from "../../lib/icons";
 import { api } from "../../lib/api";
-import { catColor, fmtMoneyFull } from "../../lib/supabase";
+import { catColor } from "../../lib/inventoryUtils";
+import { fmtMoneyFull } from "../../lib/format";
 import { MONTHS } from "../../lib/constants";
 
 export interface InspectRow {

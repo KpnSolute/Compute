@@ -9355,3 +9355,51 @@ the current UI, so readiness could not be proven safely.
 `kpncompute-hourly-othniel-inventory-audit`.
 
 **Push:** not applicable - operational audit only.
+
+## [v0.1.32] - 2026-08-03 - clean the frontend API boundary; fix silently-broken temp log
+
+**Claude:** Finished the last I-2 gap: `lib/api.ts` is now the sole data boundary, `lib/supabase.ts` is auth-only.
+
+- Extracted `fmtMoney`/`fmtMoneyFull` to new `lib/format.ts`, and `CCOLOR`/`catColor`/`iTotal`/`invToList`/`grandTotal`/`catTotals`/`reorders`/`groupByCategory` to new `lib/inventoryUtils.ts`. Updated every importer (CostManager, DataEntry, BudgetLineItems, Operations, SnackBarShop, ItemInspector, Portal).
+- Moved `fetchInventory`'s logic into `api.getInventoryGrouped()`; deleted `pushInventory`/`fetchProfiles` (dead code, zero callers) and the deprecated `getSupaConfig`/`saveSupaConfig`/`clearSupaConfig`/`isConnected` demo-toggle shims from `supabase.ts`.
+- Added typed `api.saveComplianceDoc`/`getComplianceDoc` (sanitizer log, taste panel, machine log, cooling log, meal log, inspection, food request — all backed by `daily_operations_logs` via explicit `entry_type` + `title`) and `api.saveHaccpTempGrid`/`getHaccpTempGrid` (real `haccp_logs` rows). Rewired `ComplianceHub.tsx` and `Forms.tsx` off the generic `saveLog`/`fetchLog`/`loadLog` key-string blob mechanism onto these. `Portal.tsx`'s dashboard meal-log peek now awaits `api.getComplianceDoc` instead of a synchronous `loadLog` read.
+- **Found and fixed a live bug this cleanup exposed:** the temperature log's read path (`fetchLog`) matched on the wrong generic title for `temp:` keys and never found a match, so `TemperatureLog` was silently falling back to a stale local-only blob every time — the per-reading writes to the real `haccp_logs` table were a write-only side channel, never read back. `api.getHaccpTempGrid` now reconstructs the month grid directly from `haccp_logs` rows.
+- Removed localStorage as a silent durability fallback everywhere in this path: a failed save now sets a visible `saveError` (shown in the SaveBar) instead of returning `{ok:true, where:'local'}`; initial component state no longer seeds from a local blob. Also collapsed several double-writes that existed only because of the old generic layer (`MealLog`, `InspectionSheet` — the latter's second write used a title that collided across all users/days, a latent bug now fixed by reusing the hook's own per-user-per-day key).
+
+**Verified:** `tsc --noEmit` clean, `npm run lint` 0 errors (683 pre-existing `no-explicit-any` warnings, unchanged in kind), `npm run build` succeeds. Dev server module graph loads with no console errors against the production API fallback (`VITE_API_BASE` env file is absent locally — pre-existing, unrelated to this change — `api.ts`'s hardcoded production fallback covers it). Authenticated click-through (Compliance Hub temp/sanit/taste, Forms meal log/inspection/food request, Dashboard) was not performed by the agent — entering login credentials is outside agent authority; pending manual spot-check.
+
+**Push:** not applicable - working tree only, not committed.
+
+## [v0.1.33] - 2026-08-03 - diagnose invoice_quantity_controls_missing on Augwk1.pdf
+
+**Claude:** User reported a `422 invoice_quantity_controls_missing` on a US Foods week-1 upload. Pulled live Render logs for `srv-d8afnemgvqtc73cr64l0` (`render logs -r ... --start/--end`) to trace it — the SSE `_err()` payload that carries this error is never written to the app log itself, so the only way to find it was correlating request timing.
+
+**Findings:** `jeremiah` uploaded `Augwk1.pdf` (month=8 year=2026 week=1) twice, 44 minutes apart:
+- 22:00:19 — parsed 194 ops in 14.06s, logged `[DATA-ENTRY] Reconcile | ... delta_pct=0.38% ok=True` — fully passed, including the quantity-controls gate.
+- 22:44:57 — same filename/size, parsed 194 ops in 14.83s, but the log stream stops right after `[DATA-ENTRY] Parse complete` — no `Reconcile` line — meaning it was rejected at the `quantity_controls_present` gate (`backend/routes/data_entry.py` ~L1463) before reaching the price-reconciliation log line.
+
+The ~14s elapsed time on both matches `parse_invoice_bytes_pdf`'s documented pdfplumber-native-text cost (no Vision AI log lines appear in that window), so this is almost certainly the **deterministic regex path**, not the AI vision path — meaning `total_items_shipped`/`total_pieces_delivered` came back 0 because the `TOTAL\s+ITEMS\s+SHIPPED\s*:?\s*(\d+)` / `TOTAL\s+PIECES\s+DELIVERED\s*:?\s*(\d+)` regexes (`backend/ai/invoice_parser.py` ~L308-314) found no match in the combined page text on the second attempt, despite the recap page apparently being scannable the first time (or the file itself differed slightly between attempts — same filename/rounded size doesn't rule that out).
+
+**Fixed (observability only, no business-logic change):** the quantity-gate rejection was previously a dead end — nothing about *why* it failed reached the logs. Added:
+- `meta["_extraction_kind"]` tag (`invoice_items` deterministic vs `invoice_images` vision/OCR) at both `_extract_ops` return points.
+- A `log.info("[DATA-ENTRY] US Foods recap check | ...")` right before the quantity gate in `data_entry.py`, logging extraction kind + the full recap trio (`stated_item_count`, `stated_piece_count`, `product_total`, both booleans) on every US Foods week upload, pass or fail.
+
+Did **not** touch the regex/reconciliation logic itself — this is a financial inventory-valuation gate that intentionally fails closed rather than risk silently under-counting stock, and I don't have the actual second-attempt PDF to confirm the precise regex miss versus "the recap page genuinely wasn't part of this scan." Asked the user whether they still have that file for a confirmed fix.
+
+**Verified:** `ruff check backend/routes/data_entry.py` clean; `pytest backend/tests/test_invoice_parser.py` 6 passed.
+
+**Push:** not applicable - working tree only, not committed.
+
+## [v0.1.34] - 2026-08-03 - fix invoice_quantity_controls_missing false-positive on real invoice
+
+**Claude:** User supplied the actual failing file (`Augwk1.pdf`, 13 pages, US Foods). Ran `pdfplumber` directly against it to see exactly what the native-text extraction produces, instead of guessing at the regex. Two real, confirmed root causes, both in `backend/ai/invoice_parser.py`:
+
+1. **The recap grand-total row is split across a page boundary and its column headers wrap across two lines.** Page 11 has the STORAGE LOCATION RECAP table's per-location rows (DRY/REFRIGERATED/FROZEN); its "DELIVERY SUMMARY TOTALS" grand-total row prints on page 12, after that page's own repeated header block. pdfplumber also wraps the 3-word column headers ("TOTAL ITEMS SHIPPED", "TOTAL PIECES DELIVERED") across two physical lines with OTHER columns' words interleaved in between — so those exact phrases never appear contiguous anywhere in the extracted text, and the existing `META_PATTERNS` regexes (which require label immediately followed by digits) legitimately found nothing, even though the recap data is present and correct.
+   - **Fix:** added `USFOODS_DELIVERY_SUMMARY_TOTALS_RE`, a fixed-column regex that parses the `DELIVERY SUMMARY TOTALS <ordered> <shipped> <adjusted> <delivered> <items_shipped> <weight> $<price>` row directly (same technique as the existing line-item regex), wired into `_extract_meta` as a fallback that only fills gaps — never overrides a successful simple-format match. Confirmed against the real file: recovers `total_items_shipped=195`, `total_pieces_delivered=457`, `product_total=22,510.57` exactly.
+2. **`reconcile_and_adjust`'s `item_count` excluded qty_shipped=0 lines, but US Foods' own "TOTAL ITEMS SHIPPED" counts every printed line including $0.00 backorder/substitution lines.** This invoice has one such line (SKU 4527271, pork butt, ordered 3 / shipped 0 / $0.00) — a real out-of-stock line, not a parse error. The old `shipped_items` filter dropped it from `item_count` (194 vs the invoice's own stated 195), which would have failed the SEPARATE `quantity_reconciled` check even after fix #1. `piece_count` was already correct (a 0-qty line contributes 0 pieces regardless).
+   - **Fix:** `parsed_item_count` now counts all parsed lines (`len(adjusted)`), matching what the recap actually counts. Updated `test_usfoods_delivery_recap_controls_items_and_pieces` (previously asserted the wrong semantics — a synthetic assumption, not real invoice data) and added `test_usfoods_delivery_summary_totals_split_across_page_boundary` as a permanent regression test using the real invoice's exact page-11/page-12 text shape.
+3. Kept the v0.1.33 diagnostic log line (`[DATA-ENTRY] US Foods recap check`) in place — it would have shown this exact failure signature immediately instead of requiring log archaeology + the source file.
+
+**Verified against the real file end-to-end:** `quantity_controls_present=True`, `quantity_reconciled=True`, `item_count=195` (matches stated), `piece_count=457` (matches stated), dollar reconciliation `delta_pct=0.375%` (already passing before this fix). Full backend suite: **195 passed, 14 skipped**. Ruff clean on all three touched files.
+
+**Push:** not applicable - working tree only, not committed. Recommend re-uploading `Augwk1.pdf` once this deploys to confirm the live 422 is gone.

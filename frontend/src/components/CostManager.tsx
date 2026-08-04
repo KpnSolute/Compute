@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { I } from '../lib/icons';
 import { type User, ROLE_LEVEL, MONTHS } from '../lib/constants';
-import { fmtMoney } from '../lib/supabase';
+import { fmtMoney } from '../lib/format';
 import { api, type CostBudget, type CostSummary, type CostTrendPoint, type CostAverages, type SourceTransaction } from '../lib/api';
 import { useEscapeClose } from '../lib/useEscapeClose';
 import { SvgLineChart, CategoryDonut } from './ui/Charts';

@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { I } from '../lib/icons';
 import { ROLE_LEVEL, MONTHS, loadAIPrefs } from '../lib/constants';
 import { api, type AuditReport } from '../lib/api';
-import { fmtMoney } from '../lib/supabase';
+import { fmtMoney } from '../lib/format';
 
 type Hint = '' | 'inventory' | 'events' | 'haccp' | 'menu' | 'log' | 'budget';
 type Direction = 'received' | 'issued' | 'both';

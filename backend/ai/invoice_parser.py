@@ -183,6 +183,25 @@ USFOODS_SUMMARY_SECTION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# On multi-page US Foods invoices the STORAGE LOCATION RECAP table's
+# per-location rows can land on one page while its "DELIVERY SUMMARY TOTALS"
+# grand-total row prints on the NEXT page (own header block repeated first).
+# pdfplumber also wraps the table's 3-word column headers ("TOTAL ITEMS
+# SHIPPED", "TOTAL PIECES DELIVERED") across two physical lines, so those
+# labels never appear as one contiguous phrase next to their number — the
+# plain META_PATTERNS regexes below can legitimately find nothing even
+# though the recap data is present and correct on the page. The grand-total
+# row itself is a fixed-column data line (STORAGE LOCATION RECAP's own
+# column order): TOTAL PIECES ORDERED / SHIPPED / ADJUSTED / DELIVERED,
+# TOTAL ITEMS SHIPPED, TOTAL WEIGHT SHIPPED, TOTAL EXTENDED PRICE. Parse it
+# directly as a fallback when the simple label+number match misses.
+USFOODS_DELIVERY_SUMMARY_TOTALS_RE = re.compile(
+    r"DELIVERY\s+SUMMARY\s+TOTALS\s+"
+    r"\d+\s+\d+\s+\d+\s+(\d+)\s+(\d+)\s+"  # ordered, shipped, adjusted, [delivered], [items_shipped]
+    r"[\d,]+\.\d+\s+\$?\s*([\d,]+\.\d{2})",  # weight (unused), extended price
+    re.IGNORECASE,
+)
+
 # ── invoice metadata patterns ─────────────────────────────────────────────────
 META_PATTERNS: list[tuple[str, re.Pattern]] = [
     (
@@ -803,6 +822,19 @@ def _extract_meta(pages: list[str]) -> dict[str, str]:
     )
     if viz:
         meta["vizient_discount"] = f"{sum(float(v.replace(',', '')) for v in viz):.2f}"
+    # Fallback ONLY — never overrides a successful simple label+number match
+    # above. See USFOODS_DELIVERY_SUMMARY_TOTALS_RE docstring: this fires when
+    # the recap table's grand-total row prints without its column headers
+    # repeated inline (common when the row lands on a different page than the
+    # STORAGE LOCATION RECAP header block).
+    delivery_totals_m = USFOODS_DELIVERY_SUMMARY_TOTALS_RE.search(combined)
+    if delivery_totals_m:
+        if not meta.get("total_pieces_delivered"):
+            meta["total_pieces_delivered"] = delivery_totals_m.group(1)
+        if not meta.get("total_items_shipped"):
+            meta["total_items_shipped"] = delivery_totals_m.group(2)
+        if not meta.get("product_total"):
+            meta["product_total"] = _clean(delivery_totals_m.group(3))
     return meta
 
 
@@ -1090,9 +1122,16 @@ def reconcile_and_adjust(items: list[dict], meta: dict) -> tuple[list[dict], dic
     meta["fuel_surcharge"] = f"{fuel:.2f}"
     meta["tax"] = f"{tax:.2f}"
 
-    shipped_items = [item for item in adjusted if _int(item.get("qty_shipped")) > 0]
-    parsed_item_count = len(shipped_items)
-    parsed_piece_count = sum(_int(item.get("qty_shipped")) for item in shipped_items)
+    # "TOTAL ITEMS SHIPPED" on a real US Foods DELIVERY SUMMARY TOTALS row
+    # counts every printed product line — including a $0.00/qty_shipped=0
+    # backorder or substitution-miss line — not just lines with quantity > 0
+    # (confirmed against a live 195-line invoice where one line was a 0-qty
+    # backorder: the recap's own per-location "TOTAL ITEMS SHIPPED" column
+    # summed to 195, matching len(items), not the 194 lines with qty > 0).
+    # piece_count is unaffected by this: a 0-qty line contributes 0 pieces
+    # whether or not it's included in the sum.
+    parsed_item_count = len(adjusted)
+    parsed_piece_count = sum(_int(item.get("qty_shipped")) for item in adjusted)
     stated_item_count = _int(meta.get("total_items_shipped"))
     stated_piece_count = _int(meta.get("total_pieces_delivered"))
     quantity_controls_present = stated_item_count > 0 and stated_piece_count > 0

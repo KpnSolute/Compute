@@ -9,40 +9,66 @@ import {
     FOODREQ_FIELDS,
 } from "../lib/constants";
 import { I } from "../lib/icons";
-import { loadLog, saveLog, fetchLog } from "../lib/supabase";
 import { api } from "../lib/api";
 import { SaveBar } from "./ui/ActionBars";
 import { StatusPill } from "./ui/StatusPill";
 
-/* ── shared persistence hook ── */
-function useLog(key: string, initial: any) {
-    const [data, setData] = useState(() => loadLog(key, null) ?? initial);
+/* ── typed persistence hook ──
+ * Backed by daily_operations_logs via entry_type + title (api.ts). No
+ * localStorage: a failed save must be visible, not silently reported as
+ * "Saved", and initial state never comes from a stale local blob. */
+function useLog(entryType: string, title: string, initial: any) {
+    const [data, setData] = useState(initial);
     const [saved, setSaved] = useState(true);
     const [savedAt, setSavedAt] = useState<Date | null>(null);
+    const [saveError, setSaveError] = useState<string | null>(null);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const initialRef = useRef(initial);
     useEffect(() => {
-        setData(loadLog(key, null) ?? initialRef.current);
+        setData(initialRef.current);
         setSaved(true);
+        setSaveError(null);
+        setLoadError(null);
         let alive = true;
-        fetchLog(key).then((r) => {
-            if (alive && r && r.data) setData(r.data);
+        api.getComplianceDoc(entryType, title).then((found) => {
+            if (alive && found) setData(found);
+        }).catch((e) => {
+            if (alive) setLoadError(e?.message || "Failed to load saved data");
         });
         return () => {
             alive = false;
         };
         // eslint-disable-next-line
-    }, [key]);
+    }, [entryType, title]);
     const update = (u: any) => {
         setData((d: any) => (typeof u === "function" ? u(d) : u));
         setSaved(false);
     };
-    const save = async (user?: string) => {
-        const r = await saveLog(key, data, user);
-        setSaved(true);
-        setSavedAt(new Date());
-        return r;
+    const save = async (saveData: any = data) => {
+        try {
+            await api.saveComplianceDoc(entryType, title, saveData);
+            setSaved(true);
+            setSavedAt(new Date());
+            setSaveError(null);
+        } catch (e: any) {
+            setSaveError(e?.message || "Save failed — backend unreachable. Retry.");
+            throw e;
+        }
     };
-    return { data, update, saved, save, savedAt };
+    return { data, update, saved, save, savedAt, saveError, loadError };
+}
+
+/* Compose a visible save/load error above the normal SaveBar note — a failed
+ * sync must never look like a successful "Saved". */
+function withSyncNote(saveError: string | null, loadError: string | null, note?: React.ReactNode): React.ReactNode {
+    const err = saveError || loadError;
+    if (!err) return note;
+    return (
+        <>
+            <span style={{ color: "var(--red, #dc2626)", fontWeight: 700, fontSize: 12 }}>⚠ {err}</span>
+            {note ? <> · {note}</> : null}
+        </>
+    );
 }
 
 /* ── MonthNav ── */
@@ -233,7 +259,7 @@ export function MachineLog({ user, period, setPeriod }: PeriodFormProps) {
     const [mid, setMid] = useState(MACHINES[0].id);
     const machine = MACHINES.find((x) => x.id === mid)!;
     const [m, y] = period;
-    const key = "machine:" + mid + ":" + y + "-" + m;
+    const title = "machine:" + mid + ":" + y + "-" + m;
     function blankRow() {
         return {
             id: "m" + Math.random().toString(36).slice(2, 7),
@@ -248,7 +274,7 @@ export function MachineLog({ user, period, setPeriod }: PeriodFormProps) {
             init: "",
         };
     }
-    const { data, update, saved, save, savedAt } = useLog(key, {
+    const { data, update, saved, save, savedAt, saveError, loadError } = useLog("machine_log", title, {
         rows: [blankRow()],
     });
     const rows = data.rows || [];
@@ -439,13 +465,13 @@ export function MachineLog({ user, period, setPeriod }: PeriodFormProps) {
                 saved={saved}
                 savedAt={savedAt}
                 canEdit={canEdit}
-                onSave={() => save(user.display_name)}
+                onSave={() => save()}
                 savePrimary
-                note={
+                note={withSyncNote(saveError, loadError,
                     <span className="formbar-meta">
                         {machine.name} · {MONTHS[m]} {y}
                     </span>
-                }
+                )}
             />
         </div>
     );
@@ -458,7 +484,7 @@ export function CoolingLog({ user, period, setPeriod }: PeriodFormProps) {
     const lvl = ROLE_LEVEL[user.role] || 0;
     const canEdit = lvl >= 10;
     const [m, y] = period;
-    const key = "cooling:" + y + "-" + m;
+    const title = "cooling:" + y + "-" + m;
     function blankRow() {
         return {
             id: "c" + Math.random().toString(36).slice(2, 7),
@@ -476,7 +502,7 @@ export function CoolingLog({ user, period, setPeriod }: PeriodFormProps) {
             rTemp: "",
         };
     }
-    const { data, update, saved, save, savedAt } = useLog(key, {
+    const { data, update, saved, save, savedAt, saveError, loadError } = useLog("cooling_log", title, {
         rows: [blankRow()],
     });
     const rows = data.rows || [];
@@ -675,13 +701,13 @@ export function CoolingLog({ user, period, setPeriod }: PeriodFormProps) {
                 saved={saved}
                 savedAt={savedAt}
                 canEdit={canEdit}
-                onSave={() => save(user.display_name)}
+                onSave={() => save()}
                 savePrimary
-                note={
+                note={withSyncNote(saveError, loadError,
                     <span className="formbar-meta">
                         Cooling &amp; Reheating · {MONTHS[m]} {y}
                     </span>
-                }
+                )}
             />
         </div>
     );
@@ -694,7 +720,7 @@ export function MealLog({ user }: FormProps) {
     const lvl = ROLE_LEVEL[user.role] || 0;
     const canEdit = lvl >= 10;
     const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-    const key = "meallog:" + date;
+    const title = `Meal Log - ${date}`;
     function blankRow() {
         return {
             id: "r" + Math.random().toString(36).slice(2, 7),
@@ -707,7 +733,7 @@ export function MealLog({ user }: FormProps) {
             ticket: "",
         };
     }
-    const { data, update, saved, save, savedAt } = useLog(key, {
+    const { data, update, saved, save, savedAt, saveError, loadError } = useLog("meal_log", title, {
         rows: Array.from({ length: 6 }, () => blankRow()),
         monitors: "",
         diners: "",
@@ -739,23 +765,18 @@ export function MealLog({ user }: FormProps) {
     const compCount = signedRows.length - paidCount;
 
     async function handleSave() {
-        await save(user.display_name);
+        const payload = {
+            ...data,
+            date,
+            counts,
+            signedCount: signedRows.length,
+            paidCount,
+            compCount,
+        };
         try {
-            const payload = {
-                ...data,
-                date,
-                counts,
-                signedCount: signedRows.length,
-                paidCount,
-                compCount,
-            };
-            await api.saveDailyLog({
-                entry_type: "meal_log",
-                title: `Meal Log - ${date}`,
-                data: JSON.stringify(payload),
-            });
+            await save(payload);
         } catch {
-            /* local save succeeded */
+            /* saveError state already reflects the failure */
         }
     }
 
@@ -993,12 +1014,12 @@ export function MealLog({ user }: FormProps) {
                 canEdit={canEdit}
                 onSave={handleSave}
                 savePrimary
-                note={
+                note={withSyncNote(saveError, loadError,
                     <span className="formbar-meta">
                         Meal log ·{" "}
                         {new Date(date + "T12:00:00").toLocaleDateString()}
                     </span>
-                }
+                )}
             />
         </div>
     );
@@ -1011,8 +1032,8 @@ export function InspectionSheet({ user }: FormProps) {
     const lvl = ROLE_LEVEL[user.role] || 0;
     const canEdit = lvl >= 20;
     const today = new Date().toISOString().slice(0, 10);
-    const key = "inspection:" + today + ":" + user.username;
-    const { data, update, saved, save, savedAt } = useLog(key, {
+    const title = "inspection:" + today + ":" + user.username;
+    const { data, update, saved, save, savedAt, saveError, loadError } = useLog("inspection", title, {
         staff: (user.display_name + " " + user.last_name).trim(),
         date: today,
         meal: "",
@@ -1029,15 +1050,10 @@ export function InspectionSheet({ user }: FormProps) {
     const poor = Object.values(ratings).filter((v) => v === "POOR").length;
 
     async function handleSave() {
-        await save(user.display_name);
         try {
-            await api.saveDailyLog({
-                entry_type: "inspection",
-                title: "Inspection",
-                data: JSON.stringify(data),
-            });
+            await save();
         } catch {
-            /* local save succeeded */
+            /* saveError state already reflects the failure */
         }
     }
 
@@ -1164,14 +1180,14 @@ export function InspectionSheet({ user }: FormProps) {
                 canEdit={canEdit}
                 onSave={handleSave}
                 savePrimary
-                note={
+                note={withSyncNote(saveError, loadError,
                     <span className="formbar-meta">
                         Inspection ·{" "}
                         {new Date(
                             (data.date || today) + "T12:00:00",
                         ).toLocaleDateString()}
                     </span>
-                }
+                )}
             />
         </div>
     );
@@ -1184,8 +1200,8 @@ export function FoodRequest({ user }: FormProps) {
     const lvl = ROLE_LEVEL[user.role] || 0;
     const canEdit = lvl >= 10;
     const [submitted, setSubmitted] = useState(false);
-    const key = "foodreq:draft:" + user.username;
-    const { data, update, saved, save, savedAt } = useLog(key, {
+    const title = "foodreq:draft:" + user.username;
+    const { data, update, saved, save, savedAt, saveError, loadError } = useLog("food_request", title, {
         vals: {},
         status: "draft",
     });
@@ -1211,26 +1227,18 @@ export function FoodRequest({ user }: FormProps) {
     const foodRequestData = { ...data, vals };
 
     async function handleSave() {
-        await save(user.display_name);
         try {
-            await api.saveDailyLog({
-                entry_type: "food_request",
-                title: vals.originator || user.display_name,
-                data: JSON.stringify(foodRequestData),
-            });
+            await save();
+            await api.saveComplianceDoc("food_request", vals.originator || user.display_name, foodRequestData);
         } catch {
-            /* local save succeeded */
+            /* saveError state already reflects the draft-save failure */
         }
     }
 
     async function handleSubmit() {
-        await save(user.display_name);
+        await save().catch(() => {});
         await api
-            .saveDailyLog({
-                entry_type: "food_request",
-                title: user.display_name,
-                data: JSON.stringify(data),
-            })
+            .saveComplianceDoc("food_request", user.display_name, data)
             .catch(() => {});
         setSubmitted(true);
         (window as any).toast?.("Food request submitted");
@@ -1316,6 +1324,11 @@ export function FoodRequest({ user }: FormProps) {
                             <span className="saved-chip">
                                 {I.check({ style: { width: 12, height: 12 } })}{" "}
                                 Request submitted for approval
+                            </span>
+                        ) : saveError || loadError ? (
+                            <span className="save-bar-msg" style={{ color: "var(--red, #dc2626)" }}>
+                                {I.alert({ style: { width: 13, height: 13 } })}{" "}
+                                {saveError || loadError}
                             </span>
                         ) : !saved ? (
                             <span className="save-bar-msg">

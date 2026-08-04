@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ROLE_LEVEL, type User } from '../lib/constants';
-import { fmtMoney } from '../lib/supabase';
+import { fmtMoney } from '../lib/format';
 import { api, type BudgetLineItem, type BudgetLineItemInput, type BudgetLineType, type BudgetLineAutoSource } from '../lib/api';
 
 const toast = (msg: string) => (window as any).toast?.(msg);

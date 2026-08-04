@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import type { User } from '../lib/constants';
 import { ROLE_LEVEL, MONTHS, COOKING_TEMPS, TASTE_CODES } from '../lib/constants';
 import { I } from '../lib/icons';
-import { saveLog, fetchLog, loadLog } from '../lib/supabase';
 import { api } from '../lib/api';
 import { StatusPill } from './ui/StatusPill';
 import { SaveBar as SharedSaveBar } from './ui/ActionBars';
@@ -60,49 +59,96 @@ function daysInMonth(m: number, y: number): number {
   return new Date(y, m + 1, 0).getDate();
 }
 
-function useLog<T>(key: string, initial: T) {
-  const [data, setData] = useState<T>(() => loadLog(key, null) ?? initial);
+// Typed persistence for the blob-shaped compliance docs (sanitizer log, taste
+// panel) that have no dedicated table — backed by daily_operations_logs via
+// entry_type + title. No localStorage: a failed save must be visible, not
+// silently reported as "Saved".
+function useComplianceDoc<T>(entryType: string, title: string, initial: T) {
+  const [data, setData] = useState<T>(initial);
   const [saved, setSaved] = useState(true);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
-  // 'backend' = durably persisted; 'local' = ONLY on this device (backend sync
-  // failed). Compliance logs are durable data — a local-only save must be
-  // visible, not silently reported as "Saved".
-  const [savedWhere, setSavedWhere] = useState<'backend' | 'local' | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const initialRef = useRef(initial);
 
   useEffect(() => {
-    setData(loadLog(key, null) ?? initialRef.current);
+    setData(initialRef.current);
     setSaved(true);
-    setSavedWhere(null);
+    setSaveError(null);
+    setLoadError(null);
     let alive = true;
-    fetchLog(key).then(r => {
-      if (alive && r && r.data) setData(r.data as T);
+    api.getComplianceDoc<T>(entryType, title).then(found => {
+      if (alive && found) setData(found);
+    }).catch(e => {
+      if (alive) setLoadError(e?.message || 'Failed to load saved data');
     });
     return () => { alive = false; };
     // eslint-disable-next-line
-  }, [key]);
+  }, [entryType, title]);
 
   const update = (u: T | ((d: T) => T)) => {
     setData(d => (typeof u === 'function' ? (u as (d: T) => T)(d) : u));
     setSaved(false);
   };
 
-  const save = async (syncedBy: string, saveData: T = data) => {
-    const r = await saveLog(key, saveData, syncedBy);
-    setSaved(true);
-    setSavedAt(new Date());
-    setSavedWhere(r?.where === 'backend' ? 'backend' : 'local');
+  const save = async (saveData: T = data) => {
     try {
-      await api.saveDailyLog({
-        entry_type: 'haccp',
-        title: 'HACCP Log',
-        data: JSON.stringify({ key, data: saveData }),
-      });
-    } catch { /* audit-trail copy failed; primary save state already reported */ }
-    return r;
+      await api.saveComplianceDoc(entryType, title, saveData);
+      setSaved(true);
+      setSavedAt(new Date());
+      setSaveError(null);
+    } catch (e: any) {
+      setSaveError(e?.message || 'Save failed — backend unreachable. Retry.');
+      throw e;
+    }
   };
 
-  return { data, update, saved, save, savedAt, savedWhere };
+  return { data, update, saved, save, savedAt, saveError, loadError };
+}
+
+// Typed persistence for the HACCP temperature grid. Unlike the doc types
+// above, readings have a real dedicated table (haccp_logs) — one row per
+// AM/PM reading — so the month x appliance grid is reconstructed from those
+// rows rather than a single blob.
+function useTempGrid(applianceName: string, year: number, month: number) {
+  const [rows, setRows] = useState<Record<number, TempRow>>({});
+  const [saved, setSaved] = useState(true);
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setRows({});
+    setSaved(true);
+    setSaveError(null);
+    setLoadError(null);
+    let alive = true;
+    api.getHaccpTempGrid(applianceName, year, month).then(found => {
+      if (alive) setRows(found);
+    }).catch(e => {
+      if (alive) setLoadError(e?.message || 'Failed to load saved data');
+    });
+    return () => { alive = false; };
+  }, [applianceName, year, month]);
+
+  const update = (u: Record<number, TempRow> | ((d: Record<number, TempRow>) => Record<number, TempRow>)) => {
+    setRows(d => (typeof u === 'function' ? (u as (d: Record<number, TempRow>) => Record<number, TempRow>)(d) : u));
+    setSaved(false);
+  };
+
+  const save = async () => {
+    try {
+      await api.saveHaccpTempGrid(applianceName, year, month, rows);
+      setSaved(true);
+      setSavedAt(new Date());
+      setSaveError(null);
+    } catch (e: any) {
+      setSaveError(e?.message || 'Save failed — backend unreachable. Retry.');
+      throw e;
+    }
+  };
+
+  return { rows, update, saved, save, savedAt, saveError, loadError };
 }
 
 function tempCell(
@@ -162,13 +208,13 @@ function textCell(
 }
 
 // ponytail: alias keeps call sites unchanged; dirtyCount=1 when !saved (ComplianceHub tracks saved as bool not count)
-function SaveBar({ saved, savedAt, onSave, canEdit, note, savedWhere }: {
+function SaveBar({ saved, savedAt, onSave, canEdit, note, saveError }: {
   saved: boolean; savedAt: Date | null; onSave: () => void; canEdit: boolean; note?: React.ReactNode;
-  savedWhere?: 'backend' | 'local' | null;
+  saveError?: string | null;
 }) {
-  const syncNote = savedWhere === 'local' ? (
-    <span style={{ color: 'var(--amber, #d97706)', fontWeight: 700, fontSize: 12 }}>
-      ⚠ Saved on this device only — backend sync failed. Retry Save while online.
+  const syncNote = saveError ? (
+    <span style={{ color: 'var(--red, #dc2626)', fontWeight: 700, fontSize: 12 }}>
+      ⚠ {saveError}
     </span>
   ) : null;
   return (
@@ -222,7 +268,6 @@ function MonthNav({
 }
 
 function TemperatureLog({
-  user,
   period,
   setPeriod,
   canEdit,
@@ -231,23 +276,14 @@ function TemperatureLog({
   const app = APPLIANCES.find(a => a.id === appId) ?? APPLIANCES[0];
   const limit = app.type === 'freezer' ? 0 : 41;
   const [m, y] = period;
-  const key = `temp:${appId}:${y}-${m}`;
   const ndays = daysInMonth(m, y);
-  const blank = () => ({ rows: {} as Record<number, TempRow> });
-  const { data, update, saved, save, savedAt, savedWhere } = useLog(key, { ...blank(), applianceName: app.name });
-  const rows: Record<number, TempRow> = (data as any).rows ?? {};
+  const { rows, update, saved, save, savedAt, saveError, loadError } = useTempGrid(app.name, y, m);
 
   function setCell(day: number, field: string, val: string) {
-    update(d => {
-      const dd = d as any;
-      return {
-        ...dd,
-        rows: {
-          ...dd.rows,
-          [day]: { ...(dd.rows?.[day] || {}), [field]: val },
-        },
-      };
-    });
+    update(d => ({
+      ...d,
+      [day]: { ...(d[day] || {}), [field]: val },
+    }));
   }
 
   function flag(v: string | undefined) {
@@ -302,6 +338,12 @@ function TemperatureLog({
           </StatusPill>
         )}
       </div>
+
+      {loadError && (
+        <div className="form-note" style={{ color: 'var(--red, #dc2626)', fontWeight: 700 }}>
+          {I.alert({ style: { width: 13, height: 13 } })} Could not load saved readings: {loadError}
+        </div>
+      )}
 
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="tbl-wrap">
@@ -369,9 +411,9 @@ function TemperatureLog({
       </div>
       <SaveBar
         saved={saved}
-        savedWhere={savedWhere}
+        saveError={saveError}
         savedAt={savedAt}
-        onSave={() => save(user.display_name, { ...data, applianceName: app.name } as typeof data)}
+        onSave={() => save()}
         canEdit={canEdit}
         note={
           <span className="formbar-meta">
@@ -384,15 +426,14 @@ function TemperatureLog({
 }
 
 function SanitizerLog({
-  user,
   period,
   setPeriod,
   canEdit,
 }: SubTabProps) {
   const [m, y] = period;
-  const key = `sanit:${y}-${m}`;
+  const title = `sanit:${y}-${m}`;
   const ndays = daysInMonth(m, y);
-  const { data, update, saved, save, savedAt, savedWhere } = useLog(key, {
+  const { data, update, saved, save, savedAt, saveError, loadError } = useComplianceDoc('sanitizer_log', title, {
     rows: {} as Record<number, SanitRow>,
     conc: 'Oasis 146',
   });
@@ -441,6 +482,11 @@ function SanitizerLog({
           </StatusPill>
         )}
       </div>
+      {loadError && (
+        <div className="form-note" style={{ color: 'var(--red, #dc2626)', fontWeight: 700 }}>
+          {I.alert({ style: { width: 13, height: 13 } })} Could not load saved data: {loadError}
+        </div>
+      )}
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="tbl-wrap">
           <table className="data logtbl">
@@ -507,9 +553,9 @@ function SanitizerLog({
       </div>
       <SaveBar
         saved={saved}
-        savedWhere={savedWhere}
+        saveError={saveError}
         savedAt={savedAt}
-        onSave={() => save(user.display_name)}
+        onSave={() => save()}
         canEdit={canEdit}
         note={
           <span className="formbar-meta">
@@ -522,12 +568,11 @@ function SanitizerLog({
 }
 
 function TastePanel({
-  user,
   period: _period,
   canEdit,
 }: SubTabProps) {
   const today = new Date().toISOString().slice(0, 10);
-  const key = `taste:${today}`;
+  const title = `taste:${today}`;
 
   function blankTaste(): TasteItem {
     return {
@@ -539,7 +584,7 @@ function TastePanel({
     };
   }
 
-  const { data, update, saved, save, savedAt, savedWhere } = useLog(key, {
+  const { data, update, saved, save, savedAt, saveError, loadError } = useComplianceDoc('taste_panel', title, {
     items: [blankTaste()],
   });
   const items: TasteItem[] = (data as any).items ?? [];
@@ -640,6 +685,12 @@ function TastePanel({
         </div>
       </div>
 
+      {loadError && (
+        <div className="form-note" style={{ color: 'var(--red, #dc2626)', fontWeight: 700 }}>
+          {I.alert({ style: { width: 13, height: 13 } })} Could not load saved data: {loadError}
+        </div>
+      )}
+
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="card-head">
           <h3>
@@ -729,9 +780,9 @@ function TastePanel({
       </div>
       <SaveBar
         saved={saved}
-        savedWhere={savedWhere}
+        saveError={saveError}
         savedAt={savedAt}
-        onSave={() => save(user.display_name)}
+        onSave={() => save()}
         canEdit={canEdit}
         note={
           <span className="formbar-meta">

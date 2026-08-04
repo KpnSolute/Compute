@@ -351,6 +351,7 @@ def _extract_ops(
         parsed = data  # {'meta': {...}, 'items': [...]}
         meta = parsed.get("meta", {})
         meta["_invoice_items"] = parsed.get("items", [])
+        meta["_extraction_kind"] = "invoice_items"  # deterministic regex path, no AI
         categories = ctx.get_categories()
         ops = invoice_parser.invoice_items_to_ops(
             parsed["items"],
@@ -381,6 +382,7 @@ def _extract_ops(
                 return None
             merged_meta = {**src_meta, **parsed.get("meta", {})}
             merged_meta["_invoice_items"] = parsed.get("items", [])
+            merged_meta["_extraction_kind"] = "invoice_images"  # vision/OCR path
             cats = ctx.get_categories()
             ops = invoice_parser.invoice_items_to_ops(
                 parsed["items"], merged_meta, month, year, week, direction, cats
@@ -1458,6 +1460,24 @@ async def upload_file(
             vendor_name = str(parsed_meta.get("vendor_name") or "").lower()
             is_usfoods = "us food" in vendor_name or "us food" in fname.lower()
             if is_usfoods and week > 0:
+                # Always log the recap trio + which extraction path produced it,
+                # pass or fail — this is the only signal that distinguishes "the
+                # document genuinely lacks the recap page" from "the parser
+                # missed text that was actually there", and it was previously
+                # unrecoverable once the SSE error reached the client (the
+                # in-stream _err() payload was never written to the app log).
+                log.info(
+                    "[DATA-ENTRY] US Foods recap check | file=%s kind=%s "
+                    "total_items_shipped=%s total_pieces_delivered=%s "
+                    "product_total=%s quantity_controls_present=%s quantity_reconciled=%s",
+                    fname,
+                    parsed_meta.get("_extraction_kind", "?"),
+                    recon.get("stated_item_count"),
+                    recon.get("stated_piece_count"),
+                    recon.get("product_total"),
+                    recon.get("quantity_controls_present"),
+                    recon.get("quantity_reconciled"),
+                )
                 if not recon.get("quantity_controls_present"):
                     yield _err(
                         422,
