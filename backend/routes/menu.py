@@ -1,11 +1,12 @@
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from backend.periods import business_now
+from backend.kpnsolute_events import publish_menu_cycle, publish_menu_day
 from backend.routes import supabase_service
 from backend.routes._deps import _get_auth_user, _require_manager
 
@@ -173,6 +174,45 @@ def _build_day_payload(cycle_day: int) -> dict:
     }
 
 
+def _menu_day_event_payload(cycle_day: int) -> dict:
+    day = _build_day_payload(cycle_day)
+    today = business_now().date()
+    service_date = today + timedelta(
+        days=(cycle_day - _cycle_day_for_date(today)) % CYCLE_LENGTH
+    )
+    meals: dict[str, list[dict]] = {}
+    for slot in day["slots"]:
+        if not slot.get("active") or not slot.get("item_name"):
+            continue
+        meals.setdefault(slot["meal_period"], []).append(
+            {
+                "slot_name": slot["slot_name"],
+                "item_name": slot["item_name"],
+                "item_id": slot.get("item_id"),
+            }
+        )
+    return {
+        "rotation_id": "primary",
+        "anchor_date": _get_anchor_date().isoformat(),
+        "date": service_date.isoformat(),
+        "cycle_day": day["cycle_day"],
+        "cycle_week": day["cycle_week"],
+        "day_of_week": day["day_of_week"],
+        "meals": meals,
+    }
+
+
+def _menu_cycle_event_payload() -> dict:
+    return {
+        "rotation_id": "primary",
+        "anchor_date": _get_anchor_date().isoformat(),
+        "days": [
+            _menu_day_event_payload(cycle_day)
+            for cycle_day in range(1, CYCLE_LENGTH + 1)
+        ],
+    }
+
+
 def _resolve_item(item_id: str | None, item_name: str | None) -> str | None:
     """Return an item_id, creating a new menu_items row if only a name was given."""
     if item_id:
@@ -307,7 +347,10 @@ async def menu_today(auth_user: dict = Depends(_get_auth_user)):
 
 @router.put("/slot/{record_id}")
 async def update_slot(
-    record_id: str, body: SlotUpdate, auth_user: dict = Depends(_require_manager)
+    record_id: str,
+    body: SlotUpdate,
+    background_tasks: BackgroundTasks,
+    auth_user: dict = Depends(_require_manager),
 ):
     existing = (
         supabase_service.table("menu_cycle_slots")
@@ -338,12 +381,19 @@ async def update_slot(
         .eq("record_id", record_id)
         .execute()
     )
-    return _single_slot_payload(result.data[0])
+    response = _single_slot_payload(result.data[0])
+    background_tasks.add_task(
+        publish_menu_day, _menu_day_event_payload(existing.data[0]["cycle_day"])
+    )
+    return response
 
 
 @router.post("/cycle/day/{n}/slots")
 async def create_slot(
-    n: int, body: SlotCreate, auth_user: dict = Depends(_require_manager)
+    n: int,
+    body: SlotCreate,
+    background_tasks: BackgroundTasks,
+    auth_user: dict = Depends(_require_manager),
 ):
     if not 1 <= n <= CYCLE_LENGTH:
         raise HTTPException(status_code=400, detail="cycle_day must be 1-28")
@@ -379,7 +429,9 @@ async def create_slot(
         "updated_at": now,
     }
     result = supabase_service.table("menu_cycle_slots").insert(row).execute()
-    return _single_slot_payload(result.data[0])
+    response = _single_slot_payload(result.data[0])
+    background_tasks.add_task(publish_menu_day, _menu_day_event_payload(n))
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -405,7 +457,9 @@ async def get_settings(auth_user: dict = Depends(_get_auth_user)):
 
 @router.put("/settings")
 async def update_settings(
-    body: SettingsUpdate, auth_user: dict = Depends(_require_manager)
+    body: SettingsUpdate,
+    background_tasks: BackgroundTasks,
+    auth_user: dict = Depends(_require_manager),
 ):
     try:
         parsed = date.fromisoformat(body.anchor_date)
@@ -417,7 +471,20 @@ async def update_settings(
     supabase_service.table("app_settings").update(
         {"setting_value": parsed.isoformat()}
     ).eq("setting_key", ANCHOR_SETTING_KEY).execute()
+    background_tasks.add_task(publish_menu_cycle, _menu_cycle_event_payload())
     return {"anchor_date": parsed.isoformat()}
+
+
+@router.post("/events/publish-cycle", status_code=202)
+async def publish_cycle_event(
+    background_tasks: BackgroundTasks,
+    auth_user: dict = Depends(_require_manager),
+):
+    background_tasks.add_task(publish_menu_cycle, _menu_cycle_event_payload())
+    return {
+        "accepted": True,
+        "event_type": "com.kpnsolute.compute.menu.cycle.updated.v1",
+    }
 
 
 @router.get("/suggestions")

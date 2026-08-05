@@ -1,5 +1,18 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.1.9] — 2026-08-05 — KpnSolute CloudEvents publisher
+
+Added an optional, server-only KpnSolute Events adapter for MJCC menu changes.
+Successful slot writes publish tenant-scoped `menu.day.updated.v1` CloudEvents,
+anchor-date changes publish `menu.cycle.updated.v1`, and managers can request a
+full-cycle bootstrap through `POST /api/menu/events/publish-cycle`. Publishing
+is disabled unless all gateway settings are present and does not roll back the
+authoritative menu write when delivery is temporarily unavailable.
+
+Verification: Ruff check and format verification passed; 198 backend tests
+passed with 14 skipped. The adapter remains disabled until the gateway URL and
+publisher credential are configured server-side.
+
 ## [v0.1.7] — 2026-08-01 — repair broken Supabase MCP config, all local AI tools
 
 **Claude:** `.mcp.json`, `.cursor/mcp.json`, and `.vscode/mcp.json` all pointed
