@@ -65,7 +65,7 @@ describe('PullSheet', () => {
   });
 
   it('switches to compact mode while preserving an accessible scroll region', async () => {
-    const compact = [...host.querySelectorAll('button')]
+    const compact = Array.from(host.querySelectorAll('button'))
       .find(button => button.textContent?.trim() === 'Compact');
 
     expect(compact).not.toBeUndefined();

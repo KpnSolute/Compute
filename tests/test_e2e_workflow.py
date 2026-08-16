@@ -33,6 +33,9 @@ PIN = os.getenv("MJCC_E2E_PIN") or ""
 # "kpnsolute.com" entry intentionally blocks every subdomain (mjcc.kpnsolute.com,
 # archive.kpnsolute.com, ...) — production lives behind that domain.
 PRODUCTION_HOSTS = (
+    "api.kpnsolute.com",
+    "api.compute.kpnsolute.com",
+    "compute.kpnsolute.com",
     "mjcc-managements.onrender.com",
     "kpncompute.onrender.com",
     "kpnsolute.com",

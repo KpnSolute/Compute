@@ -80,6 +80,7 @@ from backend.routes.changelog import router as changelog_router
 from backend.routes.notifications import router as notifications_router
 from backend.routes.health import router as health_router
 from backend.routes.tenants import router as tenants_router
+from backend.routes.workspace_console import router as workspace_console_router
 from backend.routes.health import collect_system_status, render_status_page
 from backend.routes.api_logs import (
     install_log_capture,
@@ -93,7 +94,11 @@ from backend.error_log import record_error
 from backend.audit_events import current_request_id, record_audit_event
 from fastapi.responses import HTMLResponse
 
-app = FastAPI(title="MJCC API")
+app = FastAPI(
+    title="KpnCompute API",
+    description="Tenant-safe managed business software and workspace operations.",
+    version=os.getenv("KPNCOMPUTE_VERSION", "0.3.0"),
+)
 install_log_capture()
 
 origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
@@ -303,6 +308,7 @@ app.include_router(notifications_router)
 app.include_router(health_router)
 app.include_router(api_logs_router)
 app.include_router(tenants_router)
+app.include_router(workspace_console_router)
 
 
 @app.get("/health")

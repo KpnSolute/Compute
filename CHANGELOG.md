@@ -1,5 +1,37 @@
 # CHANGELOG — MJCC Development Forum
 
+## [Unreleased]
+
+## [v0.3.0] — 2026-08-16 — KpnCompute product routing and workspace console
+
+Added the canonical KpnCompute product landing at `/`, direct customer
+workspace routes such as `/mjcc`, compatibility redirects from
+`/workspaces/{slug}`, and a workspace resource console at
+`/{workspace}/console`. The console presents tenant-scoped workspace counts,
+venues and nested locations, managed projects, and the approved KpnLink
+connection boundary while preserving the existing MJCC operations portal.
+
+Added reserved workspace-route enforcement, idempotent workspace creation,
+tenant-owned venue/location storage, project idempotency, and authenticated
+workspace summary/resource APIs. Provider-specific frontend API fallbacks were
+replaced with the unified `api.kpnsolute.com/compute` gateway; product-specific
+and provider API hosts remain compatibility and rollback concerns until DNS,
+TLS, CORS, authentication, and live MJCC acceptance pass.
+
+Added a reversible Cloudflare edge gateway for `compute.kpnsolute.com`,
+`api.kpnsolute.com/compute`, and the compatibility host
+`api.compute.kpnsolute.com`. It uses a fixed service registry, streams frontend
+and API responses from the existing Render origins, preserves request methods,
+bodies, queries, Origin headers, and redirects, and leaves provider hosts
+available for rollback. This avoids removing either existing Render custom
+domain or forcing a paid Render plan solely for the routing cutover.
+
+Local verification so far: 222 backend tests pass with 20 skipped, Ruff passes,
+frontend TypeScript and the production build pass, frontend lint has 0 errors
+and the existing 683 warnings, and all 4 edge-router contract tests pass.
+Production migration, release publication, Worker deployment, CORS cutover,
+DNS/TLS activation, and authenticated live acceptance remain pending.
+
 ## [v0.2.1] — 2026-08-16 — tenant relationship repair
 
 Reconciled the duplicate legacy and tenant-aware foreign keys created during

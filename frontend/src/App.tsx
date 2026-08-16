@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import type { User } from './lib/constants';
 import {
   clearBackendToken,
@@ -11,7 +11,8 @@ import { startSessionWatch, stopSessionWatch, markSessionActivity, IDLE_LIMIT_MS
 import { api, reportSessionEvent } from './lib/api';
 import { Login } from './components/Login';
 import { Portal } from './components/Portal';
-import { setActiveWorkspaceSlug } from './lib/workspace';
+import { ComputeLanding, WorkspaceConsole } from './components/ComputeHome';
+import { isLegacyWorkspacePath, setActiveWorkspaceSlug, workspacePath, workspaceSlugFromPath } from './lib/workspace';
 
 const SKEY = 'kpn_session';
 const ACCOUNT_REFRESH_MS = 5 * 60 * 1000;
@@ -75,9 +76,32 @@ function showToast(html: string, duration = 4000) {
 
 function App() {
   const [user, setUser] = useState<User | null>(loadSession);
+  const [pathname, setPathname] = useState(window.location.pathname);
   const [newVersionAvailable, setNewVersionAvailable] = useState(false);
   const [idleWarningSeconds, setIdleWarningSeconds] = useState<number | null>(null);
   const ssoLaunchStarted = useRef(false);
+
+  const navigate = useCallback((path: string) => {
+    window.history.pushState(null, '', path);
+    setPathname(window.location.pathname);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => setPathname(window.location.pathname);
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  useEffect(() => {
+    if (!isLegacyWorkspacePath(pathname)) return;
+    const slug = workspaceSlugFromPath(pathname);
+    if (!slug) return;
+    const suffix = pathname.replace(/^\/workspaces\/[^/]+/i, '');
+    const canonical = `${workspacePath(slug)}${suffix}${window.location.search}${window.location.hash}`;
+    window.history.replaceState(null, '', canonical);
+    setPathname(window.location.pathname);
+  }, [pathname]);
 
   useEffect(() => {
     if (!user || ssoLaunchStarted.current) return;
@@ -145,7 +169,7 @@ function App() {
       api.getMe()
         .then((me) => {
           const next = { ...user, ...me };
-          if (next.tenant?.slug) setActiveWorkspaceSlug(next.tenant.slug);
+          if (next.tenant?.slug) setActiveWorkspaceSlug(next.tenant.slug, false);
           setUser(next);
           saveStoredSession(next);
         })
@@ -250,11 +274,13 @@ function App() {
   }, []);
 
   function handleLogin(u: User, remember: boolean) {
-    if (u.tenant?.slug) setActiveWorkspaceSlug(u.tenant.slug);
+    if (u.tenant?.slug) setActiveWorkspaceSlug(u.tenant.slug, false);
     setUser(u);
     startSessionWatch();
     saveStoredSession(u, remember);
     showToast('<span>Signed in as ' + (u.display_name || u.username) + '</span>', 2600);
+    const requestedWorkspace = workspaceSlugFromPath(pathname);
+    if (!requestedWorkspace || pathname === '/login') navigate('/');
   }
 
   function handleLogout() {
@@ -267,18 +293,62 @@ function App() {
     window.location.reload();
   }
 
+  const legacyMjccHost = window.location.hostname.toLowerCase() === 'mjcc.kpnsolute.com';
+  const routeWorkspaceSlug = workspaceSlugFromPath(pathname) || (legacyMjccHost ? 'mjcc' : null);
+  const workspaceSuffix = routeWorkspaceSlug ? pathname.slice(workspacePath(routeWorkspaceSlug).length) : '';
+  const workspaceConsole = workspaceSuffix === '/console' || workspaceSuffix.startsWith('/console/');
+  const loginRoute = pathname === '/login';
+  const rootRoute = pathname === '/' && !legacyMjccHost;
+
+  let primary: ReactNode;
+  if (rootRoute) {
+    primary = (
+      <ComputeLanding
+        user={user}
+        onSignIn={() => navigate('/login')}
+        onOpenWorkspace={(slug) => navigate(workspacePath(slug))}
+        onOpenConsole={(slug) => navigate(`${workspacePath(slug)}/console`)}
+        onLogout={handleLogout}
+      />
+    );
+  } else if (loginRoute && !user) {
+    primary = <Login onLogin={handleLogin} layout="split" />;
+  } else if (routeWorkspaceSlug && user && workspaceConsole) {
+    primary = (
+      <WorkspaceConsole
+        user={user}
+        slug={routeWorkspaceSlug}
+        onBack={() => navigate('/')}
+        onOpenOperations={() => navigate(workspacePath(routeWorkspaceSlug))}
+        onLogout={handleLogout}
+      />
+    );
+  } else if (routeWorkspaceSlug && user) {
+    primary = (
+      <Portal
+        user={user}
+        onLogout={handleLogout}
+        onWorkspaceChange={handleWorkspaceChange}
+        density="comfortable"
+      />
+    );
+  } else if (!user) {
+    primary = <Login onLogin={handleLogin} layout="split" />;
+  } else {
+    primary = (
+      <ComputeLanding
+        user={user}
+        onSignIn={() => navigate('/login')}
+        onOpenWorkspace={(slug) => navigate(workspacePath(slug))}
+        onOpenConsole={(slug) => navigate(`${workspacePath(slug)}/console`)}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
   return (
     <>
-      {!user ? (
-        <Login onLogin={handleLogin} layout="split" />
-      ) : (
-        <Portal
-          user={user}
-          onLogout={handleLogout}
-          onWorkspaceChange={handleWorkspaceChange}
-          density="comfortable"
-        />
-      )}
+      {primary}
       {user && idleWarningSeconds !== null && (
         <div role="alertdialog" aria-live="assertive" aria-label="Session timeout warning" style={{
           position: 'fixed', top: 18, left: '50%', transform: 'translateX(-50%)',

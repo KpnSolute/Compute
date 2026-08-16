@@ -11,6 +11,8 @@ const allowedOrigins = (Deno.env.get("APP_ORIGINS") ?? "")
   .map((s) => s.trim())
   .filter(Boolean);
 const devOrigins = [
+  "https://compute.kpnsolute.com",
+  "https://mjcc.kpnsolute.com",
   "https://kpncompute.onrender.com",
   "http://localhost:5173",
   "http://127.0.0.1:5173",

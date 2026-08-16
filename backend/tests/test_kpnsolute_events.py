@@ -79,4 +79,4 @@ def test_background_publish_uses_captured_workspace(monkeypatch):
         tenant={"id": "tenant-uuid", "slug": "acme"},
     )
     assert captured["event"]["tenantid"] == "tenant-uuid"
-    assert captured["event"]["source"].endswith("/workspaces/acme")
+    assert captured["event"]["source"] == "https://compute.kpnsolute.com/acme"

@@ -238,7 +238,7 @@ function DevPanel({ user }: { user: any }) {
                         gap: 10,
                     }}
                 >
-                    <DevField label="API host" value="mjcc-managements.onrender.com" />
+                    <DevField label="API host" value="api.kpnsolute.com/compute" />
                     <DevField label="Database" value="MJCCv1 (Supabase)" />
                     <DevField label="Auth method" value={user.pin ? 'PIN' : 'Supabase JWT'} />
                     <DevField label="Role" value={user.role} />

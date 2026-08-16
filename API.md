@@ -1,7 +1,8 @@
 # MJCC API Reference
 
 **Local:** `http://localhost:8000`  
-**Production:** `https://mjcc-managements.onrender.com`  
+**Production:** `https://api.kpnsolute.com/compute`
+**Compatibility:** `https://api.compute.kpnsolute.com`, `https://mjcc-managements.onrender.com`
 **Auth header:** `Authorization: Bearer <token>` (all endpoints except `POST /api/auth/login`)  
 **Content-Type:** `application/json` (except file upload which uses `multipart/form-data`)
 

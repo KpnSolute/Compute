@@ -182,7 +182,7 @@ export async function backendLogin(accessToken: string, remember = true): Promis
     return { ok: false, error: 'Access token is required' };
   }
 
-  const BASE = (import.meta.env as Record<string, string>).VITE_API_BASE || 'https://mjcc-managements.onrender.com';
+  const BASE = (import.meta.env as Record<string, string>).VITE_API_BASE || 'https://api.kpnsolute.com/compute';
   console.debug('[Auth] Sending login to backend /api/auth/login...');
 
   try {
@@ -230,7 +230,7 @@ export async function backendPinLogin(username: string, pin: string, remember = 
     return { ok: false, error: 'Username and PIN are required' };
   }
 
-  const BASE = (import.meta.env as Record<string, string>).VITE_API_BASE || 'https://mjcc-managements.onrender.com';
+  const BASE = (import.meta.env as Record<string, string>).VITE_API_BASE || 'https://api.kpnsolute.com/compute';
   console.debug('[Auth] Sending PIN login to backend /api/auth/login...');
 
   try {

@@ -20,9 +20,7 @@ def main() -> int:
     parser.add_argument("--hours", type=int, default=24)
     parser.add_argument(
         "--base-url",
-        default=os.getenv(
-            "KPNCOMPUTE_API_URL", "https://mjcc-managements.onrender.com"
-        ),
+        default=os.getenv("KPNCOMPUTE_API_URL", "https://api.kpnsolute.com/compute"),
     )
     args = parser.parse_args()
     key = os.getenv("KPNCOMPUTE_DIAGNOSTIC_KEY", "").strip()
