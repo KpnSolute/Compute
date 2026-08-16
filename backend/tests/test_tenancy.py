@@ -12,6 +12,7 @@ from backend.tenancy import (
     TENANT_TABLES,
     TENANT_VIEWS,
     TENANT_RPCS,
+    GLOBAL_RPCS,
     current_tenant,
     resolve_user_tenant,
     tenant_scope,
@@ -120,7 +121,7 @@ def test_all_backend_rpc_calls_are_declared_tenant_scoped():
         used_rpcs.update(
             re.findall(r"\.rpc\(\s*[\"']([^\"']+)", path.read_text(encoding="utf-8"))
         )
-    assert used_rpcs <= TENANT_RPCS
+    assert used_rpcs <= TENANT_RPCS | GLOBAL_RPCS
 
 
 def test_all_backend_table_calls_have_an_explicit_scope_classification():
@@ -144,6 +145,7 @@ def test_project_tree_tables_are_tenant_owned():
         "project_generation_runs",
         "generation_run_sources",
         "project_blueprint_versions",
+        "workspace_sites",
     } <= TENANT_TABLES
 
 

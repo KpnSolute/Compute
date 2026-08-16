@@ -1,0 +1,30 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "kpnsolute-api-gateway",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-08-16",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "compute.kpnsolute.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "api.kpnsolute.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "api.compute.kpnsolute.com",
+      "custom_domain": true
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.1
+    }
+  }
+}

@@ -63,7 +63,7 @@ def _publish(
     event = {
         "specversion": "1.0",
         "id": f"menu-{uuid4().hex}",
-        "source": f"https://compute.kpnsolute.com/workspaces/{tenant_slug}",
+        "source": f"https://compute.kpnsolute.com/{tenant_slug}",
         "type": event_type,
         "subject": subject,
         "time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),

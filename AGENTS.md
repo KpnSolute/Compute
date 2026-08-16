@@ -11,7 +11,7 @@ Last aligned: 2026-06-05 (one-team tooling parity — shared tools, Gemini resea
 
 ## 0. THE THREE RULES THAT OVERRIDE EVERYTHING
 
-1. **PRODUCTION API.** All agents test against **production**, not localhost. `frontend/.env` sets `VITE_API_BASE=https://mjcc-managements.onrender.com`. Do not revert it to `http://localhost:8000`. The deployed FastAPI backend is the target.
+1. **PRODUCTION API.** All agents test against **production**, not localhost. The canonical API is `https://api.kpnsolute.com/compute`; `https://api.compute.kpnsolute.com` and `https://mjcc-managements.onrender.com` are compatibility endpoints. Do not point production clients at `http://localhost:8000`.
 
 2. **NO NEW `.md` FILES — EVER.** The ONLY `.md` files permitted at project root are: `GEMINI.md`, `AGENTS.md`, `CLAUDE.md`, `API.md`, `UI.md`, `CHANGELOG.md`. Do not create audit reports, summaries, synthesis docs, integration drafts, or any other `.md`. If you have something to say, it goes in `CHANGELOG.md`.
 
@@ -33,7 +33,8 @@ See §7 for the full known-issues list and current status.
 - **Stack:** Vite + React + TypeScript + Tailwind (frontend) · FastAPI + Python (backend) · Supabase / PostgreSQL (database).
 - **Live Supabase project:** `MJCCv1` (ref `mgvyylvmkxhhataavqjz`, region us-west-1, ACTIVE). This is the one `.env` points to.
   - `MJCCv2` (ref `qprfonxvthmaoxfixigk`) is **INACTIVE** — do not target it without explicit user approval.
-- **Production API:** `https://mjcc-managements.onrender.com` (Render, deploys from the source-code repo on push to `main`).
+- **Product:** `https://compute.kpnsolute.com`; the MJCC workspace is `https://compute.kpnsolute.com/mjcc`.
+- **Production API:** `https://api.kpnsolute.com/compute` through the unified KpnSolute gateway. Product and provider hostnames remain compatibility endpoints.
 
 ### TWO REPOS — NEVER MIX THESE (read before touching git or `.env`)
 
@@ -41,11 +42,11 @@ There are **two completely separate GitHub repos**. Confusing them has already b
 
 | Repo | URL | Role | `git remote`? | Render? |
 |------|-----|------|---------------|---------|
-| **SOURCE CODE** | `git@github.com:muttyman2000/MJCC-Managements-.git` | All source code. The Dockerfile lives here. | **THIS is `origin`.** Every `git push` goes here. | Render auto-deploys from THIS repo on push to `main`. |
+| **SOURCE CODE** | `git@github.com:KpnSolute/Compute.git` | All source code. The Dockerfile lives here. | **THIS is `origin`.** Every `git push` goes here. | Render auto-deploys from THIS repo on push to `main`. |
 | **DATA ARCHIVE** | `https://github.com/MJCC-Portal/mjcc.git` | Data store for the in-app Source Control module. Snapshots/archives pushed here by `github_sync.py` via the GitHub Contents API. | **NEVER set as a git remote.** | Render never reads this repo. |
 
 **RULES:**
-- `git remote origin` MUST be `muttyman2000/MJCC-Managements-.git`. Never change it to `MJCC-Portal/mjcc`.
+- `git remote origin` MUST be `KpnSolute/Compute`. Never change it to `MJCC-Portal/mjcc`.
 - `GITHUB_REPO=MJCC-Portal/mjcc` in `.env` is **correct and intentional** — it is the data-archive target for the backend sync worker, NOT a code remote.
 - If you ever see `MJCC-Portal/mjcc` set as `git remote origin`, that is a BUG. Revert it to the source-code repo immediately.
 
@@ -55,7 +56,7 @@ There are **two completely separate GitHub repos**. Confusing them has already b
 
 ### Resolved decision (2026-06-03, confirmed by user): Backend-mediated (Option A)
 
-- Frontend calls FastAPI (`VITE_API_BASE=https://mjcc-managements.onrender.com`); FastAPI owns all Supabase communication.
+- Frontend calls FastAPI (`VITE_API_BASE=https://api.kpnsolute.com/compute`); FastAPI owns all Supabase communication.
 - **Gemini** owns all `backend/routes/*` data logic against the real schema (§4).
 - **Claude** owns the frontend API client (`frontend/src/lib/api.ts`) and component wiring.
 - The Supabase JS client in `supabase.ts` is retained **only** for Supabase Auth (`signInWithPassword`, `signOut`, `getUser`). **All data queries route through FastAPI.**

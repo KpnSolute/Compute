@@ -5,9 +5,44 @@ import { workspaceHeaders, type Workspace } from './workspace';
 
 const envBase = (import.meta.env as Record<string, string>).VITE_API_BASE;
 if (!envBase) {
-  console.warn('VITE_API_BASE not set — falling back (violates production rule). Set in frontend/.env');
+  console.warn('VITE_API_BASE not set — using the canonical KpnCompute API host');
 }
-const BASE = envBase || 'https://mjcc-managements.onrender.com';
+const BASE = (envBase || 'https://api.kpnsolute.com/compute').replace(/\/$/, '');
+
+export interface WorkspaceSummary {
+  workspace: Workspace;
+  counts: { projects: number; venues: number; locations: number; members: number };
+}
+
+export interface WorkspaceSite {
+  id: string;
+  parent_id?: string | null;
+  site_type: 'venue' | 'location';
+  slug: string;
+  name: string;
+  status: 'active' | 'inactive' | 'archived';
+  timezone: string;
+  address?: Record<string, unknown>;
+}
+
+export interface WorkspaceProject {
+  id: string;
+  slug: string;
+  name: string;
+  description?: string | null;
+  project_kind: string;
+  status: string;
+  updated_at?: string;
+}
+
+export interface WorkspaceCreateResult {
+  request_id: string;
+  tenant_id: string;
+  slug: string;
+  name: string;
+  status: string;
+  replayed: boolean;
+}
 
 function compactErrorBody(body: any): string {
   const text = typeof body === 'string' ? body : JSON.stringify(body);
@@ -669,6 +704,51 @@ export const api = {
 
   async getTenants(): Promise<{ current: Workspace | null; workspaces: Workspace[] }> {
     return req('/api/tenants');
+  },
+
+  async getWorkspaces(): Promise<{ workspaces: Workspace[] }> {
+    return req('/api/v1/workspaces');
+  },
+
+  async createWorkspace(body: { name: string; slug: string }, idempotencyKey: string): Promise<WorkspaceCreateResult> {
+    return req('/api/v1/workspaces', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify(body),
+    });
+  },
+
+  async getWorkspaceSummary(slug: string): Promise<WorkspaceSummary> {
+    return req(`/api/v1/workspaces/${encodeURIComponent(slug)}/summary`);
+  },
+
+  async getWorkspaceSites(slug: string): Promise<{ sites: WorkspaceSite[] }> {
+    return req(`/api/v1/workspaces/${encodeURIComponent(slug)}/sites`);
+  },
+
+  async createWorkspaceSite(
+    slug: string,
+    body: { site_type: 'venue' | 'location'; parent_id?: string | null; slug: string; name: string; timezone: string },
+  ): Promise<WorkspaceSite> {
+    return req(`/api/v1/workspaces/${encodeURIComponent(slug)}/sites`, {
+      method: 'POST', body: JSON.stringify(body),
+    });
+  },
+
+  async getWorkspaceProjects(slug: string): Promise<{ projects: WorkspaceProject[] }> {
+    return req(`/api/v1/workspaces/${encodeURIComponent(slug)}/projects`);
+  },
+
+  async createWorkspaceProject(
+    slug: string,
+    body: { slug: string; name: string; description?: string },
+    idempotencyKey: string,
+  ): Promise<WorkspaceProject> {
+    return req(`/api/v1/workspaces/${encodeURIComponent(slug)}/projects`, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify(body),
+    });
   },
 
   async logout(): Promise<void> {

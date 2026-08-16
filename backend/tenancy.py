@@ -21,6 +21,7 @@ GLOBAL_TABLES = {
     "tenants",
     "tenant_memberships",
     "user_profiles",
+    "workspace_creation_requests",
 }
 TENANT_TABLES = {
     "agent_conversations",
@@ -92,6 +93,7 @@ TENANT_TABLES = {
     "week_gross",
     "week_status",
     "workspace_projects",
+    "workspace_sites",
 }
 TENANT_VIEWS = {
     "category_spending",
@@ -113,6 +115,7 @@ TENANT_RPCS = {
     "sku_add_alias",
     "sku_review_resolve",
 }
+GLOBAL_RPCS = {"create_workspace_with_owner"}
 
 
 class TenantContextError(RuntimeError):
