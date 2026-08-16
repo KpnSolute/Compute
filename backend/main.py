@@ -79,6 +79,7 @@ from backend.routes.snack_bar import router as snack_bar_router
 from backend.routes.changelog import router as changelog_router
 from backend.routes.notifications import router as notifications_router
 from backend.routes.health import router as health_router
+from backend.routes.tenants import router as tenants_router
 from backend.routes.health import collect_system_status, render_status_page
 from backend.routes.api_logs import (
     install_log_capture,
@@ -135,8 +136,11 @@ async def api_request_logger(request: Request, call_next):
                 user_hint=_token_user_hint(request.headers.get("authorization")),
                 client_ip=client_ip or (request.client.host if request.client else ""),
                 request_id=request_id,
+                tenant_id=getattr(request.state, "tenant_id", None),
             )
             actor = _token_actor_hint(request.headers.get("authorization"))
+            if getattr(request.state, "tenant_id", None):
+                actor["tenant"] = {"id": request.state.tenant_id}
             record_audit_event(
                 action="http.request",
                 result="failed",
@@ -170,8 +174,11 @@ async def api_request_logger(request: Request, call_next):
             user_hint=_token_user_hint(request.headers.get("authorization")),
             client_ip=client_ip or (request.client.host if request.client else ""),
             request_id=request_id,
+            tenant_id=getattr(request.state, "tenant_id", None),
         )
         actor = _token_actor_hint(request.headers.get("authorization"))
+        if getattr(request.state, "tenant_id", None):
+            actor["tenant"] = {"id": request.state.tenant_id}
         result = (
             "failed"
             if response.status_code >= 500
@@ -295,6 +302,7 @@ app.include_router(changelog_router)
 app.include_router(notifications_router)
 app.include_router(health_router)
 app.include_router(api_logs_router)
+app.include_router(tenants_router)
 
 
 @app.get("/health")

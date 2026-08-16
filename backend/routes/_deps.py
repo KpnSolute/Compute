@@ -1,9 +1,17 @@
 """Shared FastAPI dependencies for MJCC routes — auth resolution and role guards."""
 
 import logging
+from collections.abc import Iterator
 
-from fastapi import Header, HTTPException, Depends
-from backend.routes import supabase_service, jwt_validator
+from fastapi import Depends, Header, HTTPException, Request
+from backend.routes import supabase_admin, supabase_service, jwt_validator
+from backend.tenancy import (
+    TenantContextError,
+    resolve_public_tenant,
+    resolve_user_tenant,
+    tenant_scope,
+    tenancy_mode,
+)
 
 ROLE_LEVEL = {"staff": 10, "assistant": 20, "manager": 30, "admin": 40, "sudo": 50}
 
@@ -16,7 +24,7 @@ def _chunks(values: list, size: int = BULK_CHUNK_SIZE):
         yield values[idx : idx + size]
 
 
-def _get_auth_user(authorization: str = Header("")) -> dict:
+def _profile_for_token(authorization: str) -> dict:
     """Resolve caller from Bearer token (JWT or pin_). Raises 401 if missing or invalid.
 
     Returns the full user_profiles row (single source of truth for auth across all
@@ -30,7 +38,7 @@ def _get_auth_user(authorization: str = Header("")) -> dict:
         user_id = token[4:]
         try:
             r = (
-                supabase_service.table("user_profiles")
+                supabase_admin.table("user_profiles")
                 .select("*")
                 .eq("id", user_id)
                 .eq("active", True)
@@ -41,7 +49,7 @@ def _get_auth_user(authorization: str = Header("")) -> dict:
             raise HTTPException(status_code=401, detail="Invalid session")
         if not r.data:
             raise HTTPException(status_code=401, detail="Invalid session")
-        return r.data[0]
+        return {**r.data[0], "_auth_method": "pin"}
     claims = jwt_validator.verify_token(token)
     if not claims:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
@@ -50,7 +58,7 @@ def _get_auth_user(authorization: str = Header("")) -> dict:
         raise HTTPException(status_code=401, detail="Token missing user ID")
     try:
         r = (
-            supabase_service.table("user_profiles")
+            supabase_admin.table("user_profiles")
             .select("*")
             .eq("id", user_id)
             .eq("active", True)
@@ -61,7 +69,68 @@ def _get_auth_user(authorization: str = Header("")) -> dict:
         raise HTTPException(status_code=401, detail="User not found or inactive")
     if not r.data:
         raise HTTPException(status_code=401, detail="User not found or inactive")
-    return r.data[0]
+    return {**r.data[0], "_auth_method": "jwt"}
+
+
+def _get_auth_user(
+    request: Request,
+    authorization: str = Header(""),
+    x_kpn_workspace: str = Header("", alias="X-Kpn-Workspace"),
+) -> Iterator[dict]:
+    """Authenticate and bind the request to an active workspace membership."""
+    user = _profile_for_token(authorization)
+    if tenancy_mode() == "legacy":
+        if user.get("_auth_method") == "pin" and user.get("role") != "staff":
+            raise HTTPException(
+                status_code=403,
+                detail="Elevated access requires password authentication",
+            )
+        yield user
+        return
+    try:
+        context, workspaces = resolve_user_tenant(
+            supabase_admin, str(user["id"]), x_kpn_workspace or None
+        )
+    except TenantContextError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    tenant_user = {
+        **user,
+        "role": context.role or user.get("role"),
+        "tenant": {
+            "id": context.id,
+            "slug": context.slug,
+            "name": context.name,
+            "role": context.role,
+        },
+        "workspaces": workspaces,
+    }
+    request.state.tenant_id = context.id
+    request.state.tenant_slug = context.slug
+    if tenant_user.get("_auth_method") == "pin" and context.role != "staff":
+        raise HTTPException(
+            status_code=403,
+            detail="Elevated access requires password authentication",
+        )
+    with tenant_scope(context):
+        yield tenant_user
+
+
+def _get_public_tenant(
+    request: Request,
+    x_kpn_workspace: str = Header("", alias="X-Kpn-Workspace"),
+) -> Iterator[dict]:
+    """Bind a public endpoint to one active workspace."""
+    if tenancy_mode() == "legacy":
+        yield {}
+        return
+    try:
+        context = resolve_public_tenant(supabase_admin, x_kpn_workspace or None)
+    except TenantContextError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    request.state.tenant_id = context.id
+    request.state.tenant_slug = context.slug
+    with tenant_scope(context):
+        yield {"id": context.id, "slug": context.slug, "name": context.name}
 
 
 def _require_admin_or_manager(auth_user: dict = Depends(_get_auth_user)) -> dict:

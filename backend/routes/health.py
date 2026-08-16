@@ -8,7 +8,13 @@ from fastapi import APIRouter, Response
 from fastapi.responses import HTMLResponse
 
 from backend.ai import context as ai_context
-from backend.routes import SUPABASE_URL, supabase_service
+from backend.routes import SUPABASE_URL, supabase_admin
+from backend.tenancy import (
+    TENANT_TABLES,
+    TENANT_VIEWS,
+    resolve_public_tenant,
+    tenancy_mode,
+)
 
 router = APIRouter(tags=["health"])
 
@@ -35,7 +41,11 @@ def _count(
     table: str, column: str = "id", **filters: Any
 ) -> tuple[int | None, str | None]:
     try:
-        q = supabase_service.table(table).select(column, count="exact").limit(1)
+        q = supabase_admin.table(table).select(column, count="exact").limit(1)
+        if tenancy_mode() != "legacy" and (
+            table in TENANT_TABLES or table in TENANT_VIEWS
+        ):
+            q = q.eq("tenant_id", resolve_public_tenant(supabase_admin, None).id)
         for key, value in filters.items():
             if value is None:
                 q = q.is_(key, "null")
@@ -50,11 +60,16 @@ def _count(
 def _failed_sync_count() -> tuple[int | None, str | None]:
     try:
         res = (
-            supabase_service.table("github_sync_queue")
+            supabase_admin.table("github_sync_queue")
             .select("id,last_error")
-            .limit(100)
-            .execute()
+            .eq(
+                "tenant_id",
+                resolve_public_tenant(supabase_admin, None).id,
+            )
+            if tenancy_mode() != "legacy"
+            else supabase_admin.table("github_sync_queue").select("id,last_error")
         )
+        res = res.limit(100).execute()
         rows = res.data or []
         return sum(1 for row in rows if row.get("last_error")), None
     except Exception as exc:

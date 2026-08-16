@@ -3,8 +3,10 @@ import json
 import base64
 import httpx
 from datetime import datetime, timezone
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
-from backend.routes import jwt_validator, supabase_service
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from backend.routes import supabase_service
+from backend.routes._deps import _require_admin_or_manager
+from backend.tenancy import current_tenant, tenant_scope
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -103,49 +105,11 @@ async def _drain_queue():
     return results
 
 
-def _require_admin_or_manager(authorization: str = Header("")) -> dict:
-    """Require admin or manager role; raises 401/403 otherwise."""
-    token = (authorization or "").replace("Bearer ", "").strip()
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing authorization token")
-    if token.startswith("pin_"):
-        user_id = token[4:]
-        try:
-            r = (
-                supabase_service.table("user_profiles")
-                .select("id,role,active")
-                .eq("id", user_id)
-                .eq("active", True)
-                .limit(1)
-                .execute()
-            )
-        except Exception:
-            raise HTTPException(status_code=401, detail="Invalid session")
-        if not r.data or r.data[0].get("role") not in ("admin", "manager", "sudo"):
-            raise HTTPException(
-                status_code=403, detail="Admin or manager role required"
-            )
-        return r.data[0]
-    claims = jwt_validator.verify_token(token)
-    if not claims:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    user_id = claims.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Token missing user ID")
-    try:
-        r = (
-            supabase_service.table("user_profiles")
-            .select("id,role,active")
-            .eq("id", user_id)
-            .eq("active", True)
-            .limit(1)
-            .execute()
-        )
-    except Exception:
-        raise HTTPException(status_code=401, detail="User not found or inactive")
-    if not r.data or r.data[0].get("role") not in ("admin", "manager", "sudo"):
-        raise HTTPException(status_code=403, detail="Admin or manager role required")
-    return r.data[0]
+async def _drain_queue_for_tenant(context):
+    if context is None:
+        return await _drain_queue()
+    with tenant_scope(context):
+        return await _drain_queue()
 
 
 @router.post("/run")
@@ -156,7 +120,7 @@ async def run_sync(
     """Drain the github_sync_queue. Runs in background, returns immediately."""
     if not GITHUB_TOKEN:
         raise HTTPException(status_code=503, detail="GITHUB_TOKEN not configured.")
-    background_tasks.add_task(_drain_queue)
+    background_tasks.add_task(_drain_queue_for_tenant, current_tenant())
     return {"ok": True, "message": "Sync queued in background."}
 
 

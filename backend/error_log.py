@@ -26,9 +26,9 @@ _executor = concurrent.futures.ThreadPoolExecutor(
 
 def _blocking_insert(row: dict) -> None:
     try:
-        from backend.routes import supabase_service
+        from backend.routes import supabase_admin
 
-        supabase_service.table("error_logs").insert(row).execute()
+        supabase_admin.table("error_logs").insert(row).execute()
     except Exception:
         # Persistence is best-effort; the error itself was already logged.
         _log.debug("error_logs persist failed", exc_info=True)
@@ -47,7 +47,11 @@ def record_error(
 ) -> None:
     """Durably record one error. Fire-and-forget; never raises."""
     try:
+        from backend.tenancy import current_tenant
+
+        tenant = current_tenant()
         row = {
+            "tenant_id": tenant.id if tenant else None,
             "method": method,
             "path": path,
             "status_code": status_code,

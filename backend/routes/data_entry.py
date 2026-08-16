@@ -8,6 +8,7 @@ PUT  /api/data-entry/settings — update AI stack config
 
 import asyncio
 import concurrent.futures
+import contextvars
 import json
 import logging
 import time
@@ -23,7 +24,6 @@ from fastapi import (
     UploadFile,
     File,
     Form,
-    Header,
     Depends,
     Request,
 )
@@ -43,8 +43,12 @@ from backend.archive_storage import (
 )
 from backend.inventory_identity import canonical_sku
 from backend.periods import business_now
-from backend.routes import jwt_validator, supabase_service
-from backend.routes._deps import check_direction_role, ensure_pr_for_entries
+from backend.routes import supabase_service
+from backend.routes._deps import (
+    _get_auth_user,
+    check_direction_role,
+    ensure_pr_for_entries,
+)
 from backend.staging.dispatch import _is_month_published
 
 # Thread pool dedicated to blocking parse work so FastAPI's event loop stays free
@@ -678,45 +682,6 @@ def _extract_ops(
     if isinstance(payload, list):
         payload = {"items": payload}
     return [{"operation": operation, "payload": payload}], {}
-
-
-# ── auth ───────────────────────────────────────────────────────────────────────
-
-
-async def _get_auth_user(authorization: str = Header("")) -> dict:
-    """Resolve the calling user from a Bearer token (Supabase JWT or pin_ token).
-
-    Mirrors the guard used across the other route modules so the AI data-entry
-    endpoints are not anonymously reachable. Uses the service client for the
-    user_profiles lookup (anon role has no SELECT policy on user_profiles).
-    """
-    token = authorization.replace("Bearer ", "").strip()
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing authorization token")
-
-    svc = supabase_service
-
-    if token.startswith("pin_"):
-        user_id = token.replace("pin_", "")
-    else:
-        claims = jwt_validator.verify_token(token)
-        if not claims:
-            raise HTTPException(status_code=401, detail="Invalid or expired token")
-        user_id = claims.get("sub")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Token missing user ID")
-
-    try:
-        result = (
-            svc.table("user_profiles").select("*").eq("id", user_id).single().execute()
-        )
-        user = result.data if result.data else None
-    except Exception:
-        user = None
-
-    if not user or not user.get("active"):
-        raise HTTPException(status_code=401, detail="User not found or inactive")
-    return user
 
 
 # ── SKU resolution pass (before staging) ─────────────────────────────────────
@@ -1377,9 +1342,11 @@ async def upload_file(
 
         loop = asyncio.get_event_loop()
         parse_start = time.monotonic()
+        request_context = contextvars.copy_context()
         parse_task = loop.run_in_executor(
             _parse_executor,
-            lambda: _extract_ops(
+            lambda: request_context.run(
+                _extract_ops,
                 fname,
                 content,
                 hint,

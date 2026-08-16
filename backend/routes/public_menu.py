@@ -7,11 +7,12 @@ POST /suggestions is protected by a shared `X-Api-Key` header (env MENU_API_KEY)
 import os
 from datetime import date
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from backend.periods import business_now
 from backend.routes import supabase_service
+from backend.routes._deps import _get_public_tenant
 from backend.routes.menu import (
     CYCLE_LENGTH,
     _build_day_payload,
@@ -20,7 +21,11 @@ from backend.routes.menu import (
     _get_anchor_date,
 )
 
-router = APIRouter(prefix="/api/public/menu", tags=["public-menu"])
+router = APIRouter(
+    prefix="/api/public/menu",
+    tags=["public-menu"],
+    dependencies=[Depends(_get_public_tenant)],
+)
 
 
 def _hour_value(row: dict, key: str) -> float | None:

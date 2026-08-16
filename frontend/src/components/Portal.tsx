@@ -162,10 +162,10 @@ function useInventory(period: [number, number]): [any, () => Promise<void>] {
     return [state, load];
 }
 
-function DropSelect({ value, onChange, options, label }: {
-    value: number;
-    onChange: (v: number) => void;
-    options: { value: number; label: string }[];
+function DropSelect<T extends string | number>({ value, onChange, options, label }: {
+    value: T;
+    onChange: (v: T) => void;
+    options: { value: T; label: string }[];
     label?: string;
 }) {
     const [open, setOpen] = useState(false);
@@ -226,6 +226,7 @@ function Topbar({
     lastFetch,
     onRefresh,
     onNav,
+    onWorkspaceChange,
 }: {
     user: User;
     period: [number, number];
@@ -241,6 +242,7 @@ function Topbar({
     lastFetch?: string | null;
     onRefresh?: () => void;
     onNav?: (k: string) => void;
+    onWorkspaceChange?: (slug: string) => void;
 }) {
     const [menu, setMenu] = useState(false);
     const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -351,13 +353,24 @@ function Topbar({
                     <KpnMark size={26} />
                 </span>
                 <div>
-                    <div className="tb-title">KpnCompute · MJCC</div>
+                    <div className="tb-title">KpnCompute · {user.tenant?.name || 'MJCC'}</div>
                     <div className="tb-sub">
                         {active && VIEW_LABELS[active] ? VIEW_LABELS[active] : 'Portal'}
                     </div>
                 </div>
             </div>
             <div className="tb-right">
+                {(user.workspaces?.length || 0) > 1 && user.tenant?.slug && (
+                    <DropSelect
+                        label="Workspace"
+                        value={user.tenant.slug}
+                        onChange={(slug) => onWorkspaceChange?.(slug)}
+                        options={(user.workspaces || []).map((workspace) => ({
+                            value: workspace.slug,
+                            label: workspace.name,
+                        }))}
+                    />
+                )}
                 <span
                     className={`inv-badge${apiStatus === 'error' ? ' err' : apiStatus === 'syncing' ? ' syncing' : ''}`}
                     title={lastFetch ? `Last fetched: ${new Date(lastFetch).toLocaleTimeString()}` : 'Connecting…'}
@@ -4970,6 +4983,7 @@ function ArchivesView(_props: { period: [number, number] }) {
 export interface PortalProps {
     user: User;
     onLogout: () => void;
+    onWorkspaceChange?: (slug: string) => void;
     density?: string;
 }
 
@@ -5237,6 +5251,7 @@ function RolloverBanner({
 export function Portal({
     user,
     onLogout,
+    onWorkspaceChange,
     density = "comfortable",
 }: PortalProps) {
     const lvl = ROLE_LEVEL[user.role];
@@ -5458,6 +5473,7 @@ export function Portal({
                 lastFetch={lastFetch}
                 onRefresh={reloadInv}
                 onNav={goTo}
+                onWorkspaceChange={onWorkspaceChange}
             />
             <ActivityBar
                 user={user}

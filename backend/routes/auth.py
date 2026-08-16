@@ -7,9 +7,15 @@ from urllib.parse import urlsplit
 
 import jwt as pyjwt
 from fastapi import APIRouter, Depends, HTTPException, Header, Response
-from pydantic import BaseModel, ConfigDict
-from backend.routes import supabase_service, jwt_validator, SUPABASE_JWT_SECRET
-from backend.routes._deps import _get_auth_user
+from pydantic import BaseModel, ConfigDict, Field
+from backend.routes import (
+    SUPABASE_JWT_SECRET,
+    jwt_validator,
+    supabase_admin,
+    supabase_service,
+)
+from backend.routes._deps import _get_auth_user, _profile_for_token
+from backend.tenancy import list_user_tenants, tenancy_mode
 from backend.audit_events import record_audit_event
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -43,6 +49,8 @@ class UserInfo(BaseModel):
     active: bool
     must_change_password: bool = False
     must_change_pin: bool = False
+    tenant: dict | None = None
+    workspaces: list[dict] = Field(default_factory=list)
 
 
 class LunchvoiceSsoStartResponse(BaseModel):
@@ -102,7 +110,40 @@ def _credential_flags(user: dict) -> dict:
     }
 
 
-def _has_lioncafe_scope(role: str) -> bool:
+def _handoff_client():
+    """Use explicit admin predicates after cutover; preserve legacy rollout safety."""
+    return supabase_admin if tenancy_mode() != "legacy" else supabase_service
+
+
+def _with_workspace(user: dict, requested_slug: str | None = None) -> dict:
+    """Return the login identity with its default workspace in tenant modes."""
+    enriched = {**user, **_credential_flags(user)}
+    if tenancy_mode() == "legacy":
+        return enriched
+    workspaces = list_user_tenants(supabase_admin, str(user["id"]))
+    requested = (requested_slug or "").strip().lower()
+    selected = next(
+        (row for row in workspaces if row["slug"].lower() == requested), None
+    )
+    if requested and selected is None:
+        raise HTTPException(
+            status_code=403, detail="Workspace is unavailable for this account"
+        )
+    selected = selected or next((row for row in workspaces if row["is_default"]), None)
+    selected = selected or (workspaces[0] if workspaces else None)
+    if not selected:
+        raise HTTPException(
+            status_code=403, detail="Account has no active workspace membership"
+        )
+    return {
+        **enriched,
+        "role": selected["role"],
+        "tenant": selected,
+        "workspaces": workspaces,
+    }
+
+
+def _has_lioncafe_scope(role: str, tenant_id: str | None = None) -> bool:
     """Fail closed unless the live MJCC role matrix grants LionCafe access."""
     try:
         scope = (
@@ -115,15 +156,20 @@ def _has_lioncafe_scope(role: str) -> bool:
         )
         if not scope.data:
             return False
+        grants = (
+            supabase_admin.table("role_permissions")
+            if tenant_id
+            else supabase_service.table("role_permissions")
+        )
         grant = (
-            supabase_service.table("role_permissions")
-            .select("scope_key")
+            grants.select("scope_key")
             .eq("role", role)
             .eq("scope_key", "lioncafe")
             .eq("allowed", True)
-            .limit(1)
-            .execute()
         )
+        if tenant_id:
+            grant = grant.eq("tenant_id", tenant_id)
+        grant = grant.limit(1).execute()
         return bool(grant.data)
     except Exception:
         return False
@@ -164,7 +210,7 @@ def _sso_app_config(app: str) -> dict[str, str]:
     return config
 
 
-def _has_app_scope(role: str, scope_key: str) -> bool:
+def _has_app_scope(role: str, scope_key: str, tenant_id: str | None = None) -> bool:
     """Fail closed unless the live MJCC role matrix grants this app's scope."""
     try:
         scope = (
@@ -177,15 +223,20 @@ def _has_app_scope(role: str, scope_key: str) -> bool:
         )
         if not scope.data:
             return False
+        grants = (
+            supabase_admin.table("role_permissions")
+            if tenant_id
+            else supabase_service.table("role_permissions")
+        )
         grant = (
-            supabase_service.table("role_permissions")
-            .select("scope_key")
+            grants.select("scope_key")
             .eq("role", role)
             .eq("scope_key", scope_key)
             .eq("allowed", True)
-            .limit(1)
-            .execute()
         )
+        if tenant_id:
+            grant = grant.eq("tenant_id", tenant_id)
+        grant = grant.limit(1).execute()
         return bool(grant.data)
     except Exception:
         return False
@@ -279,12 +330,17 @@ async def exchange_lunchvoice_sso(
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     try:
         consumed = (
-            supabase_service.table("lunchvoice_sso_handoffs")
+            _handoff_client()
+            .table("lunchvoice_sso_handoffs")
             .update({"consumed_at": now})
             .eq("code_hash", code_hash)
             .is_("consumed_at", "null")
             .gt("expires_at", now)
-            .select("user_id,tenant_slug")
+            .select(
+                "user_id,tenant_slug,tenant_id"
+                if tenancy_mode() != "legacy"
+                else "user_id,tenant_slug"
+            )
             .execute()
         )
     except Exception:
@@ -297,7 +353,10 @@ async def exchange_lunchvoice_sso(
     if (
         not user
         or not user.get("active")
-        or not _has_lioncafe_scope(str(user.get("role") or ""))
+        or not _has_lioncafe_scope(
+            str(user.get("role") or ""),
+            str(handoff["tenant_id"]) if tenancy_mode() != "legacy" else None,
+        )
     ):
         raise HTTPException(status_code=403, detail="LionCafe access has been revoked")
 
@@ -393,13 +452,18 @@ async def exchange_sso(
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     try:
         consumed = (
-            supabase_service.table("sso_handoffs")
+            _handoff_client()
+            .table("sso_handoffs")
             .update({"consumed_at": now})
             .eq("code_hash", code_hash)
             .eq("target_app", app)
             .is_("consumed_at", "null")
             .gt("expires_at", now)
-            .select("user_id,target_app")
+            .select(
+                "user_id,target_app,tenant_id"
+                if tenancy_mode() != "legacy"
+                else "user_id,target_app"
+            )
             .execute()
         )
     except Exception:
@@ -412,7 +476,11 @@ async def exchange_sso(
     if (
         not user
         or not user.get("active")
-        or not _has_app_scope(str(user.get("role") or ""), config["scope_key"])
+        or not _has_app_scope(
+            str(user.get("role") or ""),
+            config["scope_key"],
+            str(handoff["tenant_id"]) if tenancy_mode() != "legacy" else None,
+        )
     ):
         raise HTTPException(status_code=403, detail=f"{app} access has been revoked")
 
@@ -445,7 +513,7 @@ async def _get_user_profile(user_id: str) -> dict | None:
     """Fetch user profile from Supabase by id."""
     try:
         result = (
-            supabase_service.table("user_profiles")
+            supabase_admin.table("user_profiles")
             .select("*")
             .eq("id", user_id)
             .single()
@@ -461,7 +529,7 @@ async def _get_user_by_username(username: str) -> dict | None:
     """Fetch user profile by username."""
     try:
         result = (
-            supabase_service.table("user_profiles")
+            supabase_admin.table("user_profiles")
             .select("*")
             .eq("username", username)
             .eq("active", True)
@@ -474,7 +542,10 @@ async def _get_user_by_username(username: str) -> dict | None:
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(req: LoginRequest):
+async def login(
+    req: LoginRequest,
+    x_kpn_workspace: str = Header("", alias="X-Kpn-Workspace"),
+):
     """
     Login endpoint supporting two modes:
 
@@ -519,17 +590,20 @@ async def login(req: LoginRequest):
             raise HTTPException(status_code=401, detail="User account is inactive")
 
         # Return the Supabase token as-is for session management
+        identity = _with_workspace(user, x_kpn_workspace or None)
         return LoginResponse(
             access_token=req.access_token,
             user={
-                "id": user.get("id"),
-                "username": user.get("username"),
-                "display_name": user.get("display_name"),
-                "last_name": user.get("last_name"),
-                "role": user.get("role"),
-                "active": user.get("active"),
+                "id": identity.get("id"),
+                "username": identity.get("username"),
+                "display_name": identity.get("display_name"),
+                "last_name": identity.get("last_name"),
+                "role": identity.get("role"),
+                "active": identity.get("active"),
                 "email": email,  # From JWT
-                **_credential_flags(user),
+                "tenant": identity.get("tenant"),
+                "workspaces": identity.get("workspaces", []),
+                **_credential_flags(identity),
             },
         )
 
@@ -563,16 +637,19 @@ async def login(req: LoginRequest):
             # Transition safety: legacy unsigned token accepted by _deps.py pin_ branch.
             staff_token = f"pin_{user['id']}"
 
+        identity = _with_workspace(user, x_kpn_workspace or None)
         return LoginResponse(
             access_token=staff_token,
             user={
-                "id": user.get("id"),
-                "username": user.get("username"),
-                "display_name": user.get("display_name"),
-                "last_name": user.get("last_name"),
-                "role": user.get("role"),
-                "active": user.get("active"),
-                **_credential_flags(user),
+                "id": identity.get("id"),
+                "username": identity.get("username"),
+                "display_name": identity.get("display_name"),
+                "last_name": identity.get("last_name"),
+                "role": identity.get("role"),
+                "active": identity.get("active"),
+                "tenant": identity.get("tenant"),
+                "workspaces": identity.get("workspaces", []),
+                **_credential_flags(identity),
             },
         )
 
@@ -621,7 +698,11 @@ _SESSION_REASONS = {
 
 
 @router.post("/session-event", status_code=202)
-async def session_event(body: SessionEventBody, authorization: str = Header("")):
+async def session_event(
+    body: SessionEventBody,
+    authorization: str = Header(""),
+    x_kpn_workspace: str = Header("", alias="X-Kpn-Workspace"),
+):
     """Record why a session ended (or recovered). Unauthenticated by design.
 
     A session that has already been torn down has no usable token, so requiring
@@ -640,7 +721,9 @@ async def session_event(body: SessionEventBody, authorization: str = Header(""))
     token = authorization.replace("Bearer ", "") if authorization else ""
     if token:
         try:
-            actor = _get_auth_user(authorization=authorization) or {}
+            actor = _with_workspace(
+                _profile_for_token(authorization), x_kpn_workspace or None
+            )
         except Exception:
             # Expected for an expired/rejected token — that IS the event.
             actor = {}
@@ -661,32 +744,6 @@ async def session_event(body: SessionEventBody, authorization: str = Header(""))
 
 
 @router.get("/me", response_model=UserInfo)
-async def me(authorization: str = Header("")):
-    """
-    Get current user info by validating Authorization header.
-
-    Expects: Authorization: Bearer <supabase_jwt_or_pin_token>
-    """
-    token = authorization.replace("Bearer ", "") if authorization else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing authorization token")
-
-    # Handle PIN-based tokens (legacy staff login)
-    if token.startswith("pin_"):
-        user_id = token.replace("pin_", "")
-        user = await _get_user_profile(user_id)
-        if not user or not user.get("active"):
-            raise HTTPException(status_code=401, detail="Invalid session")
-        return UserInfo(**{**user, **_credential_flags(user)})
-
-    # Handle Supabase JWT tokens
-    claims = jwt_validator.verify_token(token)
-    if not claims:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-    user_id = claims.get("sub")
-    user = await _get_user_profile(user_id)
-    if not user or not user.get("active"):
-        raise HTTPException(status_code=401, detail="User not found or inactive")
-
-    return UserInfo(**{**user, **_credential_flags(user)})
+async def me(current_user: dict = Depends(_get_auth_user)):
+    """Return the authenticated identity and active workspace."""
+    return UserInfo(**{**current_user, **_credential_flags(current_user)})

@@ -383,7 +383,9 @@ async def update_slot(
     )
     response = _single_slot_payload(result.data[0])
     background_tasks.add_task(
-        publish_menu_day, _menu_day_event_payload(existing.data[0]["cycle_day"])
+        publish_menu_day,
+        _menu_day_event_payload(existing.data[0]["cycle_day"]),
+        tenant=auth_user.get("tenant"),
     )
     return response
 
@@ -430,7 +432,11 @@ async def create_slot(
     }
     result = supabase_service.table("menu_cycle_slots").insert(row).execute()
     response = _single_slot_payload(result.data[0])
-    background_tasks.add_task(publish_menu_day, _menu_day_event_payload(n))
+    background_tasks.add_task(
+        publish_menu_day,
+        _menu_day_event_payload(n),
+        tenant=auth_user.get("tenant"),
+    )
     return response
 
 
@@ -471,7 +477,11 @@ async def update_settings(
     supabase_service.table("app_settings").update(
         {"setting_value": parsed.isoformat()}
     ).eq("setting_key", ANCHOR_SETTING_KEY).execute()
-    background_tasks.add_task(publish_menu_cycle, _menu_cycle_event_payload())
+    background_tasks.add_task(
+        publish_menu_cycle,
+        _menu_cycle_event_payload(),
+        tenant=auth_user.get("tenant"),
+    )
     return {"anchor_date": parsed.isoformat()}
 
 
@@ -480,7 +490,11 @@ async def publish_cycle_event(
     background_tasks: BackgroundTasks,
     auth_user: dict = Depends(_require_manager),
 ):
-    background_tasks.add_task(publish_menu_cycle, _menu_cycle_event_payload())
+    background_tasks.add_task(
+        publish_menu_cycle,
+        _menu_cycle_event_payload(),
+        tenant=auth_user.get("tenant"),
+    )
     return {
         "accepted": True,
         "event_type": "com.kpnsolute.compute.menu.cycle.updated.v1",
