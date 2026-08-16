@@ -1,5 +1,32 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.2.1] — 2026-08-16 — tenant relationship repair
+
+Reconciled the duplicate legacy and tenant-aware foreign keys created during
+the v0.2.0 tenancy rollout. Each relationship now has one tenant-aware
+composite foreign key under its original stable constraint name, preserving
+the original update, delete, and deferrability behavior. This removes
+PostgREST `PGRST201` relationship ambiguity without weakening tenant
+isolation; `SET NULL` relationships clear only their nullable business key and
+retain the non-null tenant boundary.
+
+Production verification: migration `20260816141718` applied successfully;
+duplicate relationship pairs fell from 27 to 0; all 103 tenant-aware foreign
+keys are validated and 102 have covering indexes (the one pre-existing
+exception is `menu_cycle_slots_tenant_cycle_day_fkey`); inventory/category and
+monthly-inventory/item cross-tenant mismatches are both 0. The post-migration
+Render warning/error stream is clean, and 211 backend tests pass with 14
+skipped. Authenticated production acceptance passed for Dashboard, Inventory,
+Monthly Inventory (366 rows), its invoice/vendor register, and Cost Manager;
+the browser console had no warnings or errors. The only backend warning after
+repair was an unrelated `HEAD /` 405 health probe.
+
+Release gates: frontend TypeScript/Vite build and 12 tests pass; ESLint reports
+0 errors and the existing 683 warnings. The production build retains its
+pre-existing large-chunk warning. `npm ci` reports four high-severity dependency
+audit findings; dependency remediation is tracked separately from this narrow
+database repair.
+
 ## [v0.2.0] — 2026-08-16 — KpnCompute workspace tenancy foundation
 
 Implemented the tenant-proof foundation and applied its six additive
