@@ -25,15 +25,16 @@ from datetime import datetime, timezone
 from urllib import request
 from urllib.error import HTTPError
 
-from fastapi import APIRouter, HTTPException, Header, Depends, File, UploadFile
+from fastapi import APIRouter, HTTPException, Depends, File, UploadFile
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from backend.routes import (
     SUPABASE_SERVICE_KEY,
     SUPABASE_URL,
-    jwt_validator,
+    supabase_admin,
     supabase_service,
 )
 from backend.routes._deps import _get_auth_user
+from backend.tenancy import current_tenant, tenancy_mode
 
 log = logging.getLogger("mjcc.users")
 
@@ -578,72 +579,12 @@ def _patch_auth_user(user_id: str, payload: dict) -> None:
 # ── auth dependencies ─────────────────────────────────────────────────────────
 
 
-async def _resolve_jwt_user(authorization: str) -> dict:
-    """Validate a JWT Bearer token and return the user profile."""
-    token = authorization.replace("Bearer ", "") if authorization else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing authorization token")
-    if token.startswith("pin_"):
-        raise HTTPException(
-            status_code=403,
-            detail="This endpoint requires Supabase Auth token, not PIN",
-        )
-    claims = jwt_validator.verify_token(token)
-    if not claims:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    user_id = claims.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Token missing user ID")
-    try:
-        result = (
-            supabase_service.table("user_profiles")
-            .select("*")
-            .eq("id", user_id)
-            .single()
-            .execute()
-        )
-        user = result.data if result.data else None
-    except Exception:
-        raise HTTPException(status_code=500, detail="Database error fetching user")
-    if not user:
-        raise HTTPException(status_code=401, detail="User profile not found")
-    if not user.get("active"):
-        raise HTTPException(status_code=401, detail="User account is inactive")
+async def _require_any_auth(user: dict = Depends(_get_auth_user)) -> dict:
     return user
 
 
-async def _require_any_auth(authorization: str = Header("")) -> dict:
-    """Accept any valid token — JWT (admin/manager/sudo) or pin_ (staff)."""
-    token = authorization.replace("Bearer ", "") if authorization else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing authorization token")
-
-    if token.startswith("pin_"):
-        user_id = token[4:]
-        user = await _get_user_by_id(user_id)
-        if not user:
-            raise HTTPException(status_code=401, detail="Invalid session")
-        if not user.get("active"):
-            raise HTTPException(status_code=401, detail="User account is inactive")
-        return user
-
-    claims = jwt_validator.verify_token(token)
-    if not claims:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    user_id = claims.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Token missing user ID")
-    user = await _get_user_by_id(user_id)
-    if not user:
-        raise HTTPException(status_code=401, detail="User profile not found")
-    if not user.get("active"):
-        raise HTTPException(status_code=401, detail="User account is inactive")
-    return user
-
-
-async def _require_admin(authorization: str = Header("")) -> dict:
-    """Require admin OR sudo role — read access to user management."""
-    user = await _resolve_jwt_user(authorization)
+async def _require_admin(user: dict = Depends(_get_auth_user)) -> dict:
+    """Require admin OR sudo membership in the selected workspace."""
     if ROLE_LEVEL.get(user.get("role", ""), 0) < 40:
         raise HTTPException(
             status_code=403, detail="This endpoint requires admin or sudo role"
@@ -651,9 +592,8 @@ async def _require_admin(authorization: str = Header("")) -> dict:
     return user
 
 
-async def _require_manager(authorization: str = Header("")) -> dict:
-    """Require manager, admin, or sudo role."""
-    user = await _resolve_jwt_user(authorization)
+async def _require_manager(user: dict = Depends(_get_auth_user)) -> dict:
+    """Require manager, admin, or sudo membership in the selected workspace."""
     if ROLE_LEVEL.get(user.get("role", ""), 0) < 30:
         raise HTTPException(
             status_code=403, detail="This endpoint requires manager or higher role"
@@ -661,9 +601,8 @@ async def _require_manager(authorization: str = Header("")) -> dict:
     return user
 
 
-async def _require_sudo(authorization: str = Header("")) -> dict:
-    """Require sudo role — write access to user management."""
-    user = await _resolve_jwt_user(authorization)
+async def _require_sudo(user: dict = Depends(_get_auth_user)) -> dict:
+    """Require sudo membership in the selected workspace."""
     if user.get("role") != "sudo":
         raise HTTPException(status_code=403, detail="This endpoint requires sudo role")
     return user
@@ -885,6 +824,60 @@ async def get_role_scopes(current_user: dict = Depends(_get_auth_user)):
     return _load_role_scope_payload()
 
 
+def _selected_tenant_id() -> str | None:
+    context = current_tenant()
+    return context.id if context else None
+
+
+def _workspace_membership(user_id: str) -> dict | None:
+    tenant_id = _selected_tenant_id()
+    if tenancy_mode() == "legacy" or not tenant_id:
+        return None
+    rows = (
+        supabase_admin.table("tenant_memberships")
+        .select("tenant_id,user_id,role,status,is_default")
+        .eq("tenant_id", tenant_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    ).data or []
+    return rows[0] if rows else None
+
+
+def _require_workspace_member(user_id: str) -> dict | None:
+    membership = _workspace_membership(user_id)
+    if tenancy_mode() != "legacy" and not membership:
+        raise HTTPException(status_code=404, detail="User not found in this workspace")
+    return membership
+
+
+def _workspace_user_ids(active_only: bool = False) -> tuple[list[str], dict[str, dict]]:
+    tenant_id = _selected_tenant_id()
+    if tenancy_mode() == "legacy" or not tenant_id:
+        return [], {}
+    query = (
+        supabase_admin.table("tenant_memberships")
+        .select("user_id,role,status,is_default")
+        .eq("tenant_id", tenant_id)
+        .neq("status", "removed")
+    )
+    if active_only:
+        query = query.eq("status", "active")
+    memberships = query.execute().data or []
+    by_user = {str(row["user_id"]): row for row in memberships}
+    return list(by_user), by_user
+
+
+def _merge_membership(user: dict, membership: dict | None) -> dict:
+    if not membership:
+        return user
+    return {
+        **user,
+        "role": membership["role"],
+        "active": bool(user.get("active")) and membership["status"] == "active",
+    }
+
+
 @router.put("/role-scopes")
 async def update_role_scopes(
     req: RoleScopesRequest, current_user: dict = Depends(_require_sudo)
@@ -903,10 +896,18 @@ async def list_users(
     """List all users. Requires manager or higher role."""
     try:
         query = supabase_service.table("user_profiles").select("*")
-        if active_only:
+        user_ids, memberships = _workspace_user_ids(active_only)
+        if tenancy_mode() != "legacy":
+            if not user_ids:
+                return UsersListResponse(count=0, users=[])
+            query = query.in_("id", user_ids)
+        elif active_only:
             query = query.eq("active", True)
         result = query.order("created_at", desc=True).execute()
-        users = result.data if result.data else []
+        users = [
+            _merge_membership(row, memberships.get(str(row["id"])))
+            for row in (result.data or [])
+        ]
         return UsersListResponse(
             count=len(users), users=[UserResponse(**u) for u in users]
         )
@@ -992,6 +993,26 @@ async def create_user(
         user = result.data[0] if result.data else None
         if not user:
             raise HTTPException(status_code=500, detail="Failed to create user")
+        if tenancy_mode() != "legacy":
+            tenant_id = _selected_tenant_id()
+            if not tenant_id:
+                raise HTTPException(
+                    status_code=500, detail="Workspace context was lost"
+                )
+            membership = (
+                supabase_admin.table("tenant_memberships")
+                .insert(
+                    {
+                        "tenant_id": tenant_id,
+                        "user_id": auth_user_id,
+                        "role": req.role,
+                        "status": "active",
+                        "is_default": True,
+                    }
+                )
+                .execute()
+            ).data[0]
+            user = _merge_membership(user, membership)
         return UserResponse(**user)
 
     except Exception as e:
@@ -1006,10 +1027,11 @@ async def create_user(
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(user_id: str, admin_user: dict = Depends(_require_manager)):
     """Get a specific user's profile. Requires manager or higher role."""
+    membership = _require_workspace_member(user_id)
     user = await _get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return UserResponse(**user)
+    return UserResponse(**_merge_membership(user, membership))
 
 
 @router.put("/{user_id}", response_model=UserResponse)
@@ -1017,10 +1039,12 @@ async def update_user(
     user_id: str, req: UserUpdateRequest, admin_user: dict = Depends(_require_manager)
 ):
     """Update a user's profile. Managers can update staff; sudo can update any user."""
+    membership = _require_workspace_member(user_id)
     user = await _get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    user = _merge_membership(user, membership)
     actor_is_sudo = _enforce_user_update_scope(req, user, admin_user)
 
     if req.role == "sudo" and admin_user.get("role") != "sudo":
@@ -1039,13 +1063,28 @@ async def update_user(
                 status_code=403,
                 detail="Only sudo can change user roles",
             )
-        update_data["role"] = req.role
+        if tenancy_mode() == "legacy":
+            update_data["role"] = req.role
+        else:
+            supabase_admin.table("tenant_memberships").update(
+                {"role": req.role, "updated_at": datetime.now(timezone.utc).isoformat()}
+            ).eq("tenant_id", _selected_tenant_id()).eq("user_id", user_id).execute()
+            user["role"] = req.role
     if req.pin is not None:
         if req.pin and (not req.pin.isdigit() or len(req.pin) < 4):
             raise HTTPException(status_code=400, detail="PIN must be at least 4 digits")
         update_data["pin"] = req.pin or None
     if req.active is not None:
-        update_data["active"] = req.active
+        if tenancy_mode() == "legacy":
+            update_data["active"] = req.active
+        else:
+            supabase_admin.table("tenant_memberships").update(
+                {
+                    "status": "active" if req.active else "suspended",
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            ).eq("tenant_id", _selected_tenant_id()).eq("user_id", user_id).execute()
+            user["active"] = req.active
     if req.phone is not None:
         update_data["phone"] = req.phone
     if req.job_title is not None:
@@ -1103,7 +1142,7 @@ async def update_user(
             .eq("id", user_id)
             .execute()
         )
-        updated_user = result.data[0] if result.data else None
+        updated_user = result.data[0] if result.data else user
         if not updated_user:
             raise HTTPException(status_code=500, detail="Failed to update user")
         if req.new_password:
@@ -1122,7 +1161,9 @@ async def update_user(
                 "username_update",
                 {"username": update_data.get("username")},
             )
-        return UserResponse(**updated_user)
+        return UserResponse(
+            **_merge_membership(updated_user, _workspace_membership(user_id))
+        )
 
     except Exception as e:
         if isinstance(e, HTTPException):
@@ -1135,9 +1176,11 @@ async def get_user_credentials(
     user_id: str, admin_user: dict = Depends(_require_manager)
 ):
     """Return credential recovery metadata. Staff PIN is visible; passwords are reset-only."""
+    membership = _require_workspace_member(user_id)
     user = await _get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    user = _merge_membership(user, membership)
     if not _can_view_user_credentials(user, admin_user):
         raise HTTPException(
             status_code=403,
@@ -1196,6 +1239,7 @@ async def get_user_password(user_id: str, admin_user: dict = Depends(_require_ma
 @router.delete("/{user_id}", status_code=204)
 async def disable_user(user_id: str, admin_user: dict = Depends(_require_sudo)):
     """Disable (soft-delete) a user account. Requires sudo role."""
+    _require_workspace_member(user_id)
     user = await _get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1204,9 +1248,17 @@ async def disable_user(user_id: str, admin_user: dict = Depends(_require_sudo)):
         raise HTTPException(status_code=400, detail="Cannot disable your own account")
 
     try:
-        supabase_service.table("user_profiles").update(
-            {"active": False, "updated_at": datetime.now(timezone.utc).isoformat()}
-        ).eq("id", user_id).execute()
+        if tenancy_mode() == "legacy":
+            supabase_service.table("user_profiles").update(
+                {"active": False, "updated_at": datetime.now(timezone.utc).isoformat()}
+            ).eq("id", user_id).execute()
+        else:
+            supabase_admin.table("tenant_memberships").update(
+                {
+                    "status": "removed",
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            ).eq("tenant_id", _selected_tenant_id()).eq("user_id", user_id).execute()
         return None
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")

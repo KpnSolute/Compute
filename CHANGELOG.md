@@ -1,5 +1,40 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.2.0] — 2026-08-16 — KpnCompute workspace tenancy foundation
+
+Implemented the tenant-proof foundation and applied its six additive
+migrations to the live KpnCompute database without changing production
+application mode. Existing MJCC data received a workspace backfill; privileged
+API access, RPCs, files, SSO, telemetry,
+background jobs, CloudEvents, user administration, and the portal workspace
+selector now carry one validated tenant context. The default `legacy` mode
+keeps the current deployment compatible until migrations and a staged
+`shadow`/`enforced` cutover are separately approved.
+
+Added the tenant project-tree foundation: every project receives isolated
+document/SOP, source, generated, data, and archive roots. Artifact object keys
+are constrained to the owning tenant and project; immutable SOP versions,
+generation manifests, and blueprint review records provide the future routing
+and AI-generation substrate while MJCC remains the active tenant-one project.
+Business tables reject null tenant IDs; temporary insert triggers assign MJCC
+only when a legacy production writer omits the tenant during the cutover.
+Explicit workspace IDs always take precedence, and platform error/audit
+telemetry may remain unassigned before authentication resolves a workspace.
+
+Added the implementation roster and the next-phase contract for workspace,
+project, SOP ingestion, human-reviewed AI blueprints, provisioning jobs, and a
+sanitized template gallery. These endpoints remain planned, not shipped.
+
+Verification: Ruff and Python compilation pass; 211 backend tests pass with 14
+skipped; frontend TypeScript/build and 12 tests pass; ESLint has zero errors
+and reports 683 warnings across the existing codebase; all six new SQL
+migrations parse with PostgreSQL's grammar. Production migration history,
+constraints, RLS, tenant RPCs, private artifact storage, MJCC row preservation,
+legacy-write stamping, and rollback-only second-tenant isolation were verified.
+The production API remained HTTP 200. Git publication, application deployment,
+authenticated browser acceptance, and persistent two-tenant acceptance remain
+pending.
+
 ## [v0.1.9] — 2026-08-05 — KpnSolute CloudEvents publisher
 
 Added an optional, server-only KpnSolute Events adapter for MJCC menu changes.

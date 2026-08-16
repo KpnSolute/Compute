@@ -1,6 +1,7 @@
 import { getBackendToken, clearBackendToken, ensureFreshBackendAuth } from './supabase';
 import { markSessionActivity } from './session';
 import { groupByCategory } from './inventoryUtils';
+import { workspaceHeaders, type Workspace } from './workspace';
 
 const envBase = (import.meta.env as Record<string, string>).VITE_API_BASE;
 if (!envBase) {
@@ -38,6 +39,7 @@ export function reportSessionEvent(reason: string, detail = '', path = ''): void
       keepalive: true,
       headers: {
         'Content-Type': 'application/json',
+        ...workspaceHeaders(),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({ reason, detail, path }),
@@ -66,10 +68,11 @@ function buildInit(opts: RequestInit | undefined, token: string | null): Request
     'Pragma': 'no-cache',
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
+  Object.assign(headers, workspaceHeaders());
   return {
+    ...opts,
     headers: { ...headers, ...opts?.headers },
     cache: opts?.cache ?? 'no-store',
-    ...opts,
   };
 }
 
@@ -133,7 +136,7 @@ async function reqForm<T>(path: string, form: FormData): Promise<T> {
   let token = getBackendToken();
   let res = await fetch(BASE + path, {
     method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: { ...workspaceHeaders(), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: form,
   });
   if (res.status === 401) {
@@ -142,7 +145,7 @@ async function reqForm<T>(path: string, form: FormData): Promise<T> {
     if (token) {
       res = await fetch(BASE + path, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { ...workspaceHeaders(), Authorization: `Bearer ${token}` },
         body: form,
       });
     }
@@ -662,6 +665,10 @@ export const api = {
 
   async getMe(): Promise<any> {
     return req('/api/auth/me');
+  },
+
+  async getTenants(): Promise<{ current: Workspace | null; workspaces: Workspace[] }> {
+    return req('/api/tenants');
   },
 
   async logout(): Promise<void> {
@@ -1419,6 +1426,7 @@ export const api = {
     // server error during deploy doesn't kill the user's session.
     const token = getBackendToken();
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    Object.assign(headers, workspaceHeaders());
     if (token) headers['Authorization'] = `Bearer ${token}`;
     const res = await fetch(BASE + '/api/staging', {
       method: 'DELETE',
@@ -1466,6 +1474,7 @@ export const api = {
     markSessionActivity();
     const token = getBackendToken();
     const headers: Record<string, string> = {};
+    Object.assign(headers, workspaceHeaders());
     if (token) headers['Authorization'] = `Bearer ${token}`;
     const form = new FormData();
     form.append('file', file);
@@ -1483,7 +1492,7 @@ export const api = {
       if (retryToken) {
         res = await fetch(BASE + '/api/data-entry/upload', {
           method: 'POST',
-          headers: { Authorization: `Bearer ${retryToken}` },
+          headers: { ...workspaceHeaders(), Authorization: `Bearer ${retryToken}` },
           body: form,
           signal,
           cache: 'no-store',
@@ -1604,6 +1613,7 @@ export const api = {
     markSessionActivity();
     const token = getBackendToken();
     const headers: Record<string, string> = {};
+    Object.assign(headers, workspaceHeaders());
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
     const form = new FormData();

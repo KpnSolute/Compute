@@ -3,6 +3,7 @@ import jwt
 from pathlib import Path
 from supabase import create_client
 from dotenv import load_dotenv
+from backend.tenancy import TenantScopedClient
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
@@ -32,7 +33,8 @@ if not SUPABASE_JWT_SECRET:
     )
 
 supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-supabase_service = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+supabase_service = TenantScopedClient(supabase_admin)
 
 
 class JWTValidator:

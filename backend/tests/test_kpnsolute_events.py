@@ -58,3 +58,25 @@ def test_publish_cycle_uses_cycle_contract(monkeypatch):
     )
     assert captured["event"]["type"] == kpnsolute_events.MENU_CYCLE_UPDATED
     assert captured["event"]["subject"] == "menu-rotations/primary"
+
+
+def test_background_publish_uses_captured_workspace(monkeypatch):
+    monkeypatch.setenv("KPNCOMPUTE_TENANCY_MODE", "enforced")
+    monkeypatch.setenv("KPNSOLUTE_EVENTS_URL", "https://events.example.test")
+    monkeypatch.setenv("KPNSOLUTE_EVENTS_PUBLISHER_KEY", "publisher-test-key")
+    captured = {}
+
+    class Response:
+        status_code = 202
+
+    def fake_post(url, *, content, headers, timeout):
+        captured["event"] = json.loads(content)
+        return Response()
+
+    monkeypatch.setattr(kpnsolute_events.httpx, "post", fake_post)
+    assert kpnsolute_events.publish_menu_day(
+        {"cycle_day": 2},
+        tenant={"id": "tenant-uuid", "slug": "acme"},
+    )
+    assert captured["event"]["tenantid"] == "tenant-uuid"
+    assert captured["event"]["source"].endswith("/workspaces/acme")

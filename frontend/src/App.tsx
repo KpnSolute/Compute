@@ -11,6 +11,7 @@ import { startSessionWatch, stopSessionWatch, markSessionActivity, IDLE_LIMIT_MS
 import { api, reportSessionEvent } from './lib/api';
 import { Login } from './components/Login';
 import { Portal } from './components/Portal';
+import { setActiveWorkspaceSlug } from './lib/workspace';
 
 const SKEY = 'kpn_session';
 const ACCOUNT_REFRESH_MS = 5 * 60 * 1000;
@@ -144,6 +145,7 @@ function App() {
       api.getMe()
         .then((me) => {
           const next = { ...user, ...me };
+          if (next.tenant?.slug) setActiveWorkspaceSlug(next.tenant.slug);
           setUser(next);
           saveStoredSession(next);
         })
@@ -248,6 +250,7 @@ function App() {
   }, []);
 
   function handleLogin(u: User, remember: boolean) {
+    if (u.tenant?.slug) setActiveWorkspaceSlug(u.tenant.slug);
     setUser(u);
     startSessionWatch();
     saveStoredSession(u, remember);
@@ -258,12 +261,23 @@ function App() {
     teardown('logout').catch(() => {});
   }
 
+  function handleWorkspaceChange(slug: string) {
+    if (slug === user?.tenant?.slug) return;
+    setActiveWorkspaceSlug(slug);
+    window.location.reload();
+  }
+
   return (
     <>
       {!user ? (
         <Login onLogin={handleLogin} layout="split" />
       ) : (
-        <Portal user={user} onLogout={handleLogout} density="comfortable" />
+        <Portal
+          user={user}
+          onLogout={handleLogout}
+          onWorkspaceChange={handleWorkspaceChange}
+          density="comfortable"
+        />
       )}
       {user && idleWarningSeconds !== null && (
         <div role="alertdialog" aria-live="assertive" aria-label="Session timeout warning" style={{

@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type { User } from './constants';
+import { workspaceHeaders } from './workspace';
 
 // Supabase JS is scoped strictly to authentication (signInWithPassword,
 // signOut, session refresh). All data reads/writes go through FastAPI
@@ -103,6 +104,10 @@ function _publicUser(p: any): User {
     display_name: p.display_name || '',
     last_name: p.last_name || '',
     role: p.role,
+    active: p.active,
+    email: p.email,
+    tenant: p.tenant,
+    workspaces: p.workspaces || [],
     must_change_password: !!p.must_change_password,
     must_change_pin: !!p.must_change_pin,
   };
@@ -183,7 +188,7 @@ export async function backendLogin(accessToken: string, remember = true): Promis
   try {
     const response = await fetch(BASE + '/api/auth/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
       body: JSON.stringify({ access_token: accessToken }),
     });
 
@@ -231,7 +236,7 @@ export async function backendPinLogin(username: string, pin: string, remember = 
   try {
     const response = await fetch(BASE + '/api/auth/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
       body: JSON.stringify({ username, pin }),
     });
 

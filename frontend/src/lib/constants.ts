@@ -18,6 +18,8 @@ export interface User {
   avatar_url?: string;
   bio?: string;
   created_at?: string;
+  tenant?: import('./workspace').Workspace;
+  workspaces?: import('./workspace').Workspace[];
 }
 
 export const ROLE_LEVEL: Record<Role, number> = {

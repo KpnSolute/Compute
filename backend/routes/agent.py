@@ -4,10 +4,11 @@ import json
 import re
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from backend.routes import supabase_service, jwt_validator
+from backend.routes import supabase_service
+from backend.routes._deps import _get_auth_user
 from backend.ai import engine
 from backend.ai.tools import TOOL_REGISTRY, TOOL_MIN_ROLE, TOOL_DESCRIPTIONS, ROLE_LEVEL
 
@@ -51,50 +52,6 @@ DEFAULT_CONFIG: dict = {
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
-
-
-def _resolve_user(authorization: str) -> dict:
-    token = authorization.replace("Bearer ", "").strip() if authorization else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing authorization token")
-
-    if token.startswith("pin_"):
-        uid = token.replace("pin_", "")
-        try:
-            r = (
-                supabase_service.table("user_profiles")
-                .select("*")
-                .eq("id", uid)
-                .single()
-                .execute()
-            )
-            user = r.data
-        except Exception:
-            user = None
-        if not user or not user.get("active"):
-            raise HTTPException(status_code=401, detail="Invalid session")
-        return user
-
-    claims = jwt_validator.verify_token(token)
-    if not claims:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    uid = claims.get("sub")
-    if not uid:
-        raise HTTPException(status_code=401, detail="Token missing user ID")
-    try:
-        r = (
-            supabase_service.table("user_profiles")
-            .select("*")
-            .eq("id", uid)
-            .single()
-            .execute()
-        )
-        user = r.data
-    except Exception:
-        user = None
-    if not user or not user.get("active"):
-        raise HTTPException(status_code=401, detail="User not found or inactive")
-    return user
 
 
 def _load_config() -> dict:
@@ -310,11 +267,10 @@ class ChatRequest(BaseModel):
 
 
 @router.post("/chat")
-async def agent_chat(body: ChatRequest, authorization: str = Header("")):
+async def agent_chat(body: ChatRequest, user: dict = Depends(_get_auth_user)):
     from fastapi.responses import JSONResponse
 
     try:
-        user = _resolve_user(authorization)
         cfg = _load_config()
 
         if not cfg.get("enabled", True):
@@ -490,8 +446,7 @@ def _summarize_result(tool_name: str, result: dict) -> str:
 
 
 @router.get("/history")
-async def get_history(limit: int = 30, authorization: str = Header("")):
-    user = _resolve_user(authorization)
+async def get_history(limit: int = 30, user: dict = Depends(_get_auth_user)):
     cfg = _load_config()
     _check_min_role(user, cfg)
     turns = _load_history(user["id"], limit=limit)
@@ -499,8 +454,7 @@ async def get_history(limit: int = 30, authorization: str = Header("")):
 
 
 @router.delete("/history")
-async def clear_history(authorization: str = Header("")):
-    user = _resolve_user(authorization)
+async def clear_history(user: dict = Depends(_get_auth_user)):
     cfg = _load_config()
     _check_min_role(user, cfg)
     try:
@@ -517,8 +471,8 @@ async def clear_history(authorization: str = Header("")):
 
 
 @router.get("/config")
-async def get_config(authorization: str = Header("")):
-    _resolve_user(authorization)
+async def get_config(user: dict = Depends(_get_auth_user)):
+    _ = user
     cfg = _load_config()
     # Return public-safe config (no secrets)
     return {
@@ -544,8 +498,7 @@ class AgentConfigRequest(BaseModel):
 
 
 @router.put("/config")
-async def update_config(body: AgentConfigRequest, authorization: str = Header("")):
-    user = _resolve_user(authorization)
+async def update_config(body: AgentConfigRequest, user: dict = Depends(_get_auth_user)):
     if user.get("role") != "sudo":
         raise HTTPException(
             status_code=403, detail="Agent configuration requires sudo role."
@@ -576,8 +529,7 @@ def _auto_key(user_id: str) -> str:
 
 
 @router.get("/automations")
-async def get_automations(authorization: str = Header("")):
-    user = _resolve_user(authorization)
+async def get_automations(user: dict = Depends(_get_auth_user)):
     cfg = _load_config()
     _check_min_role(user, cfg)
     key = _auto_key(user["id"])
@@ -607,8 +559,9 @@ class AutomationsRequest(BaseModel):
 
 
 @router.put("/automations")
-async def save_automations(body: AutomationsRequest, authorization: str = Header("")):
-    user = _resolve_user(authorization)
+async def save_automations(
+    body: AutomationsRequest, user: dict = Depends(_get_auth_user)
+):
     cfg = _load_config()
     _check_min_role(user, cfg)
     key = _auto_key(user["id"])

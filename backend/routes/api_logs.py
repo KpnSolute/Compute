@@ -17,9 +17,17 @@ import jwt
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 
-from backend.routes import jwt_validator, supabase, supabase_service
-from backend.routes._deps import ROLE_LEVEL, _get_auth_user
+from backend.routes import jwt_validator, supabase, supabase_admin, supabase_service
+from backend.routes._deps import ROLE_LEVEL, _get_auth_user, _profile_for_token
 from backend.diagnostic_access import diagnostic_principal
+from backend.tenancy import (
+    TenantContextError,
+    current_tenant,
+    resolve_public_tenant,
+    resolve_user_tenant,
+    tenant_scope,
+    tenancy_mode,
+)
 
 MAX_EVENTS = 1000
 HISTORY_ON_CONNECT = 80
@@ -136,6 +144,7 @@ def record_request(
     user_hint: str = "",
     client_ip: str = "",
     request_id: str = "",
+    tenant_id: str | None = None,
 ) -> None:
     _append_event(
         {
@@ -152,6 +161,7 @@ def record_request(
             "user": user_hint,
             "ip": client_ip,
             "request_id": request_id,
+            "tenant_id": tenant_id,
         }
     )
 
@@ -159,6 +169,9 @@ def record_request(
 def record_log(
     level: str, source: str, message: str, extra: dict[str, Any] | None = None
 ) -> None:
+    from backend.tenancy import current_tenant
+
+    tenant = current_tenant()
     _append_event(
         {
             "id": f"{time.time_ns()}",
@@ -168,6 +181,7 @@ def record_log(
             "source": source,
             "message": message[:4000],
             "meta": extra or {},
+            "tenant_id": tenant.id if tenant else None,
         }
     )
 
@@ -312,14 +326,46 @@ def require_elevated_user(auth_user: dict = Depends(_get_auth_user)) -> dict:
 def require_log_reader(
     authorization: str = Header(""),
     x_diagnostic_key: str = Header(""),
-) -> dict:
+    x_kpn_workspace: str = Header("", alias="X-Kpn-Workspace"),
+):
     """Allow manager+ humans or the read-only CLI diagnostic principal."""
     if x_diagnostic_key or authorization.lower().startswith("diagnostic "):
-        return diagnostic_principal(authorization, x_diagnostic_key)
-    user = _get_auth_user(authorization)
-    if ROLE_LEVEL.get(user.get("role", ""), 0) < ROLE_LEVEL["manager"]:
+        principal = diagnostic_principal(authorization, x_diagnostic_key)
+        if tenancy_mode() == "legacy":
+            yield principal
+            return
+        try:
+            context = resolve_public_tenant(supabase_admin, x_kpn_workspace or None)
+        except TenantContextError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        with tenant_scope(context):
+            yield principal
+        return
+
+    user = _profile_for_token(authorization)
+    if tenancy_mode() == "legacy":
+        if ROLE_LEVEL.get(user.get("role", ""), 0) < ROLE_LEVEL["manager"]:
+            raise HTTPException(
+                status_code=403, detail="Admin or manager role required"
+            )
+        yield user
+        return
+    try:
+        context, workspaces = resolve_user_tenant(
+            supabase_admin, str(user["id"]), x_kpn_workspace or None
+        )
+    except TenantContextError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    tenant_user = {
+        **user,
+        "role": context.role,
+        "tenant": {"id": context.id, "slug": context.slug, "name": context.name},
+        "workspaces": workspaces,
+    }
+    if ROLE_LEVEL.get(tenant_user.get("role", ""), 0) < ROLE_LEVEL["manager"]:
         raise HTTPException(status_code=403, detail="Admin or manager role required")
-    return user
+    with tenant_scope(context):
+        yield tenant_user
 
 
 def _user_from_token(token: str) -> dict:
@@ -346,6 +392,19 @@ def _user_from_token(token: str) -> dict:
     if not result.data:
         raise HTTPException(status_code=401, detail="User not found or inactive")
     user = result.data[0]
+    if tenancy_mode() != "legacy":
+        try:
+            context, workspaces = resolve_user_tenant(
+                supabase_admin, str(user["id"]), None
+            )
+        except TenantContextError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        user = {
+            **user,
+            "role": context.role,
+            "tenant": {"id": context.id, "slug": context.slug, "name": context.name},
+            "workspaces": workspaces,
+        }
     if ROLE_LEVEL.get(user.get("role", ""), 0) < ROLE_LEVEL["manager"]:
         raise HTTPException(status_code=403, detail="Admin or manager role required")
     return user
@@ -360,7 +419,13 @@ async def get_api_logs(
     auth_user: dict = Depends(require_log_reader),
 ) -> JSONResponse:
     _ = auth_user
-    entries = list(_events)
+    context = current_tenant()
+    entries = [
+        entry
+        for entry in _events
+        if context is None or entry.get("tenant_id") in (None, context.id)
+    ]
+    buffered = len(entries)
     if include_durable:
         entries.extend(_read_audit_events(limit))
         entries.sort(key=lambda entry: entry.get("ts") or "")
@@ -371,9 +436,7 @@ async def get_api_logs(
         levels = {item.strip().lower() for item in level.split(",") if item.strip()}
         entries = [entry for entry in entries if entry.get("level") in levels]
     entries.reverse()
-    return JSONResponse(
-        {"entries": entries, "buffered": len(_events), "max": MAX_EVENTS}
-    )
+    return JSONResponse({"entries": entries, "buffered": buffered, "max": MAX_EVENTS})
 
 
 @router.get("/api/system/logs/audit")
@@ -467,7 +530,7 @@ async def get_diagnostic_logs(
     limit: int = Query(250, ge=1, le=MAX_EVENTS),
     kind: str = Query("all", pattern="^(all|request|log|audit)$"),
     level: str = Query("all"),
-    principal: dict = Depends(diagnostic_principal),
+    principal: dict = Depends(require_log_reader),
 ) -> JSONResponse:
     """Stable read-only CLI endpoint; never exposes business records."""
     _ = principal
@@ -479,7 +542,7 @@ async def get_diagnostic_logs(
 @router.get("/api/diagnostics/logs/stats")
 async def get_diagnostic_log_stats(
     since_hours: int = Query(24, ge=1, le=2160),
-    principal: dict = Depends(diagnostic_principal),
+    principal: dict = Depends(require_log_reader),
 ) -> JSONResponse:
     _ = principal
     return await get_log_stats(since_hours=since_hours, auth_user=principal)
@@ -490,7 +553,7 @@ async def get_diagnostic_errors(
     limit: int = Query(100, ge=1, le=500),
     status_min: int = Query(400, ge=400, le=599),
     since_hours: int = Query(168, ge=1, le=2160),
-    principal: dict = Depends(diagnostic_principal),
+    principal: dict = Depends(require_log_reader),
 ) -> JSONResponse:
     _ = principal
     return await get_persisted_errors(
@@ -500,19 +563,26 @@ async def get_diagnostic_errors(
 
 @router.get("/api/system/logs/stream")
 async def stream_api_logs(token: str = Query("")) -> StreamingResponse:
-    _user_from_token(token)
+    user = _user_from_token(token)
+    tenant_id = (user.get("tenant") or {}).get("id")
 
     async def events() -> AsyncGenerator[str, None]:
         queue: asyncio.Queue = asyncio.Queue(maxsize=250)
         _subscribers.append(queue)
         try:
-            for event in list(_events)[-HISTORY_ON_CONNECT:]:
+            history = [
+                event
+                for event in _events
+                if not tenant_id or event.get("tenant_id") in (None, tenant_id)
+            ]
+            for event in history[-HISTORY_ON_CONNECT:]:
                 yield f"event: history\ndata: {json.dumps(event)}\n\n"
             yield 'event: ready\ndata: {"ok": true}\n\n'
             while True:
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=25)
-                    yield f"event: log\ndata: {json.dumps(event)}\n\n"
+                    if not tenant_id or event.get("tenant_id") in (None, tenant_id):
+                        yield f"event: log\ndata: {json.dumps(event)}\n\n"
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
         except asyncio.CancelledError:

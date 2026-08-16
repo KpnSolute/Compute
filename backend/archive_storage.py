@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from botocore.client import Config
+from backend.tenancy import current_tenant, tenancy_mode
 
 ARCHIVE_CATEGORIES = {"invoice", "menu", "recipe", "report", "document", "other"}
 
@@ -98,7 +99,14 @@ def display_filename(filename: str) -> str:
 def build_object_key(category: str, filename: str) -> str:
     category = category if category in ARCHIVE_CATEGORIES else "other"
     now = datetime.now(UTC)
-    return f"{category}/{now:%Y/%m}/{uuid.uuid4().hex}-{safe_filename(filename)}"
+    context = current_tenant()
+    if context is None and tenancy_mode() != "legacy":
+        raise RuntimeError("Tenant context required before archiving a file")
+    tenant_prefix = context.id if context else "legacy-mjcc"
+    return (
+        f"tenants/{tenant_prefix}/{category}/{now:%Y/%m}/"
+        f"{uuid.uuid4().hex}-{safe_filename(filename)}"
+    )
 
 
 def max_file_bytes() -> int:

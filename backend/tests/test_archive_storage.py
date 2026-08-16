@@ -1,6 +1,7 @@
 import pytest
 
 from backend import archive_storage
+from backend.tenancy import TenantContext, tenant_scope
 
 
 def test_safe_filename_removes_paths_and_unsafe_characters():
@@ -17,8 +18,22 @@ def test_build_object_key_uses_category_and_safe_filename(monkeypatch):
 
     monkeypatch.setattr(archive_storage.uuid, "uuid4", lambda: FixedUuid())
     key = archive_storage.build_object_key("invoice", "July Week 2.pdf")
-    assert key.startswith("invoice/")
+    assert key.startswith("tenants/legacy-mjcc/invoice/")
     assert key.endswith("/abc123-July-Week-2.pdf")
+
+
+def test_build_object_key_uses_immutable_tenant_id(monkeypatch):
+    monkeypatch.setenv("KPNCOMPUTE_TENANCY_MODE", "enforced")
+    tenant = TenantContext(id="tenant-123", slug="acme", name="Acme")
+    with tenant_scope(tenant):
+        key = archive_storage.build_object_key("document", "SOP.pdf")
+    assert key.startswith("tenants/tenant-123/document/")
+
+
+def test_build_object_key_fails_closed_without_tenant(monkeypatch):
+    monkeypatch.setenv("KPNCOMPUTE_TENANCY_MODE", "enforced")
+    with pytest.raises(RuntimeError, match="Tenant context required"):
+        archive_storage.build_object_key("document", "SOP.pdf")
 
 
 def test_settings_requires_https_by_default(monkeypatch):

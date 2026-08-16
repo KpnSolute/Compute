@@ -47,9 +47,9 @@ _MAX_DETAIL = 4000
 
 def _blocking_insert(row: dict) -> None:
     try:
-        from backend.routes import supabase_service
+        from backend.routes import supabase_admin
 
-        supabase_service.table("audit_events").insert(row).execute()
+        supabase_admin.table("audit_events").insert(row).execute()
     except Exception:
         # Best-effort; the event was already emitted to the application log.
         _log.debug("audit_events persist failed", exc_info=True)
@@ -96,8 +96,13 @@ def record_audit_event(
     """
     try:
         actor = actor or {}
+        from backend.tenancy import current_tenant
+
+        tenant = current_tenant()
         resolved_result = result if result in RESULTS else "failed"
         row = {
+            "tenant_id": actor.get("tenant", {}).get("id")
+            or (tenant.id if tenant else None),
             "actor_id": actor_id or actor.get("id") or actor.get("user_id"),
             "actor_name": actor_name
             or actor.get("display_name")
