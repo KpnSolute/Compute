@@ -1,6 +1,8 @@
 import os
+
 import jwt
 from pathlib import Path
+
 from supabase import create_client
 from dotenv import load_dotenv
 from backend.tenancy import TenantScopedClient

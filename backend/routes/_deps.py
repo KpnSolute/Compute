@@ -1,10 +1,19 @@
 """Shared FastAPI dependencies for MJCC routes — auth resolution and role guards."""
 
 import logging
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 
 from fastapi import Depends, Header, HTTPException, Request
-from backend.routes import supabase_admin, supabase_service, jwt_validator
+from fastapi.concurrency import run_in_threadpool
+from backend.routes import (
+    jwt_validator,
+    supabase_admin,
+    supabase_service,
+)
+from backend.staff_sessions import (
+    staff_session_credential_version,
+    verify_staff_session,
+)
 from backend.tenancy import (
     TenantContextError,
     resolve_public_tenant,
@@ -24,32 +33,81 @@ def _chunks(values: list, size: int = BULK_CHUNK_SIZE):
         yield values[idx : idx + size]
 
 
+def _profile_for_staff_session(claims: dict) -> dict:
+    """Resolve the profile behind a verified tenant-local staff session.
+
+    The signature has already been checked. What is checked here is everything a
+    signature cannot prove: that the account still exists and is active, and that
+    the PIN generation the session was minted from is still the current one.
+
+    ``credential_version`` is what makes a PIN reset actually revoke. Every
+    credential write increments ``user_profiles.pin_version``; a session carrying
+    an older generation stops verifying on its next request rather than living
+    out its twelve-hour expiry with a credential that has been rotated away.
+    """
+    user_id = str(claims.get("sub") or "")
+    try:
+        found = (
+            supabase_admin.table("user_profiles")
+            .select("*")
+            .eq("id", user_id)
+            .eq("active", True)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail="Invalid session") from exc
+    if not found.data:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    profile = found.data[0]
+
+    current_version = int(profile.get("pin_version") or 0)
+    if staff_session_credential_version(claims) != current_version:
+        raise HTTPException(
+            status_code=401,
+            detail="This staff credential has changed. Sign in again.",
+        )
+
+    return {
+        **profile,
+        "_auth_method": "staff_session",
+        "_staff_tenant_id": str(claims.get("tenant_id") or ""),
+        "_staff_session_id": str(claims.get("jti") or ""),
+    }
+
+
 def _profile_for_token(authorization: str) -> dict:
-    """Resolve caller from Bearer token (JWT or pin_). Raises 401 if missing or invalid.
+    """Resolve the caller from a Bearer token. Raises 401 if missing or invalid.
 
     Returns the full user_profiles row (single source of truth for auth across all
     routers). Selecting `*` keeps every consumer working whether it reads id/role
     or richer profile fields.
+
+    Three token shapes reach this function:
+
+    * a signed tenant-local staff session (:mod:`backend.staff_sessions`);
+    * a Supabase Auth JWT for admin/manager accounts.
+
+    The unsigned ``pin_<profile-id>`` shape is not one of them. It was accepted
+    until now, and it was not a token at all: the string after the prefix was the
+    user's own primary key, so anyone who learned a staff member's row id --- from
+    a URL, an export, a screenshot of an admin table --- could authenticate as
+    them, forever, with no signature and no expiry. It is rejected here in every
+    mode, before any lookup, so no code path can resurrect it.
     """
     token = (authorization or "").replace("Bearer ", "").strip()
     if not token:
         raise HTTPException(status_code=401, detail="Missing authorization token")
     if token.startswith("pin_"):
-        user_id = token[4:]
-        try:
-            r = (
-                supabase_admin.table("user_profiles")
-                .select("*")
-                .eq("id", user_id)
-                .eq("active", True)
-                .limit(1)
-                .execute()
-            )
-        except Exception:
-            raise HTTPException(status_code=401, detail="Invalid session")
-        if not r.data:
-            raise HTTPException(status_code=401, detail="Invalid session")
-        return {**r.data[0], "_auth_method": "pin"}
+        raise HTTPException(
+            status_code=401,
+            detail="Unsigned staff tokens are no longer accepted. Sign in again.",
+        )
+
+    staff_claims = verify_staff_session(token)
+    if staff_claims:
+        return _profile_for_staff_session(staff_claims)
+
     claims = jwt_validator.verify_token(token)
     if not claims:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
@@ -72,13 +130,26 @@ def _profile_for_token(authorization: str) -> dict:
     return {**r.data[0], "_auth_method": "jwt"}
 
 
-def _get_auth_user(
+async def _get_auth_user(
     request: Request,
     authorization: str = Header(""),
     x_kpn_workspace: str = Header("", alias="X-Kpn-Workspace"),
-) -> Iterator[dict]:
-    """Authenticate and bind the request to an active workspace membership."""
-    user = _profile_for_token(authorization)
+    x_kpn_tenant_id: str = Header("", alias="X-Kpn-Tenant-Id"),
+) -> AsyncIterator[dict]:
+    """Authenticate and bind the request to an active workspace membership.
+
+    This dependency MUST stay ``async``. A sync generator dependency is entered
+    by FastAPI through ``contextmanager_in_threadpool``, so anything it sets on
+    a ContextVar lands in a worker thread's context and is invisible to the
+    route handler — which made every tenant-scoped query raise
+    ``TenantContextError`` and then fail teardown with "Token was created in a
+    different Context". Entering the scope from the async task keeps the tenant
+    binding in the same context the endpoint runs in.
+
+    The Supabase calls below are blocking, so they are pushed to a threadpool
+    explicitly rather than running on the event loop.
+    """
+    user = await run_in_threadpool(_profile_for_token, authorization)
     if tenancy_mode() == "legacy":
         if user.get("_auth_method") == "pin" and user.get("role") != "staff":
             raise HTTPException(
@@ -88,8 +159,11 @@ def _get_auth_user(
         yield user
         return
     try:
-        context, workspaces = resolve_user_tenant(
-            supabase_admin, str(user["id"]), x_kpn_workspace or None
+        context, workspaces = await run_in_threadpool(
+            resolve_user_tenant,
+            supabase_admin,
+            str(user["id"]),
+            x_kpn_workspace or None,
         )
     except TenantContextError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -104,29 +178,39 @@ def _get_auth_user(
         },
         "workspaces": workspaces,
     }
-    request.state.tenant_id = context.id
-    request.state.tenant_slug = context.slug
+    if x_kpn_tenant_id.strip() and str(context.id) != x_kpn_tenant_id.strip():
+        raise HTTPException(status_code=403, detail="Immutable tenant context mismatch")
     if tenant_user.get("_auth_method") == "pin" and context.role != "staff":
         raise HTTPException(
             status_code=403,
             detail="Elevated access requires password authentication",
         )
+    request.state.tenant_id = context.id
+    request.state.tenant_slug = context.slug
     with tenant_scope(context):
         yield tenant_user
 
 
-def _get_public_tenant(
+async def _get_public_tenant(
     request: Request,
     x_kpn_workspace: str = Header("", alias="X-Kpn-Workspace"),
-) -> Iterator[dict]:
-    """Bind a public endpoint to one active workspace."""
+    x_kpn_tenant_id: str = Header("", alias="X-Kpn-Tenant-Id"),
+) -> AsyncIterator[dict]:
+    """Bind a public endpoint to one active workspace.
+
+    Async for the same reason as :func:`_get_auth_user`.
+    """
     if tenancy_mode() == "legacy":
         yield {}
         return
     try:
-        context = resolve_public_tenant(supabase_admin, x_kpn_workspace or None)
+        context = await run_in_threadpool(
+            resolve_public_tenant, supabase_admin, x_kpn_workspace or None
+        )
     except TenantContextError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if x_kpn_tenant_id.strip() and str(context.id) != x_kpn_tenant_id.strip():
+        raise HTTPException(status_code=403, detail="Immutable tenant context mismatch")
     request.state.tenant_id = context.id
     request.state.tenant_slug = context.slug
     with tenant_scope(context):

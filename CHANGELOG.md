@@ -2,6 +2,57 @@
 
 ## [Unreleased]
 
+### Removed — central KpnAuth workforce auth coupling
+
+- Removed `KpnAuthJWTValidator` class, `kpn_auth_validator` instance, and all
+  `KPN_AUTH_*` environment variables (`KPN_AUTH_MODE`, `KPN_AUTH_ISSUER`,
+  `KPN_AUTH_JWKS_URL`, `KPN_AUTH_AUDIENCE`, `KPN_AUTH_SESSION_URL`,
+  `KPN_AUTH_SESSION_CACHE_SECONDS`) from `backend/routes/__init__.py`. The
+  central workforce JWT validation, JWKS fetch, and introspection call are
+  fully deleted.
+- Removed `KPN_AUTH_MODE` closed-enum flag and `kpn_auth_mode()` reader from
+  `backend/config_flags.py`. The remaining flag is `KPNCOMPUTE_TENANCY_MODE`.
+- Removed the central workforce token verification path
+  (`kpn_auth_validator.verify_token()` + `kpn_staff_identity_links` identity
+  bridge lookup) from `backend/routes/_deps.py`. `_profile_for_token` now
+  resolves exactly two token shapes: signed tenant-local staff sessions and
+  Supabase Auth JWTs for admin/manager accounts. Unsigned `pin_*` tokens are
+  rejected before any lookup.
+- Removed the `KPN_AUTH_MODE == "required"` guard from the PIN login path in
+  `backend/routes/auth.py`. PIN login is now always available when the staff
+  user provides correct credentials.
+- Removed `_kpn_tenant_id` workforce cross-claim check from `_get_auth_user`
+  in `_deps.py`. Tenant binding is now solely resolved from the database
+  membership via `resolve_user_tenant`.
+- Removed `kpn_staff_identity_links` from `TENANT_TABLES` in `backend/tenancy.py`.
+- Deleted the `kpn_staff_identity_links` identity-link migration file
+  (`supabase/migrations/20260818001046_workforce_auth_identity_links.sql`)
+  which was never applied to production and is misleading.
+- Removed all `KPN_AUTH_*` entries from `.env.example` and `render.yaml`.
+- Removed the unused `public_tenant_view` import from `_deps.py`.
+
+### Replaced — workforce auth tests
+
+- Replaced `backend/tests/test_kpnauth_workforce.py` entirely. The old tests
+  verified `KpnAuthJWTValidator` behaviour, `KPN_AUTH_MODE` gating, and
+  `kpn_staff_identity_links` identity resolution — all now deleted. The new
+  tests verify the corrected boundary: central workforce tokens do not grant
+  tenant staff access, `KPN_AUTH_MODE` / `kpn_auth_validator` no longer exist
+  in the codebase, and `kpn_staff_identity_links` is removed from
+  `TENANT_TABLES`.
+
+### Retained — tenant-local staff auth
+
+- Signed tenant-local staff sessions (`backend/staff_sessions.py`) continue
+  to work exactly as before, gated by `KPNCOMPUTE_STAFF_SESSION_SECRET`.
+- Supabase Auth JWT login for admin/manager accounts is unchanged.
+- The unsigned `pin_` prefix rejection remains in `_profile_for_token`.
+
+### Not changed
+
+- No users, tenant memberships, credentials, database rows, commits, pushes,
+  or deployments were created or changed in this pass.
+
 ## [v0.3.0] — 2026-08-16 — KpnCompute product routing and workspace console
 
 Added the canonical KpnCompute product landing at `/`, direct customer

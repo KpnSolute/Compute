@@ -13,8 +13,13 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Iterator
 
+from backend.config_flags import (
+    KPNCOMPUTE_TENANCY_MODES,
+    kpncompute_tenancy_mode,
+)
 
-TENANCY_MODES = {"legacy", "shadow", "enforced"}
+
+TENANCY_MODES = set(KPNCOMPUTE_TENANCY_MODES)
 GLOBAL_TABLES = {
     "ai_providers",
     "permission_scopes",
@@ -138,8 +143,14 @@ _current_tenant: ContextVar[TenantContext | None] = ContextVar(
 
 
 def tenancy_mode() -> str:
-    mode = os.getenv("KPNCOMPUTE_TENANCY_MODE", "legacy").strip().lower()
-    return mode if mode in TENANCY_MODES else "legacy"
+    """The validated tenancy mode.
+
+    This used to substitute ``legacy`` for anything it could not read, so a typo
+    such as ``enfroced`` silently turned tenant enforcement back off. It is now a
+    closed enum that raises, which is the only safe direction for a flag that
+    decides whether a tenant boundary is enforced.
+    """
+    return kpncompute_tenancy_mode()
 
 
 def default_tenant_slug() -> str:
@@ -241,6 +252,34 @@ def resolve_public_tenant(
         name=str(tenant["name"]),
         public=True,
     )
+
+
+# Brand fields an unauthenticated caller may read. Anything not listed here stays
+# server-side: `brand_config` is an operator-editable JSON blob, and returning it
+# whole would publish whatever a workspace admin happened to store in it.
+PUBLIC_BRAND_FIELDS = ("display_name", "logo_url", "accent_color", "support_url")
+
+
+def public_brand_view(brand_config: Any) -> dict:
+    """The allowlisted subset of a tenant's brand configuration."""
+    if not isinstance(brand_config, dict):
+        return {}
+    view: dict = {}
+    for field in PUBLIC_BRAND_FIELDS:
+        value = brand_config.get(field)
+        if isinstance(value, str) and value.strip():
+            view[field] = value.strip()[:300]
+    return view
+
+
+def public_tenant_view(context: TenantContext) -> dict:
+    """The minimum an unauthenticated caller needs: how to address and name it.
+
+    Deliberately omits the immutable tenant id. The id is the join key for every
+    tenant-owned row in the database; an anonymous visitor needs the slug to
+    navigate and the name to read, and nothing else.
+    """
+    return {"slug": context.slug, "name": context.name}
 
 
 def _stamp(values: dict, tenant_id: str) -> dict:

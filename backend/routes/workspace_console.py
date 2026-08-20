@@ -91,6 +91,36 @@ def _tenant(auth_user: dict, requested_slug: str) -> dict:
     return tenant
 
 
+@router.get("/workspaces/resolve/{workspace_slug}")
+async def resolve_workspace_entry(workspace_slug: str):
+    """Resolve a public tenant entry without exposing membership or credentials.
+
+    The frontend uses this before showing a tenant-local sign-in action. A
+    syntactically valid but unknown path therefore stays on the neutral Compute
+    landing instead of becoming a convincing credential surface.
+    """
+    slug = _slug(workspace_slug, workspace=True)
+    rows = (
+        supabase_admin.table("tenants")
+        .select("id,slug,name,brand_config")
+        .eq("slug", slug)
+        .eq("status", "active")
+        .limit(1)
+        .execute()
+    ).data or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Workspace was not found")
+    workspace = rows[0]
+    return {
+        "workspace": {
+            "id": str(workspace["id"]),
+            "slug": str(workspace["slug"]),
+            "name": str(workspace["name"]),
+            "brand_config": workspace.get("brand_config") or {},
+        }
+    }
+
+
 @router.get("/workspaces")
 async def list_workspaces(auth_user: dict = Depends(_get_auth_user)):
     return {"workspaces": list_user_tenants(supabase_admin, str(auth_user["id"]))}

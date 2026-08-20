@@ -9,12 +9,13 @@ import jwt as pyjwt
 from fastapi import APIRouter, Depends, HTTPException, Header, Response
 from pydantic import BaseModel, ConfigDict, Field
 from backend.routes import (
-    SUPABASE_JWT_SECRET,
     jwt_validator,
     supabase_admin,
     supabase_service,
 )
 from backend.routes._deps import _get_auth_user, _profile_for_token
+from backend.staff_credentials import verify_staff_pin
+from backend.staff_sessions import staff_session_secret
 from backend.tenancy import list_user_tenants, tenancy_mode
 from backend.audit_events import record_audit_event
 
@@ -141,6 +142,16 @@ def _with_workspace(user: dict, requested_slug: str | None = None) -> dict:
         "tenant": selected,
         "workspaces": workspaces,
     }
+
+
+def _require_resolved_tenant_id(identity: dict, requested_tenant_id: str) -> None:
+    """Reject a client tenant id that differs from the resolved membership."""
+    claimed = (requested_tenant_id or "").strip()
+    if not claimed:
+        return
+    resolved = str((identity.get("tenant") or {}).get("id") or "")
+    if not resolved or resolved != claimed:
+        raise HTTPException(status_code=403, detail="Immutable tenant context mismatch")
 
 
 def _has_lioncafe_scope(role: str, tenant_id: str | None = None) -> bool:
@@ -545,6 +556,7 @@ async def _get_user_by_username(username: str) -> dict | None:
 async def login(
     req: LoginRequest,
     x_kpn_workspace: str = Header("", alias="X-Kpn-Workspace"),
+    x_kpn_tenant_id: str = Header("", alias="X-Kpn-Tenant-Id"),
 ):
     """
     Login endpoint supporting two modes:
@@ -591,6 +603,7 @@ async def login(
 
         # Return the Supabase token as-is for session management
         identity = _with_workspace(user, x_kpn_workspace or None)
+        _require_resolved_tenant_id(identity, x_kpn_tenant_id)
         return LoginResponse(
             access_token=req.access_token,
             user={
@@ -609,6 +622,11 @@ async def login(
 
     # Mode 2: PIN-based login (staff)
     elif req.username and req.pin:
+        if tenancy_mode() != "legacy" and not x_kpn_workspace.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="X-Kpn-Workspace is required for tenant staff login",
+            )
         user = await _get_user_by_username(req.username)
         if not user:
             raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -618,26 +636,43 @@ async def login(
                 status_code=401, detail="PIN login only available for staff"
             )
 
-        if req.pin != user.get("pin", ""):
+        # Hashed, constant-time verification. A row still holding a legacy
+        # plaintext PIN verifies once and is upgraded to a hash in place, so
+        # working staff logins keep working while the plaintext value stops
+        # being the thing that is checked.
+        pin_ok, upgrade_hash = verify_staff_pin(req.pin, user)
+        if not pin_ok:
             raise HTTPException(status_code=401, detail="Invalid PIN")
+        if upgrade_hash:
+            try:
+                supabase_admin.table("user_profiles").update(
+                    {"pin_hash": upgrade_hash}
+                ).eq("id", user["id"]).execute()
+            except Exception:
+                # An upgrade failure must never block a valid sign-in; the next
+                # successful login retries it.
+                pass
 
-        # Mint a signed HS256 JWT (12-hour expiry) so staff tokens are validated
-        # by the same jwt_validator path as admin/manager tokens.
-        # Falls back to the legacy pin_ pseudo-token if SUPABASE_JWT_SECRET is absent.
-        if SUPABASE_JWT_SECRET:
-            now = datetime.datetime.now(datetime.timezone.utc)
-            payload = {
-                "sub": user["id"],
-                "role": user["role"],
-                "iat": int(now.timestamp()),
-                "exp": int((now + datetime.timedelta(hours=12)).timestamp()),
-            }
-            staff_token = pyjwt.encode(payload, SUPABASE_JWT_SECRET, algorithm="HS256")
-        else:
-            # Transition safety: legacy unsigned token accepted by _deps.py pin_ branch.
-            staff_token = f"pin_{user['id']}"
+        # Staff sessions are always signed and always expire. The previous
+        # unsigned `pin_<uuid>` fallback is gone: it was the user's row id used
+        # directly as a bearer token, with no signature and no expiry.
+        session_secret = staff_session_secret()
+        if not session_secret:
+            raise HTTPException(
+                status_code=503,
+                detail="Staff sign-in is not configured in this environment",
+            )
+        now = datetime.datetime.now(datetime.timezone.utc)
+        payload = {
+            "sub": user["id"],
+            "role": user["role"],
+            "iat": int(now.timestamp()),
+            "exp": int((now + datetime.timedelta(hours=12)).timestamp()),
+        }
+        staff_token = pyjwt.encode(payload, session_secret, algorithm="HS256")
 
         identity = _with_workspace(user, x_kpn_workspace or None)
+        _require_resolved_tenant_id(identity, x_kpn_tenant_id)
         return LoginResponse(
             access_token=staff_token,
             user={

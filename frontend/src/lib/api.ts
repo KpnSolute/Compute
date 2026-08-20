@@ -706,6 +706,10 @@ export const api = {
     return req('/api/tenants');
   },
 
+  async resolveWorkspace(slug: string): Promise<{ workspace: Workspace }> {
+    return req(`/api/v1/workspaces/resolve/${encodeURIComponent(slug)}`);
+  },
+
   async getWorkspaces(): Promise<{ workspaces: Workspace[] }> {
     return req('/api/v1/workspaces');
   },

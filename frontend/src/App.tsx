@@ -12,7 +12,8 @@ import { api, reportSessionEvent } from './lib/api';
 import { Login } from './components/Login';
 import { Portal } from './components/Portal';
 import { ComputeLanding, WorkspaceConsole } from './components/ComputeHome';
-import { isLegacyWorkspacePath, setActiveWorkspaceSlug, workspacePath, workspaceSlugFromPath } from './lib/workspace';
+import { setActiveWorkspaceContext, setActiveWorkspaceSlug, workspaceCompatibilityRedirect, workspacePath, resolveTenantFromRequest, workspaceLoginPath, workspaceRouteSurface } from './lib/workspace';
+import { WorkspaceSignInPrompt } from './components/WorkspaceSignInPrompt';
 
 const SKEY = 'kpn_session';
 const ACCOUNT_REFRESH_MS = 5 * 60 * 1000;
@@ -79,6 +80,8 @@ function App() {
   const [pathname, setPathname] = useState(window.location.pathname);
   const [newVersionAvailable, setNewVersionAvailable] = useState(false);
   const [idleWarningSeconds, setIdleWarningSeconds] = useState<number | null>(null);
+  const [verifiedTenantSlug, setVerifiedTenantSlug] = useState<string | null>(null);
+  const [tenantResolutionPending, setTenantResolutionPending] = useState(false);
   const ssoLaunchStarted = useRef(false);
 
   const navigate = useCallback((path: string) => {
@@ -94,11 +97,13 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!isLegacyWorkspacePath(pathname)) return;
-    const slug = workspaceSlugFromPath(pathname);
-    if (!slug) return;
-    const suffix = pathname.replace(/^\/workspaces\/[^/]+/i, '');
-    const canonical = `${workspacePath(slug)}${suffix}${window.location.search}${window.location.hash}`;
+    const canonical = workspaceCompatibilityRedirect(
+      pathname,
+      window.location.search,
+      window.location.hash,
+    );
+    if (!canonical) return;
+    // Compatibility: /workspaces/{slug} redirects to canonical /{slug}.
     window.history.replaceState(null, '', canonical);
     setPathname(window.location.pathname);
   }, [pathname]);
@@ -274,13 +279,21 @@ function App() {
   }, []);
 
   function handleLogin(u: User, remember: boolean) {
-    if (u.tenant?.slug) setActiveWorkspaceSlug(u.tenant.slug, false);
+    if (u.tenant?.slug && u.tenant?.id) {
+      setActiveWorkspaceContext(u.tenant.slug, u.tenant.id, false);
+    } else if (u.tenant?.slug) {
+      setActiveWorkspaceSlug(u.tenant.slug, false);
+    }
     setUser(u);
     startSessionWatch();
     saveStoredSession(u, remember);
     showToast('<span>Signed in as ' + (u.display_name || u.username) + '</span>', 2600);
-    const requestedWorkspace = workspaceSlugFromPath(pathname);
-    if (!requestedWorkspace || pathname === '/login') navigate('/');
+    const requestedTenant = resolveTenantFromRequest(window.location.hostname, pathname);
+    if (requestedTenant?.by === 'path') {
+      navigate(workspacePath(requestedTenant.slug));
+    } else {
+      navigate('/');
+    }
   }
 
   function handleLogout() {
@@ -289,37 +302,92 @@ function App() {
 
   function handleWorkspaceChange(slug: string) {
     if (slug === user?.tenant?.slug) return;
-    setActiveWorkspaceSlug(slug);
+    const tenantId = user?.workspaces?.find((workspace) => workspace.slug === slug)?.id;
+    if (tenantId) setActiveWorkspaceContext(slug, tenantId);
+    else setActiveWorkspaceSlug(slug);
     window.location.reload();
   }
 
-  const legacyMjccHost = window.location.hostname.toLowerCase() === 'mjcc.kpnsolute.com';
-  const routeWorkspaceSlug = workspaceSlugFromPath(pathname) || (legacyMjccHost ? 'mjcc' : null);
-  const workspaceSuffix = routeWorkspaceSlug ? pathname.slice(workspacePath(routeWorkspaceSlug).length) : '';
-  const workspaceConsole = workspaceSuffix === '/console' || workspaceSuffix.startsWith('/console/');
-  const loginRoute = pathname === '/login';
-  const rootRoute = pathname === '/' && !legacyMjccHost;
+  // Tenant resolution is class-aware: a corporate subdomain identifies its
+  // tenant, otherwise the canonical slug path does. No hostname is special-cased.
+  const resolvedTenant = resolveTenantFromRequest(window.location.hostname, pathname);
+  const corporateHost = resolvedTenant?.by === 'subdomain';
+  const routeWorkspaceSlug = resolvedTenant?.slug ?? null;
+
+  useEffect(() => {
+    if (!routeWorkspaceSlug) {
+      setVerifiedTenantSlug(null);
+      setTenantResolutionPending(false);
+      return;
+    }
+    let current = true;
+    setVerifiedTenantSlug(null);
+    setTenantResolutionPending(true);
+    api.resolveWorkspace(routeWorkspaceSlug)
+      .then(({ workspace }) => {
+        if (!current) return;
+        if (workspace.slug === routeWorkspaceSlug) {
+          setActiveWorkspaceContext(workspace.slug, workspace.id, false);
+          setVerifiedTenantSlug(workspace.slug);
+        } else {
+          setVerifiedTenantSlug(null);
+        }
+      })
+      .catch(() => {
+        if (current) setVerifiedTenantSlug(null);
+      })
+      .finally(() => {
+        if (current) setTenantResolutionPending(false);
+      });
+    return () => { current = false; };
+  }, [routeWorkspaceSlug]);
+
+  const routeSurface = workspaceRouteSurface(
+    window.location.hostname,
+    pathname,
+    verifiedTenantSlug,
+  );
+
+  const landing = (
+    <ComputeLanding
+      user={user}
+      onOpenWorkspace={(slug) => navigate(workspacePath(slug))}
+      onOpenConsole={(slug) => navigate(`${workspacePath(slug)}/console`)}
+      onLogout={handleLogout}
+    />
+  );
 
   let primary: ReactNode;
-  if (rootRoute) {
+  if (routeSurface === 'product' || tenantResolutionPending) {
+    // Tenant credentials are never shown until the backend resolves the slug
+    // to one active immutable tenant. Unknown and unavailable routes remain on
+    // the neutral product landing. This also keeps generic /login neutral.
+    primary = landing;
+  } else if (routeWorkspaceSlug && routeSurface === 'tenant-login' && !user) {
+    // Tenant-branded staff sign-in at /{slug}/login or corporate-host /login.
+    primary = <Login onLogin={handleLogin} layout="split" workspaceSlug={routeWorkspaceSlug} />;
+  } else if (routeWorkspaceSlug && routeSurface === 'tenant-login' && user) {
+    primary = <Portal user={user} onLogout={handleLogout} onWorkspaceChange={handleWorkspaceChange} density="comfortable" />;
+  } else if (routeWorkspaceSlug && !user) {
+    // A signed-out visitor to a workspace root does NOT get an automatic
+    // credential prompt. The client cannot tell a real workspace slug from a
+    // mistyped path, so auto-rendering a login here turns every unknown URL
+    // into a branded sign-in form for a workspace that may not exist.
+    // Sign-in is an explicit step inside the tenant route.
     primary = (
-      <ComputeLanding
-        user={user}
-        onSignIn={() => navigate('/login')}
-        onOpenWorkspace={(slug) => navigate(workspacePath(slug))}
-        onOpenConsole={(slug) => navigate(`${workspacePath(slug)}/console`)}
-        onLogout={handleLogout}
+      <WorkspaceSignInPrompt
+        slug={routeWorkspaceSlug}
+        onSignIn={() => navigate(corporateHost ? '/login' : workspaceLoginPath(routeWorkspaceSlug))}
+        onHome={() => navigate('/')}
       />
     );
-  } else if (loginRoute && !user) {
-    primary = <Login onLogin={handleLogin} layout="split" />;
-  } else if (routeWorkspaceSlug && user && workspaceConsole) {
+  } else if (routeWorkspaceSlug && user && routeSurface === 'tenant-console') {
     primary = (
       <WorkspaceConsole
         user={user}
         slug={routeWorkspaceSlug}
         onBack={() => navigate('/')}
-        onOpenOperations={() => navigate(workspacePath(routeWorkspaceSlug))}
+        onOpenOperations={() => navigate(corporateHost ? '/' : workspacePath(routeWorkspaceSlug))}
         onLogout={handleLogout}
       />
     );
@@ -332,18 +400,10 @@ function App() {
         density="comfortable"
       />
     );
-  } else if (!user) {
-    primary = <Login onLogin={handleLogin} layout="split" />;
   } else {
-    primary = (
-      <ComputeLanding
-        user={user}
-        onSignIn={() => navigate('/login')}
-        onOpenWorkspace={(slug) => navigate(workspacePath(slug))}
-        onOpenConsole={(slug) => navigate(`${workspacePath(slug)}/console`)}
-        onLogout={handleLogout}
-      />
-    );
+    // Any unmatched path — signed in or out — shows the product landing. It must
+    // never fall back to a tenant's branded credential prompt.
+    primary = landing;
   }
 
   return (

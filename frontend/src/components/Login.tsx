@@ -6,9 +6,15 @@ import type { User } from '../lib/constants';
 interface LoginProps {
   onLogin: (user: User, remember: boolean) => void;
   layout?: 'split' | 'centered';
+  /**
+   * Tenant whose branded sign-in this is. Supplied only by the canonical
+   * /{slug}/login route or a corporate tenant host's /login route; generic
+   * Compute routes never render this component.
+   */
+  workspaceSlug?: string;
 }
 
-export function Login({ onLogin, layout = 'split' }: LoginProps) {
+export function Login({ onLogin, layout = 'split', workspaceSlug }: LoginProps) {
   const [mode, setMode] = useState<'admin' | 'staff'>('admin');
   const [username, setU] = useState('');
   const [password, setP] = useState('');
@@ -137,7 +143,16 @@ export function Login({ onLogin, layout = 'split' }: LoginProps) {
             <img src="/kpn-logo.png" alt="KpnCompute" style={{ height: 60, objectFit: 'contain' }} />
           </div>
           <div className="ac-head">
-            <h3>Sign in to the console</h3>
+            {/* Tenant-branded heading. This form is only reached at a tenant
+                login route, never at a generic Compute route. */}
+            <h3>
+              {workspaceSlug
+                ? `Sign in to ${workspaceSlug.toUpperCase()}`
+                : 'Sign in to the console'}
+            </h3>
+            {workspaceSlug && (
+              <p className="ac-sub">Staff access for this workspace.</p>
+            )}
           </div>
 
           <div className="seg" role="tablist">

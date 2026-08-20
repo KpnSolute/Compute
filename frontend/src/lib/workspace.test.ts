@@ -1,12 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import {
-  getActiveWorkspaceSlug,
-  isLegacyWorkspacePath,
-  setActiveWorkspaceSlug,
-  workspaceHeaders,
-  workspacePath,
-  workspaceSlugFromPath,
-} from './workspace';
+import { corporateTenantLabel, getActiveWorkspaceSlug, isCanonicalWorkspacePath, isLegacyWorkspacePath, resolveTenantFromRequest, setActiveWorkspaceContext, setActiveWorkspaceSlug, tenantPathSuffix, workspaceCompatibilityRedirect, workspaceHeaders, workspaceLoginPath, workspacePath, workspaceRouteSurface, workspaceSlugFromPath } from './workspace';
 
 describe('workspace selection', () => {
   beforeEach(() => {
@@ -14,7 +7,7 @@ describe('workspace selection', () => {
     window.history.replaceState(null, '', '/');
   });
 
-  it('uses the canonical workspace URL first', () => {
+  it('uses the canonical direct workspace URL first', () => {
     window.history.replaceState(null, '', '/acme');
     expect(workspaceSlugFromPath()).toBe('acme');
     expect(workspaceHeaders()).toEqual({ 'X-Kpn-Workspace': 'acme' });
@@ -39,5 +32,168 @@ describe('workspace selection', () => {
   it('rejects unsafe workspace slugs', () => {
     expect(() => setActiveWorkspaceSlug('../other')).toThrow('Invalid workspace slug');
     expect(() => setActiveWorkspaceSlug('login')).toThrow('Invalid workspace slug');
+  });
+});
+
+// --- Canonical tenant routing (ADR-0007) -------------------------------------
+// These assert the boundary the route registry defines: /{slug} is canonical,
+// /workspaces/{slug} is a compatibility redirect, and reserved
+// paths never resolve to a tenant.
+
+describe('canonical workspace routing', () => {
+  it('builds the canonical tenant path', () => {
+    expect(workspacePath('mjcc')).toBe('/mjcc');
+  });
+
+  it('builds tenant-branded login beneath the tenant, never at generic /login', () => {
+    expect(workspaceLoginPath('mjcc')).toBe('/mjcc/login');
+    expect(workspaceLoginPath('mjcc')).not.toBe('/login');
+  });
+
+  it('resolves a slug from the canonical direct path', () => {
+    expect(workspaceSlugFromPath('/mjcc')).toBe('mjcc');
+    expect(workspaceSlugFromPath('/mjcc/console')).toBe('mjcc');
+    expect(workspaceSlugFromPath('/mjcc/login')).toBe('mjcc');
+  });
+
+  it('carries the resolved immutable tenant id and clears it on a slug-only switch', () => {
+    setActiveWorkspaceContext('mjcc', 'tenant-mjcc', false);
+    expect(workspaceHeaders()).toEqual({
+      'X-Kpn-Workspace': 'mjcc',
+      'X-Kpn-Tenant-Id': 'tenant-mjcc',
+    });
+    setActiveWorkspaceSlug('acme', false);
+    expect(workspaceHeaders()).toEqual({ 'X-Kpn-Workspace': 'acme' });
+  });
+
+  it('still resolves the prefixed compatibility form so redirects can work', () => {
+    expect(workspaceSlugFromPath('/workspaces/mjcc')).toBe('mjcc');
+    expect(workspaceSlugFromPath('/workspaces/mjcc/console')).toBe('mjcc');
+    expect(
+      workspaceCompatibilityRedirect(
+        '/workspaces/mjcc/console',
+        '?tab=health',
+        '#display',
+      ),
+    ).toBe('/mjcc/console?tab=health#display');
+  });
+
+  it('treats the prefixed form as legacy and direct form as canonical', () => {
+    expect(isLegacyWorkspacePath('/mjcc')).toBe(false);
+    expect(isLegacyWorkspacePath('/workspaces/mjcc')).toBe(true);
+    expect(isCanonicalWorkspacePath('/workspaces/mjcc')).toBe(false);
+    expect(isCanonicalWorkspacePath('/mjcc')).toBe(true);
+  });
+
+  it('never treats a reserved path as a tenant needing redirect', () => {
+    for (const reserved of ['/login', '/api', '/admin', '/docs', '/health', '/workspaces']) {
+      expect(isLegacyWorkspacePath(reserved)).toBe(false);
+      expect(workspaceSlugFromPath(reserved)).toBeNull();
+    }
+  });
+
+  it('refuses to build a path for a reserved or malformed slug', () => {
+    expect(() => workspacePath('login')).toThrow();
+    expect(() => workspacePath('workspaces')).toThrow();
+    expect(() => workspacePath('')).toThrow();
+    expect(() => workspacePath('Bad Slug')).toThrow();
+  });
+
+  it('does not resolve the root path to a tenant', () => {
+    expect(workspaceSlugFromPath('/')).toBeNull();
+    expect(isLegacyWorkspacePath('/')).toBe(false);
+  });
+});
+
+// --- Tenant class resolution -------------------------------------------------
+// Mirrors Website/packages/contracts/src/tenancy.ts. Corporations are addressed
+// by subdomain, organizations by slug path.
+
+describe('tenant class resolution', () => {
+  it('resolves a corporation from its subdomain', () => {
+    expect(resolveTenantFromRequest('mjcc.kpnsolute.com', '/')).toEqual({
+      by: 'subdomain',
+      slug: 'mjcc',
+    });
+  });
+
+  it('resolves an organization from the canonical direct slug path', () => {
+    expect(resolveTenantFromRequest('compute.kpnsolute.com', '/acme')).toEqual({
+      by: 'path',
+      slug: 'acme',
+    });
+  });
+
+  it('lets the corporate host win over a path slug', () => {
+    expect(resolveTenantFromRequest('mjcc.kpnsolute.com', '/workspaces/acme')).toEqual({
+      by: 'subdomain',
+      slug: 'mjcc',
+    });
+  });
+
+  it('never resolves a reserved platform host as a tenant', () => {
+    for (const host of [
+      'api.kpnsolute.com',
+      'auth.kpnsolute.com',
+      'compute.kpnsolute.com',
+      'platform.kpnsolute.com',
+      'workforce.kpnsolute.com',
+      'www.kpnsolute.com',
+    ]) {
+      expect(corporateTenantLabel(host)).toBeNull();
+    }
+  });
+
+  it('rejects malformed, nested, and foreign hosts', () => {
+    expect(corporateTenantLabel('kpnsolute.com')).toBeNull();
+    expect(corporateTenantLabel('a.b.kpnsolute.com')).toBeNull();
+    expect(corporateTenantLabel('-bad.kpnsolute.com')).toBeNull();
+    expect(corporateTenantLabel('evil.example.com')).toBeNull();
+    expect(corporateTenantLabel('')).toBeNull();
+  });
+
+  it('returns null when neither host nor path identifies a tenant', () => {
+    expect(resolveTenantFromRequest('compute.kpnsolute.com', '/')).toBeNull();
+    expect(resolveTenantFromRequest('compute.kpnsolute.com', '/login')).toBeNull();
+  });
+
+  it('still resolves the prefixed compatibility path form', () => {
+    expect(resolveTenantFromRequest('compute.kpnsolute.com', '/workspaces/mjcc')).toEqual({
+      by: 'path',
+      slug: 'mjcc',
+    });
+  });
+});
+
+// Regression: an unmatched path must never be treated as a confirmed tenant in
+// a way that produces a branded credential prompt. Browser verification caught
+// this; see Website/docs/ROUTE_E2E_RESULTS.md.
+describe('unmatched path safety', () => {
+  it('never resolves a reserved route to a tenant', () => {
+    for (const p of ['/login', '/api/health', '/docs', '/admin', '/workspaces']) {
+      expect(resolveTenantFromRequest('compute.kpnsolute.com', p)).toBeNull();
+    }
+  });
+
+  it('builds a tenant login path beneath the canonical direct tenant path', () => {
+    expect(workspaceLoginPath('mjcc')).toBe('/mjcc/login');
+  });
+
+  it('computes suffixes for direct, compatibility, and corporate routes', () => {
+    expect(tenantPathSuffix({ by: 'path', slug: 'acme' }, '/acme/login')).toBe('/login');
+    expect(tenantPathSuffix({ by: 'path', slug: 'acme' }, '/workspaces/acme/console')).toBe('/console');
+    expect(tenantPathSuffix({ by: 'subdomain', slug: 'mjcc' }, '/login')).toBe('/login');
+    expect(tenantPathSuffix({ by: 'subdomain', slug: 'mjcc' }, '/')).toBe('');
+  });
+
+  it('covers product root, generic login, corporate login, org routes, and unknown routes', () => {
+    expect(workspaceRouteSurface('compute.kpnsolute.com', '/', null)).toBe('product');
+    expect(workspaceRouteSurface('compute.kpnsolute.com', '/login', null)).toBe('product');
+    expect(workspaceRouteSurface('mjcc.kpnsolute.com', '/', 'mjcc')).toBe('tenant-entry');
+    expect(workspaceRouteSurface('mjcc.kpnsolute.com', '/login', 'mjcc')).toBe('tenant-login');
+    expect(workspaceRouteSurface('compute.kpnsolute.com', '/acme', 'acme')).toBe('tenant-entry');
+    expect(workspaceRouteSurface('compute.kpnsolute.com', '/acme/console', 'acme')).toBe('tenant-console');
+    expect(workspaceRouteSurface('compute.kpnsolute.com', '/unknown', null)).toBe('product');
+    expect(workspaceRouteSurface('compute.kpnsolute.com', '/unknown/login', null)).toBe('product');
   });
 });

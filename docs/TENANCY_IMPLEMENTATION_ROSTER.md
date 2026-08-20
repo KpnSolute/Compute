@@ -36,6 +36,12 @@ applied to production. Git publication, application deployment, and
 
 ## Safe rollout sequence
 
+The KpnAuth workforce adapter is additive. Keep `KPN_AUTH_MODE=off` until the
+central workforce migration and identity-link dry run are verified. Use
+`dual` for authenticated migration acceptance, and use `required` only after
+rollback evidence exists. `required` rejects legacy unsigned `pin_` sessions
+and the legacy PIN-login endpoint; it does not delete profile or audit rows.
+
 1. Keep `KPNCOMPUTE_TENANCY_MODE=legacy` while application code is deployed.
 2. Apply and verify the six tenant migrations. Completed in production on
    2026-08-15 after local grammar and test validation.

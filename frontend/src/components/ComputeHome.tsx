@@ -4,6 +4,11 @@ import { api, type WorkspaceProject, type WorkspaceSite, type WorkspaceSummary }
 import type { Workspace } from '../lib/workspace';
 import { KpnMark } from '../lib/icons';
 
+// Organization management lives in Platform, never inside a product runtime.
+const PLATFORM_URL =
+  (import.meta.env.VITE_PLATFORM_URL as string | undefined) ??
+  'https://platform.kpnsolute.com/compute';
+
 function slugify(value: string) {
   return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 63);
 }
@@ -12,9 +17,8 @@ function ArrowIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>;
 }
 
-export function ComputeLanding({ user, onSignIn, onOpenConsole, onOpenWorkspace, onLogout }: {
+export function ComputeLanding({ user, onOpenConsole, onOpenWorkspace, onLogout }: {
   user: User | null;
-  onSignIn: () => void;
   onOpenConsole: (slug: string) => void;
   onOpenWorkspace: (slug: string) => void;
   onLogout: () => void;
@@ -52,7 +56,7 @@ export function ComputeLanding({ user, onSignIn, onOpenConsole, onOpenWorkspace,
           {user ? (
             <button className="compute-link-button" onClick={onLogout}>Sign out</button>
           ) : (
-            <button className="compute-button quiet" onClick={onSignIn}>Sign in</button>
+            <a className="compute-button quiet" href={PLATFORM_URL}>Log into Platform</a>
           )}
         </div>
       </nav>
@@ -62,9 +66,17 @@ export function ComputeLanding({ user, onSignIn, onOpenConsole, onOpenWorkspace,
         <h1>Your business systems.<br /><em>One navigable workspace.</em></h1>
         <p>KpnCompute turns operating procedures into secure portals, workflows, integrations, and managed software your team can actually run.</p>
         <div className="compute-hero-actions">
-          <button className="compute-button primary" onClick={user ? () => document.getElementById('workspaces')?.scrollIntoView() : onSignIn}>
-            {user ? 'Open your workspaces' : 'Enter KpnCompute'} <ArrowIcon />
-          </button>
+          {user ? (
+            <button className="compute-button primary" onClick={() => document.getElementById('workspaces')?.scrollIntoView()}>
+              Open your workspaces <ArrowIcon />
+            </button>
+          ) : (
+            /* Organization owners and managers administer Compute installations
+               from Platform. Tenant staff sign in inside their own workspace. */
+            <a className="compute-button primary" href={PLATFORM_URL}>
+              Log into Platform <ArrowIcon />
+            </a>
+          )}
           <a className="compute-text-link" href="#how-it-works">See how Compute works</a>
         </div>
         <div className="compute-orbit" aria-hidden="true">
