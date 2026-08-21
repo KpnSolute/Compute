@@ -219,6 +219,23 @@ class TestCredentialVersionRevocation:
         assert resolved["_auth_method"] == "staff_session"
         assert resolved["_staff_tenant_id"] == "tenant-a"
 
+    def test_non_staff_claim_is_rejected(self):
+        token, _ = _mint(role="manager")
+        assert verify_staff_session(token) is None
+
+    def test_non_staff_profile_is_rejected(self, monkeypatch):
+        token, _ = _mint()
+        monkeypatch.setattr(
+            _deps,
+            "supabase_admin",
+            _profile_client(
+                {"id": "u1", "active": True, "role": "manager", "pin_version": 2}
+            ),
+        )
+        with pytest.raises(Exception) as excinfo:
+            _deps._profile_for_token(f"Bearer {token}")
+        assert "Elevated access" in str(excinfo.value)
+
 
 class TestCrossTenantReplay:
     """A session minted for tenant A must not act inside tenant B."""
@@ -276,6 +293,48 @@ class TestCrossTenantReplay:
             "/probe", headers={"Authorization": "Bearer x"}
         )
         assert response.status_code == 200, response.text
+
+    def test_staff_session_cannot_inherit_manager_membership(self, monkeypatch):
+        from backend.tenancy import TenantContext
+
+        self._wire(monkeypatch, session_tenant="tenant-a", resolved_tenant="tenant-a")
+        monkeypatch.setattr(
+            _deps,
+            "resolve_user_tenant",
+            lambda *_args, **_kwargs: (
+                TenantContext(
+                    id="tenant-a",
+                    slug="mjcc",
+                    name="MJCC",
+                    user_id="u1",
+                    role="manager",
+                ),
+                [],
+            ),
+        )
+        response = TestClient(self._app(), raise_server_exceptions=False).get(
+            "/probe", headers={"Authorization": "Bearer x"}
+        )
+        assert response.status_code == 403, response.text
+        assert "Elevated access" in response.json()["detail"]
+
+    def test_staff_session_fails_closed_in_legacy_mode(self, monkeypatch):
+        monkeypatch.setenv("KPNCOMPUTE_TENANCY_MODE", "legacy")
+        monkeypatch.setattr(
+            _deps,
+            "_profile_for_token",
+            lambda _auth: {
+                "id": "u1",
+                "role": "staff",
+                "active": True,
+                "_auth_method": "staff_session",
+                "_staff_tenant_id": "tenant-a",
+            },
+        )
+        response = TestClient(self._app(), raise_server_exceptions=False).get(
+            "/probe", headers={"Authorization": "Bearer x"}
+        )
+        assert response.status_code == 503, response.text
 
 
 def _profile_client(profile: dict):

@@ -115,16 +115,17 @@ security definer
 set search_path = public
 as $$
 begin
+  if p_tenant_id is null then
+    raise exception 'A tenant id is required for staff credential changes';
+  end if;
   -- Verify the target user has an active membership in the calling tenant.
-  if p_tenant_id is not null then
-    if not exists (
-      select 1 from tenant_memberships
-      where tenant_id = p_tenant_id
-        and user_id = p_user_id
-        and status = 'active'
-    ) then
-      raise exception 'User % has no active membership in tenant %', p_user_id, p_tenant_id;
-    end if;
+  if not exists (
+    select 1 from tenant_memberships
+    where tenant_id = p_tenant_id
+      and user_id = p_user_id
+      and status = 'active'
+  ) then
+    raise exception 'User % has no active membership in tenant %', p_user_id, p_tenant_id;
   end if;
 
   return query
@@ -165,16 +166,17 @@ security definer
 set search_path = public
 as $$
 begin
+  if p_tenant_id is null then
+    raise exception 'A tenant id is required for staff credential changes';
+  end if;
   -- Verify the target user has an active membership in the calling tenant.
-  if p_tenant_id is not null then
-    if not exists (
-      select 1 from tenant_memberships
-      where tenant_id = p_tenant_id
-        and user_id = p_user_id
-        and status = 'active'
-    ) then
-      raise exception 'User % has no active membership in tenant %', p_user_id, p_tenant_id;
-    end if;
+  if not exists (
+    select 1 from tenant_memberships
+    where tenant_id = p_tenant_id
+      and user_id = p_user_id
+      and status = 'active'
+  ) then
+    raise exception 'User % has no active membership in tenant %', p_user_id, p_tenant_id;
   end if;
 
   return query

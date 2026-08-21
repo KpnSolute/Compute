@@ -45,7 +45,18 @@ DEFAULT_STAFF_SESSION_ISSUER = "https://compute.kpnsolute.com"
 DEFAULT_STAFF_SESSION_TTL_SECONDS = 12 * 60 * 60
 MINIMUM_SECRET_LENGTH = 32
 
-_REQUIRED_CLAIMS = ("sub", "exp", "iat", "iss", "aud", "token_use", "tenant_id")
+_REQUIRED_CLAIMS = (
+    "sub",
+    "exp",
+    "iat",
+    "iss",
+    "aud",
+    "token_use",
+    "tenant_id",
+    "role",
+    "credential_version",
+    "jti",
+)
 
 
 class StaffSessionConfigurationError(RuntimeError):
@@ -165,6 +176,8 @@ def verify_staff_session(token: str) -> dict | None:
     if not str(claims.get("tenant_id") or "").strip():
         return None
     if not str(claims.get("sub") or "").strip():
+        return None
+    if claims.get("role") != "staff":
         return None
     return claims
 

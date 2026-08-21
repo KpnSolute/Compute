@@ -113,13 +113,16 @@ def set_staff_pin(
     subject = (user_id or "").strip()
     if not subject:
         raise StaffPinError("A user id is required.")
+    immutable_tenant = (tenant_id or "").strip()
+    if not immutable_tenant:
+        raise StaffPinError("A tenant id is required for staff credential changes.")
 
     rows = _rpc(
         admin_client,
         SET_PIN_RPC,
         {
             "p_user_id": subject,
-            "p_tenant_id": (tenant_id or None),
+            "p_tenant_id": immutable_tenant,
             "p_pin_hash": hash_staff_pin(validated),
             "p_must_rotate": weak_staff_pin(validated, pin_minimum_length()),
             "p_actor_id": (actor_id or None),
@@ -151,12 +154,15 @@ def clear_staff_pin(
     subject = (user_id or "").strip()
     if not subject:
         raise StaffPinError("A user id is required.")
+    immutable_tenant = (tenant_id or "").strip()
+    if not immutable_tenant:
+        raise StaffPinError("A tenant id is required for staff credential changes.")
     rows = _rpc(
         admin_client,
         CLEAR_PIN_RPC,
         {
             "p_user_id": subject,
-            "p_tenant_id": (tenant_id or None),
+            "p_tenant_id": immutable_tenant,
             "p_actor_id": (actor_id or None),
         },
     )

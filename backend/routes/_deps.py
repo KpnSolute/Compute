@@ -61,6 +61,12 @@ def _profile_for_staff_session(claims: dict) -> dict:
         raise HTTPException(status_code=401, detail="Invalid session")
     profile = found.data[0]
 
+    if claims.get("role") != "staff" or profile.get("role") != "staff":
+        raise HTTPException(
+            status_code=403,
+            detail="Elevated access requires password authentication",
+        )
+
     current_version = int(profile.get("pin_version") or 0)
     if staff_session_credential_version(claims) != current_version:
         raise HTTPException(
@@ -151,6 +157,11 @@ async def _get_auth_user(
     """
     user = await run_in_threadpool(_profile_for_token, authorization)
     if tenancy_mode() == "legacy":
+        if user.get("_auth_method") == "staff_session":
+            raise HTTPException(
+                status_code=503,
+                detail="Tenant-local staff sessions require tenant mode",
+            )
         if user.get("_auth_method") == "pin" and user.get("role") != "staff":
             raise HTTPException(
                 status_code=403,
@@ -180,7 +191,10 @@ async def _get_auth_user(
     }
     if x_kpn_tenant_id.strip() and str(context.id) != x_kpn_tenant_id.strip():
         raise HTTPException(status_code=403, detail="Immutable tenant context mismatch")
-    if tenant_user.get("_auth_method") == "pin" and context.role != "staff":
+    if (
+        tenant_user.get("_auth_method") in {"pin", "staff_session"}
+        and context.role != "staff"
+    ):
         raise HTTPException(
             status_code=403,
             detail="Elevated access requires password authentication",
