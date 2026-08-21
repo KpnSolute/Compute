@@ -89,10 +89,8 @@ def test_public_workspace_entry_resolves_only_active_exact_tenant(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {
         "workspace": {
-            "id": "tenant-mjcc",
             "slug": "mjcc",
             "name": "Miami Job Corps Center",
-            "brand_config": {"short_name": "MJCC"},
         }
     }
     assert client.get("/api/v1/workspaces/resolve/old").status_code == 404

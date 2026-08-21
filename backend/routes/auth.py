@@ -1,11 +1,11 @@
 import datetime
 import hashlib
+import logging
 import hmac
 import os
 import secrets
 from urllib.parse import urlsplit
 
-import jwt as pyjwt
 from fastapi import APIRouter, Depends, HTTPException, Header, Response
 from pydantic import BaseModel, ConfigDict, Field
 from backend.routes import (
@@ -15,11 +15,20 @@ from backend.routes import (
 )
 from backend.routes._deps import _get_auth_user, _profile_for_token
 from backend.staff_credentials import verify_staff_pin
-from backend.staff_sessions import staff_session_secret
+from backend.staff_login_throttle import (
+    ThrottleBackendError,
+    current_state,
+    register_failure,
+    register_success,
+)
+from backend.staff_pin_admin import StaffPinBackendError, set_staff_pin
+from backend.staff_sessions import StaffSessionConfigurationError, mint_staff_session
 from backend.tenancy import list_user_tenants, tenancy_mode
 from backend.audit_events import record_audit_event
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+log = logging.getLogger("mjcc.routes.auth")
 
 
 class LoginRequest(BaseModel):
@@ -536,20 +545,98 @@ async def _get_user_profile(user_id: str) -> dict | None:
         return None
 
 
-async def _get_user_by_username(username: str) -> dict | None:
-    """Fetch user profile by username."""
+class StaffUsernameLookupError(RuntimeError):
+    """The tenant membership or user profile store is unreachable.
+
+    Callers must fail closed (503) instead of returning a 401 that would
+    leak whether the username exists.
+    """
+
+
+async def _get_user_by_username(
+    username: str, tenant_id: str | None = None
+) -> dict | None:
+    """Fetch user profile by username, tenant-first.
+
+    When ``tenant_id`` is provided, the set of active membership user IDs is
+    resolved BEFORE the username lookup, so the same physical username can
+    exist in different tenants.  A database failure at any point raises
+    :class:`StaffUsernameLookupError` so the caller can fail closed (503)
+    instead of masking the error as 401.
+    """
+    if not tenant_id:
+        # Legacy or unscoped path — no membership filter available.
+        try:
+            result = (
+                supabase_admin.table("user_profiles")
+                .select("*")
+                .eq("username", username)
+                .eq("active", True)
+                .limit(2)
+                .execute()
+            )
+        except Exception as exc:
+            raise StaffUsernameLookupError(
+                "User profile store is unavailable."
+            ) from exc
+        rows = result.data or []
+        return rows[0] if len(rows) == 1 else None
+
+    # Tenant-first: resolve the set of active member user IDs, then
+    # look up the username scoped to that set.
+    try:
+        memberships = (
+            supabase_admin.table("tenant_memberships")
+            .select("user_id")
+            .eq("tenant_id", tenant_id)
+            .eq("status", "active")
+            .execute()
+        )
+    except Exception as exc:
+        raise StaffUsernameLookupError(
+            "Tenant membership store is unavailable."
+        ) from exc
+
+    try:
+        member_ids = [str(row["user_id"]) for row in (memberships.data or [])]
+    except (KeyError, TypeError) as exc:
+        raise StaffUsernameLookupError(
+            "Tenant membership store returned invalid data."
+        ) from exc
+    if not member_ids:
+        return None
+
     try:
         result = (
             supabase_admin.table("user_profiles")
             .select("*")
             .eq("username", username)
             .eq("active", True)
-            .single()
+            .in_("id", member_ids)
+            .limit(2)
             .execute()
         )
-        return result.data if result.data else None
-    except Exception:
-        return None
+    except Exception as exc:
+        raise StaffUsernameLookupError("User profile store is unavailable.") from exc
+
+    rows = result.data or []
+    return rows[0] if len(rows) == 1 else None
+
+
+def _record_throttle_failure(tenant_id: str | None, username: str) -> None:
+    """Record a failed login attempt.  If the throttle store is unreachable,
+    fail closed with 503 instead of silently swallowing the error."""
+    try:
+        register_failure(
+            supabase_admin,
+            tenant_id=tenant_id,
+            username=username,
+        )
+    except ThrottleBackendError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Sign-in service temporarily unavailable",
+        ) from exc
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -622,71 +709,181 @@ async def login(
 
     # Mode 2: PIN-based login (staff)
     elif req.username and req.pin:
-        if tenancy_mode() != "legacy" and not x_kpn_workspace.strip():
+        # Tenant staff PIN login is ALWAYS tenant-bound. Every PIN login must
+        # carry X-Kpn-Workspace, resolve an active tenant, and prove active
+        # membership. There is no legacy global-username fallback.
+        workspace_slug = (x_kpn_workspace or "").strip().lower()
+        # Usernames are stored normalised to lowercase (users._normalize_username)
+        # and the throttle key is lowercased (staff_login_throttle.subject_key),
+        # but the profile lookup used to compare the raw input. A tablet that
+        # autocapitalises "Jeremiah" therefore never matched a row while still
+        # recording a failure against the real account — five attempts locked out
+        # a working staff member. Normalise once, here, and use it everywhere in
+        # this branch so lookup and throttle always agree on the subject.
+        login_username = (req.username or "").strip().lower()
+        if not workspace_slug:
             raise HTTPException(
                 status_code=400,
-                detail="X-Kpn-Workspace is required for tenant staff login",
-            )
-        user = await _get_user_by_username(req.username)
-        if not user:
-            raise HTTPException(status_code=401, detail="Invalid credentials")
-
-        if user["role"] != "staff":
-            raise HTTPException(
-                status_code=401, detail="PIN login only available for staff"
+                detail="X-Kpn-Workspace is required for staff PIN login",
             )
 
-        # Hashed, constant-time verification. A row still holding a legacy
-        # plaintext PIN verifies once and is upgraded to a hash in place, so
-        # working staff logins keep working while the plaintext value stops
-        # being the thing that is checked.
-        pin_ok, upgrade_hash = verify_staff_pin(req.pin, user)
-        if not pin_ok:
-            raise HTTPException(status_code=401, detail="Invalid PIN")
-        if upgrade_hash:
-            try:
-                supabase_admin.table("user_profiles").update(
-                    {"pin_hash": upgrade_hash}
-                ).eq("id", user["id"]).execute()
-            except Exception:
-                # An upgrade failure must never block a valid sign-in; the next
-                # successful login retries it.
-                pass
-
-        # Staff sessions are always signed and always expire. The previous
-        # unsigned `pin_<uuid>` fallback is gone: it was the user's row id used
-        # directly as a bearer token, with no signature and no expiry.
-        session_secret = staff_session_secret()
-        if not session_secret:
+        # Resolve tenant for throttle and membership checks BEFORE any
+        # credential verification — the throttle is tenant-scoped.
+        resolved_tenant_id: str | None = None
+        resolved_tenant_slug: str = ""
+        try:
+            tenant_row = (
+                supabase_admin.table("tenants")
+                .select("id,slug")
+                .eq("slug", workspace_slug)
+                .eq("status", "active")
+                .limit(1)
+                .execute()
+            )
+            if tenant_row.data:
+                resolved_tenant_id = str(tenant_row.data[0]["id"])
+                resolved_tenant_slug = str(tenant_row.data[0]["slug"])
+        except Exception as exc:
             raise HTTPException(
                 status_code=503,
-                detail="Staff sign-in is not configured in this environment",
-            )
-        now = datetime.datetime.now(datetime.timezone.utc)
-        payload = {
-            "sub": user["id"],
-            "role": user["role"],
-            "iat": int(now.timestamp()),
-            "exp": int((now + datetime.timedelta(hours=12)).timestamp()),
-        }
-        staff_token = pyjwt.encode(payload, session_secret, algorithm="HS256")
+                detail="Sign-in service temporarily unavailable",
+            ) from exc
 
-        identity = _with_workspace(user, x_kpn_workspace or None)
-        _require_resolved_tenant_id(identity, x_kpn_tenant_id)
-        return LoginResponse(
-            access_token=staff_token,
-            user={
-                "id": identity.get("id"),
-                "username": identity.get("username"),
-                "display_name": identity.get("display_name"),
-                "last_name": identity.get("last_name"),
-                "role": identity.get("role"),
-                "active": identity.get("active"),
-                "tenant": identity.get("tenant"),
-                "workspaces": identity.get("workspaces", []),
-                **_credential_flags(identity),
-            },
-        )
+        if not resolved_tenant_id:
+            raise HTTPException(
+                status_code=404,
+                detail="Workspace not found or inactive",
+            )
+
+        # Throttle gate — fail closed on backend errors.
+        try:
+            throttle = current_state(
+                supabase_admin,
+                tenant_id=resolved_tenant_id,
+                username=login_username,
+            )
+            if throttle.get("locked"):
+                retry_after = int(throttle.get("retry_after_seconds") or 900)
+                raise HTTPException(
+                    status_code=429,
+                    detail="Too many failed attempts",
+                    headers={"Retry-After": str(retry_after)},
+                )
+        except HTTPException:
+            raise
+        except ThrottleBackendError:
+            raise HTTPException(
+                status_code=503,
+                detail="Sign-in service temporarily unavailable",
+            )
+
+        # Uniform error message for all credential failures — no account
+        # enumeration via differing 401 text.
+        INVALID_CREDENTIALS_MSG = "Invalid credentials"
+
+        try:
+            user = await _get_user_by_username(login_username, resolved_tenant_id)
+            if not user:
+                _record_throttle_failure(resolved_tenant_id, login_username)
+                raise HTTPException(status_code=401, detail=INVALID_CREDENTIALS_MSG)
+        except HTTPException:
+            raise
+        except StaffUsernameLookupError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="Sign-in service temporarily unavailable",
+            ) from exc
+
+        try:
+            if user["role"] != "staff":
+                _record_throttle_failure(resolved_tenant_id, login_username)
+                raise HTTPException(status_code=401, detail=INVALID_CREDENTIALS_MSG)
+
+            pin_ok, upgrade_hash = verify_staff_pin(req.pin, user)
+            if not pin_ok:
+                _record_throttle_failure(resolved_tenant_id, login_username)
+                raise HTTPException(status_code=401, detail=INVALID_CREDENTIALS_MSG)
+
+            # Atomic credential upgrade: replace legacy plaintext with a hash
+            # via the credential manager RPC so pin_version is bumped and old-
+            # generation sessions are revoked.  Fail closed on backend errors.
+            credential_version = int(user.get("pin_version") or 0)
+            if upgrade_hash:
+                try:
+                    pin_result = set_staff_pin(
+                        supabase_admin,
+                        user_id=str(user["id"]),
+                        tenant_id=resolved_tenant_id,
+                        pin=req.pin,
+                        actor_id=str(user["id"]),
+                    )
+                    credential_version = int(
+                        pin_result.get("pin_version") or credential_version
+                    )
+                except StaffPinBackendError as exc:
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Sign-in service temporarily unavailable",
+                    ) from exc
+
+            # Mint a signed, tenant-bound staff session.
+            tenant_id_for_session = resolved_tenant_id or ""
+            tenant_slug_for_session = resolved_tenant_slug or ""
+            staff_token, _claims = mint_staff_session(
+                user_id=str(user["id"]),
+                tenant_id=tenant_id_for_session,
+                tenant_slug=tenant_slug_for_session,
+                role=str(user["role"]),
+                credential_version=credential_version,
+            )
+
+            try:
+                register_success(
+                    supabase_admin,
+                    tenant_id=resolved_tenant_id,
+                    username=login_username,
+                )
+            except ThrottleBackendError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Sign-in service temporarily unavailable",
+                ) from exc
+
+            identity = _with_workspace(user, x_kpn_workspace or None)
+            _require_resolved_tenant_id(identity, x_kpn_tenant_id)
+            return LoginResponse(
+                access_token=staff_token,
+                user={
+                    "id": identity.get("id"),
+                    "username": identity.get("username"),
+                    "display_name": identity.get("display_name"),
+                    "last_name": identity.get("last_name"),
+                    "role": identity.get("role"),
+                    "active": identity.get("active"),
+                    "tenant": identity.get("tenant"),
+                    "workspaces": identity.get("workspaces", []),
+                    **_credential_flags(identity),
+                },
+            )
+
+        except HTTPException:
+            raise
+        except StaffSessionConfigurationError as exc:
+            # The staff signing key is missing or too short. Without this the
+            # session cannot be minted, so fail closed with an explicit 503
+            # rather than letting a RuntimeError surface as an unhandled 500 —
+            # an unhandled 500 also loses its CORS headers, which makes a
+            # configuration problem look like a browser CORS failure.
+            log.error("staff_session_not_configured: %s", exc)
+            raise HTTPException(
+                status_code=503,
+                detail="Sign-in service temporarily unavailable",
+            ) from exc
+        except ThrottleBackendError:
+            raise HTTPException(
+                status_code=503,
+                detail="Sign-in service temporarily unavailable",
+            )
 
     else:
         raise HTTPException(

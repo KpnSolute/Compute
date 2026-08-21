@@ -158,6 +158,35 @@ export type WorkspaceRouteSurface =
   | 'tenant-console'
   | 'tenant-operations';
 
+/**
+ * True when the hostname is a known cloud-provider origin (e.g. *.onrender.com)
+ * that must not render tenant credentials and should redirect to the canonical
+ * Compute origin.  Corporate subdomains, canonical hosts, localhost, and future
+ * custom domains are never provider origins.
+ */
+export function isProviderOrigin(hostname: string): boolean {
+  const host = (hostname || '').trim().toLowerCase().replace(/\.$/, '');
+  if (!host) return false;
+  if (host.endsWith('.onrender.com')) return true;
+  if (host === 'onrender.com') return true;
+  return false;
+}
+
+/**
+ * Build the redirect target URL for a provider origin, preserving the original
+ * path, query string, and fragment safely.
+ */
+export function providerOriginRedirectUrl(
+  hostname: string,
+  pathname: string,
+  search = '',
+  hash = '',
+): string | null {
+  if (!isProviderOrigin(hostname)) return null;
+  const safePath = pathname.startsWith('/') ? pathname : '/';
+  return `https://compute.kpnsolute.com${safePath}${search}${hash}`;
+}
+
 /** The corporate subdomain label for a host, or null when it is not one. */
 export function corporateTenantLabel(hostname: string): string | null {
   const host = (hostname || '').trim().toLowerCase().replace(/\.$/, '');
@@ -171,9 +200,18 @@ export function corporateTenantLabel(hostname: string): string | null {
   return label;
 }
 
+/** Hosts where organisation-path tenancy is allowed. */
+const CANONICAL_HOSTS = new Set([
+  'compute.kpnsolute.com',
+  'localhost',
+  '127.0.0.1',
+]);
+
 /**
  * Resolve which tenant a request addresses, from host and path together.
  * A corporate subdomain wins over a path slug: the host is the stronger claim.
+ * Path-based tenancy is only resolved on canonical Compute hosts — provider
+ * origins (e.g. *.onrender.com) must never render a tenant credential surface.
  */
 export function resolveTenantFromRequest(
   hostname = window.location.hostname,
@@ -181,6 +219,12 @@ export function resolveTenantFromRequest(
 ): ResolvedTenant | null {
   const corporate = corporateTenantLabel(hostname);
   if (corporate) return { by: 'subdomain', slug: corporate };
+  if (!CANONICAL_HOSTS.has(hostname)) {
+    // Non-canonical host: never resolve a tenant from the path.
+    // Known provider origins should redirect to canonical; unknown hosts must
+    // not render credential UI.
+    return null;
+  }
   const slug = workspaceSlugFromPath(pathname);
   return slug ? { by: 'path', slug } : null;
 }

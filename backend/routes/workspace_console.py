@@ -102,7 +102,7 @@ async def resolve_workspace_entry(workspace_slug: str):
     slug = _slug(workspace_slug, workspace=True)
     rows = (
         supabase_admin.table("tenants")
-        .select("id,slug,name,brand_config")
+        .select("slug,name")
         .eq("slug", slug)
         .eq("status", "active")
         .limit(1)
@@ -113,10 +113,8 @@ async def resolve_workspace_entry(workspace_slug: str):
     workspace = rows[0]
     return {
         "workspace": {
-            "id": str(workspace["id"]),
             "slug": str(workspace["slug"]),
             "name": str(workspace["name"]),
-            "brand_config": workspace.get("brand_config") or {},
         }
     }
 

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { corporateTenantLabel, getActiveWorkspaceSlug, isCanonicalWorkspacePath, isLegacyWorkspacePath, resolveTenantFromRequest, setActiveWorkspaceContext, setActiveWorkspaceSlug, tenantPathSuffix, workspaceCompatibilityRedirect, workspaceHeaders, workspaceLoginPath, workspacePath, workspaceRouteSurface, workspaceSlugFromPath } from './workspace';
+import { corporateTenantLabel, getActiveWorkspaceSlug, isCanonicalWorkspacePath, isLegacyWorkspacePath, isProviderOrigin, providerOriginRedirectUrl, resolveTenantFromRequest, setActiveWorkspaceContext, setActiveWorkspaceSlug, tenantPathSuffix, workspaceCompatibilityRedirect, workspaceHeaders, workspaceLoginPath, workspacePath, workspaceRouteSurface, workspaceSlugFromPath } from './workspace';
 
 describe('workspace selection', () => {
   beforeEach(() => {
@@ -163,6 +163,38 @@ describe('tenant class resolution', () => {
       slug: 'mjcc',
     });
   });
+
+  it('resolves path-based tenants on canonical hosts', () => {
+    expect(resolveTenantFromRequest('compute.kpnsolute.com', '/acme')).toEqual({
+      by: 'path',
+      slug: 'acme',
+    });
+    expect(resolveTenantFromRequest('localhost', '/acme')).toEqual({
+      by: 'path',
+      slug: 'acme',
+    });
+    expect(resolveTenantFromRequest('127.0.0.1', '/acme')).toEqual({
+      by: 'path',
+      slug: 'acme',
+    });
+  });
+
+  it('returns null on non-canonical hosts even with a valid path slug', () => {
+    expect(resolveTenantFromRequest('kpncompute.onrender.com', '/mjcc')).toBeNull();
+    expect(resolveTenantFromRequest('myapp.onrender.com', '/acme/login')).toBeNull();
+    expect(resolveTenantFromRequest('random-host.example.com', '/acme')).toBeNull();
+  });
+
+  it('still resolves corporate subdomains on any host', () => {
+    expect(resolveTenantFromRequest('mjcc.kpnsolute.com', '/anything')).toEqual({
+      by: 'subdomain',
+      slug: 'mjcc',
+    });
+    expect(resolveTenantFromRequest('mjcc.kpnsolute.com', '/')).toEqual({
+      by: 'subdomain',
+      slug: 'mjcc',
+    });
+  });
 });
 
 // Regression: an unmatched path must never be treated as a confirmed tenant in
@@ -195,5 +227,65 @@ describe('unmatched path safety', () => {
     expect(workspaceRouteSurface('compute.kpnsolute.com', '/acme/console', 'acme')).toBe('tenant-console');
     expect(workspaceRouteSurface('compute.kpnsolute.com', '/unknown', null)).toBe('product');
     expect(workspaceRouteSurface('compute.kpnsolute.com', '/unknown/login', null)).toBe('product');
+  });
+});
+
+// --- Provider-origin redirect ------------------------------------------------
+// Only known cloud-provider origins (*.onrender.com) redirect to the canonical
+// Compute origin. Corporate subdomains and future custom domains are never
+// redirected.
+
+describe('provider origin redirect', () => {
+  it('identifies Render provider origins', () => {
+    expect(isProviderOrigin('kpncompute.onrender.com')).toBe(true);
+    expect(isProviderOrigin('mjcc-app.onrender.com')).toBe(true);
+    expect(isProviderOrigin('onrender.com')).toBe(true);
+    expect(isProviderOrigin('some-random-service.onrender.com')).toBe(true);
+  });
+
+  it('does not identify corporate subdomains as provider origins', () => {
+    expect(isProviderOrigin('mjcc.kpnsolute.com')).toBe(false);
+    expect(isProviderOrigin('acme.kpnsolute.com')).toBe(false);
+  });
+
+  it('does not identify canonical hosts as provider origins', () => {
+    expect(isProviderOrigin('compute.kpnsolute.com')).toBe(false);
+    expect(isProviderOrigin('localhost')).toBe(false);
+    expect(isProviderOrigin('127.0.0.1')).toBe(false);
+  });
+
+  it('does not identify unknown hosts as provider origins', () => {
+    expect(isProviderOrigin('custom-domain.com')).toBe(false);
+    expect(isProviderOrigin('myapp.vercel.app')).toBe(false);
+    expect(isProviderOrigin('')).toBe(false);
+  });
+
+  it('builds a safe redirect URL from a provider origin', () => {
+    expect(providerOriginRedirectUrl('kpncompute.onrender.com', '/mjcc/login', '?tab=1', '#s1')).toBe(
+      'https://compute.kpnsolute.com/mjcc/login?tab=1#s1',
+    );
+  });
+
+  it('preserves root path for provider origin redirect', () => {
+    expect(providerOriginRedirectUrl('kpncompute.onrender.com', '/', '', '')).toBe(
+      'https://compute.kpnsolute.com/',
+    );
+  });
+
+  it('returns null for non-provider origins', () => {
+    expect(providerOriginRedirectUrl('mjcc.kpnsolute.com', '/login', '', '')).toBeNull();
+    expect(providerOriginRedirectUrl('compute.kpnsolute.com', '/acme', '', '')).toBeNull();
+    expect(providerOriginRedirectUrl('localhost', '/acme', '', '')).toBeNull();
+    expect(providerOriginRedirectUrl('custom-domain.com', '/', '', '')).toBeNull();
+  });
+
+  it('still resolves corporate subdomains on canonical hosts (not redirected)', () => {
+    // mjcc.kpnsolute.com should resolve a tenant, not redirect
+    expect(resolveTenantFromRequest('mjcc.kpnsolute.com', '/')).toEqual({
+      by: 'subdomain',
+      slug: 'mjcc',
+    });
+    // kpncompute.onrender.com should not resolve a tenant (provider origin)
+    expect(resolveTenantFromRequest('kpncompute.onrender.com', '/mjcc')).toBeNull();
   });
 });

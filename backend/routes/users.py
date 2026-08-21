@@ -34,6 +34,7 @@ from backend.routes import (
     supabase_service,
 )
 from backend.routes._deps import _get_auth_user
+from backend.staff_pin_admin import clear_staff_pin, set_staff_pin
 from backend.tenancy import current_tenant, tenancy_mode
 
 log = logging.getLogger("mjcc.users")
@@ -673,9 +674,17 @@ async def update_my_pin(
     """Allow a user to change their own PIN (staff clear the default-PIN banner here)."""
     if not req.new_pin.isdigit():
         raise HTTPException(status_code=400, detail="PIN must be numeric")
-    supabase_service.table("user_profiles").update(
-        {"pin": req.new_pin, "updated_at": datetime.now(timezone.utc).isoformat()}
-    ).eq("id", current_user["id"]).execute()
+    tenant_id: str | None = None
+    ctx = current_tenant()
+    if ctx:
+        tenant_id = ctx.id
+    set_staff_pin(
+        supabase_admin,
+        user_id=current_user["id"],
+        tenant_id=tenant_id,
+        pin=req.new_pin,
+        actor_id=current_user["id"],
+    )
     _log_credential_event(
         current_user.get("id"),
         current_user.get("id"),
@@ -974,10 +983,9 @@ async def create_user(
                     "display_name": req.display_name,
                     "last_name": req.last_name,
                     "role": req.role,
-                    "pin": (req.pin or DEFAULT_STAFF_PIN)
-                    if req.role == "staff"
-                    else (req.pin or None),
-                    "active": True,
+                    # Staff remain unable to sign in until their tenant-local
+                    # credential has been written successfully below.
+                    "active": req.role != "staff",
                     "must_change_password": req.role != "staff"
                     and password == DEFAULT_MANAGER_PASSWORD,
                     "phone": req.phone,
@@ -993,6 +1001,10 @@ async def create_user(
         user = result.data[0] if result.data else None
         if not user:
             raise HTTPException(status_code=500, detail="Failed to create user")
+
+        # In non-legacy modes, create the tenant membership BEFORE setting the
+        # PIN — the set_staff_pin_credential RPC requires an active membership
+        # in the calling tenant.
         if tenancy_mode() != "legacy":
             tenant_id = _selected_tenant_id()
             if not tenant_id:
@@ -1013,6 +1025,40 @@ async def create_user(
                 .execute()
             ).data[0]
             user = _merge_membership(user, membership)
+
+        # Set PIN through the credential manager for staff, so pin_hash is
+        # written and pin_version is incremented in one atomic RPC.
+        # The RPC verifies active tenant membership, so this MUST come after
+        # the tenant_memberships insert above.
+        if req.role == "staff":
+            tenant_id = _selected_tenant_id()
+            set_staff_pin(
+                supabase_admin,
+                user_id=auth_user_id,
+                tenant_id=tenant_id,
+                pin=req.pin or DEFAULT_STAFF_PIN,
+                actor_id=admin_user["id"],
+            )
+            activated = (
+                supabase_service.table("user_profiles")
+                .update(
+                    {
+                        "active": True,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+                .eq("id", auth_user_id)
+                .execute()
+            )
+            if not activated.data:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Staff credential was created but the account could not be activated",
+                )
+            user = activated.data[0]
+            if tenancy_mode() != "legacy":
+                user = _merge_membership(user, membership)
+
         return UserResponse(**user)
 
     except Exception as e:
@@ -1053,6 +1099,7 @@ async def update_user(
         )
 
     update_data: dict = {}
+    pin_changed = False
     if req.display_name is not None:
         update_data["display_name"] = req.display_name
     if req.last_name is not None:
@@ -1073,7 +1120,24 @@ async def update_user(
     if req.pin is not None:
         if req.pin and (not req.pin.isdigit() or len(req.pin) < 4):
             raise HTTPException(status_code=400, detail="PIN must be at least 4 digits")
-        update_data["pin"] = req.pin or None
+        # PIN is managed through the credential store, not a plaintext column.
+        tenant_id = _selected_tenant_id()
+        if req.pin:
+            set_staff_pin(
+                supabase_admin,
+                user_id=user_id,
+                tenant_id=tenant_id,
+                pin=req.pin,
+                actor_id=admin_user["id"],
+            )
+        else:
+            clear_staff_pin(
+                supabase_admin,
+                user_id=user_id,
+                tenant_id=tenant_id,
+                actor_id=admin_user["id"],
+            )
+        pin_changed = True
     if req.active is not None:
         if tenancy_mode() == "legacy":
             update_data["active"] = req.active
@@ -1112,6 +1176,8 @@ async def update_user(
         update_data["email"] = _auth_email_for_username(new_username)
 
     if not update_data and not req.new_password:
+        if pin_changed:
+            _log_credential_event(admin_user.get("id"), user_id, "pin_update")
         return UserResponse(**user)
 
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -1152,7 +1218,7 @@ async def update_user(
                 "password_reset",
                 {"self_service": admin_user.get("id") == user_id},
             )
-        if req.pin is not None:
+        if pin_changed:
             _log_credential_event(admin_user.get("id"), user_id, "pin_update")
         if req.new_username:
             _log_credential_event(

@@ -185,6 +185,15 @@ async def _get_auth_user(
             status_code=403,
             detail="Elevated access requires password authentication",
         )
+    # Reject cross-tenant replay: a staff session minted for tenant A must
+    # not be accepted when the request is bound to tenant B.
+    if tenant_user.get("_auth_method") == "staff_session":
+        session_tenant = str(tenant_user.get("_staff_tenant_id") or "")
+        if session_tenant and str(context.id) != session_tenant:
+            raise HTTPException(
+                status_code=403,
+                detail="Session tenant does not match request workspace",
+            )
     request.state.tenant_id = context.id
     request.state.tenant_slug = context.slug
     with tenant_scope(context):

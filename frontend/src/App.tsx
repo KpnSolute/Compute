@@ -12,7 +12,7 @@ import { api, reportSessionEvent } from './lib/api';
 import { Login } from './components/Login';
 import { Portal } from './components/Portal';
 import { ComputeLanding, WorkspaceConsole } from './components/ComputeHome';
-import { setActiveWorkspaceContext, setActiveWorkspaceSlug, workspaceCompatibilityRedirect, workspacePath, resolveTenantFromRequest, workspaceLoginPath, workspaceRouteSurface } from './lib/workspace';
+import { setActiveWorkspaceContext, setActiveWorkspaceSlug, workspaceCompatibilityRedirect, workspacePath, resolveTenantFromRequest, workspaceLoginPath, workspaceRouteSurface, providerOriginRedirectUrl } from './lib/workspace';
 import { WorkspaceSignInPrompt } from './components/WorkspaceSignInPrompt';
 
 const SKEY = 'kpn_session';
@@ -88,6 +88,21 @@ function App() {
     window.history.pushState(null, '', path);
     setPathname(window.location.pathname);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  // Provider-origin redirect: known provider origins (e.g. *.onrender.com)
+  // are redirected to the canonical Compute origin before any tenant UI renders.
+  // Corporate subdomains and future custom domains are never redirected.
+  useEffect(() => {
+    const redirectUrl = providerOriginRedirectUrl(
+      window.location.hostname,
+      window.location.pathname,
+      window.location.search,
+      window.location.hash,
+    );
+    if (redirectUrl) {
+      window.location.replace(redirectUrl);
+    }
   }, []);
 
   useEffect(() => {
@@ -327,7 +342,10 @@ function App() {
       .then(({ workspace }) => {
         if (!current) return;
         if (workspace.slug === routeWorkspaceSlug) {
-          setActiveWorkspaceContext(workspace.slug, workspace.id, false);
+          // The pre-login resolve endpoint intentionally does not return the
+          // immutable tenant id; set slug only. The authenticated /me response
+          // will establish the full context after login.
+          setActiveWorkspaceSlug(workspace.slug, false);
           setVerifiedTenantSlug(workspace.slug);
         } else {
           setVerifiedTenantSlug(null);

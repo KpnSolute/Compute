@@ -15,10 +15,20 @@ if "supabase" not in sys.modules:
     sys.modules["supabase"] = mock_sb
     sys.modules["supabase.client"] = mock_sb
 
-if "jwt" not in sys.modules:
+# Only stub pyjwt when it is genuinely unavailable. It IS installed here, and
+# stubbing it made every staff-session security control untestable: mint/verify
+# round-trips, signature tampering, expiry, audience, issuer, and
+# credential-version revocation all silently degraded to MagicMock comparisons.
+# PyJWKClient is still stubbed on the real module because it performs network
+# JWKS fetches that tests must never make.
+if importlib.util.find_spec("jwt") is None and "jwt" not in sys.modules:
     mock_jwt = MagicMock()
     mock_jwt.PyJWKClient = MagicMock()
     sys.modules["jwt"] = mock_jwt
+else:
+    import jwt as _real_jwt
+
+    _real_jwt.PyJWKClient = MagicMock()
 
 if "dotenv" not in sys.modules:
     mock_dotenv = MagicMock()

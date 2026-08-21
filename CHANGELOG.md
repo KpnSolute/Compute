@@ -2,6 +2,67 @@
 
 ## [Unreleased]
 
+### Hardened — v0.3.1 tenant-local staff authentication
+
+- Bound every staff PIN login to an active workspace and active tenant
+  membership before credential verification. Username resolution is now
+  tenant-first, permits the same username in different tenants, returns one
+  uniform `401` for missing credentials, and fails closed with `503` when the
+  tenant or profile store is unavailable.
+- Replaced manually assembled staff JWTs with the canonical signed staff
+  session issuer, including tenant id, tenant slug, role, credential version,
+  issuer, audience, issue time, and expiry. Requests reject cross-tenant replay,
+  and PIN rotation increments the version that revokes older sessions.
+- Routed staff PIN creation, rotation, clearing, self-service changes, and
+  plaintext-on-login upgrades through the atomic credential RPCs. Staff account
+  creation now leaves the profile inactive until membership and PIN setup both
+  succeed, and PIN-only updates produce one credential audit event.
+- Added database-backed per-tenant login throttling. Unknown usernames and bad
+  PINs share the same counter, backend failures fail closed, and a new additive
+  correction migration permits an expired lockout to lock again.
+- Limited the public workspace resolver to slug and display name. Provider
+  origins redirect to the canonical Compute host before tenant credentials can
+  render, while corporate tenant subdomains and future custom domains remain
+  eligible tenant entry points.
+- Bumped `VERSION` and frontend package metadata to `0.3.1` because the existing
+  `v0.3.0` tag is already occupied.
+
+Review corrections (Claude, orchestrated review of the above):
+
+- Missing `KPNCOMPUTE_STAFF_SESSION_SECRET` now fails closed as `503`. It
+  previously escaped `mint_staff_session` as an unhandled `RuntimeError`, so a
+  misconfigured deployment returned `500` — and an unhandled `500` also drops
+  its CORS headers, which presents to a browser as a CORS failure rather than a
+  configuration error.
+- Normalised the login username once at the PIN branch boundary. Usernames are
+  stored lowercase and the throttle key was lowercased, but the profile lookup
+  compared raw input, so a capitalising keyboard never matched a row while
+  still recording failures against the real account — five attempts locked out
+  a working staff member.
+- Scoped the `conftest` pyjwt stub to the case where pyjwt is genuinely absent.
+  Replacing the installed library with a `MagicMock` made every staff-session
+  security control untestable; a mutation check confirmed that JWT signature
+  verification, credential-version revocation, and cross-tenant replay
+  rejection could each be deleted with the suite staying green.
+- Added `backend/tests/test_staff_session_security.py` covering real sign/verify
+  round-trips, foreign-secret and tampered-payload rejection, expiry, audience,
+  issuer, token-use, fail-closed verification, credential-version revocation,
+  and cross-tenant replay. Re-running the same mutation now fails 7 tests.
+- Tightened the throttle re-lock assertions to read comment-stripped SQL. The
+  previous grep was satisfied by the migration's own header prose, so the SQL
+  could be fully reverted with the test still passing. Replaced the test that
+  required the base migration to retain its original defect with one asserting
+  the supersede-by-`CREATE OR REPLACE` pattern.
+- Corrected the tenant stub in `test_pin_login_flow.py` to carry `name`, which
+  is `NOT NULL` in production. No test had previously completed a successful
+  login end to end.
+
+Local verification: the focused staff-auth suite, complete backend release
+gate, frontend tests, TypeScript build, and production frontend build pass.
+The existing frontend lint baseline remains 0 errors and 683 warnings. These
+changes are local only until a separately authorized push, database migration,
+deployment, and authenticated live acceptance.
+
 ### Removed — central KpnAuth workforce auth coupling
 
 - Removed `KpnAuthJWTValidator` class, `kpn_auth_validator` instance, and all
