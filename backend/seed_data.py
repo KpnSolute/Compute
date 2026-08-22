@@ -3,6 +3,7 @@
 import os
 from supabase import create_client
 from dotenv import load_dotenv
+from backend.tenancy import TenantScopedClient
 
 load_dotenv()
 
@@ -24,7 +25,7 @@ def import_github_archive(repo: str = "MJCC-Portal/mjcc", branch: str = "main"):
     """Fetch inventory snapshots from the GitHub archive repo and insert into monthly_snapshots."""
     import httpx
 
-    db = _client()
+    db = TenantScopedClient(_client())
     api_url = f"https://api.github.com/repos/{repo}/contents"
 
     resp = httpx.get(f"{api_url}?ref={branch}", timeout=30)

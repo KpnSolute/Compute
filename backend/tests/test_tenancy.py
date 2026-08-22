@@ -88,6 +88,32 @@ def test_enforced_mode_requires_context(monkeypatch):
         TenantScopedClient(Client()).table("inventory_items")
 
 
+def test_legacy_mode_scopes_default_tenant_upserts(monkeypatch):
+    monkeypatch.setenv("KPNCOMPUTE_TENANCY_MODE", "legacy")
+    admin = Client(
+        {
+            "tenants": [
+                {
+                    "id": "tenant-default",
+                    "slug": "mjcc",
+                    "name": "Miami Job Corps Center",
+                    "status": "active",
+                }
+            ]
+        }
+    )
+
+    TenantScopedClient(admin).table("monthly_inventory").upsert(
+        {"item_id": "item-a", "month": 7, "year": 2026},
+        on_conflict="item_id,month,year",
+    ).execute()
+
+    query = next(q for q in admin.queries if q.table == "monthly_inventory")
+    upsert = next(call for call in query.calls if call[0] == "upsert")
+    assert upsert[2]["on_conflict"] == "tenant_id,item_id,month,year"
+    assert upsert[1][0]["tenant_id"] == "tenant-default"
+
+
 def test_tenant_rpc_receives_context_id(monkeypatch):
     monkeypatch.setenv("KPNCOMPUTE_TENANCY_MODE", "shadow")
     admin = Client()

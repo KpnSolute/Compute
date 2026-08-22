@@ -1,5 +1,58 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.6] — 2026-08-22
+
+**Claude (with Codex, root-cause + fix authoring + sweep):** Fixed the
+`POST /api/commits` failure that blocked the Augwk2.pdf staged batch (from
+v0.3.4/v0.3.5) from ever landing in `monthly_inventory`: `409`,
+`42P10 — no unique or exclusion constraint matching the ON CONFLICT
+specification`. All 44 staged changes were rejected atomically; nothing was
+partially written.
+**Root cause, traced through the actual call chain** (`POST /api/commits` →
+`_apply_entries` → `replay()`/`dispatch_inventory_save()` in
+`backend/staging/dispatch.py` → `supabase_service.table("monthly_inventory")
+.upsert(..., on_conflict="item_id,month,year")`): `supabase_service` **is**
+a `TenantScopedClient` instance (not a raw client), but
+`TenantScopedClient._required_context()` returned `None` for any legacy-mode
+call with no request-scoped tenant context set — which the commit/replay
+path never sets. With `context is None`, `.table()` returned the *bare
+unwrapped* table, so no `tenant_id` was stamped and the `on_conflict` clause
+was never prepended, even though the live `monthly_inventory` unique index
+is tenant-scoped: `(tenant_id, item_id, month, year)`.
+**Fix:** in legacy mode, when no context is set, `_required_context` now
+resolves the configured default workspace (`resolve_public_tenant`) instead
+of returning `None` — every `TenantScopedClient` upsert from an unscoped
+legacy caller now stamps `tenant_id` and generates a matching composite
+`ON CONFLICT` target. Also wrapped the raw client in `backend/seed_data.py`
+(`monthly_snapshots` GitHub-archive import) in `TenantScopedClient` for the
+same reason.
+**Swept for the same class of bug across the whole codebase** (not just
+`TenantScopedClient` call sites, given `invoice_items` in v0.3.4 was found
+via one path but had "tenant scoping was inconsistent" elsewhere). Found the
+identical latent gap — correct live tenant-scoped constraint, but a caller
+that could hit it with no tenant context set — in: `monthly_snapshots`,
+`monthly_inventory`, `cost_budgets`, `ai_stack_config`, `app_settings`,
+`budget_line_actuals`, `snack_bar_sales`, and inconsistently in
+`invoice_items`. The `_required_context` fix resolves all of these at the
+shared boundary — no per-table migration or code change was needed, since
+each table's live schema was already correctly tenant-scoped; only the
+application-layer context resolution was missing.
+**Also investigated:** cascading `RemoteProtocolError` 500s seen on
+`/api/auth/me`, `/api/staging`, and `/api/commits` around the failed commit
+attempts. Confirmed these occurred both before and after the retries, not
+solely as fallout from them — flagged as a separate Supabase connection-
+stability issue, not fixed here.
+**Verified:** added `test_legacy_mode_scopes_default_tenant_upserts`,
+asserting a legacy-mode `monthly_inventory` upsert now generates
+`on_conflict=tenant_id,item_id,month,year` and stamps the resolved default
+tenant's id. Full backend suite: 333 passed, 15 skipped (up from 332/15).
+Ruff and diff checks passed. Live database confirms the Augwk2.pdf batch's
+44 staging entries are still intact and pending (nothing was lost by the
+failed commit attempts).
+**Not yet done:** retrying the actual live commit of those 44 pending
+entries against this fix — production was still running pre-fix code as of
+this writing. That's the next step once this deploys.
+
 ## [v0.3.5] — 2026-08-22
 
 **Claude (with Codex, root-cause + fix authoring):** Fixed the US Foods

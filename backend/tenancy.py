@@ -336,6 +336,14 @@ class TenantScopedClient:
     def _required_context(self, resource: str) -> TenantContext | None:
         context = current_tenant()
         if tenancy_mode() == "legacy":
+            # Legacy requests historically had no request-scoped context, but
+            # tenant-owned tables now use tenant-inclusive unique keys. Resolve
+            # the configured default workspace here so every TenantScopedClient
+            # upsert still stamps rows and generates a matching ON CONFLICT
+            # target. This keeps legacy callers compatible without reverting to
+            # unscoped writes.
+            if context is None:
+                return resolve_public_tenant(self.admin, None)
             return context
         if context is None:
             raise TenantContextError(
