@@ -1,5 +1,37 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.3] — 2026-08-22
+
+**Claude (with Codex, live Supabase inspection/apply):** Fixed a standalone
+production bug found while verifying v0.3.2: staff PIN login unconditionally
+returned 503 "Sign-in service temporarily unavailable" for every login
+attempt, including a nonexistent username that should have hit 401. Root
+cause: `staff_login_throttle_fail(uuid, text, integer, integer)` declares
+`RETURNS TABLE (..., tenant_id uuid, subject_key text, ...)`, which implicitly
+creates OUT parameters named `tenant_id`/`subject_key` that shadow the
+`staff_login_throttle` table's own columns of the same name inside the
+function body. Its `on conflict (tenant_id, subject_key)` clause was
+therefore ambiguous (`SQLSTATE 42702`), and every call — i.e. every login
+attempt, since this runs on every failure — threw and was caught as a 503.
+This predates today's work; it was introduced by whichever commit first
+wrote this function and was preserved, not caused, by the later
+`fix_throttle_relock` migration. Fixed by referencing the unique constraint
+by name (`on conflict on constraint staff_login_throttle_tenant_id_subject_key_key`)
+instead of the ambiguous column list.
+**Verification:** applied live to Supabase project `mgvyylvmkxhhataavqjz` as
+tracked migration `20260822162513`. A live login attempt with a nonexistent
+username went from `503` to the correct `401 Invalid credentials`
+(re-verified independently, stable across repeated attempts), and a
+throttle row was confirmed recorded (`failed_count = 1`) proving the fixed
+function actually ran, not just that the endpoint stopped erroring for an
+unrelated reason.
+**Also confirmed during the same pass:** `KPNCOMPUTE_STAFF_SESSION_SECRET`
+was already set on Render (an earlier assumption to the contrary, recorded
+against v0.3.2, was wrong and is corrected here) — it was never the cause of
+this 503.
+**Push:** pending — this commit only adds the migration file matching what
+was already applied live; no application code changed.
+
 ## [v0.3.2] — 2026-08-22
 
 **Claude:** Landed two pieces of work that had been sitting uncommitted in
