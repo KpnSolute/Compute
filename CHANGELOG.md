@@ -1,5 +1,40 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.5] — 2026-08-22
+
+**Claude (with Codex, root-cause + fix authoring):** Fixed the US Foods
+substitution-row parsing bug that blocked invoice `490241` (`Augwk2.pdf`)
+from importing after v0.3.4's reconciliation-integrity fix correctly started
+rejecting it instead of silently corrupting data (see that entry). Root
+cause: `USFOODS_LINE_RE` requires a numeric `ORD` (quantity-ordered) column,
+but a substitution row prints the literal marker `*SUB*` in that position
+instead of a number — e.g. `*SUB* 2 0 CS 5690441 TOMATO, 5X6 RND VINE RIPE
+PACKER 25 LB CS $30.2500 $60.50`. The regex simply didn't match, so the row
+was silently dropped rather than misparsed — one fewer item (43 vs. 44) and
+two fewer pieces (90 vs. 92) than the invoice's own recap stated, which is
+exactly what tripped the reconciliation guard.
+**Fix:** added a dedicated `USFOODS_SUB_LINE_RE` and parse branch that
+recognizes the `*SUB*` marker, reads its printed quantity as a hint only,
+and derives the authoritative shipped quantity from `extended_price /
+unit_price` (e.g. `$60.50 / $30.2500 = 2`) — the same logic a human reading
+the invoice would use, since the printed `SHP` column on a substitution row
+isn't reliable. Kept entirely separate from the normal line regex so it
+cannot shift a normal row's column interpretation.
+**Also verified, not touched:** three catch-weight items on this same
+invoice (chicken, pork loin, pork butt) print nested per-case weight lines
+(`CS: 1  51.80 lbs`, etc.) directly beneath their product row. Confirmed via
+regression test that these remain annotations on the parent row and are
+never counted as phantom additional line items.
+**Verified:** `Augwk2.pdf` now parses 44 items / 92 pieces and passes
+reconciliation. Added `test_usfoods_augwk2_substitution_row_uses_extended_price_quantity`,
+embedding this invoice's actual page-2 text (not the raw PDF) as a permanent
+regression fixture, following this codebase's existing pattern for prior
+US Foods parsing fixes. Full backend suite: 332 passed, 15 skipped (up from
+331/15). Ruff and diff checks passed.
+**Not yet done:** an actual end-to-end re-upload of `Augwk2.pdf` through the
+live app to confirm the full pipeline now succeeds post-deploy (v0.3.4's
+fix was verified this way; this one should be too).
+
 ## [v0.3.4] — 2026-08-22
 
 **Claude (with Codex, live investigation/cleanup/apply):** Root-caused and

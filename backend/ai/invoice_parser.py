@@ -101,6 +101,23 @@ USFOODS_SKIP_RE = re.compile(
     re.IGNORECASE,
 )
 
+# US Foods substitution rows replace the ORD column with the literal marker
+# "*SUB*".  The remaining quantity columns are SHP and ADJ, not ORD and SHP:
+# ``*SUB* 2 0 CS ... $30.2500 $60.50``.  Keep this separate from the normal
+# line regex so the marker cannot shift a normal row's quantity interpretation.
+USFOODS_SUB_LINE_RE = re.compile(
+    r"^\s*\*SUB\*"  # substitution marker in place of ORD
+    r"\s+(\d{1,4})"  # G1: qty shipped hint
+    r"\s+(-?\d{1,3})"  # G2: qty adjustment
+    r"\s+([A-Z]{2,4})"  # G3: sales unit
+    r"\s+(\d{5,7})"  # G4: US Foods product number
+    r"\s+(.+?)"  # G5: description body
+    r"\s+\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2,4})"  # G6: unit price
+    r"\s+\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2,4})"  # G7: extended price
+    r"\s*$",
+    re.IGNORECASE,
+)
+
 # Thermal / Multi-Flow receipt: QTY  ITEM#  Description  UNIT_PRICE  TOTAL
 MULTIFLOW_LINE_RE = re.compile(
     r"^\s*(\d{1,3}(?:\.\d+)?)"  # quantity
@@ -895,6 +912,46 @@ def _parse_page_lines(text: str, current_cat: str) -> tuple[list[dict], str]:
                     "qty_ordered": _int(m.group(1)),
                     "qty_shipped": qty_shipped,
                     "qty_adj": _int(m.group(3)),
+                    "unit_price": unit_price,
+                    "ext_price": ext_price,
+                    "weight_lbs": 0.0,
+                    "raw": stripped,
+                }
+            )
+            continue
+
+        # A SUB row has no numeric ORD column.  Its printed quantity fields
+        # are SHP and ADJ, and the extended/unit price ratio is authoritative
+        # for the shipped quantity (e.g. $60.50 / $30.2500 = 2).
+        m = USFOODS_SUB_LINE_RE.match(stripped)
+        if m:
+            body = _clean(m.group(5))
+            desc, label, pack_size = _split_body(body)
+            qty_shipped = _int(m.group(1))
+            unit = _clean(m.group(3))
+            printed_unit_price = _money(m.group(6))
+            ext_price = _money(m.group(7))
+            if printed_unit_price > 0 and ext_price > 0:
+                ratio = ext_price / printed_unit_price
+                rounded_ratio = round(ratio)
+                if rounded_ratio >= 0 and abs(ratio - rounded_ratio) < 0.01:
+                    qty_shipped = rounded_ratio
+            unit_price = (
+                round(ext_price / qty_shipped, 4)
+                if qty_shipped > 0 and ext_price > 0
+                else printed_unit_price
+            )
+            items.append(
+                {
+                    "category": current_cat,
+                    "sku": _clean(m.group(4)),
+                    "description": desc or body,
+                    "label": label,
+                    "pack_size": pack_size,
+                    "unit": unit,
+                    "qty_ordered": qty_shipped,
+                    "qty_shipped": qty_shipped,
+                    "qty_adj": _int(m.group(2)),
                     "unit_price": unit_price,
                     "ext_price": ext_price,
                     "weight_lbs": 0.0,

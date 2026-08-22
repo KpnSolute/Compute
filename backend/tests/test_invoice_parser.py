@@ -6,6 +6,53 @@ from backend.ai.invoice_parser import (
 )
 
 
+def test_usfoods_augwk2_substitution_row_uses_extended_price_quantity():
+    # Exact native-text shape from tmp/Augwk2.pdf page 2.  The nested CS weight
+    # lines are deliberately included to prove they remain annotations on the
+    # catch-weight product rather than phantom invoice items.
+    page = """INVOICE
+Page 2 of 5
+ACCOUNT NUMBER INVOICE NUMBER INVOICE DATE CUSTOMER NUMBER PURCHASE ORDER # SALES LOCATION SALES REP DATE ORDERED
+41736679 490241 08/17/2026 1273721 6081 3135 492 08/13/2026
+FREIGHT TERMS ORDER NUMBER PAYMENT TERMS ROUTE NUMBER SPECIAL INSTRUCTIONS
+565613 NET 30 DAYS 1133
+INVOICE LINE DETAILS
+QUANTITY SALES PRODUCT DESCRIPTION LABEL PACK SIZE CODE WEIGHT PRICING UNIT EXTENDED
+ORD SHP ADJ UNIT NUMBER UNIT PRICE PRICE
+REFRIGERATED
+6 6 0 CS 2723641 CHICKEN, 8 PC 14 HD 3-3.25 LB PATUXENT 14/3-3.25#A 303.76 LB $1.6700 $507.28
+CS: 1 51.80 lbs
+CS: 2 51.80 lbs
+CS: 3 51.69 lbs
+CS: 4 48.79 lbs
+CS: 5 50.29 lbs
+CS: 6 49.39 lbs
+1 1 0 CS 7416663 PORK, LOIN CC BNLS .25" TRIMD PATUXENT 6/10.5 LBA 67.23 LB $1.6400 $110.26
+CS: 1 67.23 lbs
+2 1 0 CS 9333014 TOMATO, 6X6 #1 GRD RND GAS CROSS VALY 16 LB CS $29.4100 $29.41
+*SUB* 2 0 CS 5690441 TOMATO, 5X6 RND VINE RIPE PACKER 25 LB CS $30.2500 $60.50
+3 3 0 CS 7992498 PORK, BSTN BUTT BNLS RAW F2F HORMEL 5/2/7 LBA 227.90 LB $1.9700 $448.96
+CS: 1 72.50 lbs
+CS: 2 77.40 lbs
+CS: 3 78.00 lbs
+Page 2 of 5
+"""
+
+    parsed = parse_invoice_text_pages([page], "Augwk2-substitution.txt")
+    items = parsed["items"]
+    by_sku = {item["sku"]: item for item in items}
+
+    assert by_sku["5690441"]["qty_shipped"] == 2
+    assert by_sku["5690441"]["qty_ordered"] == 2
+    assert by_sku["5690441"]["ext_price"] == 60.50
+    assert by_sku["5690441"]["unit_price"] == 30.25
+    assert by_sku["9333014"]["qty_shipped"] == 1
+    assert len([item for item in items if item["sku"] == "2723641"]) == 1
+    assert len([item for item in items if item["sku"] == "7416663"]) == 1
+    assert len([item for item in items if item["sku"] == "7992498"]) == 1
+    assert len(items) == 5
+
+
 def test_usfoods_hazard_summary_repeat_does_not_double_count_item():
     page = """INVOICE
 Page 11 of 13
