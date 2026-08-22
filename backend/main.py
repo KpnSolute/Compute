@@ -81,6 +81,7 @@ from backend.routes.notifications import router as notifications_router
 from backend.routes.health import router as health_router
 from backend.routes.tenants import router as tenants_router
 from backend.routes.workspace_console import router as workspace_console_router
+from backend.routes.workspaces import router as workspaces_router
 from backend.routes.health import collect_system_status, render_status_page
 from backend.routes.api_logs import (
     install_log_capture,
@@ -309,6 +310,7 @@ app.include_router(health_router)
 app.include_router(api_logs_router)
 app.include_router(tenants_router)
 app.include_router(workspace_console_router)
+app.include_router(workspaces_router)
 
 
 @app.get("/health")

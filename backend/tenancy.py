@@ -83,6 +83,8 @@ TENANT_TABLES = {
     "project_blueprint_versions",
     "project_generation_runs",
     "project_source_documents",
+    "provisioning_jobs",
+    "provisioning_steps",
     "role_permissions",
     "servsafe_certifications",
     "sku_review_queue",

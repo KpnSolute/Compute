@@ -1,5 +1,40 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.2] — 2026-08-22
+
+**Claude:** Landed two pieces of work that had been sitting uncommitted in
+separate worktrees since 2026-08-16/20. (1) Wired the tenant-safe workspace
+provisioning API (`backend/routes/workspaces.py`) into `main.py` — it existed
+on disk but was never registered, so none of its routes (create workspace,
+create project, SOP upload/finalize, blueprint generation review, project
+export) were reachable. Normalized its prefix from `/api/v1` to `/api` to
+match every other router in this codebase (`inventory`, `logs`, `events`,
+`menu`, `tenants` all use plain `/api/{resource}`; `v1` was a one-off).
+Classified `provisioning_jobs` and `provisioning_steps` as tenant-scoped in
+`backend/tenancy.py` — the existing `test_all_backend_table_calls_have_an_explicit_scope_classification`
+guard test caught the omission immediately (it failed until this was added).
+Added the `20260816102500_workspace_provisioning_v1.sql` migration
+(idempotent workspace creation via `create_workspace_with_owner` RPC,
+auditable `provisioning_jobs`/`provisioning_steps`), not yet applied to the
+live database. (2) Applied the small credential-flag fix from the
+workforce-auth-compute branch: `must_change_pin` now also checks the new
+`pin_must_rotate` flag, not only the legacy `pin == "2222"` default-PIN
+sentinel, so accounts migrated to hashed PINs still get a correct
+rotate-your-PIN banner. Also brought in the routine shared-governance
+`AGENTS.md`/`CLAUDE.md` sync (Loom material-change-verdict clause) that had
+been uncommitted identically across this and three sibling KpnSolute repos.
+**Verification:** `ruff check backend/` clean; `ruff format` applied to the
+two touched route files; full backend suite 331 passed / 14 skipped (was
+330/1 failed before the tenancy-classification fix); `scripts/verify_release.py`
+gate run before commit.
+**Known gap surfaced, not fixed here:** the staff-local PIN login path
+(migrations `20260818090000_staff_pin_hash.sql` /
+`20260820100000_fix_throttle_relock.sql`, merged in `Kpn System Update v1`
+2026-08-20) is still unapplied to the live database, and
+`KPNCOMPUTE_STAFF_SESSION_SECRET` is still unset on Render — staff PIN login
+fails closed with `503` in production right now, independent of this change.
+**Push:** pending — branch prepared, not yet merged to `main`.
+
 ## [Unreleased]
 
 ### Hardened — v0.3.1 tenant-local staff authentication

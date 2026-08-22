@@ -1,5 +1,33 @@
 # AGENTS.md — MJCC Single Source of Truth & Governance
 
+<!-- KPNSOLUTE-SHARED-MEMORY: BEGIN -->
+## Shared KpnSolute operating memory
+
+Before material work, read the canonical cross-project ledger:
+
+`C:\Projects\_config\kpnsolute-governance\SHARED_MEMORY.md`
+
+Before proposing or implementing a material product-definition change, read
+`C:\Projects\loom\governance\PRODUCT_CHARTERS.md` and
+`C:\Projects\loom\governance\PRODUCT_CHANGE_CONTROL.md`, then obtain a recorded
+Loom verdict. Material changes include product mission, identity, users,
+promises, non-goals, major features, pricing or entitlement claims, tenancy,
+shared architecture, APIs or events, and portfolio placement. Routine fixes and
+implementation inside approved scope may proceed only after citing the governing
+charter or decision. Loom approval does not authorize a commit, push, release,
+deployment, purchase, credential use, or legal commitment.
+
+After material work, append a dated contribution using the governance append
+helper. Keep local `AGENTS.md`, `CLAUDE.md`, and `CHANGELOG.md` rules in force;
+shared memory records cross-project operational state and never stores secrets.
+Do not infer committed, pushed, deployed, or live-verified state from another
+status. Use exact finding identifiers; use `Studio Phase A/B/C` for product
+phases. Structural or multi-file governance edits require explicit roster
+approval. Do not commit or push without an approved repository-specific
+identifier.
+<!-- KPNSOLUTE-SHARED-MEMORY: END -->
+
+
 **MANDATORY READING for ALL agents: Claude, Gemini, OpenCode, GitHub Copilot.**
 This file is the single source of truth for project **FACTS** (schema, repos, known issues, conventions). On a conflict about a *fact*, **this file wins** and you must flag the other doc for correction. On a conflict about *role/authority/coordination*, `CLAUDE.md` governs — Claude is the **Senior Development Manager & Environment Orchestrator** who coordinates the workspace and delegates to the other agents (§9).
 

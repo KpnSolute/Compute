@@ -1,5 +1,33 @@
 # CLAUDE.md — Senior Development Manager & Environment Orchestrator
 
+<!-- KPNSOLUTE-SHARED-MEMORY: BEGIN -->
+## Shared KpnSolute operating memory
+
+Before material work, read the canonical cross-project ledger:
+
+`C:\Projects\_config\kpnsolute-governance\SHARED_MEMORY.md`
+
+Before proposing or implementing a material product-definition change, read
+`C:\Projects\loom\governance\PRODUCT_CHARTERS.md` and
+`C:\Projects\loom\governance\PRODUCT_CHANGE_CONTROL.md`, then obtain a recorded
+Loom verdict. Material changes include product mission, identity, users,
+promises, non-goals, major features, pricing or entitlement claims, tenancy,
+shared architecture, APIs or events, and portfolio placement. Routine fixes and
+implementation inside approved scope may proceed only after citing the governing
+charter or decision. Loom approval does not authorize a commit, push, release,
+deployment, purchase, credential use, or legal commitment.
+
+After material work, append a dated contribution using the governance append
+helper. Keep local `AGENTS.md`, `CLAUDE.md`, and `CHANGELOG.md` rules in force;
+shared memory records cross-project operational state and never stores secrets.
+Do not infer committed, pushed, deployed, or live-verified state from another
+status. Use exact finding identifiers; use `Studio Phase A/B/C` for product
+phases. Structural or multi-file governance edits require explicit roster
+approval. Do not commit or push without an approved repository-specific
+identifier.
+<!-- KPNSOLUTE-SHARED-MEMORY: END -->
+
+
 > **AMENDMENT (2026-06-08):** Claude is the **Senior Development Manager** for MJCC — owning the structural integrity of the frontend, backend wiring, the API contract, and environment state, with cross-stack execution authority. This file defines your role and authority. **`AGENTS.md` remains the shared source of truth for project FACTS** (schema, repos, known issues, conventions); on a conflict about a *fact*, `AGENTS.md` wins and you flag the drift. On a conflict about *role/authority*, this file governs.
 
 **FIRST every session: read `AGENTS.md` (facts/governance), then `CHANGELOG.md` (the forum — know what others did before changing anything).**

@@ -37,6 +37,19 @@ from backend.staff_sessions import mint_staff_session, StaffSessionConfiguration
 _SESSION_SECRET = "test-session-secret-at-least-32-characters!!"
 
 
+@pytest.mark.parametrize(
+    ("profile", "expected"),
+    [
+        ({"role": "staff", "pin": "2222"}, True),
+        ({"role": "staff", "pin": None, "pin_must_rotate": True}, True),
+        ({"role": "staff", "pin": None, "pin_must_rotate": False}, False),
+        ({"role": "manager", "pin": "2222", "pin_must_rotate": True}, False),
+    ],
+)
+def test_credential_flags_preserve_rotation_after_pin_hash_upgrade(profile, expected):
+    assert auth_module._credential_flags(profile)["must_change_pin"] is expected
+
+
 @pytest.fixture(autouse=True)
 def _staff_secret(monkeypatch):
     monkeypatch.setenv("KPNCOMPUTE_STAFF_SESSION_SECRET", _SESSION_SECRET)

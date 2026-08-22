@@ -113,10 +113,11 @@ SSO_APPS: dict[str, dict[str, str]] = {
 
 
 def _credential_flags(user: dict) -> dict:
-    """Default-credential banner flags. PIN default is derived (PINs are plaintext)."""
+    """Return credential-rotation flags across legacy and hashed PIN records."""
     return {
         "must_change_password": bool(user.get("must_change_password")),
-        "must_change_pin": user.get("role") == "staff" and user.get("pin") == "2222",
+        "must_change_pin": user.get("role") == "staff"
+        and (bool(user.get("pin_must_rotate")) or user.get("pin") == "2222"),
     }
 
 
