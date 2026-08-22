@@ -138,6 +138,39 @@ def test_ledger_recompute_rpc_receives_context_id(monkeypatch):
     ]
 
 
+def test_legacy_recompute_rpc_receives_default_tenant_id(monkeypatch):
+    monkeypatch.setenv("KPNCOMPUTE_TENANCY_MODE", "legacy")
+    admin = Client(
+        {
+            "tenants": [
+                {
+                    "id": "tenant-default",
+                    "slug": "mjcc",
+                    "name": "Miami Job Corps Center",
+                    "status": "active",
+                }
+            ]
+        }
+    )
+
+    TenantScopedClient(admin).rpc(
+        "recompute_week_totals",
+        {"p_item_id": "item-a", "p_month": 7, "p_year": 2026},
+    ).execute()
+
+    assert admin.rpc_calls == [
+        (
+            "recompute_week_totals",
+            {
+                "p_tenant_id": "tenant-default",
+                "p_item_id": "item-a",
+                "p_month": 7,
+                "p_year": 2026,
+            },
+        )
+    ]
+
+
 def test_all_backend_rpc_calls_are_declared_tenant_scoped():
     backend_root = Path(__file__).resolve().parents[1]
     used_rpcs = set()

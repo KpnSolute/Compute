@@ -1,5 +1,48 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.7] — 2026-08-22
+
+**Claude (with Codex, live diagnosis + fix + apply):** Fixed the actual
+remaining cause of the `POST /api/commits` `409`/`42P10` failure that
+survived v0.3.6: live Supabase had **two overloads** of
+`recompute_week_totals` — a tenant-scoped `(uuid, uuid, integer, integer)`
+version and a stale, unscoped `(uuid, integer, integer)` version. The
+commit/replay path was resolving to the stale overload, which still used
+`ON CONFLICT (item_id, month, year)` with no `tenant_id` — v0.3.6's
+`TenantScopedClient` fix was correct but had no way to affect a hardcoded
+`ON CONFLICT` clause living inside a database-side function body.
+**Fix:** `20260822210000_recompute_week_totals_tenant_rpc.sql` drops the
+stale 3-argument overload and redefines the 4-argument version to validate
+the item belongs to the calling tenant, scope its ledger aggregation by
+`tenant_id`, and use `ON CONFLICT (tenant_id, item_id, month, year)`.
+**Found and fixed a dependent break:** `reconcile_period_from_ledger`'s
+2-argument overload called the now-removed stale `recompute_week_totals`
+overload and could not be safely retained —
+`20260822211500_tenant_scope_reconcile_period.sql` replaces it with a
+3-argument, tenant-scoped version that calls the fixed RPC correctly.
+**Swept and closed the same latent risk across all 10 `TENANT_RPCS`:**
+every one of them still had a legacy unscoped overload coexisting live
+alongside its correct tenant-scoped version — only `recompute_week_totals`
+had actually been hit, but all 10 carried the same risk of silently
+resolving to the wrong overload. `20260822212500_drop_legacy_tenant_rpc_overloads.sql`
+drops the stale overload for the remaining 9 (`admin_merge_items`,
+`audit_inventory_period`, `link_invoice_items_by_id`, `perform_rollover`,
+`sc_close_pull_request`, `sc_finalize_merge`, `set_week_status`,
+`sku_add_alias`, `sku_review_resolve`), dropping `sku_review_resolve` before
+`sku_add_alias` since the former's legacy body called the latter's legacy
+overload. Each tenant-scoped overload was confirmed correct and complete
+before its legacy sibling was dropped; no tenant-scoped RPC needed further
+changes.
+**Verified:** added `test_legacy_recompute_rpc_receives_default_tenant_id`,
+asserting a legacy-mode `recompute_week_totals` call with no explicit
+context resolves the default tenant and receives `p_tenant_id`. Full
+backend suite: 334 passed, 15 skipped (up from 333/15). Ruff and diff
+checks passed. All three migrations applied live and verified against the
+actual deployed function signatures (not just git migration history —
+that history alone would not have revealed the coexisting stale overload).
+**Not yet done:** retrying the live commit of the 44 pending Augwk2.pdf
+staging entries against this fix — that's the next step once this deploys.
+
 ## [v0.3.6] — 2026-08-22
 
 **Claude (with Codex, root-cause + fix authoring + sweep):** Fixed the
