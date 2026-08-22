@@ -1,5 +1,40 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.8] — 2026-08-22
+
+**Claude (with Codex, live diagnosis + fix + apply):** Found and fixed the
+final cause of the `POST /api/commits` `409`/`42P10` failure that survived
+v0.3.7's RPC-overload sweep: `recompute_week_totals` itself was correct, but
+its `monthly_inventory` write fires a statement trigger
+(`trg_refresh_snapshot_stmt`) that calls `refresh_monthly_snapshot(integer,
+integer)` — a separate, still-stale, unscoped function using `ON CONFLICT
+(month, year)` against the tenant-scoped `monthly_snapshots`
+(`UNIQUE (tenant_id, month, year)`). This trigger cascade was invisible to
+the previous round's RPC sweep because it isn't in `TENANT_RPCS` at all —
+it's fired implicitly by the database, not called directly from Python.
+**Fix:** `20260822200000_tenant_scope_monthly_snapshot_refresh.sql` threads
+`tenant_id` through the trigger function, `refresh_monthly_snapshot`, and
+every join/read inside it — the `month_status` published-period guard, the
+existing weekly-total JSON carried forward, and the `monthly_inventory` /
+`inventory_items` / `inventory_categories` aggregation — and upserts with
+`ON CONFLICT (tenant_id, month, year)` matching the live constraint.
+**Verified live, end to end:** retried the actual 44-item Augwk2.pdf staged
+batch through the authenticated production UI. It committed successfully —
+"Working tree is clean," batch commit `e4f8e38`, all 44 transaction-log
+rows present with SKU/quantity matching the source invoice. Monthly
+Inventory's own invoice register now shows invoice `490241`:
+`W2: 1 inv · 44 lines · goods $4,144.99 − GPO $58.03 = payable $4,086.96
+✓ reconciled`. Full backend suite unchanged at 334 passed, 15 skipped (no
+Python code changed this round — migration only). Ruff and diff checks
+passed.
+**This closes the invoice-490241 saga**, which took five sequential rounds
+across this and the prior four CHANGELOG entries: a tenant-scoped upsert
+conflict on `invoice_items`, a US Foods substitution-row parsing bug, a
+`TenantScopedClient` legacy-context gap, a stale duplicate `recompute_week_totals`
+overload (plus the same latent gap in the other 9 `TENANT_RPCS`), and
+finally this trigger-cascaded stale function. Each was only discoverable
+once the prior one was cleared.
+
 ## [v0.3.7] — 2026-08-22
 
 **Claude (with Codex, live diagnosis + fix + apply):** Fixed the actual
