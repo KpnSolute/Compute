@@ -1,5 +1,57 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.4] — 2026-08-22
+
+**Claude (with Codex, live investigation/cleanup/apply):** Root-caused and
+fixed the zero-line-item invoice bug flagged against invoice `490241`
+(uploaded 2026-08-21, itself the subject of a live-database forensic pass —
+see the shared governance ledger for that trail). This was **not** an OCR or
+recap-parsing failure: every header/summary field the AI extracted (subtotal,
+Vizient discount, item/piece counts) matched the source PDF exactly. The real
+cause was a schema/application mismatch introduced by the tenant-foundation
+rollout: `TenantScopedClient` (`backend/tenancy.py`) transparently prepends
+`tenant_id` to every `on_conflict` target for tenant-scoped upserts, but
+`invoice_items`'s live unique index was only `(invoice_id, line_number)` — no
+`tenant_id`. Every invoice-item upsert therefore requested a conflict target
+Postgres had no matching constraint for, failed with `400`, and — because the
+upload endpoint persists the invoice header before staging its line items —
+left a `pending` invoice with financially-correct totals and zero actual line
+items, with no `import_batches` or `staging_entries` trail to explain why.
+**Fixes:**
+- Added the missing composite unique index, `invoice_items_tenant_invoice_line_uidx
+  (tenant_id, invoice_id, line_number)`, as tracked migration
+  `20260822180437_invoice_items_tenant_line_unique` — applied live and
+  verified against the actual conflict target `tenancy.py` generates.
+- Added `_rollback_failed_upload` in `backend/routes/data_entry.py`: when
+  staging fails after the invoice header has already been persisted, it now
+  compensates by removing only the rows *this* upload created (a brand-new
+  invoice/its items, the batch's staging rows, and any archive object/row it
+  wrote) — never a pre-existing invoice on a re-import. Best-effort per step
+  so the original failure stays the reported error.
+- Swept every other tenant-scoped `.upsert(...)` call site in the codebase
+  for the same class of mismatch (auto-prepended `tenant_id` vs. the live
+  unique constraint actually in place). One other mismatch found and left
+  untouched, flagged instead: `backend/seed_data.py`'s raw
+  `monthly_snapshots` upsert targets `(year, month)`, but live has
+  `(tenant_id, month, year)` — a separate, non-tenant-scoped seed path, out
+  of scope for this fix.
+**Cleanup performed live (owner-confirmed destructive action):** deleted the
+orphaned invoice `490241` row and its 3 duplicate `archived_files` metadata
+rows (same source hash); confirmed zero invoice items, staging rows, import
+batches, or storage objects existed for it; preserved unrelated audit
+history.
+**Verification:** `scripts/test_invoice_items_tenant_upsert.sql` (live,
+self-cleaning) confirmed insert-then-upsert now updates one row instead of
+conflict-erroring. `backend/tests/test_live_invoice_items_upsert.py` added
+as a permanent, opt-in (`RUN_LIVE_SUPABASE_TESTS=1`) integration regression
+test exercising the actual `TenantScopedClient` code path, not just raw SQL.
+Full backend suite: 211 passed, 15 skipped (up from 211/14 — the new live
+test is skip-by-default). Ruff and diff checks passed.
+**Not yet re-verified:** an actual end-to-end re-upload of a real multi-item
+invoice (e.g. re-uploading `Augwk2.pdf`) through the live upload endpoint,
+to confirm the fix holds under the real parsing/staging pipeline rather
+than the direct-table integration tests above.
+
 ## [v0.3.3] — 2026-08-22
 
 **Claude (with Codex, live Supabase inspection/apply):** Fixed a standalone

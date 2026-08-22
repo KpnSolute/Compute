@@ -40,6 +40,7 @@ from backend.archive_storage import (
     archive_file_bytes,
     archive_is_configured,
     archive_is_required,
+    delete_archive_object,
 )
 from backend.inventory_identity import canonical_sku
 from backend.periods import business_now
@@ -1193,6 +1194,49 @@ def _replace_invoice_items(invoice_id: str, items: list[dict]) -> None:
     ).execute()
 
 
+def _rollback_failed_upload(
+    *,
+    batch_id: str,
+    invoice_id: Optional[str],
+    invoice_was_new: bool,
+    archived_row: dict | None,
+) -> None:
+    """Remove artifacts created before a later upload step failed.
+
+    Invoice persistence currently precedes staging, so a staging failure must
+    compensate explicitly. Never remove a pre-existing invoice during a
+    re-import; only the new rows and archive created by this upload qualify.
+    Cleanup is best-effort so the original failure remains the reported error.
+    """
+    svc = supabase_service
+    try:
+        svc.table("staging_entries").delete().eq("batch_id", batch_id).execute()
+    except Exception as exc:
+        log.warning("[DATA-ENTRY] rollback staging cleanup failed: %s", exc)
+    try:
+        svc.table("import_batches").delete().eq("staging_batch_id", batch_id).execute()
+    except Exception as exc:
+        log.warning("[DATA-ENTRY] rollback import-batch cleanup failed: %s", exc)
+    if invoice_id and invoice_was_new:
+        try:
+            svc.table("invoice_items").delete().eq("invoice_id", invoice_id).execute()
+        except Exception as exc:
+            log.warning("[DATA-ENTRY] rollback invoice-items cleanup failed: %s", exc)
+        try:
+            svc.table("invoices").delete().eq("id", invoice_id).execute()
+        except Exception as exc:
+            log.warning("[DATA-ENTRY] rollback invoice cleanup failed: %s", exc)
+    if archived_row:
+        try:
+            delete_archive_object(archived_row)
+        except Exception as exc:
+            log.warning("[DATA-ENTRY] rollback archive-object cleanup failed: %s", exc)
+        try:
+            svc.table("archived_files").delete().eq("id", archived_row["id"]).execute()
+        except Exception as exc:
+            log.warning("[DATA-ENTRY] rollback archive-row cleanup failed: %s", exc)
+
+
 # ── routes ────────────────────────────────────────────────────────────────────
 
 
@@ -1641,6 +1685,7 @@ async def upload_file(
         invoice_id: Optional[str] = None
         invoice_is_pending_dup = False
         invoice_found_existing = False
+        invoice_was_new = False
         if inventory_ops:
             parsed_meta["source_hash"] = source_hash
             parsed_meta["archive_file_id"] = (
@@ -1678,6 +1723,7 @@ async def upload_file(
                 )
                 return
             if invoice_id:
+                invoice_was_new = not invoice_found_existing
                 for op in inventory_ops:
                     op.setdefault("payload", {})["invoice_id"] = invoice_id
 
@@ -1708,6 +1754,12 @@ async def upload_file(
                 fname,
                 batch_id,
                 exc,
+            )
+            _rollback_failed_upload(
+                batch_id=batch_id,
+                invoice_id=invoice_id,
+                invoice_was_new=invoice_was_new,
+                archived_row=archived_row,
             )
             yield _err(500, f"Staging failed: {exc}")
             return
