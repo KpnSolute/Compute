@@ -47,13 +47,12 @@ def get_vendors() -> dict[str, int]:
 
 
 def get_ai_config() -> dict:
-    """Load AI config from ai_stack_config joined to ai_provider_keys."""
+    """Load AI config and its provider key without relying on an ambiguous FK join."""
     try:
         r = (
             supabase_service.table("ai_stack_config")
             .select(
-                "provider, model, is_vision, ollama_url, vision_capable, "
-                "ai_provider_keys(api_key, base_url, model_override)"
+                "provider, model, is_vision, ollama_url, vision_capable, key_id, tenant_id"
             )
             .eq("name", "default")
             .limit(1)
@@ -61,11 +60,17 @@ def get_ai_config() -> dict:
         )
         if r.data:
             row = r.data[0]
-            key_row = row.get("ai_provider_keys") or {}
-            if isinstance(key_row, list):
-                key_row = key_row[0] if key_row and isinstance(key_row[0], dict) else {}
-            elif not isinstance(key_row, dict):
-                key_row = {}
+            key_row = {}
+            if row.get("key_id"):
+                key_query = (
+                    supabase_service.table("ai_provider_keys")
+                    .select("api_key, base_url, model_override")
+                    .eq("id", row["key_id"])
+                )
+                if row.get("tenant_id"):
+                    key_query = key_query.eq("tenant_id", row["tenant_id"])
+                key_result = key_query.limit(1).execute()
+                key_row = (key_result.data or [{}])[0]
             model = key_row.get("model_override") or row.get("model") or ""
             return {
                 "provider": row["provider"],

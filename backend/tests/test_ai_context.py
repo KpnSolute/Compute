@@ -21,11 +21,14 @@ class _FakeQuery:
 
 
 class _FakeSupabase:
-    def __init__(self, data):
-        self.data = data
+    def __init__(self, config_data, key_data):
+        self.config_data = config_data
+        self.key_data = key_data
 
-    def table(self, _name):
-        return _FakeQuery(self.data)
+    def table(self, name):
+        return _FakeQuery(
+            self.config_data if name == "ai_stack_config" else self.key_data
+        )
 
 
 def test_get_ai_config_accepts_embedded_key_list(monkeypatch):
@@ -40,15 +43,17 @@ def test_get_ai_config_accepts_embedded_key_list(monkeypatch):
                     "is_vision": True,
                     "vision_capable": True,
                     "ollama_url": None,
-                    "ai_provider_keys": [
-                        {
-                            "api_key": "test-key",
-                            "base_url": None,
-                            "model_override": "gemini-2.5-flash",
-                        }
-                    ],
+                    "key_id": "key-id",
+                    "tenant_id": "tenant-id",
                 }
-            ]
+            ],
+            [
+                {
+                    "api_key": "test-key",
+                    "base_url": None,
+                    "model_override": "gemini-2.5-flash",
+                }
+            ],
         ),
     )
 
