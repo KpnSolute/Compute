@@ -13,6 +13,7 @@ from backend.tenancy import (
     TENANT_TABLES,
     TENANT_VIEWS,
     resolve_public_tenant,
+    tenant_scope,
     tenancy_mode,
 )
 
@@ -151,8 +152,13 @@ def collect_system_status() -> dict:
 
     started = time.monotonic()
     try:
-        ai_cfg = ai_context.get_ai_config()
-        tools = ai_context.get_ai_tools_config()
+        # Health is unauthenticated, so establish the same safe default-tenant
+        # scope used for other public readiness checks before reading tenant-
+        # owned AI configuration. Without this, enforced tenancy makes the
+        # loader fall back to its text-only defaults and reports a false alarm.
+        with tenant_scope(resolve_public_tenant(supabase_admin, None)):
+            ai_cfg = ai_context.get_ai_config()
+            tools = ai_context.get_ai_tools_config()
         has_key = bool(ai_cfg.get("api_key"))
         checks.append(
             _component(
