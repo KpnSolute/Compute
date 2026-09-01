@@ -1,5 +1,6 @@
 from backend.ai.invoice_parser import (
     _normalize_vision_items,
+    extract_invoice_vision,
     invoice_items_to_ops,
     parse_invoice_text_pages,
     reconcile_and_adjust,
@@ -246,6 +247,105 @@ def test_usfoods_delivery_recap_controls_items_and_pieces():
     assert matched["quantity_controls_present"] is True
     assert matched["quantity_reconciled"] is True
     assert mismatched["quantity_reconciled"] is False
+
+
+def test_usfoods_september_recap_excludes_zero_shipped_backorders():
+    items = [
+        {"sku": f"S{i}", "qty_shipped": 2, "ext_price": 10, "unit_price": 5}
+        for i in range(151)
+    ]
+    items.extend(
+        [
+            {"sku": "5177738", "qty_shipped": 0, "ext_price": 0, "unit_price": 0},
+            {"sku": "2723278", "qty_shipped": 0, "ext_price": 0, "unit_price": 0},
+        ]
+    )
+    _, stats = reconcile_and_adjust(
+        items,
+        {
+            "product_total": 1510,
+            "total_items_shipped": 151,
+            "total_pieces_delivered": 302,
+        },
+    )
+
+    assert stats["item_count"] == 151
+    assert stats["piece_count"] == 302
+    assert stats["quantity_reconciled"] is True
+
+
+def test_vision_normalization_repairs_substitution_and_zero_price_quantities():
+    normalized = _normalize_vision_items(
+        [
+            {
+                "sku": "SUB-ITEM",
+                "unit": "CS",
+                "qty_shipped": 0,
+                "unit_price": 30.25,
+                "ext_price": 60.50,
+            },
+            {
+                "sku": "BACKORDER",
+                "unit": "CS",
+                "qty_shipped": 1,
+                "unit_price": 0,
+                "ext_price": 0,
+            },
+            {
+                "sku": "CATCH-WEIGHT",
+                "unit": "LB",
+                "qty_shipped": 10,
+                "unit_price": 1.67,
+                "ext_price": 844.55,
+            },
+        ]
+    )
+
+    assert normalized[0]["qty_shipped"] == 2
+    assert normalized[1]["qty_shipped"] == 0
+    assert normalized[2]["qty_shipped"] == 10
+
+
+def test_vision_split_recap_and_summary_pages_keep_product_total(monkeypatch):
+    def fake_page(_image, _cfg, *, page_num, called_by):
+        if page_num <= 8:
+            return {
+                "items": [
+                    {
+                        "sku": f"S{page_num}",
+                        "qty_shipped": 1,
+                        "unit": "CS",
+                        "unit_price": 10,
+                        "ext_price": 10,
+                    }
+                ]
+            }
+        if page_num == 9:
+            return {
+                "items": [],
+                "is_recap_page": True,
+                "product_total": 17787.09,
+                "total_items_shipped": 151,
+                "total_pieces_delivered": 382,
+                "product_total_source": "none",
+            }
+        return {
+            "items": [],
+            "is_recap_page": False,
+            "product_total": 18039.65,
+            "product_total_source": "invoice_summary",
+        }
+
+    monkeypatch.setattr("backend.ai.invoice_parser._extract_vision_page", fake_page)
+    monkeypatch.setattr(
+        "backend.ai.invoice_parser._extract_recap_totals", lambda *args, **kwargs: None
+    )
+
+    parsed = extract_invoice_vision([b"page"] * 10, {}, {}, called_by="test")
+
+    assert float(parsed["meta"]["product_total"]) == 18039.65
+    assert parsed["meta"]["total_items_shipped"] == 151
+    assert parsed["meta"]["total_pieces_delivered"] == 382
 
 
 def test_usfoods_delivery_summary_totals_split_across_page_boundary():

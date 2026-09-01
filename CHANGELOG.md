@@ -1,5 +1,39 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.10] — 2026-09-01 — September Week 1 invoice parser diagnosis
+
+**Codex:** Prepared a local-only fix for the September Week 1 US Foods
+invoice extraction failure. The parser now accepts Product Total only from an
+explicit invoice-summary label, handles split recap/summary pages, excludes
+zero-shipped zero-dollar backorder rows from shipped-item reconciliation, and
+validates safe CS/EA quantities from extended-price/unit-price ratios without
+altering LB catch-weight handling. Added regression coverage for the split
+pages, backorders, substitution-style quantity correction, and catch-weight
+guard. No Supabase rows were created or changed; production was not touched.
+
+**Verified:** Focused parser tests 11 passed; full backend suite 337 passed,
+15 skipped; Ruff check and format check passed. The real PDF was inspected
+locally, but the configured vision extraction call could not be replayed in
+this environment because the local Supabase URL/key runtime configuration is
+not available.
+
+**Push:** pending — local changes only; no commit, deploy, or live retry.
+
+## [v0.3.9] — 2026-08-29 — source-control staging latency review
+
+**Codex:** Read-only live timing review of invoice batches and staging rows.
+Batch creation to staging is effectively immediate (typically under one
+second). The delay is between staging and approval/merge: recent successful
+invoice batches took 0.26 minutes (916676), 0.91 minutes (770791), and 79.80
+minutes (490241). Across 8 merged invoice batches in the last 90 days, the
+median was 9.29 minutes, p90 68.37 minutes, and maximum 79.80 minutes.
+
+**Verified:** No current pending staging rows were found. Historical source
+control rows remain by design: 3,383 merged rows and 334 rejected rows across
+the listed operations. No code or live data was changed.
+
+**Push:** pending — read-only investigation; no database or Git mutation.
+
 ## [v0.3.8] — 2026-08-22
 
 **Claude (with Codex, live diagnosis + fix + apply):** Found and fixed the

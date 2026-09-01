@@ -1191,6 +1191,18 @@ def reconcile_and_adjust(items: list[dict], meta: dict) -> tuple[list[dict], dic
     parsed_piece_count = sum(_int(item.get("qty_shipped")) for item in adjusted)
     stated_item_count = _int(meta.get("total_items_shipped"))
     stated_piece_count = _int(meta.get("total_pieces_delivered"))
+    shipped_item_count = sum(
+        1
+        for item in adjusted
+        if _int(item.get("qty_shipped")) > 0 and _f(item.get("ext_price")) > 0
+    )
+    # US Foods has used both conventions: some recap tables count every
+    # printed line, while this September layout's TOTAL ITEMS SHIPPED excludes
+    # zero-shipped backorders. Prefer the convention that exactly matches the
+    # stated control, preserving the older behavior when it explicitly includes
+    # zero-shipped lines.
+    if stated_item_count > 0 and shipped_item_count == stated_item_count:
+        parsed_item_count = shipped_item_count
     quantity_controls_present = stated_item_count > 0 and stated_piece_count > 0
     quantity_reconciled = not quantity_controls_present or (
         parsed_item_count == stated_item_count
@@ -1505,6 +1517,7 @@ If the model does not support tool calling, return ONLY valid JSON matching this
   "invoice_number": "string or null",
   "invoice_date": "MM/DD/YYYY or null",
   "product_total": 0.0,
+  "product_total_source": "none",
   "vizient_discount": 0.0,
   "fuel_surcharge": 0.0,
   "net_total": 0.0,
@@ -1564,6 +1577,10 @@ Rules:
   applies the negative sign.
 - If this page has NO product line items (e.g. it's a cover/summary/blank page),
   return "items": []  — do not invent items.
+- product_total_source: use "invoice_summary" only when an explicit
+  "PRODUCT TOTAL" label is visible on this page; use "none" otherwise.
+  NEVER use a delivery-summary or storage-recap "TOTAL EXTENDED PRICE" as
+  product_total. That is a different amount and may be on a separate page.
 - Any field you cannot find (vendor, invoice_number, totals, etc.): use null / 0.0, do not guess.
 - storage_location: the section header the line item is printed under on the
   invoice — DRY, REFRIGERATED, or FROZEN. Line items are grouped under these
@@ -1598,6 +1615,7 @@ _VISION_RESPONSE_SCHEMA: dict = {
         "invoice_number": {"type": "string", "nullable": True},
         "invoice_date": {"type": "string", "nullable": True},
         "product_total": {"type": "number"},
+        "product_total_source": {"type": "string"},
         "vizient_discount": {
             "type": "number",
             "description": (
@@ -1774,6 +1792,20 @@ def _normalize_vision_items(items: list[dict]) -> list[dict]:
             if ext_price_raw not in (None, "")
             else qty * unit_price
         )
+        # Zero-dollar US Foods rows are ordered-but-not-shipped lines. Vision
+        # can occasionally copy ORD into SHP on these rows; the source's
+        # $0.00 extended price is a stronger signal than that quantity.
+        if ext_price <= 0 and unit_price <= 0:
+            qty = 0
+        # For CS/EA-priced rows, independently validate SHP from the printed
+        # extended/unit price ratio. This corrects column shifts on *SUB* rows
+        # without touching LB-priced catch-weight rows, whose extended price is
+        # weight-based rather than quantity-based.
+        if unit != "LB" and unit_price > 0 and ext_price > 0:
+            ratio = ext_price / unit_price
+            rounded_ratio = round(ratio)
+            if rounded_ratio >= 0 and abs(ratio - rounded_ratio) < 0.02:
+                qty = rounded_ratio
         if unit == "LB" and qty > 0 and unit_price > 0:
             unit_price = round(ext_price / qty, 4)
         normalized.append(
@@ -1836,7 +1868,7 @@ def extract_invoice_vision(
     #                           only scanned if recap_candidate_pages yields nothing.
     recap_candidate_pages: list[tuple[int, bytes]] = []
     zero_item_pages: list[tuple[int, bytes]] = []
-    recap_keys = ("product_total", "total_items_shipped", "total_pieces_delivered")
+    recap_keys = ("total_items_shipped", "total_pieces_delivered")
 
     # _PAGE_CONCURRENCY: at most this many single-page vision calls run simultaneously.
     # Each call sends exactly ONE image — matching the proven-reliable single-page
@@ -1865,18 +1897,28 @@ def extract_invoice_vision(
             if val not in (None, "", 0, 0.0) and not merged_meta.get(key):
                 merged_meta[key] = val
 
-        # product_total/total_items_shipped/total_pieces_delivered are the
-        # DELIVERY SUMMARY RECAP controls and only ever appear together, printed
-        # once, on the invoice's recap page. Per-page vision calls are
-        # independent and non-deterministic: a page with no real totals can
-        # hallucinate a plausible-looking number into ONE of these fields while
-        # leaving the others at 0. Merging each field independently let a
-        # hallucinated early-page value block the real recap page's correct
-        # trio (first-non-null-wins never got a chance to see it). Requiring
-        # all three truthy on the SAME page's response before accepting any of
-        # them makes a single hallucinated field harmless.
-        if not any(merged_meta.get(k) for k in recap_keys):
-            recap_vals = {k: data.get(k) for k in recap_keys}
+        # Product Total and the delivery-summary quantity controls can be on
+        # different pages. A split recap/summary layout is common: the recap
+        # page also shows a DELIVERY SUMMARY TOTAL EXTENDED PRICE, but that is
+        # not Product Total. Only accept product_total from an explicit invoice
+        # summary response (or a non-recap page for backward-compatible models).
+        product_total = data.get("product_total")
+        if (
+            product_total not in (None, "", 0, 0.0)
+            and not merged_meta.get("product_total")
+            and (
+                data.get("product_total_source") == "invoice_summary"
+                or not data.get("is_recap_page")
+            )
+        ):
+            merged_meta["product_total"] = product_total
+
+        # The quantity controls belong to the DELIVERY SUMMARY TOTALS row and
+        # are accepted as a pair from the recap page. They may coexist with a
+        # separate Product Total on the following invoice-summary page.
+        quantity_recap_keys = ("total_items_shipped", "total_pieces_delivered")
+        if not any(merged_meta.get(k) for k in quantity_recap_keys):
+            recap_vals = {k: data.get(k) for k in quantity_recap_keys}
             if all(v not in (None, "", 0, 0.0) for v in recap_vals.values()):
                 merged_meta.update(recap_vals)
 
