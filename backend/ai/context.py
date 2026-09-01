@@ -62,6 +62,10 @@ def get_ai_config() -> dict:
         if r.data:
             row = r.data[0]
             key_row = row.get("ai_provider_keys") or {}
+            if isinstance(key_row, list):
+                key_row = key_row[0] if key_row and isinstance(key_row[0], dict) else {}
+            elif not isinstance(key_row, dict):
+                key_row = {}
             model = key_row.get("model_override") or row.get("model") or ""
             return {
                 "provider": row["provider"],

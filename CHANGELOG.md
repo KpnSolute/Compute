@@ -1,5 +1,17 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.11] — 2026-09-01 — restore configured AI vision stack
+
+**Codex:** Fixed the AI configuration loader's handling of Supabase's
+one-element embedded `ai_provider_keys` relation. The loader had been
+silently falling back to text-only Groq despite the live configuration being
+Google Gemini 2.5 Flash with vision enabled and a stored provider key.
+
+**Verified:** Added a regression test; full backend suite 338 passed, 15
+skipped; Ruff passed. No test data was written to Supabase.
+
+**Push:** pending — local changes only until deployment verification.
+
 ## [v0.3.10] — 2026-09-01 — September Week 1 invoice parser diagnosis
 
 **Codex:** Prepared a local-only fix for the September Week 1 US Foods
