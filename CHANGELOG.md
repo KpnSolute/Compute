@@ -1,5 +1,22 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.12] — 2026-09-02 — preserve invoice pages after empty vision results
+
+**Codex:** Live authenticated Sepwk1.pdf extraction reached the parser but
+rejected at reconciliation: 112 items / 279 pieces versus 151 / 382 stated;
+no import batch or staging rows were created. Local review found the parser
+could break after two consecutive empty page results, silently discarding
+later valid pages even though all page calls had already been submitted.
+Removed that early stop and added a regression test proving later pages remain
+included after two empty results. Claude CLI review was requested but could
+not run because its OAuth session had expired.
+
+**Verified:** Focused parser tests 12 passed; full backend suite 339 passed,
+15 skipped; Ruff and diff checks passed. No production code was deployed and
+no production data was changed.
+
+**Push:** pending — local changes only.
+
 ## [v0.3.11] — 2026-09-01 — restore configured AI vision stack
 
 **Codex:** Fixed the AI configuration loader's handling of Supabase's

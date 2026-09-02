@@ -348,6 +348,41 @@ def test_vision_split_recap_and_summary_pages_keep_product_total(monkeypatch):
     assert parsed["meta"]["total_pieces_delivered"] == 382
 
 
+def test_vision_does_not_drop_pages_after_two_empty_results(monkeypatch):
+    def fake_page(_image, _cfg, *, page_num, called_by):
+        if page_num in (2, 3):
+            return {"items": []}
+        if page_num == 5:
+            return {
+                "items": [],
+                "is_recap_page": True,
+                "total_items_shipped": 2,
+                "total_pieces_delivered": 2,
+            }
+        return {
+            "items": [
+                {
+                    "sku": f"S{page_num}",
+                    "qty_shipped": 1,
+                    "unit": "CS",
+                    "unit_price": 10,
+                    "ext_price": 10,
+                }
+            ]
+        }
+
+    monkeypatch.setattr("backend.ai.invoice_parser._extract_vision_page", fake_page)
+    monkeypatch.setattr(
+        "backend.ai.invoice_parser._extract_recap_totals", lambda *args, **kwargs: None
+    )
+
+    parsed = extract_invoice_vision([b"page"] * 5, {}, {}, called_by="test")
+
+    assert [item["sku"] for item in parsed["items"]] == ["S1", "S4"]
+    assert parsed["meta"]["total_items_shipped"] == 2
+    assert parsed["meta"]["total_pieces_delivered"] == 2
+
+
 def test_usfoods_delivery_summary_totals_split_across_page_boundary():
     # Regression for a live 422 (invoice_quantity_controls_missing) on a real
     # 13-page US Foods invoice: the STORAGE LOCATION RECAP table's per-location

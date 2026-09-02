@@ -1860,7 +1860,6 @@ def extract_invoice_vision(
     merged_meta: dict[str, Any] = {}
     items: list[dict] = []
     pages_failed = 0
-    consecutive_empty = 0
     # Pages with zero line items fall into two buckets:
     #   recap_candidate_pages — page self-identified as the recap page via is_recap_page=True;
     #                           targeted retry scans these FIRST (typically just 1 page).
@@ -1958,7 +1957,10 @@ def extract_invoice_vision(
             for i, img in enumerate(images, start=1)
         ]
 
-    # Process results in page order so consecutive_empty heuristic and item ordering are correct.
+    # Process every result in page order so item ordering is preserved. All page
+    # calls have already been submitted to the bounded pool; stopping after two
+    # empty responses would silently discard valid rows when vision returns a
+    # transient empty/malformed result for an interior page.
     for page_num, img, f in futures_ordered:
         try:
             data = f.result()
@@ -1970,28 +1972,15 @@ def extract_invoice_vision(
                 len(images),
                 e,
             )
-            consecutive_empty += 1
             zero_item_pages.append((page_num, img))
-            if consecutive_empty >= 2 and items:
-                break  # past the line-item section; remaining pages are summaries/terms
             continue
 
         if data is None:
             pages_failed += 1
-            consecutive_empty += 1
             zero_item_pages.append((page_num, img))
-            if consecutive_empty >= 2 and items:
-                break
             continue
 
-        had_items = _merge_page_data(data, page_num, img)
-        if not had_items:
-            consecutive_empty += 1
-        else:
-            consecutive_empty = 0
-
-        if consecutive_empty >= 2 and items:
-            break  # past the line-item section; remaining pages are summaries/terms
+        _merge_page_data(data, page_num, img)
 
     # Recap trio validation — two-branch strategy based on whether any page
     # self-identified as the recap page via is_recap_page=True.
