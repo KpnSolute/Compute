@@ -1,5 +1,20 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.13] — 2026-09-02 — trace partial Vision invoice extraction
+
+**Codex:** The live Sepwk1.pdf retry still rejected cleanly at 87 items / 214
+pieces versus the authoritative 151 / 382 controls. Read-only reproduction
+confirmed the source is an 11-page image-only scan; the renderer sends the
+first 10 upright pages, with page 11 containing only invoice terms. Added
+per-page Vision extraction diagnostics to the existing 422 response, including
+raw and normalized item/piece counts plus empty/failed response state. This
+does not stage data, weaken reconciliation, or expose invoice line contents.
+
+**Verified:** Focused parser tests 13 passed; Ruff check passed. Full suite
+and deployed retry pending.
+
+**Push:** pending.
+
 ## [v0.3.12] — 2026-09-02 — preserve invoice pages after empty vision results
 
 **Codex:** Live authenticated Sepwk1.pdf extraction reached the parser but

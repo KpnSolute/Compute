@@ -388,6 +388,8 @@ def _extract_ops(
             merged_meta = {**src_meta, **parsed.get("meta", {})}
             merged_meta["_invoice_items"] = parsed.get("items", [])
             merged_meta["_extraction_kind"] = "invoice_images"  # vision/OCR path
+            merged_meta["_vision_page_trace"] = parsed.get("page_trace", [])
+            merged_meta["_vision_pages_failed"] = parsed.get("pages_failed", 0)
             cats = ctx.get_categories()
             ops = invoice_parser.invoice_items_to_ops(
                 parsed["items"], merged_meta, month, year, week, direction, cats
@@ -1516,6 +1518,14 @@ async def upload_file(
                                 "Nothing was staged."
                             ),
                             "reconciliation": recon,
+                            "extraction": {
+                                "pages_total": parsed_meta.get("pages_total"),
+                                "pages_used": parsed_meta.get("pages_used"),
+                                "pages_failed": parsed_meta.get(
+                                    "_vision_pages_failed", 0
+                                ),
+                                "page_trace": parsed_meta.get("_vision_page_trace", []),
+                            },
                         },
                     )
                     return

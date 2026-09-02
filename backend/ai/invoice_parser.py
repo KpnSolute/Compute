@@ -1860,6 +1860,7 @@ def extract_invoice_vision(
     merged_meta: dict[str, Any] = {}
     items: list[dict] = []
     pages_failed = 0
+    page_trace: list[dict[str, Any]] = []
     # Pages with zero line items fall into two buckets:
     #   recap_candidate_pages — page self-identified as the recap page via is_recap_page=True;
     #                           targeted retry scans these FIRST (typically just 1 page).
@@ -1922,6 +1923,9 @@ def extract_invoice_vision(
                 merged_meta.update(recap_vals)
 
         page_items = data.get("items") or []
+        item_start = len(items)
+        page_item_count = len(page_items)
+        page_piece_count = sum(_int(item.get("qty_shipped")) for item in page_items)
         if not page_items:
             log.info(
                 "[invoice_parser] page %d/%d: 0 items extracted (cover/summary/recap page)",
@@ -1939,6 +1943,16 @@ def extract_invoice_vision(
             else:
                 zero_item_pages.append((page_num, img))
         items.extend(page_items)
+        trace = {
+            "page": page_num,
+            "status": "items" if page_items else "empty",
+            "is_recap_page": bool(data.get("is_recap_page")),
+            "raw_item_count": page_item_count,
+            "raw_piece_count": page_piece_count,
+        }
+        if page_items:
+            trace["item_start"] = item_start
+        page_trace.append(trace)
         return bool(page_items)
 
     # Submit all pages to a bounded pool — __exit__ waits for all to finish,
@@ -1973,11 +1987,28 @@ def extract_invoice_vision(
                 e,
             )
             zero_item_pages.append((page_num, img))
+            page_trace.append(
+                {
+                    "page": page_num,
+                    "status": "failed",
+                    "error_type": type(e).__name__,
+                    "raw_item_count": 0,
+                    "raw_piece_count": 0,
+                }
+            )
             continue
 
         if data is None:
             pages_failed += 1
             zero_item_pages.append((page_num, img))
+            page_trace.append(
+                {
+                    "page": page_num,
+                    "status": "invalid_response",
+                    "raw_item_count": 0,
+                    "raw_piece_count": 0,
+                }
+            )
             continue
 
         _merge_page_data(data, page_num, img)
@@ -2084,6 +2115,7 @@ def extract_invoice_vision(
             "computed_total": 0.0,
             "pages_total": len(images),
             "pages_failed": pages_failed,
+            "page_trace": page_trace,
         }
 
     parsed_meta = {
@@ -2106,6 +2138,20 @@ def extract_invoice_vision(
     norm_items, recon = reconcile_and_adjust(norm_items, parsed_meta)
     parsed_meta["reconciliation"] = recon
 
+    # Preserve enough per-page evidence to diagnose a failed reconciliation
+    # without storing invoice content or requiring a second upload.  Item
+    # normalization is one-for-one, so its slice aligns with each raw page.
+    for trace in page_trace:
+        if trace["status"] != "items":
+            continue
+        start = trace.pop("item_start")
+        count = trace["raw_item_count"]
+        normalized_page_items = norm_items[start : start + count]
+        trace["normalized_item_count"] = len(normalized_page_items)
+        trace["normalized_piece_count"] = sum(
+            _int(item.get("qty_shipped")) for item in normalized_page_items
+        )
+
     reconciled = recon.get("reconciled", False)
     computed_total = recon.get(
         "adjusted_total", round(sum(it["ext_price"] for it in norm_items), 2)
@@ -2127,4 +2173,5 @@ def extract_invoice_vision(
         "computed_total": computed_total,
         "pages_total": len(images),
         "pages_failed": pages_failed,
+        "page_trace": page_trace,
     }

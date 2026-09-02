@@ -383,6 +383,59 @@ def test_vision_does_not_drop_pages_after_two_empty_results(monkeypatch):
     assert parsed["meta"]["total_pieces_delivered"] == 2
 
 
+def test_vision_page_trace_distinguishes_items_empty_and_failed_pages(monkeypatch):
+    def fake_page(_image, _cfg, *, page_num, called_by):
+        if page_num == 2:
+            return {"items": []}
+        if page_num == 3:
+            raise RuntimeError("provider timeout")
+        return {
+            "items": [
+                {
+                    "sku": "S1",
+                    "qty_shipped": 2,
+                    "unit": "CS",
+                    "unit_price": 10,
+                    "ext_price": 20,
+                }
+            ]
+        }
+
+    monkeypatch.setattr("backend.ai.invoice_parser._extract_vision_page", fake_page)
+    monkeypatch.setattr(
+        "backend.ai.invoice_parser._extract_recap_totals", lambda *args, **kwargs: None
+    )
+
+    parsed = extract_invoice_vision([b"page"] * 3, {}, {}, called_by="test")
+
+    assert parsed["pages_failed"] == 1
+    assert parsed["page_trace"] == [
+        {
+            "page": 1,
+            "status": "items",
+            "is_recap_page": False,
+            "raw_item_count": 1,
+            "raw_piece_count": 2,
+            "normalized_item_count": 1,
+            "normalized_piece_count": 2,
+        },
+        {
+            "page": 2,
+            "status": "empty",
+            "is_recap_page": False,
+            "raw_item_count": 0,
+            "raw_piece_count": 0,
+        },
+        {
+            "page": 3,
+            "status": "failed",
+            "error_type": "RuntimeError",
+            "raw_item_count": 0,
+            "raw_piece_count": 0,
+        },
+    ]
+
+
 def test_usfoods_delivery_summary_totals_split_across_page_boundary():
     # Regression for a live 422 (invoice_quantity_controls_missing) on a real
     # 13-page US Foods invoice: the STORAGE LOCATION RECAP table's per-location
