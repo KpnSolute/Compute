@@ -1,5 +1,17 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.14] — 2026-09-02 — show invoice Vision page diagnostics
+
+**Codex:** The API's failed-invoice response already contains the safe
+per-page Vision trace, but the Data Entry client compacted error text before
+rendering it. Added a dedicated diagnostic display sourced from the structured
+response, so a rejected upload shows page-level item/piece counts and
+empty/failed state without exposing invoice line contents.
+
+**Verified:** frontend type check, lint, and production build pending.
+
+**Push:** pending.
+
 ## [v0.3.13] — 2026-09-02 — trace partial Vision invoice extraction
 
 **Codex:** The live Sepwk1.pdf retry still rejected cleanly at 87 items / 214

@@ -106,6 +106,21 @@ const safeUploadMessage = (value: unknown): string => {
     return msg || 'Upload failed';
 };
 
+const formatVisionPageTrace = (detail: unknown): string | null => {
+    if (!detail || typeof detail !== 'object') return null;
+    const extraction = (detail as { extraction?: unknown }).extraction;
+    if (!extraction || typeof extraction !== 'object') return null;
+    const trace = (extraction as { page_trace?: unknown }).page_trace;
+    if (!Array.isArray(trace) || trace.length === 0) return null;
+    return trace.map((entry: any) => {
+        const page = entry?.page ?? '?';
+        const status = entry?.status ?? 'unknown';
+        const items = entry?.normalized_item_count ?? entry?.raw_item_count ?? 0;
+        const pieces = entry?.normalized_piece_count ?? entry?.raw_piece_count ?? 0;
+        return `p${page}: ${status}, ${items} items / ${pieces} pieces`;
+    }).join(' · ');
+};
+
 const LBL: React.CSSProperties = {
     display: 'block', fontSize: 11, fontWeight: 700,
     color: 'var(--muted)', marginBottom: 5,
@@ -417,6 +432,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
     const [uploading, setUploading]     = useState(false);
     const [aiStage, setAiStage]         = useState(0);
     const [uploadErr, setUploadErr]     = useState<string | null>(null);
+    const [visionPageTrace, setVisionPageTrace] = useState<string | null>(null);
     const [result, setResult]           = useState<UploadResult | null>(null);
     const [audit, setAudit]             = useState<AuditReport | null>(null);
     const [auditBusy, setAuditBusy]     = useState(false);
@@ -666,6 +682,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         abortRef.current = new AbortController();
         setUploading(true);
         setUploadErr(null);
+        setVisionPageTrace(null);
         setOverwritePrompt(null);
         setResult(null);
         setPreview(null);
@@ -700,6 +717,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                 return;
             }
             setUploadErr(msg);
+            setVisionPageTrace(formatVisionPageTrace(e?.detail));
             (window as any).toast?.(`AI parsing failed: ${msg}`);
             if (!userCancelled) {
                 window.dispatchEvent(new CustomEvent('mjcc:open-agent', {
@@ -726,6 +744,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         setStagingIds,
         setOverwritePrompt,
         setUploadErr,
+        setVisionPageTrace,
         setUploading,
     ]);
 
@@ -1149,6 +1168,11 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                 {uploadErr && (
                     <div className="banner warn" style={{ marginTop: 12, marginBottom: 0 }}>
                         {I.alert()}<span>{uploadErr}</span>
+                    </div>
+                )}
+                {visionPageTrace && (
+                    <div className="banner" style={{ marginTop: 8, marginBottom: 0, fontFamily: 'var(--mono)', fontSize: 11 }}>
+                        <span><strong>Vision page diagnostics:</strong> {visionPageTrace}</span>
                     </div>
                 )}
 
