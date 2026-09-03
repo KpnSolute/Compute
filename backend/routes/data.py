@@ -5,11 +5,14 @@ Provides endpoints for checklist, servsafe, meal periods, incidents,
 invoices, inventory categories, dashboard stats, and archives.
 """
 
-from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Query, Depends
+from datetime import date, datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from backend.routes import supabase_service
+
 from backend.routes._deps import _get_auth_user, _require_admin_or_manager
+from backend.routes import supabase_admin, supabase_service
+from backend.tenancy import current_tenant, tenancy_mode
 from backend import inventory_formulas as fi
 
 router = APIRouter(prefix="/api", tags=["data"])
@@ -51,10 +54,118 @@ async def get_servsafe(auth_user: dict = Depends(_get_auth_user)):
 
 
 class ServSafeUpdate(BaseModel):
-    staff_name: str | None = None
-    certification: str | None = None
-    expiry_date: str | None = None
+    user_id: str | None = None
+    certification: str | None = Field(None, max_length=120)
+    expiry_date: date | None = None
     is_proctor: bool | None = None
+
+
+class ServSafeCreate(BaseModel):
+    user_id: str
+    certification: str | None = Field(None, max_length=120)
+    expiry_date: date | None = None
+    is_proctor: bool = False
+
+
+def _servsafe_user(user_id: str) -> dict:
+    """Resolve an account inside the selected workspace before assigning a cert."""
+    context = current_tenant()
+    if tenancy_mode() != "legacy":
+        if not context:
+            raise HTTPException(status_code=400, detail="Workspace context is required")
+        membership = (
+            supabase_admin.table("tenant_memberships")
+            .select("role,status")
+            .eq("tenant_id", context.id)
+            .eq("user_id", user_id)
+            .eq("status", "active")
+            .limit(1)
+            .execute()
+        ).data or []
+        if not membership:
+            raise HTTPException(
+                status_code=404, detail="User not found in this workspace"
+            )
+        workspace_role = membership[0]["role"]
+    else:
+        workspace_role = None
+
+    profiles = (
+        supabase_service.table("user_profiles")
+        .select("id,display_name,last_name,username,role,active")
+        .eq("id", user_id)
+        .limit(1)
+        .execute()
+    ).data or []
+    if not profiles or profiles[0].get("active") is False:
+        raise HTTPException(status_code=404, detail="Active user account not found")
+    profile = profiles[0]
+    if workspace_role:
+        profile["role"] = workspace_role
+    return profile
+
+
+def _servsafe_staff_name(profile: dict) -> str:
+    name = " ".join(
+        part.strip()
+        for part in [profile.get("display_name") or "", profile.get("last_name") or ""]
+        if part and part.strip()
+    )
+    return name or profile.get("username") or "MJCC staff"
+
+
+def _default_servsafe_certification(role: str | None) -> str:
+    if role in {"manager", "admin", "sudo"}:
+        return "ServSafe Manager"
+    return "ServSafe Food Handler"
+
+
+@router.post("/servsafe", status_code=201)
+async def create_servsafe(
+    body: ServSafeCreate,
+    auth_user: dict = Depends(_require_admin_or_manager),
+):
+    profile = _servsafe_user(body.user_id)
+    certification = (
+        body.certification or _default_servsafe_certification(profile.get("role"))
+    ).strip()
+    if not certification:
+        raise HTTPException(status_code=422, detail="Certification is required")
+    existing = (
+        supabase_service.table("servsafe_certifications")
+        .select("id")
+        .eq("user_id", body.user_id)
+        .eq("certification", certification)
+        .limit(1)
+        .execute()
+    ).data or []
+    if existing:
+        raise HTTPException(
+            status_code=409, detail="This certification is already assigned"
+        )
+    try:
+        result = (
+            supabase_service.table("servsafe_certifications")
+            .insert(
+                {
+                    "user_id": body.user_id,
+                    "staff_name": _servsafe_staff_name(profile),
+                    "certification": certification,
+                    "expiry_date": body.expiry_date.isoformat()
+                    if body.expiry_date
+                    else None,
+                    "is_proctor": body.is_proctor,
+                }
+            )
+            .execute()
+        )
+        if not result.data:
+            raise HTTPException(status_code=500, detail="Certification was not created")
+        return result.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.put("/servsafe/{cert_id}")
@@ -63,9 +174,19 @@ async def update_servsafe(
     body: ServSafeUpdate,
     auth_user: dict = Depends(_require_admin_or_manager),
 ):
-    update = body.model_dump(exclude_none=True)
+    update = body.model_dump(exclude_unset=True)
     if not update:
         raise HTTPException(status_code=422, detail="No fields to update")
+    if "user_id" in update:
+        profile = _servsafe_user(update["user_id"])
+        update["staff_name"] = _servsafe_staff_name(profile)
+    if "certification" in update:
+        update["certification"] = (update["certification"] or "").strip()
+        if not update["certification"]:
+            raise HTTPException(status_code=422, detail="Certification is required")
+    if isinstance(update.get("expiry_date"), date):
+        update["expiry_date"] = update["expiry_date"].isoformat()
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
     try:
         result = (
             supabase_service.table("servsafe_certifications")
@@ -76,6 +197,27 @@ async def update_servsafe(
         if not result.data:
             raise HTTPException(status_code=404, detail="Certification not found")
         return result.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/servsafe/{cert_id}")
+async def delete_servsafe(
+    cert_id: str,
+    auth_user: dict = Depends(_require_admin_or_manager),
+):
+    try:
+        result = (
+            supabase_service.table("servsafe_certifications")
+            .delete()
+            .eq("id", cert_id)
+            .execute()
+        )
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Certification not found")
+        return {"deleted": True, "id": cert_id}
     except HTTPException:
         raise
     except Exception as e:

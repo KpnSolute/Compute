@@ -150,3 +150,8 @@ def test_role_scope_sanitizer_keeps_known_scopes_and_forces_sudo_full_access():
     assert scopes["staff"] == ["dashboard"]
     assert "settings" in scopes["sudo"]
     assert "users" in scopes["sudo"]
+    assert "organization" in scopes["sudo"]
+    assert "servsafe" in scopes["sudo"]
+    assert "organization" in scopes["manager"]
+    assert "servsafe" in scopes["manager"]
+    assert "servsafe" not in scopes["assistant"]

@@ -1,6 +1,7 @@
 """
 Data Entry API — AI-powered file ingestion pipeline.
 POST /api/data-entry/upload   — parse file → AI extract → stage → return batch preview
+POST /api/data-entry/pdf-preflight — detect whether a PDF has searchable text
 GET  /api/data-entry/preview/{batch_id} — row-level diff for a staged batch
 GET  /api/data-entry/settings — current AI stack config
 PUT  /api/data-entry/settings — update AI stack config
@@ -61,6 +62,12 @@ _parse_executor = concurrent.futures.ThreadPoolExecutor(
 log = logging.getLogger("mjcc.data_entry")
 
 router = APIRouter(prefix="/api/data-entry")
+
+_IMAGE_ONLY_PDF_WARNING = (
+    "Image-only PDF detected. For inventory sheets, use the original searchable PDF "
+    "or an Excel/CSV export when available. Scanned PDFs take longer and may miss rows; "
+    "reconciliation will still block incomplete imports."
+)
 
 
 def _safe_parse_error(exc: Exception) -> str:
@@ -1240,6 +1247,40 @@ def _rollback_failed_upload(
 
 
 # ── routes ────────────────────────────────────────────────────────────────────
+
+
+@router.post("/pdf-preflight")
+async def preflight_pdf(
+    file: UploadFile = File(...),
+    _auth_user: dict = Depends(_get_auth_user),
+):
+    """Classify a PDF before parsing without staging or persisting anything."""
+    content = await file.read()
+    filename = file.filename or "upload.pdf"
+    is_pdf = content[:4] == b"%PDF" or filename.lower().endswith(".pdf")
+    if not is_pdf:
+        raise HTTPException(
+            status_code=415, detail="PDF preflight only accepts PDF files."
+        )
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file.")
+
+    max_file_size_mb = float(
+        _data_entry_period_settings().get("max_file_size_mb", 10) or 10
+    )
+    if len(content) > max_file_size_mb * 1024 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large (max {max_file_size_mb:g} MB).",
+        )
+
+    has_native_text = file_parser._pdf_has_native_text(content)
+    return {
+        "is_pdf": True,
+        "has_native_text": has_native_text,
+        "image_only": not has_native_text,
+        "warning": _IMAGE_ONLY_PDF_WARNING if not has_native_text else None,
+    }
 
 
 @router.post("/upload", status_code=201)

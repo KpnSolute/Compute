@@ -83,6 +83,7 @@ export const NAV = [
     items: [
       { key: 'events', label: 'Events & Programs', icon: 'calCheck', min: 10 },
       { key: 'menu', label: '28-Day Menu', icon: 'book', min: 20 },
+      { key: 'servsafe', label: 'ServSafe Manager', icon: 'award', min: 30 },
     ],
   },
   {
@@ -112,6 +113,7 @@ export const NAV = [
   {
     group: 'Administration',
     items: [
+      { key: 'organization', label: 'Organization', icon: 'users', min: 30 },
       { key: 'users', label: 'Users & Access', icon: 'users', min: 30 },
       { key: 'settings', label: 'Settings', icon: 'settings', min: 40 },
     ],

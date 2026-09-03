@@ -35,6 +35,7 @@ import { ComplianceHub } from "./ComplianceHub";
 import { DataEntry } from "./DataEntry";
 import { DailyOps } from "./DailyOps";
 import { EventsCalendar } from "./EventsCalendar";
+import { ServSafeManager } from "./ServSafeManager";
 import { MealLog, InspectionSheet, FoodRequest } from "./Forms";
 import { CycleMenu, PERIOD_ORDER, mealSummary, shortSideLabel } from "./CycleMenu";
 import { SnackBar, MonthlyInventory } from "./Operations";
@@ -50,6 +51,7 @@ import { AIUsageView, AIToolsView, AIPresetsView } from "./AIStudio";
 import { FlowPanel } from "./FlowPanel";
 import { CostManager } from "./CostManager";
 import { FileVault } from "./FileVault";
+import { Organization } from "./Organization";
 import { getThemePref, applyThemePref } from "../lib/theme";
 
 let toastTimer: ReturnType<typeof setTimeout>;
@@ -5414,6 +5416,7 @@ export function Portal({
         if (active === "haccp") return <ComplianceHub user={user} />;
         if (active === "dailyops") return <DailyOps user={user} go={goTo} />;
         if (active === "events") return <EventsCalendar user={user} />;
+        if (active === "servsafe") return <ServSafeManager />;
         if (active === "menu") return <CycleMenu user={user} />;
         if (active === "mballot") return <MealLog user={user} />;
         if (active === "inspection") return <InspectionSheet user={user} />;
@@ -5439,6 +5442,7 @@ export function Portal({
             return <CostManager user={user} period={period} onNav={goTo} />;
         if (active === "dataentry") return <DataEntry user={user} onNavigate={goTo} />;
         if (active === "users") return <UsersView user={user} />;
+        if (active === "organization") return <Organization user={user} go={goTo} />;
         if (active === "archives") return <ArchivesView period={period} />;
         if (active === "filevault") return <FileVault />;
         if (active === "settings") return <Settings user={user} />;

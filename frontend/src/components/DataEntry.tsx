@@ -94,6 +94,11 @@ interface PeriodSettings {
     operational_week_count: number;
 }
 
+interface PdfPreflight {
+    state: 'idle' | 'checking' | 'searchable' | 'image-only' | 'error';
+    warning?: string | null;
+}
+
 // ── style helpers ─────────────────────────────────────────────────────────────
 
 const safeUploadMessage = (value: unknown): string => {
@@ -433,6 +438,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
     const [aiStage, setAiStage]         = useState(0);
     const [uploadErr, setUploadErr]     = useState<string | null>(null);
     const [visionPageTrace, setVisionPageTrace] = useState<string | null>(null);
+    const [pdfPreflight, setPdfPreflight] = useState<PdfPreflight>({ state: 'idle' });
     const [result, setResult]           = useState<UploadResult | null>(null);
     const [audit, setAudit]             = useState<AuditReport | null>(null);
     const [auditBusy, setAuditBusy]     = useState(false);
@@ -495,6 +501,33 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
     useEffect(() => {
         if (week > weekCount) setWeek(0);
     }, [week, weekCount]);
+
+    useEffect(() => {
+        if (!file || !(file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))) {
+            setPdfPreflight({ state: 'idle' });
+            return;
+        }
+
+        const controller = new AbortController();
+        let active = true;
+        setPdfPreflight({ state: 'checking' });
+        api.preflightDataEntryPdf(file, controller.signal)
+            .then(result => {
+                if (!active) return;
+                setPdfPreflight({
+                    state: result.image_only ? 'image-only' : 'searchable',
+                    warning: result.warning,
+                });
+            })
+            .catch(error => {
+                if (!active || error?.name === 'AbortError') return;
+                setPdfPreflight({ state: 'error' });
+            });
+        return () => {
+            active = false;
+            controller.abort();
+        };
+    }, [file]);
     useEffect(() => {
         if (week > 0 && direction === 'both') setDirection('received');
     }, [direction, week]);
@@ -792,6 +825,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         setPastedText('');
         setResult(null);
         setUploadErr(null);
+        setPdfPreflight({ state: 'idle' });
         setOverwritePrompt(null);
         setPreview(null);
         setStagingIds([]);
@@ -1156,14 +1190,32 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                                     doUpload();
                                 }
                             }}
-                            disabled={inputMode === 'file' ? !file || uploading : !pastedText.trim() || uploading}
+                            disabled={inputMode === 'file'
+                                ? !file || uploading || pdfPreflight.state === 'checking'
+                                : !pastedText.trim() || uploading}
                             style={{ minWidth: 130, minHeight: 40 }}
                         >
                             {I.inbox({ style: { width: 14, height: 14 } })}
-                            {uploading ? 'Parsing...' : 'Upload & Parse'}
+                            {uploading ? 'Parsing...' : pdfPreflight.state === 'checking' ? 'Checking PDF...' : 'Upload & Parse'}
                         </button>
                     </div>
                 </div>
+
+                {pdfPreflight.state === 'checking' && (
+                    <div className="banner" style={{ marginTop: 12, marginBottom: 0 }}>
+                        <span>Checking whether this PDF contains searchable text...</span>
+                    </div>
+                )}
+                {pdfPreflight.state === 'image-only' && (
+                    <div className="banner warn" role="alert" style={{ marginTop: 12, marginBottom: 0 }}>
+                        {I.alert()}<span>{pdfPreflight.warning || 'Image-only PDF detected. Use a searchable PDF or Excel/CSV export for inventory sheets when available.'}</span>
+                    </div>
+                )}
+                {pdfPreflight.state === 'error' && (
+                    <div className="banner warn" role="alert" style={{ marginTop: 12, marginBottom: 0 }}>
+                        {I.alert()}<span>Could not verify whether this PDF contains searchable text. You can continue, but image-only inventory sheets may take longer and miss rows.</span>
+                    </div>
+                )}
 
                 {uploadErr && (
                     <div className="banner warn" style={{ marginTop: 12, marginBottom: 0 }}>

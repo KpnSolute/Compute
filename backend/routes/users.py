@@ -171,6 +171,7 @@ VALID_SCOPE_KEYS = {
     "inspection",
     "snackbar",
     "events",
+    "servsafe",
     "menu",
     "sourcectrl",
     "reports",
@@ -181,6 +182,7 @@ VALID_SCOPE_KEYS = {
     "ai-tools",
     "ai-presets",
     "users",
+    "organization",
     "settings",
 }
 DEFAULT_ROLE_SCOPES = {
@@ -226,6 +228,7 @@ DEFAULT_ROLE_SCOPES = {
         "inspection",
         "snackbar",
         "events",
+        "servsafe",
         "menu",
         "sourcectrl",
         "reports",
@@ -236,6 +239,7 @@ DEFAULT_ROLE_SCOPES = {
         "ai-tools",
         "ai-presets",
         "users",
+        "organization",
     ],
     "admin": list(VALID_SCOPE_KEYS),
     "sudo": list(VALID_SCOPE_KEYS),

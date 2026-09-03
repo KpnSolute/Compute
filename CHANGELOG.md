@@ -1,5 +1,44 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.16] — 2026-09-02 — add account-linked ServSafe and organization panels
+
+**Codex:** Added MJCC-only Calendar → ServSafe Manager and Administration →
+Organization panels. The certification workflow now assigns records to active
+MJCC account identities, recommends Food Handler or Manager certification from
+the account role, tracks expiration/proctor status, and prevents duplicate
+account/certification pairs. Organization groups the staff roster by
+`job_title`, keeps position separate from access role, and links back to the
+existing Users & Access controls. Added tracked migration 053 with a
+tenant-membership foreign key and MJCC-only role-scope grants. Existing seeded
+position-label certifications remain visible as unlinked legacy records rather
+than being guessed onto real employees.
+
+**Verified:** live schema and MJCC roster inspected read-only; focused ServSafe
+and role-scope tests 18 passed; full backend suite 347 passed, 15 skipped;
+frontend tests 45 passed; Ruff passed; targeted new-component ESLint passed;
+full frontend lint completed with 0 errors (existing warnings only); production
+frontend build and diff checks passed. Migration 053 was not applied live and
+no production rows were changed.
+
+**Push:** pending — local changes only.
+
+## [v0.3.15] — 2026-09-02 — warn on image-only inventory PDFs
+
+**Codex:** Added a read-only Data Entry PDF preflight that reuses the
+production parser's native-text detector. Selecting an image-only PDF now
+shows a clear warning to prefer the original searchable PDF or Excel/CSV for
+inventory sheets, while preserving Vision extraction and strict reconciliation
+as safe fallbacks. The preflight does not archive, stage, or otherwise persist
+the selected file.
+
+**Verified:** PDF preflight regression tests 3 passed; full backend suite 343
+passed, 15 skipped; frontend tests 45 passed; Ruff check passed; frontend lint
+completed with no errors (existing warnings only); production frontend build
+and diff checks passed. The replacement Sepwk1.pdf was classified as searchable
+text, so it will not show the image-only warning.
+
+**Push:** pending — local changes only.
+
 ## [v0.3.14] — 2026-09-02 — show invoice Vision page diagnostics
 
 **Codex:** The API's failed-invoice response already contains the safe

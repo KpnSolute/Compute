@@ -1077,8 +1077,16 @@ export const api = {
     return req('/api/servsafe');
   },
 
+  async createServSafe(body: { user_id: string; certification?: string; expiry_date?: string | null; is_proctor?: boolean }): Promise<any> {
+    return req('/api/servsafe', { method: 'POST', body: JSON.stringify(body) });
+  },
+
   async updateServSafe(id: string | number, body: any): Promise<any> {
     return req(`/api/servsafe/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+  },
+
+  async deleteServSafe(id: string | number): Promise<{ deleted: boolean; id: string }> {
+    return req(`/api/servsafe/${id}`, { method: 'DELETE' });
   },
 
   // Meal Periods
@@ -1554,6 +1562,34 @@ export const api = {
   },
 
   // Data Entry
+  async preflightDataEntryPdf(file: File, signal?: AbortSignal): Promise<{ is_pdf: boolean; has_native_text: boolean; image_only: boolean; warning?: string | null }> {
+    markSessionActivity();
+    const form = new FormData();
+    form.append('file', file);
+    const send = (token: string | null) => fetch(BASE + '/api/data-entry/pdf-preflight', {
+      method: 'POST',
+      headers: {
+        ...workspaceHeaders(),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: form,
+      signal,
+      cache: 'no-store',
+    });
+    let res = await send(getBackendToken());
+    if (res.status === 401) {
+      await refreshOnce();
+      res = await send(getBackendToken());
+    }
+    if (!res.ok) {
+      let body: unknown;
+      try { const json = await res.json(); body = json.detail || json; }
+      catch { body = await res.text().catch(() => res.statusText); }
+      throw new ApiError(res.status, body);
+    }
+    return res.json();
+  },
+
   async uploadDataEntry(file: File, hint: string, month?: number, year?: number, week?: number, direction?: string, description?: string, signal?: AbortSignal, overwrite?: boolean): Promise<{ batch_id: string; staged_count: number; staging_ids?: string[]; sku_queued?: number; operations: Record<string, number>; file: string; month: number; year: number; description?: string; reconciliation?: any; ai_provider?: string; ai_model?: string; overwrite?: boolean; overwrite_scope?: any }> {
     markSessionActivity();
     const token = getBackendToken();

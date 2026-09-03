@@ -918,6 +918,26 @@ table.data.logtbl td{padding:6px 10px}
 .ss-name{font-size:12px;font-weight:700;display:flex;align-items:center;gap:7px}
 .ss-proctor{display:inline-flex;align-items:center;gap:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--green-ink);background:var(--green-chip);padding:1px 6px;border-radius:8px}
 .ss-cert{font-size:10.5px;color:var(--faint);margin-top:2px}
+.cert-roster-row{display:grid;grid-template-columns:minmax(220px,.85fr) minmax(320px,1.4fr);gap:18px;align-items:start;padding:14px 17px;border-bottom:1px solid var(--line-soft)}
+.cert-roster-row:last-child{border-bottom:none}
+.cert-person{display:flex;align-items:center;gap:10px;min-width:0}
+.cert-avatar{width:34px;height:34px;flex:0 0 34px;border-radius:9px;display:grid;place-items:center;background:var(--navy);color:#fff;font-size:12px;font-weight:800}
+.cert-list{display:grid;gap:8px;min-width:0}
+.cert-entry{display:grid;grid-template-columns:minmax(150px,1fr) auto auto auto;gap:8px;align-items:center;min-width:0}
+.cert-title{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:12px;font-weight:750}
+.btn.icon-only{width:32px;height:32px;min-height:32px;padding:0;display:inline-grid;place-items:center}
+.btn.icon-only svg{width:14px;height:14px}
+.btn.icon-only.danger{color:var(--red)}
+
+.org-toolbar{padding:11px 14px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:14px}
+.org-search{display:flex;align-items:center;gap:8px;min-width:min(420px,100%);padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--faint)}
+.org-search svg{width:15px;height:15px;flex:0 0 auto}
+.org-search input{width:100%;border:0;outline:0;background:transparent;color:var(--ink);font:inherit;font-size:12px}
+.org-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(390px,1fr));gap:14px;align-items:start}
+.org-group{min-width:0}
+.org-person{display:grid;grid-template-columns:auto minmax(150px,1fr) auto auto auto;align-items:center;gap:9px;padding:11px 14px;border-bottom:1px solid var(--line-soft)}
+.org-person:last-child{border-bottom:none}
+.org-person-main{min-width:0}
 
 .check-row{display:flex;align-items:center;gap:11px;padding:10px 17px;border-bottom:1px solid var(--line-soft);font-size:12.5px;cursor:pointer;transition:background .1s}
 .check-row:last-child{border-bottom:none}
@@ -1332,6 +1352,13 @@ table.data.logtbl td{padding:6px 10px}
   .stat-grid.kpi6 .sc-val{font-size:17px}
 
   .grid-2{grid-template-columns:1fr;gap:10px;margin-bottom:12px}
+  .cert-roster-row{grid-template-columns:1fr;gap:10px;padding:12px}
+  .cert-entry{grid-template-columns:minmax(130px,1fr) auto auto auto}
+  .org-toolbar{align-items:stretch;flex-direction:column}
+  .org-search{min-width:0}
+  .org-grid{grid-template-columns:1fr}
+  .org-person{grid-template-columns:auto minmax(120px,1fr) auto auto}
+  .org-person .btn.icon-only{grid-column:4}
 
   .card{border-radius:10px}
   .card-head{padding:10px 12px}

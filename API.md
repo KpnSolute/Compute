@@ -664,9 +664,30 @@ Active opening checklist items ordered by `sort_order`.
 ---
 
 ### `GET /api/servsafe`
-All ServSafe certifications ordered by staff name.
+All tenant-scoped ServSafe certifications ordered by staff name. New records
+carry `user_id`, which links the certification to an MJCC account identity;
+older position-label records may have `user_id: null` until an administrator
+confirms the correct person.
 
-**Response `200`:** `[{ "id", "staff_name", "certification", "expiry_date", "is_proctor", "created_at", "updated_at" }]`
+**Response `200`:** `[{ "id", "user_id", "staff_name", "certification", "expiry_date", "is_proctor", "created_at", "updated_at" }]`
+
+### `POST /api/servsafe`
+Assign a certification to an active account in the selected MJCC workspace.
+Requires manager or higher. If `certification` is omitted, staff/assistant
+accounts default to ServSafe Food Handler and manager/admin/sudo accounts
+default to ServSafe Manager.
+
+**Body:** `{ "user_id": "uuid", "certification"?, "expiry_date"?, "is_proctor"? }`
+
+**Response `201`:** created certification. **`409`** if the same account already
+has that certification type.
+
+### `PUT /api/servsafe/{cert_id}`
+Update the assigned account, certification type, expiration date, or proctor
+status. Requires manager or higher.
+
+### `DELETE /api/servsafe/{cert_id}`
+Remove a certification. Requires manager or higher.
 
 ---
 
@@ -905,6 +926,20 @@ Auth: **admin or manager** only. Approves a set of staging entries: replays oper
 ---
 
 ## AI Data Entry — `/api/data-entry`
+
+### `POST /api/data-entry/pdf-preflight`
+Authenticated, read-only multipart preflight for PDF uploads. Returns whether
+the document contains searchable/native text and an operator warning when it
+is image-only. It does not archive, parse, stage, or persist the file.
+
+```json
+{
+  "is_pdf": true,
+  "has_native_text": false,
+  "image_only": true,
+  "warning": "Image-only PDF detected. For inventory sheets, use the original searchable PDF or an Excel/CSV export when available."
+}
+```
 
 ### `POST /api/data-entry/upload`
 Upload a file for AI extraction, staging, and preview.
