@@ -1,5 +1,36 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.17] — 2026-09-11 — DB-level backstop for new inventory over-pulls
+
+**Claude:** Reviewed the dead `codex/inventory-overpull-guard` branch (2026-07-30,
+never merged) before recovering it — its migration blocked any over-pull by
+checking `pulled > available` on every write with no history awareness, which
+would have relocked the five 2026-07 rows v0.1.28 documents as genuine and
+deliberately preserved (8 units / $288.57) against any future write, including
+an unrelated correction or a rollover. That branch's own commit message
+planned to "reset" those rows first — the opposite of the policy that
+actually shipped. Rewrote the guard to compare OLD vs NEW: it rejects a write
+that creates a new over-pull or worsens an existing one, but allows a write on
+an already over-pulled row as long as it doesn't push the shortfall further
+negative. Added `overpull_excess`/`write_increases_overpull` to
+`backend/inventory_formulas.py` as the tested Python mirror of the trigger's
+logic; migration `20260911115407_prevent_new_inventory_overpulls.sql`
+implements the same comparison in Postgres. The API/staging-level guard
+(v0.1.28) already rejects new over-pulls at submission time — this is the
+final DB-level backstop for any write path that bypasses it.
+
+**Verified:** `ruff check backend/` clean; full backend suite 354 passed, 15
+skipped (7 new). `python -c "import backend.main"` fails locally on missing
+`.env`/`SUPABASE_URL` — pre-existing local-environment gap, unrelated to this
+change. The migration itself was **not** applied to production: the Supabase
+MCP session for this project is unauthorized this session (token rejected;
+project-ref confirmed correct against the governance registry), so it could
+not be run or verified against live schema/data. Needs a Supabase-authorized
+session to apply it and confirm the five known 2026-07 over-pull rows remain
+writable before this backstop is actually live.
+
+**Push:** pending.
+
 ## [v0.3.16] — 2026-09-02 — add account-linked ServSafe and organization panels
 
 **Codex:** Added MJCC-only Calendar → ServSafe Manager and Administration →

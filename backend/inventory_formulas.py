@@ -61,6 +61,59 @@ def is_negative_ending(opening, received, pulled) -> bool:
     return ending_oh(opening, received, pulled) < 0
 
 
+def overpull_excess(opening_oh, received, pulled) -> float:
+    """Quantity pulled beyond what was actually available; 0 when none.
+
+    Same shape as the negative half of ``ending_oh``, kept as its own helper
+    because the DB-level over-pull guard (migration
+    ``..._prevent_new_inventory_overpulls.sql``) and ``overpull_audit`` both
+    need this exact excess amount, not just its sign.
+    """
+    return max(0.0, num(pulled) - num(opening_oh) - num(received))
+
+
+def write_increases_overpull(old_row: dict | None, new_row: dict) -> bool:
+    """True when a write would create a new over-pull or make an existing one worse.
+
+    Mirrors the Postgres trigger ``prevent_inventory_overpull`` row-for-row.
+    An over-pull that already existed before this write — the five 2026-07
+    rows CHANGELOG v0.1.28 documents as genuine and deliberately left in
+    place, not silently rewritten — stays editable for unrelated corrections
+    as long as the write doesn't push the shortfall further negative.
+    ``old_row=None`` means an insert: there is no prior state, so any
+    over-pull on the new row is new.
+    """
+    new_excess = overpull_excess(
+        new_row.get("opening_oh"),
+        total_received(
+            new_row.get("w1_received"),
+            new_row.get("w2_received"),
+            new_row.get("w3_received"),
+        ),
+        total_pulled(
+            new_row.get("w1_pulled"), new_row.get("w2_pulled"), new_row.get("w3_pulled")
+        ),
+    )
+    old_excess = (
+        0.0
+        if old_row is None
+        else overpull_excess(
+            old_row.get("opening_oh"),
+            total_received(
+                old_row.get("w1_received"),
+                old_row.get("w2_received"),
+                old_row.get("w3_received"),
+            ),
+            total_pulled(
+                old_row.get("w1_pulled"),
+                old_row.get("w2_pulled"),
+                old_row.get("w3_pulled"),
+            ),
+        )
+    )
+    return new_excess > old_excess
+
+
 def is_below_par(ending, par) -> bool:
     return num(par) > 0 and num(ending) < num(par)
 
