@@ -1,5 +1,31 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.19] — 2026-09-11 — sync AGENTS.md to the tenancy retrofit
+
+**Claude:** AGENTS.md claims to be mandatory first-reading and the single
+source of truth for facts, but hadn't been touched since 2026-06-05 — it
+didn't mention tenancy at all (predates the whole retrofit by two months),
+still described a single-tenant `centers` model, and carried I-4 (HACCP
+persistence) as open/HIGH a month after it was actually fixed (v0.1.32,
+2026-08-03). Added new §4B documenting the real tenancy model (`tenants` as
+the actual multi-tenant root table, `TenantScopedClient`/`TENANT_RPCS` in
+`backend/tenancy.py`, the `legacy/shadow/enforced` rollout flag, workspace
+provisioning), updated §2's project identity to state the Loom-approved
+charter directly (KpnCompute must serve many organizations, MJCC is tenant
+one), corrected I-4's status, and added I-11 (tenancy unproven past one
+tenant) and I-12 (the VERSION/release-gate drift found and fixed in v0.3.17).
+Also fixed two unrelated factual errors found while in there: §11's GitHub
+row still named `muttyman2000/MJCC-Managements-.git` as origin, contradicting
+§2's own table and the actual configured remote (`KpnSolute/Compute.git`);
+and its Supabase row named the env var `SUPABASE_MCP_TOKEN` when the actual
+`.mcp.json`/`.cursor/mcp.json`/`.vscode/mcp.json` files all use
+`SUPABASE_ACCESS_TOKEN`.
+
+**Verified:** read-only documentation change; no code, schema, or backend
+behavior touched. Diff reviewed line-by-line before commit.
+
+**Push:** pending.
+
 ## [v0.3.18] — 2026-09-11 — apply the over-pull backstop live; five 2026-07 rows no longer present
 
 **Claude (via Codex, live apply + verify):** Applied migration

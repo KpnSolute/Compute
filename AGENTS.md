@@ -33,7 +33,7 @@ This file is the single source of truth for project **FACTS** (schema, repos, kn
 
 This file replaces the former `AGENT_ALIGNMENT.md` (deleted 2026-06-04 — its content is folded in here).
 
-Last aligned: 2026-06-05 (one-team tooling parity — shared tools, Gemini research lead).
+Last aligned: 2026-09-11 (multi-tenant workspace foundation synced in — see §2 and new §4B; this file had gone stale on tenancy since 2026-06-05 and didn't mention it at all).
 
 ---
 
@@ -58,10 +58,11 @@ See §7 for the full known-issues list and current status.
 ## 2. PROJECT IDENTITY
 
 - **What it is:** A full-stack management system for the Miami Job Corps Cafeteria (MJCC) / "Jeremiah's Custom Creations" operation. Inventory, HACCP compliance logs, cycle menus, events, invoices, vendors, and a Git-style source-control layer over inventory snapshots.
+- **What KpnCompute (the platform) is:** Per the Loom-approved charter (`loom/governance/PRODUCT_CHARTERS.md`), KpnCompute's Pure Goal is to turn repeatable business operations into tenant-safe software serving many organizations **without being bound to MJCC** — "remaining an MJCC-only application" is an explicit non-goal. MJCC is tenant one, not the product. See §4B for how that's actually implemented in this codebase; as of 2026-09-11 MJCC is still the only tenant with real production data.
 - **Stack:** Vite + React + TypeScript + Tailwind (frontend) · FastAPI + Python (backend) · Supabase / PostgreSQL (database).
-- **Live Supabase project:** `MJCCv1` (ref `mgvyylvmkxhhataavqjz`, region us-west-1, ACTIVE). This is the one `.env` points to.
+- **Live Supabase project:** `MJCCv1` (ref `mgvyylvmkxhhataavqjz`, region us-west-1, ACTIVE). This is the one `.env` points to. It is now a multi-tenant database (§4B), not an MJCC-only one, despite the project's legacy name.
   - `MJCCv2` (ref `qprfonxvthmaoxfixigk`) is **INACTIVE** — do not target it without explicit user approval.
-- **Product:** `https://compute.kpnsolute.com`; the MJCC workspace is `https://compute.kpnsolute.com/mjcc`.
+- **Product:** `https://compute.kpnsolute.com` — a product landing page pitching the multi-tenant platform directly ("Tenant-safe projects: each workspace owns its projects, files, configurations, audit trail"); the MJCC workspace is `https://compute.kpnsolute.com/mjcc`, gated behind a "sign in to mjcc" workspace check (confirmed live 2026-09-11).
 - **Production API:** `https://api.kpnsolute.com/compute` through the unified KpnSolute gateway. Product and provider hostnames remain compatibility endpoints.
 
 ### TWO REPOS — NEVER MIX THESE (read before touching git or `.env`)
@@ -144,6 +145,17 @@ These rules are mandatory for all inventory formulas, API responses, dashboards,
 - Invoice goods totals and invoice `net_total` are separate reconciliation/payables metrics. They must not replace inventory received value or be silently presented as inventory value.
 - Imported/stored `opening_value`, `received_value`, `pulled_value`, and `ending_value` are audit inputs only. Writers and readers recompute them from quantities and the monthly unit price.
 
+### 4B. TENANCY MODEL (added 2026-09-11 — this section did not exist before; verify against live code before trusting old habits)
+
+KpnCompute is a pooled multi-tenant platform: **one** shared Postgres database, **one** codebase on `main`, row-level `tenant_id` scoping — not a fork or branch per organization. `centers` (§4) is just one ordinary tenant-owned table, not a parallel tenant concept; `tenants` is the actual multi-tenant root table, seeded with exactly one row (`slug='mjcc'`) that all pre-existing MJCC data was backfilled onto.
+
+- **Enforcement layer:** `backend/tenancy.py` — `TenantScopedClient` wraps the privileged Supabase client and auto-appends `.eq("tenant_id", ...)` to reads/writes for every table in `TENANT_TABLES`/`TENANT_VIEWS` (~60 tables) and stamps `p_tenant_id` into params for the 10 RPCs in `TENANT_RPCS`. RLS exists as defense-in-depth, not the primary boundary.
+- **Rollout mode:** a `legacy → shadow → enforced` flag (`backend/config_flags.py`, `tenancy_mode()`), currently **`legacy`**. In legacy mode, a request with no tenant context resolves to the `mjcc` default (`KPNCOMPUTE_DEFAULT_TENANT_SLUG` env var) rather than failing closed — a deliberate compatibility bridge during rollout, not a bug.
+- **Request context:** resolved per-request via FastAPI dependency injection (`backend/routes/_deps.py`) from `X-Kpn-Workspace` / `X-Kpn-Tenant-Id` headers — not subdomain-based, not a build-time flag.
+- **Workspace provisioning:** `backend/routes/workspaces.py`, `POST /api/workspaces` → `create_workspace_with_owner` RPC, disabled entirely while in `legacy` mode.
+- **Status as of 2026-09-11:** the retrofit shipped 2026-08-16 (v0.2.0/v0.2.1/v0.3.0) and is live — `/mjcc` is confirmed gated behind a real workspace sign-in check in production. It is **not fully proven**: a second tenant has only ever been verified inside a rolled-back test transaction, never persisted in production, and the week after launch produced a cluster of same-day "fix stale unscoped X" commits (duplicate FKs, unscoped RPC overloads, an unscoped trigger cascade) — i.e. code paths were still being found that hadn't picked up tenant scoping. See I-11.
+- **Do not** assume any pre-2026-08-16 assumption about "the database" still holds without checking `tenant_id` — a query or RPC that isn't tenant-scoped will silently read/write across tenants once a second tenant exists.
+
 ---
 
 ## 5. FILE OWNERSHIP & FORBIDDEN ZONES
@@ -205,13 +217,15 @@ These rules are mandatory for all inventory formulas, API responses, dashboards,
 - **I-1 — Schema fiction (RESOLVED, verified 2026-07-15).** Zero live code references to `inventory_sync`, `cycle_menu`, `menu_entries`, or `menu_cycles` remain in backend/ or frontend/src/ — only historical migrations and one comment. `seed_data.py` is clean.
 - **I-2 — Frontend/backend disconnect (IN PROGRESS).** Historically the frontend never called FastAPI. The §3 Option-A wiring is the active migration — verify each module actually hits `VITE_API_BASE` before calling it done.
 - **I-3 — Auth model conflict (RESOLVED, verified 2026-07-15).** `user_profiles` has NO `password` column — and `backend/staging/dispatch.py` now respects that: `dispatch_user_create` builds its row without a `password` key and `dispatch_user_update` explicitly excludes it (`_EXCLUDED = {"user_id", "password"}`). Admin/manager creation goes through Supabase Auth (`users.py`). Keep it that way — any code writing `password` to `user_profiles` is a bug.
-- **I-4 — HACCP logs persistence (HIGH).** `haccp_logs` table is real and `logs.py` is schema-valid, but the frontend still writes to localStorage (`mjc_log_*`). Frontend wiring to `POST /api/logs/haccp` not done.
+- **I-4 — HACCP logs persistence (RESOLVED, per CHANGELOG v0.1.32, 2026-08-03; corrected in this file 2026-09-11 — it had stayed marked HIGH/open for over a month after the actual fix).** `api.getHaccpTempGrid`/`saveHaccpTempGrid` read/write the real `haccp_logs` table directly; `TemperatureLog` no longer falls back to the local `mjc_log_*` blob. If you find code still writing that localStorage path for HACCP specifically, that's a regression, not the original state.
 - **I-5 — Styling contract (MEDIUM).** Docs say "Tailwind only"; app ships a large bespoke `index.css`. Pick one story.
 - **I-6 — Changelog vs reality drift (MEDIUM).** Historical changelog versions don't match git tags and contain aspirational claims. The new forum format (§8) + push-tracking line is the fix going forward. History is append-only — do not rewrite it.
 - **I-7 — CI broken (MEDIUM).** `.github/workflows/deploy.yml` installs `requirements-dev.txt` and runs `pytest` against `tests/`. A `tests/` dir and a `backend/requirements-dev.txt` now exist in the working tree — confirm the workflow paths match before relying on CI. The root-level `requirements-dev.txt` was removed in the 2026-06-04 cleanup.
 - **I-8 — `.env.example` drift (LOW).** May list stale vars not used by the FastAPI stack. Reconcile against real `.env` keys.
 - **I-9 — Phantom agents (LOW).** "Catch21", "Github", "Orchestrator" are role labels, not real running agents. Treat as conventions.
 - **I-10 — Tracked migrations cannot rebuild the live DB (MEDIUM, found 2026-07-15 audit).** Migrations 018–021 still define `audit_inventory_period` against columns dropped by v4.22.0; the live functions were fixed via MCP but never captured in git. Live `revert_to_commit` is STILL stale (references dropped columns) — currently dead code with no callers, but it breaks the day revert is wired. Before building a fresh environment or wiring revert: dump the live function bodies (`pg_get_functiondef`) into a new tracked migration.
+- **I-11 — Tenancy rollout unproven past one tenant (MEDIUM, found 2026-09-11 audit).** See §4B. `legacy` mode is live and stable for MJCC, but "does every tenant-scoped code path actually stay isolated" has never been tested against a real second tenant in production — only in a rolled-back transaction. Don't treat the multi-tenant foundation as finished; treat it as unverified at scale until a real `shadow`-mode cutover with a second tenant is planned and run.
+- **I-12 — Release-gate version bookkeeping had silently stopped enforcing (MEDIUM, found 2026-09-11).** `VERSION` (and `frontend/package.json`/`package-lock.json`) sat at `0.3.10` — the last actually-tagged release — while `CHANGELOG.md` advanced through v0.3.16 without ever bumping it. `.githooks/pre-commit` → `scripts/verify_release.py` checks this on every commit, but it no-ops in any environment without a runnable Python (`.venv`), so this went unenforced for six versions' worth of local commits. Bumped to `0.3.18` (2026-09-11) to unblock further work; if you hit "vX.X.X already exists on `<sha>`" on commit, this is why — bump `VERSION` and both `frontend/package*.json` version fields together.
 
 ---
 
@@ -358,7 +372,7 @@ MJCC/
 
 | Tool | Purpose | How to use |
 |------|---------|------------|
-| **GitHub** | Source control, PRs, issues, CI | `git status` / `git diff` / `git log`. `gh` when installed: `gh pr list`, `gh issue view`, `gh run list`. **Origin** = `muttyman2000/MJCC-Managements-.git` only (§2). |
+| **GitHub** | Source control, PRs, issues, CI | `git status` / `git diff` / `git log`. `gh` when installed: `gh pr list`, `gh issue view`, `gh run list`. **Origin** = `KpnSolute/Compute.git` only (§2) — corrected 2026-09-11, this row previously said `muttyman2000/MJCC-Managements-.git`, which contradicted §2's own table and doesn't match the actual configured remote. |
 | **Supabase** | Live schema, SQL, advisors, migrations | **MCP** (preferred): `.cursor/mcp.json` → `list_tables`, `execute_sql`, `apply_migration`, security/performance advisors. **CLI**: `supabase` at `/usr/local/bin/supabase`. Project: `MJCCv1` (`mgvyylvmkxhhataavqjz`). |
 | **Render** | Production deploys, logs, SSH, restart | `render services` → resolve IDs → `render logs -r <id>`, `render deploys create <id>`, `render ssh <id>`. Full reference: §10. |
 | **MJCC-debugger** | Cross-stack diagnosis, fix plans | Launch via Task/subagent: `.claude/agents/Debugy.md`. Diagnoses only — coordinates with Gemini for research, logs plan to `CHANGELOG.md`. |
@@ -380,7 +394,7 @@ Read `mjcc-tooling/SKILL.md` in your runtime's skills dir for the quick-referenc
 
 | Server | Config | Auth |
 |--------|--------|------|
-| **Supabase** | `.cursor/mcp.json` + `.vscode/mcp.json` (and equivalent in agent roots) | `SUPABASE_MCP_TOKEN` env var |
+| **Supabase** | `.mcp.json` + `.cursor/mcp.json` + `.vscode/mcp.json` (all three, kept in sync; `--project-ref=mgvyylvmkxhhataavqjz`) | `SUPABASE_ACCESS_TOKEN` env var (corrected 2026-09-11 — this row previously said `SUPABASE_MCP_TOKEN`, which isn't what the config files actually use) |
 | **cursor-ide-browser** | Cursor built-in | For UI verification when asked |
 | **chrome-devtools (browser)** | In `.mcp.json` + `.vscode/mcp.json` (see mjcc-tooling/SKILL.md "Browser / Chrome DevTools..." section for exact snippets + workflow). Lets any agent autonomously inspect Network tab traffic to the prod backend (`/api/*`) while driving the UI — the primary way to see real request/response shapes, auth, errors during frontend dev. **Playwright MCP was removed (unstable) — see CHANGELOG v1.5.3.** | Local process (`cmd /c npx -y chrome-devtools-mcp@latest`); drives installed Chrome over CDP. |
 | **TestSprite** | Autonomous test-plan generation + isolated cloud sandbox runs; parses edge-case failures and surfaces self-repair recommendations. Claude offloads testing/sandboxing here when near context/rate limits. | TestSprite MCP server. |
