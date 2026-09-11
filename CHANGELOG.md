@@ -1,5 +1,46 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.20] — 2026-09-11 — fix the connection-pool bug behind ~97% of production 500s
+
+**Claude:** A live fault check found 193 errors in the production logs between
+2026-09-09 15:41 and 2026-09-11 22:13, and **188 of them were one bug**.
+`backend/routes/__init__.py` builds the Supabase clients as process-lifetime
+singletons; postgrest constructs its own httpx client with `http2=True` and no
+keepalive expiry. Supabase closes idle connections, the pool then hands the dead
+socket to the next request, and it dies on read. Nothing in the backend retries,
+so each one became a 500 — roughly one every 17 minutes, on exactly the calls the
+Portal makes when someone opens the app: `/api/inventory` (51), `/api/commits`
+(59), `/api/staging` (58), `/api/auth/me` (19), and once on the public
+`/api/public/menu/today` that feeds Scena and LunchVoice.
+
+The stranger entries were the same bug, not separate ones: HTTP/2 stream ids are
+odd-numbered, and a `ConnectionTerminated last_stream_id:13` lands in the same
+burst as a bare `KeyError: 15` — the h2 state machine torn out from under an
+in-flight request.
+
+**Fix:** pass an explicit `httpx_client` through `ClientOptions` — `http2=False`
+(removes the stream-corruption class outright), `keepalive_expiry=15s` (drops
+idle sockets locally before Supabase drops them, which is the actual fix for the
+stale reads), `retries=2`, and the 120s timeout preserved to match postgrest's own
+default so request budgets are unchanged. A fresh client per `create_client`,
+since supabase sets headers on the client it is handed and the anon and
+service-role clients must not share one.
+
+Also fixed `prevent_inventory_overpull` (shipped in v0.3.17 earlier today) to set
+`search_path` — it was the only function in the database flagged by Supabase's
+security advisor, against a convention 56 other migrations already follow. The
+function body is byte-identical otherwise.
+
+**Verified:** the pool settings were asserted against the live httpx pool object,
+not the constructor arguments — passing `transport=` to `httpx.Client` silently
+ignores client-level `http2`/`limits`, which is a plausible way to write this fix
+so that it does nothing. Confirmed `_http2=False`, `_keepalive_expiry=15.0`,
+`_retries=2`, `timeout=120.0`, and distinct client objects for anon vs admin.
+Ruff clean; full backend suite **359 passed, 15 skipped** (5 new regression
+tests in `test_supabase_pool_config.py`).
+
+**Push:** pending.
+
 ## [v0.3.19] — 2026-09-11 — sync AGENTS.md to the tenancy retrofit
 
 **Claude:** AGENTS.md claims to be mandatory first-reading and the single

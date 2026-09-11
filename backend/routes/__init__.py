@@ -3,7 +3,8 @@ import os
 import jwt
 from pathlib import Path
 
-from supabase import create_client
+import httpx
+from supabase import ClientOptions, create_client
 from dotenv import load_dotenv
 from backend.tenancy import TenantScopedClient
 
@@ -34,8 +35,45 @@ if not SUPABASE_JWT_SECRET:
         stacklevel=2,
     )
 
-supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+def _supabase_options() -> ClientOptions:
+    """Client options whose pool recycles connections before Supabase drops them.
+
+    postgrest otherwise builds its own httpx client with `http2=True` and no
+    keepalive expiry, and these clients are process-lifetime singletons. Supabase
+    closes idle connections; reusing one afterwards fails on read, which showed up
+    as a burst of 500s across /api/inventory, /api/commits, /api/staging and
+    /api/auth/me every time traffic went quiet (ReadError EAGAIN, plus h2 stream
+    corruption). A short keepalive_expiry drops idle sockets locally first, and
+    HTTP/1.1 removes the h2 state-machine failures entirely.
+
+    Builds a fresh httpx client per call: supabase sets headers on the client it
+    is handed, so the anon and service-role clients must not share one.
+    """
+    return ClientOptions(httpx_client=pooled_httpx_client())
+
+
+def pooled_httpx_client() -> httpx.Client:
+    """The httpx client the Supabase clients are built on. See _supabase_options."""
+    return httpx.Client(
+        transport=httpx.HTTPTransport(
+            retries=2,
+            http2=False,
+            limits=httpx.Limits(
+                max_connections=50,
+                max_keepalive_connections=10,
+                keepalive_expiry=15.0,
+            ),
+        ),
+        # Matches postgrest's own default so request budgets are unchanged.
+        timeout=httpx.Timeout(120.0),
+    )
+
+
+supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY, options=_supabase_options())
+supabase_admin = create_client(
+    SUPABASE_URL, SUPABASE_SERVICE_KEY, options=_supabase_options()
+)
 supabase_service = TenantScopedClient(supabase_admin)
 
 
