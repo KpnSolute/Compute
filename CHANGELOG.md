@@ -1,5 +1,34 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.18] — 2026-09-11 — apply the over-pull backstop live; five 2026-07 rows no longer present
+
+**Claude (via Codex, live apply + verify):** Applied migration
+`20260911115407_prevent_new_inventory_overpulls.sql` to production (project
+`mgvyylvmkxhhataavqjz`) through Codex's own `supabase_kpncompute` MCP
+connection — my session's Supabase MCP token is still unauthorized, so Codex
+ran the live half under its own credentials, narrowly scoped to this one
+migration by explicit instruction. The live function was still the old
+blanket `pulled > available` check; it's now replaced with the OLD/NEW-aware
+version, and the `monthly_inventory_no_overpull` trigger is confirmed
+enabled.
+
+**Verification found a surprise, not a failure:** querying
+`public.monthly_inventory` for `month=6, year=2026` (July is 0-indexed per
+AGENTS.md §4) for the over-pull condition returned **zero rows** — the five
+rows v0.1.28 documented as genuine and deliberately preserved (8 units /
+$288.57) are no longer in that state. Whatever resolved them isn't captured
+here; this pass only confirms they're gone, not why. Because no row currently
+qualifies, the planned live proof (a no-op write against a real over-pulled
+row, confirming the trigger doesn't reject it) couldn't run — Codex correctly
+refused to substitute a different period or fabricate a row rather than skip
+the step. The trigger's OLD/NEW behavior is still verified, just via the 7
+Python unit tests in `backend/tests/test_overpull_guard.py` (v0.3.17) rather
+than a live example. No inventory values, other rows, or other tables were
+touched during any of this.
+
+**Push:** not applicable — database-only change; source was already pushed in
+v0.3.17.
+
 ## [v0.3.17] — 2026-09-11 — DB-level backstop for new inventory over-pulls
 
 **Claude:** Reviewed the dead `codex/inventory-overpull-guard` branch (2026-07-30,
