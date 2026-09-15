@@ -59,27 +59,27 @@ export const NAV = [
     items: [{ key: 'dashboard', label: 'Dashboard', icon: 'grid', min: 10 }],
   },
   {
-    group: 'Data Entry',
+    group: 'Inventory',
     items: [
       { key: 'inventory', label: 'Inventory', icon: 'box', min: 10 },
       { key: 'moninv', label: 'Monthly Inventory', icon: 'fileText', min: 20 },
-      { key: 'pullsheet', label: 'Pull Sheet', icon: 'clipboard', min: 30 },
-      { key: 'mballot', label: 'Meal Log', icon: 'users', min: 10 },
+      { key: 'pullsheet', label: 'Pull Sheet', icon: 'scan', min: 30 },
       { key: 'foodreq', label: 'Food Request', icon: 'inbox', min: 10 },
-      { key: 'dataentry', label: 'Data Entry', icon: 'inbox', min: 20 },
+      { key: 'dataentry', label: 'Data Entry', icon: 'edit', min: 20 },
     ],
   },
   {
-    group: 'Logs',
+    group: 'Daily Logs',
     items: [
-      { key: 'haccp', label: 'HACCP & Logs', icon: 'thermo', min: 20 },
+      { key: 'mballot', label: 'Meal Log', icon: 'qr', min: 10 },
+      { key: 'haccp', label: 'HACCP & Compliance', icon: 'thermo', min: 20 },
       { key: 'dailyops', label: 'Flow', icon: 'checkSquare', min: 20 },
       { key: 'inspection', label: 'Inspection Sheet', icon: 'clipboard', min: 20 },
       { key: 'snackbar', label: 'Snack Bar', icon: 'coffee', min: 20 },
     ],
   },
   {
-    group: 'Calendar',
+    group: 'Planning',
     items: [
       { key: 'events', label: 'Events & Programs', icon: 'calCheck', min: 10 },
       { key: 'menu', label: '28-Day Menu', icon: 'book', min: 20 },
@@ -93,7 +93,7 @@ export const NAV = [
       { key: 'reports', label: 'Reports', icon: 'download', min: 10 },
       { key: 'archives', label: 'Archives', icon: 'archive', min: 20 },
       { key: 'filevault', label: 'File Vault', icon: 'database', min: 30 },
-      { key: 'lioncafe', label: 'LionCafe', icon: 'coffee', min: 30 },
+      { key: 'lioncafe', label: 'LionCafe', icon: 'eye', min: 30 },
     ],
   },
   {
@@ -106,19 +106,50 @@ export const NAV = [
     group: 'AI Studio',
     items: [
       { key: 'ai-usage',   label: 'My Usage',   icon: 'trend',    min: 30 },
-      { key: 'ai-tools',   label: 'Tools',       icon: 'database', min: 30 },
+      { key: 'ai-tools',   label: 'Tools',       icon: 'terminal', min: 30 },
       { key: 'ai-presets', label: 'Automation',  icon: 'flame',    min: 30 },
     ],
   },
   {
     group: 'Administration',
     items: [
-      { key: 'organization', label: 'Organization', icon: 'users', min: 30 },
+      { key: 'organization', label: 'Organization', icon: 'shield', min: 30 },
       { key: 'users', label: 'Users & Access', icon: 'users', min: 30 },
       { key: 'settings', label: 'Settings', icon: 'settings', min: 40 },
     ],
   },
 ];
+
+// Extra terms for Smart Search (Ctrl+S): how staff describe the task, not
+// only the page name.
+export const NAV_KEYWORDS: Record<string, string[]> = {
+  dashboard: ['home', 'overview', 'summary', 'today'],
+  inventory: ['stock', 'items', 'on hand', 'par', 'reorder', 'sku', 'products'],
+  moninv: ['month end', 'monthly count', 'closing value', 'opening value', 'period'],
+  pullsheet: ['pull', 'issue', 'withdraw', 'weekly pull', 'usage'],
+  foodreq: ['order', 'request food', 'requisition'],
+  dataentry: ['import', 'upload', 'invoice', 'pdf', 'excel', 'csv', 'spreadsheet'],
+  mballot: ['meals', 'meal count', 'tickets', 'staff meals', 'visitor', 'ballot'],
+  haccp: ['temperature', 'temp log', 'cooler', 'freezer', 'thermometer', 'food safety', 'logs'],
+  dailyops: ['checklist', 'opening', 'closing', 'incident', 'schedule', 'daily operations'],
+  inspection: ['audit', 'inspection checklist', 'sanitation'],
+  snackbar: ['snacks', 'sales', 'store', 'shop'],
+  events: ['calendar', 'programs', 'catering', 'schedule'],
+  menu: ['cycle menu', 'recipes', 'meal plan', 'breakfast', 'lunch', 'dinner'],
+  servsafe: ['certification', 'training', 'food handler', 'expiration'],
+  sourcectrl: ['commits', 'approvals', 'review queue', 'history', 'diff', 'changes', 'pull request', 'submissions'],
+  reports: ['export', 'print', 'pdf', 'summary report'],
+  archives: ['past periods', 'old records'],
+  filevault: ['files', 'documents', 'invoices', 'uploads', 'attachments'],
+  lioncafe: ['lunchvoice', 'menu review', 'feedback'],
+  costmgr: ['budget', 'spend', 'allotment', 'cost', 'money'],
+  'ai-usage': ['ai', 'tokens', 'credits'],
+  'ai-tools': ['ai', 'models'],
+  'ai-presets': ['ai', 'presets', 'workflows'],
+  organization: ['tenant', 'workspace', 'company', 'center'],
+  users: ['staff', 'roles', 'permissions', 'access', 'accounts', 'pins'],
+  settings: ['preferences', 'appearance', 'theme', 'dark mode', 'profile', 'account'],
+};
 
 export const COOKING_TEMPS = [
   { temp: '165°F (74°C)', hold: '15 sec', foods: 'Poultry (solid & ground); stuffed foods; dishes with previously cooked PHF ingredients.' },

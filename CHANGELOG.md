@@ -1,5 +1,92 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.23] — 2026-09-15 — Smart Search, Explorer regroup, theme auto-detect, UI foundation
+
+**Claude (now owning UI and user interaction, per user direction):**
+
+- **Explorer sidebar.** Regrouped and renamed: Overview, **Inventory**
+  (Inventory, Monthly Inventory, Pull Sheet, Food Request, Data Entry),
+  **Daily Logs** (Meal Log moved here from Data Entry, HACCP & Compliance —
+  was "HACCP & Logs" — Flow, Inspection Sheet, Snack Bar), **Planning** (was
+  Calendar), Records, Finance, AI Studio, Administration. Duplicate icons were
+  replaced so every entry is distinct. Groups collapse and remember their state
+  (localStorage `kpn_sidebar_collapsed`); a group holding the current page never
+  hides it, and a collapsed group still shows its pending count (Inventory
+  reorders, Source Control staged + SKU review) on its header. The Explorer
+  header has a Search button.
+- **Smart Search.** A new command palette (`components/ui/CommandPalette.tsx`,
+  ranking in `lib/commandSearch.ts`), opened by a new search icon on the
+  activity bar, the Explorer button, or **Ctrl+S / Cmd+S** (Ctrl+K also works).
+  The shortcut is captured, so the browser's Save Page dialog no longer opens
+  inside the portal; nothing in the app used Ctrl+S before. It searches every
+  page the user can reach, using the same scope and role checks as the sidebar
+  and `goTo`. Search terms describe the task (`NAV_KEYWORDS`: "temperature" finds
+  HACCP, "tickets" finds Meal Log). Also: typo-tolerant abbreviations, recent
+  items, quick actions (light/dark/system theme, open Explorer, Source Control
+  panel, refresh), full keyboard control, and combobox/listbox ARIA.
+- **Theme auto-detection.** `getThemePref` defaulted to `light`, so "auto" never
+  applied to anyone who hadn't chosen, and the theme was only applied after the
+  Portal mounted. The default is now `auto`, `initTheme()` runs in `main.tsx`
+  before the first render (login included) and follows OS changes for the whole
+  session, and the Portal syncs the account-level theme on mount rather than
+  only when Settings is opened. `color-scheme` and `theme-color` now track the
+  theme. **Behavior change:** users who never picked a theme now follow their OS
+  instead of always getting light.
+- **UI foundation (CSS).** 19 surfaces hard-coded `background:#fff` (cards,
+  sidebar, buttons, user menu, calendar cells, toggles…) now use
+  `var(--surface)` — identical in light mode, no longer relying on a matching
+  dark override. New shared tokens: `--focus-ring`, `--hover-bg`,
+  `--popover-bg/-shadow`, `--overlay-bg`, `--control-border-hover`. Inputs and
+  selects share one hover and focus ring (the `.field` and `.cinp` rings were navy,
+  near-invisible in dark). Dropdowns (user menu, report period, pull select)
+  share one popover style; dark menus previously disagreed (surface vs
+  surface-2). Modals get a readable title (was 13px muted), a 32px close
+  target, and a footer divider. There is one keyboard focus ring, and
+  reduced-motion users get no animation. Dark `--faint` was raised from `#484f58`
+  (about 2.2:1) to `#6e7681`; section labels were a fixed slate. Dark active nav
+  items use an accent bar matching the activity bar.
+- **Dark-mode sweep.** A live audit across 16 of the 25 portal pages in dark mode
+  found navy-colored text (`color:var(--navy)`, e.g. Inventory category totals),
+  which is unreadable because navy is a dark-theme background. It also found
+  light inline icon tiles on stat cards. Both are fixed as classes: every
+  navy-text rule gets a dark override, and `.sc-ic` tiles derive their dark
+  background from their own tint. Reading the stylesheet also turned up Flow
+  priority chips with fixed light colors and chart tooltips whose `var(--ink)`
+  background turns light behind white text in dark mode; both now have dark
+  overrides. The remaining 9 pages (Records through Administration) were not
+  swept by the script.
+
+**Codex (backend brief, isolated worktree `codex/unified-search-api`):** asked
+to build Smart Search Phase 2 — a tenant-scoped, role-aware, read-only
+`GET /api/search` for records (inventory items, events, menu items, commits,
+users) — and an optional `ui` object on `/api/users/me/preferences`, so
+collapsed groups and recent searches follow the user across devices. Codex
+checked `loom/governance/PRODUCT_CHANGE_CONTROL.md`, found both are **material
+API/authorization contract changes** with no existing Loom verdict, and
+**stopped with no code changes**, as instructed. Phase 2 is blocked until Loom
+records an "approved with conditions" verdict covering the search contract, the
+preferences contract, and tenant/role/user-record visibility. The frontend
+palette ships Phase 1 (features and actions only) and needs no backend change.
+
+**Codex (read-only review of this release, requested by Claude):** five
+findings, all fixed before commit:
+
+1. High: Ctrl/Cmd+K was captured even while typing. Ctrl+S stays global, as
+   the user asked, since it has no editing meaning. Ctrl+K is now skipped in
+   text fields.
+2. Medium: the palette overlay (z-index 1000) sat below AgentBubble (9000). It
+   is now 10050.
+3. Medium: a slow server theme read could overwrite a choice made while it was
+   in flight. A theme revision counter now discards stale reads.
+4. Medium: opening search from the Explorer could restore focus to the
+   off-screen sidebar. The trigger now drops focus first.
+5. Low: the pointer cursor leaked onto text inputs that share `.ipt.sel`. It is
+   now `select` only.
+
+Codex found no role/scope leak, theme flash, or unintended light-mode change.
+
+**Push:** pending.
+
 ## [v0.3.22] — 2026-09-14 — Source Control page layout polish
 
 **Claude:** Follow-up to Codex's v0.3.21 timeline after user feedback that the
@@ -43,7 +130,10 @@ diff returned to the intended size.
 errors** (686 warnings, unchanged); `scripts/verify_release.py` passed for
 v0.3.22 on the final tree.
 
-**Push:** pending.
+**Push:** Claude → `06e2453` — 2026-09-14. CI run 34923046106 green (gate +
+tag/release v0.3.22); Render frontend deploy `dep-dakb7d3ncjis73d6q6vg` live on
+that commit. Live-verified in an authenticated session: new header/tabs/toolbar
+render, and closing Review Queue with Escape returns to Changes.
 
 ## [v0.3.21] — 2026-09-14 — Git-style Source Control history and field diffs
 

@@ -8,9 +8,12 @@ import {
     ROLE_LABEL,
     MONTHS,
     NAV,
+    NAV_KEYWORDS,
     DOW_FULL,
 } from "../lib/constants";
 import { useEscapeClose } from "../lib/useEscapeClose";
+import { CommandPalette } from "./ui/CommandPalette";
+import type { PaletteItem } from "../lib/commandSearch";
 import * as draftsLib from "../lib/drafts";
 
 // Compact-table cell handlers — module-level so they're not recreated per render
@@ -52,7 +55,7 @@ import { FlowPanel } from "./FlowPanel";
 import { CostManager } from "./CostManager";
 import { FileVault } from "./FileVault";
 import { Organization } from "./Organization";
-import { getThemePref, applyThemePref } from "../lib/theme";
+import { getThemePref, applyThemePref, saveThemePref, getCurrentThemePref, getThemeRevision, type ThemePref } from "../lib/theme";
 
 let toastTimer: ReturnType<typeof setTimeout>;
 function toast(msg: string) {
@@ -559,6 +562,17 @@ function Topbar({
     );
 }
 
+const SIDEBAR_COLLAPSED_KEY = "kpn_sidebar_collapsed";
+
+function readCollapsedGroups(): string[] {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) || "[]");
+        return Array.isArray(parsed) ? parsed.filter((g): g is string => typeof g === "string") : [];
+    } catch {
+        return [];
+    }
+}
+
 function Sidebar({
     user,
     active,
@@ -567,6 +581,7 @@ function Sidebar({
     stagedCount,
     skuReviewCount,
     allowedScopes,
+    onOpenSearch,
 }: {
     user: User;
     active: string;
@@ -575,20 +590,44 @@ function Sidebar({
     stagedCount: number;
     skuReviewCount: number;
     allowedScopes?: string[] | null;
+    onOpenSearch: () => void;
 }) {
     const lvl = ROLE_LEVEL[user.role];
+    const [collapsed, setCollapsed] = useState<string[]>(readCollapsedGroups);
+    const toggleGroup = (name: string) => {
+        setCollapsed((current) => {
+            const next = current.includes(name) ? current.filter((g) => g !== name) : [...current, name];
+            try { localStorage.setItem(SIDEBAR_COLLAPSED_KEY, JSON.stringify(next)); } catch { /* storage blocked */ }
+            return next;
+        });
+    };
     return (
-        <nav className="sidebar">
-            <div className="explorer-title">Explorer</div>
+        <nav className="sidebar" aria-label="Explorer">
+            <div className="explorer-head">
+                <div className="explorer-title">Explorer</div>
+                <button className="explorer-search" onClick={onOpenSearch} title="Smart Search (Ctrl+S)" aria-keyshortcuts="Control+S">
+                    {I.search()} Search <kbd>Ctrl S</kbd>
+                </button>
+            </div>
             {NAV.map((group) => {
                 // Page visibility is governed by the Role Scopes grid (Users & Access), not the
                 // fixed role level — sudo can grant any page to any role there.
                 const items = group.items.filter((it) => !allowedScopes || allowedScopes.includes(it.key));
                 if (!items.length) return null;
+                // A collapsed group still shows while it holds the current page.
+                const isCollapsed = collapsed.includes(group.group) && !items.some((it) => it.key === active);
+                // Pending work stays visible on a collapsed group's header.
+                const pendingCount = items.reduce((total, it) => total
+                    + (it.key === "inventory" ? reorderCount : 0)
+                    + (it.key === "sourcectrl" ? stagedCount + skuReviewCount : 0), 0);
                 return (
-                    <div key={group.group}>
-                        <div className="nav-group-lbl">{group.group}</div>
-                        {items.map((it) => (
+                    <div key={group.group} className="nav-group" data-collapsed={isCollapsed}>
+                        <button className="nav-group-lbl" onClick={() => toggleGroup(group.group)} aria-expanded={!isCollapsed}>
+                            <span>{group.group}</span>
+                            {isCollapsed && pendingCount > 0 && <span className="nb" title={`${pendingCount} pending`}>{pendingCount}</span>}
+                            {I.down()}
+                        </button>
+                        {!isCollapsed && items.map((it) => (
                             <button
                                 key={it.key}
                                 className="nav-item"
@@ -638,6 +677,8 @@ function ActivityBar({
     scCount,
     goTo,
     allowedScopes,
+    searchOpen,
+    onOpenSearch,
 }: {
     user: User;
     active: string;
@@ -648,6 +689,8 @@ function ActivityBar({
     scCount: number;
     goTo: (k: string) => void;
     allowedScopes?: string[] | null;
+    searchOpen: boolean;
+    onOpenSearch: () => void;
 }) {
     const lvl = ROLE_LEVEL[user.role];
     const [toolsOpen, setToolsOpen] = useState(false);
@@ -672,6 +715,15 @@ function ActivityBar({
                     title="Explorer"
                 >
                     {I.grid({})}
+                </button>
+                <button
+                    className={"ab-btn" + (searchOpen ? " active" : "")}
+                    onClick={onOpenSearch}
+                    title="Smart Search (Ctrl+S)"
+                    aria-label="Smart Search"
+                    aria-keyshortcuts="Control+S"
+                >
+                    {I.search({})}
                 </button>
                 {hasScope("inventory") && (
                     <button
@@ -5266,6 +5318,7 @@ export function Portal({
         new Date().getFullYear(),
     ]);
     const [explorerOpen, setExplorerOpen] = useState(false);
+    const [paletteOpen, setPaletteOpen] = useState(false);
     const [openPrId, setOpenPrId] = useState<string | null>(null); // deep-link target PR for SourceControl
     const [showPullSheet, setShowPullSheet] = useState(false);
     const [scPanelOpen, setScPanelOpen] = useState(false);
@@ -5326,14 +5379,22 @@ export function Portal({
         return () => { window.removeEventListener('mjcc:committed', handler); clearTimeout(t); };
     }, [reloadInv]);
 
-    // Apply saved theme on mount and react to OS preference changes (auto mode)
+    // Apply this user's theme, then adopt the account-level preference so the
+    // choice follows them across devices. OS changes in auto mode are handled
+    // globally by initTheme() in main.tsx.
     useEffect(() => {
-        const pref = getThemePref(user.id);
-        applyThemePref(pref);
-        const mq = window.matchMedia('(prefers-color-scheme: dark)');
-        const handler = () => applyThemePref(getThemePref(user.id));
-        mq.addEventListener('change', handler);
-        return () => mq.removeEventListener('change', handler);
+        applyThemePref(getThemePref(user.id));
+        let alive = true;
+        const startRevision = getThemeRevision();
+        api.getUserPreferences()
+            .then((prefs) => {
+                const t = prefs?.theme;
+                // Skip if the user picked a theme while this request was in flight.
+                if (!alive || getThemeRevision() !== startRevision) return;
+                if (t === 'light' || t === 'auto' || t === 'dark') saveThemePref(user.id, t);
+            })
+            .catch(() => { /* local preference already applied */ });
+        return () => { alive = false; };
     }, [user.id]);
 
     const allowedScopes = roleScopes?.[user.role] || null;
@@ -5375,6 +5436,53 @@ export function Portal({
         }
         setActive(routeKey);
     };
+
+    // Smart Search: Ctrl+S / Cmd+S toggles the feature palette from anywhere.
+    // Captured so the browser's "Save page" never opens (nothing in the app
+    // saves on Ctrl+S). Ctrl+K also works, but not while typing in a field,
+    // where it can mean "delete to end of line".
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+            const key = e.key.toLowerCase();
+            if (key !== "s" && key !== "k") return;
+            const target = e.target as HTMLElement | null;
+            const typing = !!target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+            if (key === "k" && typing && !target.classList.contains("cmdk-input")) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setPaletteOpen((open) => !open);
+        };
+        window.addEventListener("keydown", onKey, true);
+        return () => window.removeEventListener("keydown", onKey, true);
+    }, []);
+
+    const setThemeFromPalette = (pref: ThemePref) => {
+        saveThemePref(user.id, pref);
+        api.updateUserPreferences({ theme: pref }).catch(() => { /* applied locally */ });
+        toast(pref === "auto" ? "Theme now follows your system" : `Switched to ${pref} theme`);
+    };
+    const currentTheme = getCurrentThemePref();
+    // Built only while open; uses the same scope + role checks as the sidebar and goTo.
+    const paletteItems: PaletteItem[] = !paletteOpen ? [] : [
+        ...NAV.flatMap((group) => group.items
+            .filter((it) => hasScope(it.key) && canAccess(it.key))
+            .map((it) => ({
+                id: `nav:${it.key}`,
+                label: it.key === "sourcectrl" && lvl < 20 ? "My Submissions" : it.label,
+                group: group.group,
+                icon: it.icon,
+                hint: it.key === active ? "Current page" : undefined,
+                keywords: NAV_KEYWORDS[it.key],
+                run: () => goTo(it.key),
+            }))),
+        { id: "action:theme-light", label: "Use light theme", group: "Actions", icon: "eye", keywords: ["appearance", "light mode"], hint: currentTheme === "light" ? "Current" : undefined, run: () => setThemeFromPalette("light") },
+        { id: "action:theme-dark", label: "Use dark theme", group: "Actions", icon: "eyeOff", keywords: ["appearance", "dark mode", "night"], hint: currentTheme === "dark" ? "Current" : undefined, run: () => setThemeFromPalette("dark") },
+        { id: "action:theme-auto", label: "Match system theme", group: "Actions", icon: "settings", keywords: ["appearance", "auto", "system", "os"], hint: currentTheme === "auto" ? "Current" : undefined, run: () => setThemeFromPalette("auto") },
+        { id: "action:explorer", label: "Open Explorer", group: "Actions", icon: "grid", keywords: ["sidebar", "menu", "navigation"], run: () => setExplorerOpen(true) },
+        ...(hasScope("sourcectrl") ? [{ id: "action:sc-panel", label: "Open Source Control panel", group: "Actions", icon: "branch", keywords: ["staged", "commit", "changes"], run: () => setScPanelOpen(true) }] : []),
+        { id: "action:refresh", label: "Refresh live data", group: "Actions", icon: "refresh", keywords: ["reload", "sync", "update"], run: doSync },
+    ];
 
     const reorderCount = invState.inv ? reorders(invState.inv).length : 0;
 
@@ -5489,6 +5597,8 @@ export function Portal({
                 scCount={stagedCount}
                 goTo={goTo}
                 allowedScopes={allowedScopes}
+                searchOpen={paletteOpen}
+                onOpenSearch={() => setPaletteOpen(true)}
             />
             <Sidebar
                 user={user}
@@ -5501,6 +5611,12 @@ export function Portal({
                 stagedCount={stagedCount}
                 skuReviewCount={skuReviewCount}
                 allowedScopes={allowedScopes}
+                onOpenSearch={() => {
+                    // Drop focus first so closing the palette doesn't return it to the off-screen sidebar.
+                    (document.activeElement as HTMLElement | null)?.blur();
+                    setExplorerOpen(false);
+                    setPaletteOpen(true);
+                }}
             />
             {explorerOpen && (
                 <div
@@ -5552,6 +5668,7 @@ export function Portal({
                 onSkuReviewCount={(n) => setSkuReviewCount(n)}
             />
             <AgentBubble user={user} />
+            {paletteOpen && <CommandPalette items={paletteItems} onClose={() => setPaletteOpen(false)} />}
         </div>
     );
 }
