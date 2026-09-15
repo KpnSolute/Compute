@@ -1,5 +1,31 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.21] — 2026-09-14 — Git-style Source Control history and field diffs
+
+**Codex:** Replaced the full-page History tab's flat 800-row transaction table
+with a commit-first timeline modeled on familiar Git clients. Each commit now
+expands on demand into logical changed records, with explicit `A`, `M`, and `D`
+markers; selecting a record opens its granular field-level before/after diff.
+The timeline also exposes author, relative and exact time, branch, commit/SHA,
+pull-request context, archive-sync state, change totals, search, and sync-state
+filtering. The old transaction component remains exported for any future raw
+ledger surface, but it is no longer the primary History experience.
+
+**API:** Added an optional read-only `commit_id` filter to
+`GET /api/transactions` and the matching frontend client option. Expanded
+commits fetch only their own recorded `commit_changes`, so historical detail is
+not silently limited by the prior global 800-row cap. No write path, database
+schema, tenant scoping, approval rule, or commit semantics changed.
+
+**Verified:** frontend unit tests **48 passed** (3 new diff-grouping/marker
+tests); frontend production build passed; ESLint **0 errors** with 686 existing
+warnings; backend suite **360 passed, 15 skipped**; Ruff clean on the touched
+backend route/test; `git diff --check` passed. Local unauthenticated `/mjcc`
+routes to the public product shell, so an authenticated visual click-through of
+real commit history remains pending. No production or database change was made.
+
+**Push:** pending — working tree only; not committed or deployed.
+
 ## [v0.3.20] — 2026-09-11 — fix the connection-pool bug behind ~97% of production 500s
 
 **Claude:** A live fault check found 193 errors in the production logs between

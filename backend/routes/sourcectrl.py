@@ -1264,6 +1264,7 @@ async def get_transactions(
     action: Optional[str] = None,
     month: Optional[int] = None,
     year: Optional[int] = None,
+    commit_id: Optional[str] = None,
     auth_user: dict = Depends(_get_auth_user),
 ):
     try:
@@ -1278,6 +1279,8 @@ async def get_transactions(
             q = q.eq("month", month)
         if year is not None:
             q = q.eq("year", year)
+        if commit_id:
+            q = q.eq("commit_id", commit_id)
         changes_r = (
             q.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
         )

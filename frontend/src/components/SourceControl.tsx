@@ -6,6 +6,7 @@ import { useEscapeClose } from "../lib/useEscapeClose";
 import { PageToolbar } from "./ui/ActionBars";
 import { StatusPill } from "./ui/StatusPill";
 import { matchesInventoryQuery, parseInventoryQuery } from "../lib/inventorySearch";
+import { displayDiffValue, groupCommitChanges, type LogicalCommitChange } from "../lib/sourceControlDiff";
 
 const t = (msg: string) => (window as any).toast?.(msg);
 
@@ -180,7 +181,7 @@ function periodLabel(txn: SourceTransaction) {
     return `${week} - ${month || "Period"} ${year}`.trim();
 }
 
-function TransactionLogView({ active }: { active: boolean }) {
+export function TransactionLogView({ active }: { active: boolean }) {
     const [rows, setRows] = useState<SourceTransaction[]>([]);
     const [loading, setLoading] = useState(false);
     const [search, setSearch] = useState("");
@@ -319,6 +320,142 @@ function TransactionLogView({ active }: { active: boolean }) {
                         })}
                     </tbody>
                 </table>
+            </div>
+        </div>
+    );
+}
+
+function CommitEntityDiff({ group }: { group: LogicalCommitChange }) {
+    return (
+        <div className="sc-diff-panel" role="region" aria-label={`Diff for ${group.label}`}>
+            <div className="sc-diff-head">
+                <span className={`sc-diff-marker marker-${group.marker.toLowerCase()}`}>{group.marker}</span>
+                <div><strong>{group.label}</strong><code>{group.path}</code></div>
+                <span>{group.rows.length} field{group.rows.length === 1 ? "" : "s"}</span>
+            </div>
+            <div className="sc-diff-table" role="table" aria-label="Changed fields">
+                {group.rows.map((row, index) => {
+                    const field = row.field_name || row.field || "value";
+                    return (
+                        <div className="sc-diff-row" role="row" key={row.change_id || `${group.key}-${field}-${index}`}>
+                            <code className="sc-diff-field" role="cell">{field}</code>
+                            <div className="sc-diff-before" role="cell"><span aria-hidden="true">−</span><code>{displayDiffValue(row.old_value, row.old_value_text)}</code></div>
+                            <div className="sc-diff-after" role="cell"><span aria-hidden="true">+</span><code>{displayDiffValue(row.new_value, row.new_value_text)}</code></div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
+function CommitTimelineView({ active, commits, refresh, refreshing }: {
+    active: boolean;
+    commits: Commit[];
+    refresh: () => void;
+    refreshing: boolean;
+}) {
+    const [search, setSearch] = useState("");
+    const [syncFilter, setSyncFilter] = useState<"all" | "synced" | "pending">("all");
+    const [expanded, setExpanded] = useState<Set<string>>(new Set());
+    const [rowsByCommit, setRowsByCommit] = useState<Record<string, SourceTransaction[]>>({});
+    const [loadingCommit, setLoadingCommit] = useState<string | null>(null);
+    const [loadErrors, setLoadErrors] = useState<Record<string, string>>({});
+    const [selectedEntity, setSelectedEntity] = useState<string | null>(null);
+
+    const filteredCommits = useMemo(() => {
+        const query = search.trim().toLowerCase();
+        return commits.filter((commit) => {
+            if (syncFilter === "synced" && !commit.github_sha) return false;
+            if (syncFilter === "pending" && commit.github_sha) return false;
+            if (!query) return true;
+            return [commit.message, commit.author_name, commit.author_id, commit.github_sha, commit.commit_id, commit.pr_title]
+                .join(" ").toLowerCase().includes(query);
+        });
+    }, [commits, search, syncFilter]);
+
+    useEffect(() => {
+        if (!active) {
+            setExpanded(new Set());
+            setSelectedEntity(null);
+        }
+    }, [active]);
+
+    const loadCommit = useCallback(async (commitId: string) => {
+        setLoadingCommit(commitId);
+        setLoadErrors((current) => ({ ...current, [commitId]: "" }));
+        try {
+            const rows = await api.getTransactions({ commitId, limit: 2000 });
+            setRowsByCommit((current) => ({ ...current, [commitId]: rows || [] }));
+        } catch (err: any) {
+            setLoadErrors((current) => ({ ...current, [commitId]: err?.message || "Unable to load this diff" }));
+        } finally {
+            setLoadingCommit((current) => current === commitId ? null : current);
+        }
+    }, []);
+
+    const toggleCommit = useCallback((commitId: string) => {
+        if (expanded.has(commitId)) {
+            setExpanded((current) => { const next = new Set(current); next.delete(commitId); return next; });
+            setSelectedEntity((current) => current?.startsWith(`${commitId}:`) ? null : current);
+            return;
+        }
+        setExpanded((current) => new Set(current).add(commitId));
+        if (!rowsByCommit[commitId]) void loadCommit(commitId);
+    }, [expanded, loadCommit, rowsByCommit]);
+
+    return (
+        <div className="sc-history">
+            <div className="sc-log-head">
+                <div><h3>Commit history</h3><p>Explore each push, changed record, and field-level diff.</p></div>
+                <button className="btn" onClick={refresh} disabled={refreshing}>{I.refresh({ style: { width: 14, height: 14 } })} Refresh</button>
+            </div>
+            <div className="sc-history-tools">
+                <label className="sc-log-search">{I.search({ style: { width: 16, height: 16 } })}<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search commits, people, pull requests, SHA…" /></label>
+                <select value={syncFilter} onChange={(event) => setSyncFilter(event.target.value as typeof syncFilter)} aria-label="Filter sync status">
+                    <option value="all">All pushes</option><option value="synced">Archive synced</option><option value="pending">Sync pending</option>
+                </select>
+                {expanded.size > 0 && <button className="sc-icon-btn" onClick={() => { setExpanded(new Set()); setSelectedEntity(null); }}>Collapse all</button>}
+            </div>
+            <div className="sc-history-summary"><StatusPill>{filteredCommits.length} of {commits.length} commits</StatusPill><span>{commits.reduce((total, commit) => total + (commit.change_count || 0), 0).toLocaleString()} recorded field changes</span></div>
+            <div className="sc-timeline" role="list">
+                {filteredCommits.length === 0 && <div className="sc-empty"><div className="sc-empty-title">No matching commits</div><div className="sc-empty-sub">Try a different message, author, SHA, or sync filter.</div></div>}
+                {filteredCommits.map((commit, index) => {
+                    const isExpanded = expanded.has(commit.commit_id);
+                    const groups = groupCommitChanges(rowsByCommit[commit.commit_id] || []);
+                    const selected = groups.find((group) => `${commit.commit_id}:${group.key}` === selectedEntity);
+                    return (
+                        <article className={`sc-timeline-event${isExpanded ? " expanded" : ""}`} key={commit.commit_id} role="listitem">
+                            <div className="sc-timeline-rail" aria-hidden="true"><span className="sc-timeline-node" />{index < filteredCommits.length - 1 && <span className="sc-timeline-line" />}</div>
+                            <div className="sc-commit-card">
+                                <button className="sc-commit-toggle" onClick={() => toggleCommit(commit.commit_id)} aria-expanded={isExpanded}>
+                                    <span className="sc-commit-chevron">{isExpanded ? I.down() : I.chevR()}</span>
+                                    <span className="sc-commit-primary"><strong>{commit.message || "Untitled commit"}</strong><span className="sc-commit-byline"><b>{commit.author_name || commit.author_id}</b> committed {relTime(commit.merged_at || commit.created_at)}</span></span>
+                                    <span className="sc-commit-facts"><span>{commit.change_count} field{commit.change_count === 1 ? "" : "s"}</span><code>{shortSha(commit.github_sha) || commit.commit_id.slice(0, 7)}</code></span>
+                                </button>
+                                <div className="sc-commit-tags">
+                                    <span className="sc-branch-chip">{I.branch()} {commit.branch || "main"}</span>
+                                    {commit.pr_number != null && <span className="sc-pr-chip">PR #{commit.pr_number}{commit.pr_title ? ` · ${commit.pr_title}` : ""}</span>}
+                                    <span className={`sc-sync-chip ${commit.github_sha ? "synced" : "pending"}`}>{commit.github_sha ? "Archive synced" : "Sync pending"}</span>
+                                    <time dateTime={commit.merged_at || commit.created_at}>{new Date(commit.merged_at || commit.created_at).toLocaleString()}</time>
+                                </div>
+                                {isExpanded && (
+                                    <div className="sc-commit-tree">
+                                        {loadingCommit === commit.commit_id && <div className="sc-loading"><div className="spinner" style={{ width: 14, height: 14 }} /> Loading commit diff…</div>}
+                                        {loadErrors[commit.commit_id] && <div className="sc-history-error">{loadErrors[commit.commit_id]} <button onClick={() => void loadCommit(commit.commit_id)}>Retry</button></div>}
+                                        {loadingCommit !== commit.commit_id && !loadErrors[commit.commit_id] && groups.length === 0 && <div className="sc-tree-empty">No granular diff is recorded for this historical commit.</div>}
+                                        {groups.length > 0 && <><div className="sc-tree-summary"><b>{groups.length}</b> changed record{groups.length === 1 ? "" : "s"} · <b>{rowsByCommit[commit.commit_id].length}</b> fields</div><div className="sc-tree-layout">
+                                            <div className="sc-tree-files" aria-label={`Changes in ${commit.message}`}>
+                                                {groups.map((group) => { const entityKey = `${commit.commit_id}:${group.key}`; return <button key={group.key} className={`sc-tree-file${selectedEntity === entityKey ? " active" : ""}`} onClick={() => setSelectedEntity(entityKey)}><span className={`sc-diff-marker marker-${group.marker.toLowerCase()}`}>{group.marker}</span><span className="sc-tree-file-copy"><strong>{group.label}</strong><code>{group.path}</code></span><span className="sc-tree-field-count">{group.rows.length}</span>{I.chevR()}</button>; })}
+                                            </div>
+                                            {selected ? <CommitEntityDiff group={selected} /> : <div className="sc-diff-placeholder">Select a changed record to inspect its before and after values.</div>}
+                                        </div></>}
+                                    </div>
+                                )}
+                            </div>
+                        </article>
+                    );
+                })}
             </div>
         </div>
     );
@@ -1554,7 +1691,7 @@ export function SourceControlPage({
             <div className="sc-page-body">
                 <div className="sc-page-panel">
                     {tab === 'history' ? (
-                        <TransactionLogView active={tab === 'history'} />
+                        <CommitTimelineView active={tab === 'history'} commits={commits} refresh={loadData} refreshing={loading} />
                     ) : (
                         <SCChangesView
                             user={user}

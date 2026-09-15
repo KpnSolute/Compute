@@ -242,6 +242,7 @@ export interface SourceTransaction {
   description?: string | null;
   entity_type?: string | null;
   entity_id?: string | null;
+  change_type?: string | null;
   field?: string | null;
   field_name?: string | null;
   action?: string | null;
@@ -1459,13 +1460,14 @@ export const api = {
     return req(`/api/commits?limit=${limit}&offset=${offset}`);
   },
 
-  async getTransactions(params?: { limit?: number; offset?: number; action?: string; month?: number; year?: number }): Promise<SourceTransaction[]> {
+  async getTransactions(params?: { limit?: number; offset?: number; action?: string; month?: number; year?: number; commitId?: string }): Promise<SourceTransaction[]> {
     const p = new URLSearchParams();
     p.set('limit', String(params?.limit ?? 300));
     p.set('offset', String(params?.offset ?? 0));
     if (params?.action) p.set('action', params.action);
     if (params?.month !== undefined) p.set('month', String(params.month));
     if (params?.year !== undefined) p.set('year', String(params.year));
+    if (params?.commitId) p.set('commit_id', params.commitId);
     return req(`/api/transactions?${p.toString()}`);
   },
 

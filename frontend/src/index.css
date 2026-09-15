@@ -2410,6 +2410,76 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
 .sc-action-pill.issued{color:var(--amber-ink);background:var(--amber-bg);border-color:color-mix(in srgb,var(--amber) 45%,transparent)}
 .sc-action-pill.reverted{color:var(--red);background:var(--red-bg);border-color:color-mix(in srgb,var(--red) 35%,transparent)}
 
+/* ── Git-style commit timeline ── */
+.sc-history{display:flex;flex-direction:column;min-height:0;gap:14px;color:var(--ink)}
+.sc-history-tools{display:grid;grid-template-columns:minmax(260px,1fr) 170px auto;gap:10px;align-items:center}
+.sc-history-tools select{height:38px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);padding:0 12px;font:inherit;font-size:13px}
+.sc-history-summary{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:11.5px}
+.sc-timeline{min-height:0;overflow:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:4px 0}
+.sc-timeline-event{display:grid;grid-template-columns:34px minmax(0,1fr);padding:0 14px 0 10px;min-width:0}
+.sc-timeline-rail{display:flex;flex-direction:column;align-items:center;min-height:78px;padding-top:24px}
+.sc-timeline-node{width:12px;height:12px;border:3px solid var(--accent);border-radius:50%;background:var(--surface);z-index:1;box-shadow:0 0 0 3px var(--surface)}
+.sc-timeline-line{width:2px;flex:1;min-height:46px;background:color-mix(in srgb,var(--accent) 38%,var(--line));margin-top:1px}
+.sc-commit-card{min-width:0;border-bottom:1px solid var(--line-soft);padding:8px 0 12px}
+.sc-timeline-event:last-child .sc-commit-card{border-bottom:0}
+.sc-timeline-event.expanded .sc-timeline-node{background:var(--accent)}
+.sc-commit-toggle{width:100%;display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:8px;align-items:center;border:0;background:transparent;color:var(--ink);padding:8px;border-radius:8px;text-align:left;cursor:pointer;font:inherit}
+.sc-commit-toggle:hover{background:var(--surface-2)}
+.sc-commit-toggle:focus-visible,.sc-tree-file:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.sc-commit-chevron{display:flex;color:var(--muted)}
+.sc-commit-chevron svg{width:15px;height:15px}
+.sc-commit-primary{display:flex;flex-direction:column;gap:4px;min-width:0}
+.sc-commit-primary>strong{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sc-commit-byline{font-size:10.5px;color:var(--muted);font-weight:500}
+.sc-commit-byline b{color:var(--ink);font-weight:750}
+.sc-commit-facts{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:10.5px;white-space:nowrap}
+.sc-commit-facts code{font-family:var(--mono);color:var(--accent);background:var(--accent-soft);padding:3px 7px;border-radius:5px;font-weight:800}
+.sc-commit-tags{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:0 8px 4px 40px;font-size:10px;color:var(--muted)}
+.sc-commit-tags time{margin-left:auto}
+.sc-branch-chip,.sc-pr-chip,.sc-sync-chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:999px;padding:2px 7px;background:var(--surface-2);max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc-branch-chip svg{width:10px;height:10px}
+.sc-sync-chip.synced{color:var(--green-ink);background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 35%,var(--line))}
+.sc-sync-chip.pending{color:var(--amber-ink);background:var(--amber-bg);border-color:color-mix(in srgb,var(--amber) 35%,var(--line))}
+.sc-commit-tree{margin:8px 8px 0 40px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface-2)}
+.sc-tree-summary{padding:8px 12px;border-bottom:1px solid var(--line);font-size:10.5px;color:var(--muted);background:var(--surface)}
+.sc-tree-layout{display:grid;grid-template-columns:minmax(260px,38%) minmax(0,1fr);min-height:190px;max-height:460px}
+.sc-tree-files{overflow:auto;border-right:1px solid var(--line);background:var(--surface)}
+.sc-tree-file{width:100%;display:grid;grid-template-columns:24px minmax(0,1fr) auto 15px;align-items:center;gap:8px;border:0;border-bottom:1px solid var(--line-soft);background:transparent;color:var(--ink);padding:9px 10px;text-align:left;cursor:pointer;font:inherit}
+.sc-tree-file:hover,.sc-tree-file.active{background:var(--accent-soft)}
+.sc-tree-file.active{box-shadow:inset 3px 0 0 var(--accent)}
+.sc-tree-file>svg{width:13px;height:13px;color:var(--faint)}
+.sc-tree-file-copy{display:flex;flex-direction:column;gap:2px;min-width:0}
+.sc-tree-file-copy strong{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sc-tree-file-copy code{font:9.5px var(--mono);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sc-tree-field-count{font:700 9.5px var(--mono);color:var(--faint)}
+.sc-diff-marker{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:4px;font:850 10px var(--mono);flex:none}
+.sc-diff-marker.marker-m{color:#8a5a00;background:#fff4ce}
+.sc-diff-marker.marker-a{color:#176b32;background:#dafbe1}
+.sc-diff-marker.marker-d{color:#a40e26;background:#ffebe9}
+.sc-diff-placeholder{display:flex;align-items:center;justify-content:center;padding:30px;text-align:center;color:var(--muted);font-size:12px;line-height:1.5}
+.sc-diff-panel{min-width:0;overflow:auto;background:var(--surface)}
+.sc-diff-head{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:9px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line)}
+.sc-diff-head>div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.sc-diff-head strong{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sc-diff-head code{font:9.5px var(--mono);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sc-diff-head>span:last-child{font-size:10px;color:var(--muted);white-space:nowrap}
+.sc-diff-table{min-width:430px}
+.sc-diff-row{display:grid;grid-template-columns:minmax(115px,25%) minmax(150px,1fr) minmax(150px,1fr);border-bottom:1px solid var(--line-soft);font-size:11px}
+.sc-diff-row:last-child{border-bottom:0}
+.sc-diff-row>code,.sc-diff-row>div{padding:8px 10px;min-width:0}
+.sc-diff-field{color:var(--muted);background:var(--surface-2);font-family:var(--mono);overflow-wrap:anywhere}
+.sc-diff-before,.sc-diff-after{display:grid;grid-template-columns:14px minmax(0,1fr);gap:5px;border-left:1px solid var(--line-soft)}
+.sc-diff-before{background:color-mix(in srgb,var(--red-bg) 65%,var(--surface));color:var(--red)}
+.sc-diff-after{background:color-mix(in srgb,var(--green-bg) 70%,var(--surface));color:var(--green-ink)}
+.sc-diff-before code,.sc-diff-after code{font-family:var(--mono);color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere}
+.sc-tree-empty,.sc-history-error{padding:22px;text-align:center;color:var(--muted);font-size:11.5px}
+.sc-history-error{color:var(--red)}
+.sc-history-error button{margin-left:6px;border:0;background:none;color:var(--accent);font-weight:800;cursor:pointer}
+
+[data-theme="dark"] .sc-diff-marker.marker-m{color:#e3b341;background:#3b2e08}
+[data-theme="dark"] .sc-diff-marker.marker-a{color:#56d364;background:#153c20}
+[data-theme="dark"] .sc-diff-marker.marker-d{color:#ff7b72;background:#4c1f24}
+
 /* ── Mobile ── */
 @media(max-width:640px){
   .agent-shell.open{left:8px!important;right:8px!important;bottom:8px!important;width:auto!important;height:min(78vh,560px)!important;border-radius:12px!important}
@@ -2429,6 +2499,18 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
   .sc-log-search{grid-column:1 / -1}
   .sc-log-filters select{font-size:13px}
   .sc-log-table-wrap{max-width:100%}
+  .sc-history-tools{grid-template-columns:1fr 1fr}
+  .sc-history-tools .sc-log-search{grid-column:1 / -1}
+  .sc-history-tools .sc-icon-btn{justify-self:end}
+  .sc-timeline-event{grid-template-columns:24px minmax(0,1fr);padding:0 8px 0 4px}
+  .sc-commit-toggle{grid-template-columns:20px minmax(0,1fr)}
+  .sc-commit-facts{grid-column:2;justify-content:flex-start}
+  .sc-commit-tags{padding-left:36px}
+  .sc-commit-tags time{width:100%;margin-left:0}
+  .sc-commit-tree{margin-left:20px}
+  .sc-tree-layout{grid-template-columns:1fr;max-height:none}
+  .sc-tree-files{border-right:0;border-bottom:1px solid var(--line);max-height:220px}
+  .sc-diff-panel{max-height:300px}
   .sc-vsc-file-row{padding:8px 10px 8px 14px;min-height:44px;align-items:flex-start}
   .sc-vsc-file-actions{opacity:1;pointer-events:auto}
   .sc-icon-btn{min-height:38px;min-width:38px}
