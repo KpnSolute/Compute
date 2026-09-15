@@ -1,3 +1,4 @@
+import { confirmAction } from './ui/ConfirmDialog';
 import { useState, useEffect } from 'react';
 import { I } from '../lib/icons';
 import { api } from '../lib/api';
@@ -747,7 +748,7 @@ function ProvidersTab() {
     };
 
     const deleteKey = async (k: any) => {
-        if (!window.confirm(`Delete key "${k.label}"? This cannot be undone.`)) return;
+        if (!(await confirmAction({ title: `Delete key "${k.label}"?`, message: 'This cannot be undone.', confirmLabel: 'Delete', tone: 'danger' }))) return;
         setKeyErr(null);
         try {
             await api.deleteAIKey(k.id);

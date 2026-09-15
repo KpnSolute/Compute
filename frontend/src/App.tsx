@@ -13,7 +13,8 @@ import { Login } from './components/Login';
 import { Portal } from './components/Portal';
 import { ComputeLanding, WorkspaceConsole } from './components/ComputeHome';
 import { setActiveWorkspaceContext, setActiveWorkspaceSlug, workspaceCompatibilityRedirect, workspacePath, resolveTenantFromRequest, workspaceLoginPath, workspaceRouteSurface, providerOriginRedirectUrl } from './lib/workspace';
-import { WorkspaceSignInPrompt } from './components/WorkspaceSignInPrompt';
+import { WorkspaceSignInPrompt, WorkspaceStatusScreen } from './components/WorkspaceSignInPrompt';
+import { ConfirmHost } from './components/ui/ConfirmDialog';
 
 const SKEY = 'kpn_session';
 const ACCOUNT_REFRESH_MS = 5 * 60 * 1000;
@@ -80,8 +81,16 @@ function App() {
   const [pathname, setPathname] = useState(window.location.pathname);
   const [newVersionAvailable, setNewVersionAvailable] = useState(false);
   const [idleWarningSeconds, setIdleWarningSeconds] = useState<number | null>(null);
-  const [verifiedTenantSlug, setVerifiedTenantSlug] = useState<string | null>(null);
-  const [tenantResolutionPending, setTenantResolutionPending] = useState(false);
+  // Backend resolution of the workspace in the address, keyed by slug and
+  // attempt, so "still resolving" is derived during render and a workspace
+  // address never paints the product landing first.
+  const [resolution, setResolution] = useState<{
+    slug: string;
+    attempt: number;
+    status: 'ok' | 'missing' | 'error';
+    name: string | null;
+  } | null>(null);
+  const [resolveAttempt, setResolveAttempt] = useState(0);
   const ssoLaunchStarted = useRef(false);
 
   const navigate = useCallback((path: string) => {
@@ -330,35 +339,47 @@ function App() {
   const routeWorkspaceSlug = resolvedTenant?.slug ?? null;
 
   useEffect(() => {
-    if (!routeWorkspaceSlug) {
-      setVerifiedTenantSlug(null);
-      setTenantResolutionPending(false);
-      return;
-    }
+    if (!routeWorkspaceSlug) return;
     let current = true;
-    setVerifiedTenantSlug(null);
-    setTenantResolutionPending(true);
-    api.resolveWorkspace(routeWorkspaceSlug)
+    const slug = routeWorkspaceSlug;
+    const attempt = resolveAttempt;
+    api.resolveWorkspace(slug)
       .then(({ workspace }) => {
         if (!current) return;
-        if (workspace.slug === routeWorkspaceSlug) {
+        if (workspace.slug === slug) {
           // The pre-login resolve endpoint intentionally does not return the
           // immutable tenant id; set slug only. The authenticated /me response
           // will establish the full context after login.
           setActiveWorkspaceSlug(workspace.slug, false);
-          setVerifiedTenantSlug(workspace.slug);
+          setResolution({ slug, attempt, status: 'ok', name: workspace.name || null });
         } else {
-          setVerifiedTenantSlug(null);
+          setResolution({ slug, attempt, status: 'missing', name: null });
         }
       })
-      .catch(() => {
-        if (current) setVerifiedTenantSlug(null);
-      })
-      .finally(() => {
-        if (current) setTenantResolutionPending(false);
+      .catch((error: unknown) => {
+        if (!current) return;
+        // 400/404/409 mean the address is not an open workspace (unknown and
+        // inactive are deliberately indistinguishable). Network errors and 5xx
+        // are transient and get a retry instead of a dead end.
+        const status = (error as { status?: number } | null)?.status;
+        const missing = status === 400 || status === 404 || status === 409;
+        setResolution({ slug, attempt, status: missing ? 'missing' : 'error', name: null });
       });
     return () => { current = false; };
-  }, [routeWorkspaceSlug]);
+  }, [routeWorkspaceSlug, resolveAttempt]);
+
+  const resolving = !!routeWorkspaceSlug
+    && (!resolution || resolution.slug !== routeWorkspaceSlug || resolution.attempt !== resolveAttempt);
+  const settled = resolving ? null : resolution;
+  const verifiedTenantSlug = settled?.status === 'ok' ? settled.slug : null;
+  const verifiedWorkspaceName = settled?.status === 'ok' ? settled.name : null;
+
+  // A corporate host is itself the workspace, so "home" is the Compute site;
+  // navigating to "/" there would just reload this workspace.
+  const goComputeHome = () => {
+    if (corporateHost) window.location.assign('https://compute.kpnsolute.com/');
+    else navigate('/');
+  };
 
   const routeSurface = workspaceRouteSurface(
     window.location.hostname,
@@ -376,10 +397,26 @@ function App() {
   );
 
   let primary: ReactNode;
-  if (routeSurface === 'product' || tenantResolutionPending) {
+  if (routeWorkspaceSlug && resolving) {
     // Tenant credentials are never shown until the backend resolves the slug
-    // to one active immutable tenant. Unknown and unavailable routes remain on
-    // the neutral product landing. This also keeps generic /login neutral.
+    // to one active immutable tenant. While that runs, show a neutral screen
+    // rather than flashing the product landing on a workspace address.
+    primary = <WorkspaceStatusScreen state="loading" slug={routeWorkspaceSlug} onHome={goComputeHome} />;
+  } else if (routeWorkspaceSlug && (settled?.status === 'error' || (corporateHost && routeSurface === 'product'))) {
+    // A transient failure gets a retry on any workspace address, and a
+    // corporate host never falls back to the marketing landing or to a
+    // credential form.
+    primary = (
+      <WorkspaceStatusScreen
+        state="unavailable"
+        slug={routeWorkspaceSlug}
+        onRetry={() => setResolveAttempt((attempt) => attempt + 1)}
+        onHome={goComputeHome}
+      />
+    );
+  } else if (routeSurface === 'product') {
+    // Unknown path-based slugs stay on the neutral product landing. This also
+    // keeps generic /login neutral.
     primary = landing;
   } else if (routeWorkspaceSlug && routeSurface === 'tenant-login' && !user) {
     // Tenant-branded staff sign-in at /{slug}/login or corporate-host /login.
@@ -395,8 +432,9 @@ function App() {
     primary = (
       <WorkspaceSignInPrompt
         slug={routeWorkspaceSlug}
+        name={verifiedWorkspaceName}
         onSignIn={() => navigate(corporateHost ? '/login' : workspaceLoginPath(routeWorkspaceSlug))}
-        onHome={() => navigate('/')}
+        onHome={goComputeHome}
       />
     );
   } else if (routeWorkspaceSlug && user && routeSurface === 'tenant-console') {
@@ -427,6 +465,7 @@ function App() {
   return (
     <>
       {primary}
+      <ConfirmHost />
       {user && idleWarningSeconds !== null && (
         <div role="alertdialog" aria-live="assertive" aria-label="Session timeout warning" style={{
           position: 'fixed', top: 18, left: '50%', transform: 'translateX(-50%)',

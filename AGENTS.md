@@ -87,7 +87,7 @@ There are **two completely separate GitHub repos**. Confusing them has already b
 
 - Frontend calls FastAPI (`VITE_API_BASE=https://api.kpnsolute.com/compute`); FastAPI owns all Supabase communication.
 - **Gemini** owns all `backend/routes/*` data logic against the real schema (§4).
-- **Claude** owns the frontend API client (`frontend/src/lib/api.ts`) and component wiring.
+- **Claude** owns all UI and user interaction, including the frontend API client (`frontend/src/lib/api.ts`) and component wiring.
 - The Supabase JS client in `supabase.ts` is retained **only** for Supabase Auth (`signInWithPassword`, `signOut`, `getUser`). **All data queries route through FastAPI.**
 - The `mjc_supa_url` / `mjc_supa_key` localStorage demo/live toggle is **deprecated** — config comes from `VITE_*` env vars.
 
@@ -283,7 +283,7 @@ Claude and OpenCode **execute** from research output. They do not skip Gemini on
 
 | Agent | Primary lane (writes) | Team role | Delegates by default |
 |-------|----------------------|-----------|----------------|
-| **Claude** | Frontend (React/TS/Tailwind), `frontend/src/lib/api.ts`, `backend/main.py` wiring, API contract shape; cross-stack coordination | **Senior Development Manager & Orchestrator** — owns structural integrity, directs the team, offloads heavy work to subagents + TestSprite | Supabase schema, `/data`, `/templates`, core data logic → Gemini (directs, does not hand-write) |
+| **Claude** | All UI and user interaction (React/TS/Tailwind), `frontend/src/lib/api.ts`, `backend/main.py` wiring, API contract shape; cross-stack coordination | **Senior Development Manager & Orchestrator** — owns structural integrity, directs the team, offloads heavy work to subagents + TestSprite | Supabase schema, `/data`, `/templates`, core data logic → Gemini (directs, does not hand-write) |
 | **Gemini** | Data & backend logic, Supabase schema/migrations (via MCP), `backend/routes/*`, `backend/staging/*`, `backend/ai/*`, `seed_data.py`, `/data` | **Research lead** — schema truth, production DB, issue investigation | Frontend components, `/templates` |
 | **OpenCode** | Mechanical/repetitive tasks under explicit instruction: lint fixes, file moves, boilerplate, test scaffolding | Executor — same tool access, follows plans | Architecture decisions, schema, auth, `/templates`, anything in §7 |
 | **MJCC-debugger** | Diagnosis + fix plans only (no production code) | Doctor — traces failures, defers schema research to Gemini | Writing fixes (hands off to Claude/Gemini/OpenCode) |

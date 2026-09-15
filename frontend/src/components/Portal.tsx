@@ -13,6 +13,7 @@ import {
 } from "../lib/constants";
 import { useEscapeClose } from "../lib/useEscapeClose";
 import { CommandPalette } from "./ui/CommandPalette";
+import { confirmAction } from "./ui/ConfirmDialog";
 import type { PaletteItem } from "../lib/commandSearch";
 import * as draftsLib from "../lib/drafts";
 
@@ -336,6 +337,7 @@ function Topbar({
         }
     }, [flowPanel]);
     const [m, y] = period;
+    const crumbGroup = active ? NAV.find((group) => group.items.some((item) => item.key === active)) : undefined;
 
     return (
         <header className="topbar">
@@ -358,10 +360,30 @@ function Topbar({
                     <KpnMark size={26} />
                 </span>
                 <div>
-                    <div className="tb-title">KpnCompute · {user.tenant?.name || 'MJCC'}</div>
-                    <div className="tb-sub">
-                        {active && VIEW_LABELS[active] ? VIEW_LABELS[active] : 'Portal'}
-                    </div>
+                    <div className="tb-title">{user.tenant?.name || 'MJCC'}</div>
+                    <nav className="tb-crumbs" aria-label="Breadcrumb">
+                        <button
+                            className={"tb-crumb" + (!active || active === "dashboard" ? " current" : "")}
+                            onClick={() => onNav?.("dashboard")}
+                            aria-current={!active || active === "dashboard" ? "page" : undefined}
+                        >
+                            Home
+                        </button>
+                        {crumbGroup && crumbGroup.group !== "Overview" && (
+                            <>
+                                <span className="tb-crumb-sep" aria-hidden="true">{I.chevR()}</span>
+                                <button className="tb-crumb" onClick={() => onNav?.(crumbGroup.items[0].key)}>
+                                    {crumbGroup.group}
+                                </button>
+                            </>
+                        )}
+                        {active && active !== "dashboard" && VIEW_LABELS[active] && (
+                            <>
+                                <span className="tb-crumb-sep" aria-hidden="true">{I.chevR()}</span>
+                                <span className="tb-crumb current" aria-current="page">{VIEW_LABELS[active]}</span>
+                            </>
+                        )}
+                    </nav>
                 </div>
             </div>
             <div className="tb-right">
@@ -540,7 +562,7 @@ function Topbar({
                                     {user.display_name} {user.last_name}
                                 </div>
                                 <div className="em">
-                                    {user.username}@mjc-cafeteria.com
+                                    {user.email || user.username}
                                 </div>
                             </div>
                             <button className="um-item" onClick={() => { onNav?.('settings'); setMenu(false); }}>
@@ -605,10 +627,12 @@ function Sidebar({
         <nav className="sidebar" aria-label="Explorer">
             <div className="explorer-head">
                 <div className="explorer-title">Explorer</div>
-                <button className="explorer-search" onClick={onOpenSearch} title="Smart Search (Ctrl+S)" aria-keyshortcuts="Control+S">
-                    {I.search()} Search <kbd>Ctrl S</kbd>
-                </button>
             </div>
+            <button className="explorer-search" onClick={onOpenSearch} title="Smart Search (Ctrl+S)" aria-keyshortcuts="Control+S">
+                {I.search()}
+                <span>Search</span>
+                <kbd>Ctrl S</kbd>
+            </button>
             {NAV.map((group) => {
                 // Page visibility is governed by the Role Scopes grid (Users & Access), not the
                 // fixed role level — sudo can grant any page to any role there.
@@ -659,9 +683,7 @@ function Sidebar({
             <div className="sidebar-foot">
                 Signed in as <b>{ROLE_LABEL[user.role]}</b>
                 <br />
-                <span style={{ fontFamily: "BlinkMacSystemFont" }}>
-                    KpnCompute · v3.0
-                </span>
+                <span>KpnCompute</span>
             </div>
         </nav>
     );
@@ -846,27 +868,14 @@ function StatusBar({
     period,
     stagedCount,
     onOpenSC,
-    active,
-    onNav,
 }: {
     user: User;
     period: [number, number];
     stagedCount: number;
     onOpenSC: () => void;
-    active?: string;
-    onNav?: (k: string) => void;
 }) {
+    // Breadcrumbs live in the top bar; the status bar carries session context only.
     const [m, y] = period;
-    const activeGrp = NAV.find(g => g.items.some(i => i.key === active));
-    const activeItem = activeGrp?.items.find(i => i.key === active);
-    const crumbs: { label: string; key?: string }[] = [{ label: 'Portal', key: 'dashboard' }];
-    if (activeGrp && activeGrp.group !== 'Overview') {
-        const firstKey = activeGrp.items[0]?.key;
-        crumbs.push({ label: activeGrp.group, key: firstKey });
-    }
-    if (activeItem) {
-        crumbs.push({ label: activeItem.label });
-    }
     return (
         <div className="status-bar">
             <div className="sb-left">
@@ -882,18 +891,6 @@ function StatusBar({
                         <span className="sb-staged-count">{stagedCount} staged</span>
                     </button>
                 )}
-            </div>
-            <div className="sb-breadcrumb">
-                {crumbs.flatMap((c, i) => [
-                    i > 0 ? <span key={`sep-${i}`} className="sb-bc-sep">›</span> : null,
-                    <span
-                        key={c.label}
-                        className={"sb-bc-seg" + (i === crumbs.length - 1 ? " current" : "")}
-                        onClick={() => c.key && onNav?.(c.key)}
-                    >
-                        {c.label}
-                    </span>,
-                ])}
             </div>
             <div className="sb-right">
                 <span>{ROLE_LABEL[user.role]}</span>
@@ -3955,7 +3952,7 @@ function CategoryManager({ onChanged }: { onChanged?: () => void }) {
     };
 
     const doDelete = async (cat: any) => {
-        if (!window.confirm(`Delete category "${cat.name}"? This cannot be undone.`)) return;
+        if (!(await confirmAction({ title: `Delete category "${cat.name}"?`, message: "This cannot be undone.", confirmLabel: "Delete", tone: "danger" }))) return;
         setDelBusy(p => ({ ...p, [cat.id]: true }));
         try {
             await api.deleteCategory(cat.id);
@@ -4305,7 +4302,7 @@ function UsersView({ user: currentUser }: { user: User }) {
     };
 
     const disableUser = async (u: any) => {
-        if (!window.confirm(`Disable ${u.display_name || u.username}?`)) return;
+        if (!(await confirmAction({ title: `Disable ${u.display_name || u.username}?`, message: "Their account will be disabled.", confirmLabel: "Disable", tone: "danger" }))) return;
         try {
             await api.deleteUser(u.id);
             toast(`Disabled ${u.display_name || u.username}`);
@@ -5657,8 +5654,6 @@ export function Portal({
                 period={period}
                 stagedCount={stagedCount}
                 onOpenSC={() => setScPanelOpen(true)}
-                active={active}
-                onNav={goTo}
             />
             <SourceControlPanel
                 user={user}

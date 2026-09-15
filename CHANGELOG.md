@@ -1,5 +1,84 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.24] — 2026-09-15 — Workspace landing fix, native-style app chrome, standard confirm sheets
+
+**Claude (UI and user interaction owner):**
+
+- **Bug — mjcc.kpnsolute.com showed the KpnCompute marketing page.** `App.tsx`
+  rendered the product landing while `/api/v1/workspaces/resolve/{slug}` was
+  pending (about 1.3s on every visit) and permanently whenever it failed, e.g. a
+  cold or erroring API. A workspace address now starts on a neutral "Opening
+  workspace" screen; its card appears after 350ms, so fast loads don't flash. A
+  corporate host that can't be resolved shows "We couldn't open mjcc" with **Try
+  again** — never the marketing page and never a credential form, and it does
+  not reveal whether the workspace exists. Unknown path-based slugs still fall
+  back to the landing, as before. "Back to KpnCompute" on a corporate host
+  navigated to `/`, which reloaded the same workspace; it now goes to
+  compute.kpnsolute.com.
+- **Workspace sign-in card.** Redesigned with the workspace name (from the
+  resolver), one primary **Sign in**, and a quiet "Not your workspace?" link.
+- **Login page.** Removed hard-coded brand stats ("214 line items / 9
+  categories / 4 roles"; the live workspace has 390 items) and the stale
+  "v3.0" label. The Sign in button used the log-out icon.
+- **App chrome, restyled after native desktop apps.**
+  - Top bar, activity bar, Explorer and status bar move from navy and bright
+    blue to calm surface colors with hairlines; navy stays the brand accent.
+  - **Breadcrumbs** moved from the status bar into the top bar: Home › Group ›
+    Page, clickable.
+  - Top-bar controls share one 32px quiet icon-button style, and period
+    dropdowns and badges were re-tokenized.
+  - Selection is a soft pill (accent icon) instead of a solid navy block, and
+    group labels use sentence case.
+  - Explorer search is a full-width field; its "Ctrl S" key label wrapped onto
+    two lines.
+  - The scrollbar only appears on hover, and phone touch sizes are preserved.
+  - The user menu showed a fabricated `username@mjc-cafeteria.com`; it now
+    shows the real email, or the username.
+- **Typography.** `--font` is the platform system font (San Francisco on Apple,
+  Segoe UI on Windows). `--mono` replaces Courier New with ui-monospace /
+  Cascadia / Consolas, and a stray inline `BlinkMacSystemFont` was removed.
+- **Standard modals.**
+  - Every `.modal` is one sheet style: 16px radius, a readable title, a round
+    close button, and primary/destructive actions always last.
+  - On phones, modals become bottom sheets with a grabber.
+  - New `confirmAction()` / `ConfirmHost` (`components/ui/ConfirmDialog.tsx`)
+    replaces all 10 native `window.confirm` pop-ups across 8 files (delete
+    category, disable user, delete AI key, remove certification / product /
+    file, delete line item / assignment, change allotment). Destructive
+    confirms focus **Cancel** first; Escape and the backdrop cancel.
+
+**Codex:** Removed the obsolete unified-search worktree and branch after
+verifying they contained no unique commits; aligned user-theme preferences to
+the strict `auto | light | dark` contract with regression coverage and matching
+frontend types; documented workspace resolution, transaction `commit_id`
+filtering, caching/error behavior, and the remaining frontend-used API routes;
+and updated governance to record Claude's ownership of all UI and user
+interaction. Ruff, TypeScript, and the full backend suite (370 passed, 21
+skipped) passed.
+
+**Codex (read-only review of this release, requested by Claude):** three
+findings, all fixed before commit:
+
+1. Medium: resolve failures of any kind still collapsed to the product
+   surface. A signed-in user on a path route (`/mjcc`) could land permanently
+   on the marketing page after a transient error, and in-app navigation painted
+   the landing for one frame. Resolution is now one record keyed by slug and
+   attempt, with "resolving" derived during render. 400/404/409 are treated as
+   not a workspace; network errors and 5xx show the retry screen on every
+   workspace address.
+2. Medium: the new breadcrumbs kept the `tb-sub` class, which phones hide with
+   `!important`, so mobile had no breadcrumb at all. The class is dropped, and
+   phones show the current page only.
+3. Medium: queued confirmations let a fast double-click ask twice and delete
+   twice, which native `confirm` blocked. An identical confirmation already
+   open now resolves `false`, and unmounting the host cancels anything pending.
+
+Codex found no credential or Portal exposure before tenant verification, and no
+regressions in dark contrast, footer ordering, focus trapping, or tall/wide
+panels.
+
+**Push:** pending.
+
 ## [v0.3.23] — 2026-09-15 — Smart Search, Explorer regroup, theme auto-detect, UI foundation
 
 **Claude (now owning UI and user interaction, per user direction):**
@@ -85,7 +164,12 @@ findings, all fixed before commit:
 
 Codex found no role/scope leak, theme flash, or unintended light-mode change.
 
-**Push:** pending.
+**Push:** Claude → `f9b3555` — 2026-09-15. CI run 34960215058 green (gate +
+tag/release v0.3.23); Render frontend deploy `dep-daki6hhsrm7s73c2nnd0` live on
+that commit. Live-verified pre-sign-in: new stylesheet served, auto theme
+resolved to dark from the OS. Signed-in checks of the Explorer, Smart Search,
+and modals are pending: the browser session had idle-expired and credentials
+are not entered by agents.
 
 ## [v0.3.22] — 2026-09-14 — Source Control page layout polish
 

@@ -1,3 +1,4 @@
+import { confirmAction } from './ui/ConfirmDialog';
 import { useEffect, useState } from 'react';
 import { ROLE_LEVEL, type User } from '../lib/constants';
 import { fmtMoney } from '../lib/format';
@@ -146,7 +147,7 @@ function LineItemTable({
   const actualTotal = rows.reduce((s, r) => s + (r.monthly_actual ?? 0), 0);
 
   async function handleDelete(id: string) {
-    if (!window.confirm('Delete this line item? This removes its full history.')) return;
+    if (!(await confirmAction({ title: 'Delete this line item?', message: 'This removes its full history.', confirmLabel: 'Delete', tone: 'danger' }))) return;
     try {
       await api.deleteLineItem(id);
       onReload();

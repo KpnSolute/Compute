@@ -117,23 +117,14 @@ export function Login({ onLogin, layout = 'split', workspaceSlug }: LoginProps) 
             Track on-hand counts and par levels, reconcile vendor invoices, plan the 28-day cycle menu, and manage staff
             access by role — all synced live across every device.
           </p>
-          <div className="brand-stats">
-            <div>
-              <div className="bs-val">214</div>
-              <div className="bs-lbl">Line items</div>
-            </div>
-            <div>
-              <div className="bs-val">9</div>
-              <div className="bs-lbl">Categories</div>
-            </div>
-            <div>
-              <div className="bs-val">4</div>
-              <div className="bs-lbl">Access roles</div>
-            </div>
-          </div>
+          <ul className="brand-points">
+            <li>{I.box()} On-hand counts, par levels, and reorders</li>
+            <li>{I.fileText()} Vendor invoices reconciled to inventory</li>
+            <li>{I.shield()} Role-based staff access with a full audit trail</li>
+          </ul>
         </div>
         <div className="brand-foot">
-          <span className="dot"></span> Operations Console · v3.0
+          <span className="dot"></span> Secure staff sign-in
         </div>
       </aside>
 
@@ -221,7 +212,7 @@ export function Login({ onLogin, layout = 'split', workspaceSlug }: LoginProps) 
                   slow ? 'Waking the server…' : 'Verifying…'
                 ) : (
                   <>
-                    Sign in {I.logout({ style: { width: 16, height: 16 } })}
+                    Sign in {I.chevR({ style: { width: 16, height: 16 } })}
                   </>
                 )}
               </button>

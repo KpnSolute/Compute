@@ -1,3 +1,4 @@
+import { confirmAction } from './ui/ConfirmDialog';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ROLE_LABEL } from '../lib/constants';
@@ -159,7 +160,7 @@ export function ServSafeManager() {
   };
 
   const remove = async (cert: Certification) => {
-    if (!window.confirm(`Remove ${cert.certification} from ${cert.staff_name}?`)) return;
+    if (!(await confirmAction({ title: 'Remove certification?', message: `${cert.certification} will be removed from ${cert.staff_name}.`, confirmLabel: 'Remove', tone: 'danger' }))) return;
     try {
       await api.deleteServSafe(cert.id);
       toast('Certification removed');

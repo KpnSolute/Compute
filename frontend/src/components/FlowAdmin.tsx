@@ -1,3 +1,4 @@
+import { confirmAction } from './ui/ConfirmDialog';
 import { useState, useEffect } from 'react';
 import { type User, ROLE_LABEL, NAV } from '../lib/constants';
 import { api, type FlowAssignment } from '../lib/api';
@@ -229,7 +230,7 @@ export function FlowAdmin({ user: _user }: { user: User }) {
   }
 
   async function handleDelete(id: string) {
-    if (!window.confirm('Delete this assignment?')) return;
+    if (!(await confirmAction({ title: 'Delete this assignment?', confirmLabel: 'Delete', tone: 'danger' }))) return;
     try {
       await api.deleteFlowAssignment(id);
       setAssignments(prev => prev.filter(a => a.id !== id));

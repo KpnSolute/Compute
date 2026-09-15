@@ -22,6 +22,7 @@ import logging
 import re
 import secrets
 from datetime import datetime, timezone
+from typing import Literal
 from urllib import request
 from urllib.error import HTTPError
 
@@ -103,7 +104,7 @@ class UserSelfUpdateRequest(BaseModel):
 
 
 class UserPrefsRequest(BaseModel):
-    theme: str | None = None
+    theme: Literal["auto", "light", "dark"] | None = None
     last_seen_changelog_version: str | None = None
 
 

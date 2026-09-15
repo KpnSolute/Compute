@@ -1,3 +1,4 @@
+import { confirmAction } from './ui/ConfirmDialog';
 import { useEffect, useState } from 'react';
 import { I } from '../lib/icons';
 import { type User, ROLE_LEVEL, MONTHS } from '../lib/constants';
@@ -124,9 +125,11 @@ function BudgetWizard({
     const allotment = parseFloat(govAllotment);
     if (!allotment || allotment <= 0) { toast('Enter a government allotment amount'); return; }
     if (initial && initial.gov_allotment !== allotment) {
-      const ok = window.confirm(
-        `Change the ${MONTHS[month - 1]} ${year} allotment from ${fmtMoney(initial.gov_allotment)} to ${fmtMoney(allotment)}?`
-      );
+      const ok = await confirmAction({
+        title: 'Change the allotment?',
+        message: `${MONTHS[month - 1]} ${year}: ${fmtMoney(initial.gov_allotment)} to ${fmtMoney(allotment)}.`,
+        confirmLabel: 'Change allotment',
+      });
       if (!ok) return;
     }
     setSaving(true);

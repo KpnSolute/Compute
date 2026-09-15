@@ -3,7 +3,7 @@
 **Local:** `http://localhost:8000`  
 **Production:** `https://api.kpnsolute.com/compute`
 **Compatibility:** `https://api.compute.kpnsolute.com`, `https://mjcc-managements.onrender.com`
-**Auth header:** `Authorization: Bearer <token>` (all endpoints except `POST /api/auth/login`)  
+**Auth header:** `Authorization: Bearer <token>` unless an endpoint is explicitly marked public or uses a service-secret header.
 **Content-Type:** `application/json` (except file upload which uses `multipart/form-data`)
 
 ---
@@ -44,6 +44,31 @@
 | `menu_save` | `{day_of_week}` (legacy `menu_entries` operation — retired from the API surface as of v4.27.0; the dispatch handler still exists but nothing stages this operation anymore) |
 | `event_create` | event title slug or UUID |
 | `haccp_save` / `daily_log_save` | ISO timestamp or compound key |
+
+---
+
+## Workspace Resolution — `/api/v1/workspaces`
+
+### `GET /api/v1/workspaces/resolve/{workspace_slug}`
+
+Public, read-only lookup used before rendering a workspace sign-in surface.
+
+**Response `200`:**
+```json
+{
+  "workspace": {
+    "slug": "mjcc",
+    "name": "Miami Job Corps Center"
+  }
+}
+```
+
+- The slug is trimmed, lowercased, and must match `^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`.
+- `400` — invalid slug syntax: `{ "detail": "Invalid slug" }`.
+- `409` — reserved product route: `{ "detail": "That workspace address is reserved" }`.
+- `404` — unknown **or inactive** tenant: `{ "detail": "Workspace was not found" }`. These states are intentionally indistinguishable.
+- `500` — unexpected resolver/database failure: `{ "detail": "Internal server error" }`.
+- All `/api/*` responses, including errors, receive `Cache-Control: no-store, no-cache, must-revalidate, max-age=0`, `Pragma: no-cache`, `Expires: 0`, and `X-Request-ID` from the application middleware.
 
 ---
 
@@ -218,6 +243,38 @@ Uploads the current caller's profile image and saves `avatar_url`.
 **Request:** `multipart/form-data` with `file`. Accepted types: JPEG, PNG, WebP, GIF. Max size: 2 MB.
 
 **Response `200`:** Updated user object.
+
+---
+
+### `GET /api/users/me/preferences`
+
+Returns the current caller's saved preference object. Any valid active token.
+An account with no saved preferences receives `{}`. Stored keys are returned
+unchanged.
+
+**Response `200`:**
+```json
+{
+  "theme": "auto | light | dark",
+  "last_seen_changelog_version": "string"
+}
+```
+
+### `PUT /api/users/me/preferences`
+
+Partially updates the current caller's saved preferences and preserves omitted
+keys. Any valid active token.
+
+**Body:**
+```json
+{
+  "theme": "auto | light | dark (optional)",
+  "last_seen_changelog_version": "string (optional)"
+}
+```
+
+**Response `200`:** the complete saved preference object after the update.
+**`422`** if `theme` is anything other than exactly `auto`, `light`, or `dark`.
 
 ---
 
@@ -894,6 +951,28 @@ Auth: any valid token. Returns commit history ordered by `github_synced_at` (fal
 
 ---
 
+### `GET /api/transactions`
+
+Auth: any valid token. Returns `commit_changes` rows, enriched with commit,
+author, and inventory-item display fields, newest first.
+
+| Query Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | int | 200 | Maximum change rows |
+| `offset` | int | 0 | Pagination offset |
+| `action` | string | — | Exact `commit_changes.action` filter |
+| `month` | int | — | Exact stored month filter |
+| `year` | int | — | Exact year filter |
+| `commit_id` | string | — | Exact commit UUID filter; used to load one expanded commit's complete change set |
+
+**Response `200`:** an array of change rows containing the stored change
+fields (`change_id`, `commit_id`, item/entity identifiers, field values,
+action, metadata, and timestamp) plus `commit_message`, `commit_status`,
+`github_sha`, `github_synced_at`, author fields, `sku`, `description`,
+`unit_price`, and `unit`. Returns `[]` when no rows match.
+
+---
+
 ### `POST /api/commits`
 Auth: **admin or manager** only. Approves a set of staging entries: replays operations to live tables, creates commit record, enqueues GitHub sync.
 
@@ -1074,6 +1153,91 @@ Set the active AI stack (provider + key + model). Manager+ required. Upserts `ai
 
 **Body:** `{ "provider": "groq", "key_id": "uuid", "model": "string", "vision_capable": false }`  
 **Response `200`:** the upserted `ai_stack_config` row.
+
+---
+
+## Additional Frontend Client Routes
+
+These routes are also invoked by `frontend/src/lib/api.ts`. They use the normal
+bearer token and workspace headers unless noted otherwise.
+
+### Authentication, tenancy, and workspace console
+
+| Method | Path | Contract |
+|---|---|---|
+| `POST` | `/api/auth/session-event` | Best-effort session lifecycle audit event; accepts reason, detail, and path. |
+| `POST` | `/api/auth/lunchvoice-sso/start` | Starts the authenticated Lunchvoice SSO handoff. |
+| `POST` | `/api/auth/sso/{app}/start` | Starts an authenticated handoff for an allowlisted app. |
+| `GET` | `/api/tenants` | Lists workspaces available to the caller. |
+| `GET`, `POST` | `/api/v1/workspaces` | Lists caller workspaces or creates one with an `Idempotency-Key`; creation is `503` in legacy tenancy mode. |
+| `GET` | `/api/v1/workspaces/{workspace_slug}/summary` | Returns workspace metadata and project/site/member counts. |
+| `GET`, `POST` | `/api/v1/workspaces/{workspace_slug}/sites` | Lists or creates tenant venues/locations. |
+| `GET`, `POST` | `/api/v1/workspaces/{workspace_slug}/projects` | Lists or creates tenant projects. |
+
+### User and inventory administration
+
+| Method | Path | Contract |
+|---|---|---|
+| `GET` | `/api/users/{user_id}/credentials` | Returns authorized credential-state metadata; never returns a password hash. |
+| `GET`, `PUT` | `/api/users/role-scopes` | Reads role navigation scopes; sudo updates the scope map. |
+| `PUT` | `/api/users/me/password` | Changes the caller's password. |
+| `PUT` | `/api/users/me/pin` | Changes a staff caller's PIN. |
+| `GET` | `/api/inventory/items` | Catalog lookup; filters: `sku`, `sku_pending`, `needs_attention`, `category_id`, `limit`. |
+| `PATCH` | `/api/inventory/items/{sku}` | Updates catalog metadata for one SKU. |
+| `POST` | `/api/inventory/merge` | Merges a source catalog item into a target item. |
+| `GET`, `POST` | `/api/inventory/audit` | Reads or runs period audit findings; query: `month`, `year`. |
+| `GET` | `/api/inventory/month-status` | Returns one period's status; query: `month`, `year`. |
+| `GET`, `POST` | `/api/inventory/week-status` | Reads week locks or sets one week's status. |
+| `GET` | `/api/staging/mine` | Returns only the caller's pending staging entries. |
+| `DELETE` | `/api/staging` | Clears the caller's own pending staging entries. |
+| `GET` | `/api/notifications` | Returns the aggregated notification feed. |
+| `POST` | `/api/notifications/read` | Marks supplied notification keys as read. |
+| `POST`, `PATCH`, `DELETE` | `/api/inventory-categories`, `/api/inventory-categories/{cat_id}` | Creates, updates, or deletes inventory categories. |
+| `DELETE` | `/api/events/{event_id}` | Deletes one event. |
+
+### Records, daily operations, and finance
+
+| Method | Path | Contract |
+|---|---|---|
+| `GET`, `POST` | `/api/file-archive` | Lists archived files (`category`, `search`, `limit`, `offset`) or uploads one. |
+| `GET` | `/api/file-archive/{file_id}/download` | Streams one archived file. |
+| `DELETE` | `/api/file-archive/{file_id}` | Deletes one archived file record/object. |
+| `GET`, `POST` | `/api/logs/snack-bar-sales` | Lists (`start`, `end`, `limit`) or records snack-bar sales. |
+| `GET`, `POST` | `/api/snackbar/products` | Lists products or creates one. |
+| `PATCH`, `DELETE` | `/api/snackbar/products/{product_id}` | Updates or deactivates one product. |
+| `GET`, `PUT` | `/api/snackbar/rates`, `/api/snackbar/rates/{entity_type}` | Lists or updates entity rates. |
+| `GET`, `POST` | `/api/snackbar/transactions` | Lists (`start`, `end`, `limit`) or creates snack-bar transactions. |
+| `GET`, `POST` | `/api/flow/assignments` | Lists (`status`, `all`) or creates Flow assignments. |
+| `PATCH`, `DELETE` | `/api/flow/assignments/{assignment_id}` | Updates or deletes one assignment. |
+| `GET`, `POST` | `/api/cost/budget` | Reads (`month`, `year`) or saves a monthly budget. |
+| `GET` | `/api/cost/summary` | Monthly cost summary; query: `month`, `year`. |
+| `GET` | `/api/cost/trend` | Cost trend; query: `month`, `year`, `months`. |
+| `GET` | `/api/cost/averages` | Cost averages; query: `months`. |
+| `GET`, `POST` | `/api/cost/line-items` | Lists or creates budget line items for `month` and `year`. |
+| `PATCH`, `DELETE` | `/api/cost/line-items/{item_id}` | Updates or deletes a budget line item. |
+| `PUT` | `/api/cost/line-items/{item_id}/actual` | Sets actual cost for `month` and `year`. |
+
+### Source control, UI settings, and AI
+
+| Method | Path | Contract |
+|---|---|---|
+| `POST`, `GET` | `/api/github-sync/run`, `/api/github-sync/status` | Runs the archive queue or returns its status. |
+| `GET`, `POST` | `/api/pulls` | Lists (`status`, `limit`, `offset`) or opens pull requests. |
+| `GET` | `/api/pulls/{pr_id}` | Returns one pull request with its staged changes. |
+| `POST` | `/api/pulls/{pr_id}/merge` | Merges an eligible pull request. |
+| `POST` | `/api/pulls/{pr_id}/close` | Closes an open pull request. |
+| `GET` | `/api/changelog/whats-new` | Returns the role-filtered current release notice. |
+| `GET`, `PUT` | `/api/changelog/settings` | Reads or updates the caller's What's New setting. |
+| `GET`, `POST` | `/api/data-entry/ai-keys` | Lists safe key metadata or creates a provider key. |
+| `PUT` | `/api/data-entry/ai-keys/{provider}` | Replaces the configured key for a provider. |
+| `GET`, `PUT` | `/api/data-entry/ai-tools` | Reads or updates the AI tool configuration. |
+| `GET` | `/api/data-entry/ai-usage` | Returns usage rows; query: `days`, `limit`. |
+| `GET`, `PUT` | `/api/agent/config` | Reads or updates MJCC AI configuration. |
+| `POST` | `/api/agent/chat` | Runs one authenticated agent turn. |
+| `GET`, `DELETE` | `/api/agent/history` | Lists (`limit`) or clears the caller's chat history. |
+| `GET`, `PUT` | `/api/agent/automations` | Reads or replaces saved automations. |
+| `GET` | `/api/sku-review` | Lists review rows; query: `status`, `limit`. |
+| `POST` | `/api/sku-review/{row_id}/resolve` | Resolves one SKU-review row. |
 
 ---
 

@@ -1,3 +1,4 @@
+import { confirmAction } from './ui/ConfirmDialog';
 import { useEffect, useState } from 'react';
 import { ROLE_LEVEL, type User } from '../lib/constants';
 import { fmtMoney } from '../lib/format';
@@ -32,7 +33,7 @@ function ProductsPanel({ canManage, products, onReload }: { canManage: boolean; 
   }
 
   async function removeProduct(id: string) {
-    if (!window.confirm('Remove this product from the catalog?')) return;
+    if (!(await confirmAction({ title: 'Remove this product?', message: 'It will no longer appear in the Snack Bar catalog.', confirmLabel: 'Remove', tone: 'danger' }))) return;
     try {
       await api.deactivateSnackBarProduct(id);
       onReload();

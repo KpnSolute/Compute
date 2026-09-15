@@ -1,3 +1,4 @@
+import { confirmAction } from './ui/ConfirmDialog';
 import { useCallback, useEffect, useState } from 'react';
 import { api, type ArchivedFile } from '../lib/api';
 import { I } from '../lib/icons';
@@ -48,7 +49,7 @@ export function FileVault() {
   }
 
   async function remove(file: ArchivedFile) {
-    if (!window.confirm(`Remove ${file.original_filename} from the active File Vault view? The retained original is not physically erased.`)) return;
+    if (!(await confirmAction({ title: `Remove ${file.original_filename}?`, message: 'It leaves the active File Vault view. The retained original is not physically erased.', confirmLabel: 'Remove', tone: 'danger' }))) return;
     try {
       await api.deleteArchivedFile(file.id);
       await load();

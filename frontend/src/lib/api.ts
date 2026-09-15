@@ -2,6 +2,7 @@ import { getBackendToken, clearBackendToken, ensureFreshBackendAuth } from './su
 import { markSessionActivity } from './session';
 import { groupByCategory } from './inventoryUtils';
 import { workspaceHeaders, type Workspace } from './workspace';
+import type { ThemePref } from './theme';
 
 const envBase = (import.meta.env as Record<string, string>).VITE_API_BASE;
 if (!envBase) {
@@ -1693,11 +1694,11 @@ export const api = {
   },
 
   // User preferences (theme, etc.) — saved per-user in Supabase app_settings
-  async getUserPreferences(): Promise<{ theme?: string; last_seen_changelog_version?: string }> {
+  async getUserPreferences(): Promise<{ theme?: ThemePref; last_seen_changelog_version?: string }> {
     return req('/api/users/me/preferences');
   },
 
-  async updateUserPreferences(prefs: { theme?: string; last_seen_changelog_version?: string }): Promise<any> {
+  async updateUserPreferences(prefs: { theme?: ThemePref; last_seen_changelog_version?: string }): Promise<any> {
     return req('/api/users/me/preferences', { method: 'PUT', body: JSON.stringify(prefs) });
   },
 
