@@ -1,16 +1,15 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { I } from "../lib/icons";
 import { type User, ROLE_LEVEL, ROLE_LABEL } from "../lib/constants";
 import { api, type Commit, type SourceTransaction, type StagingEntry } from "../lib/api";
 import { useEscapeClose } from "../lib/useEscapeClose";
-import { PageToolbar } from "./ui/ActionBars";
 import { StatusPill } from "./ui/StatusPill";
 import { matchesInventoryQuery, parseInventoryQuery } from "../lib/inventorySearch";
 import { displayDiffValue, groupCommitChanges, type LogicalCommitChange } from "../lib/sourceControlDiff";
 
 const t = (msg: string) => (window as any).toast?.(msg);
 
-function SCPushButton() {
+function SCPushButton({ page = false }: { page?: boolean }) {
     const [syncing, setSyncing] = useState(false);
 
     async function doPush() {
@@ -40,13 +39,13 @@ function SCPushButton() {
 
     return (
         <button
-            className="sc-icon-btn"
+            className={page ? "btn" : "sc-icon-btn"}
             onClick={doPush}
             disabled={syncing}
             title="Sync committed changes to the GitHub archive repo (archive/audit-trail backup only — does not write to the live database)"
-            style={{ marginLeft: 6 }}
+            style={page ? undefined : { marginLeft: 6 }}
         >
-            {syncing ? "Syncing…" : "Sync Archive"}
+            {page && I.archive()} {syncing ? "Syncing…" : "Sync Archive"}
         </button>
     );
 }
@@ -349,10 +348,9 @@ function CommitEntityDiff({ group }: { group: LogicalCommitChange }) {
     );
 }
 
-function CommitTimelineView({ active, commits, refresh, refreshing }: {
+function CommitTimelineView({ active, commits, refreshing }: {
     active: boolean;
     commits: Commit[];
-    refresh: () => void;
     refreshing: boolean;
 }) {
     const [search, setSearch] = useState("");
@@ -406,18 +404,19 @@ function CommitTimelineView({ active, commits, refresh, refreshing }: {
 
     return (
         <div className="sc-history">
-            <div className="sc-log-head">
-                <div><h3>Commit history</h3><p>Explore each push, changed record, and field-level diff.</p></div>
-                <button className="btn" onClick={refresh} disabled={refreshing}>{I.refresh({ style: { width: 14, height: 14 } })} Refresh</button>
-            </div>
             <div className="sc-history-tools">
-                <label className="sc-log-search">{I.search({ style: { width: 16, height: 16 } })}<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search commits, people, pull requests, SHA…" /></label>
+                <label className="sc-log-search">{I.search({ style: { width: 15, height: 15 } })}<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search commits, people, pull requests, SHA…" aria-label="Search commits" /></label>
                 <select value={syncFilter} onChange={(event) => setSyncFilter(event.target.value as typeof syncFilter)} aria-label="Filter sync status">
                     <option value="all">All pushes</option><option value="synced">Archive synced</option><option value="pending">Sync pending</option>
                 </select>
-                {expanded.size > 0 && <button className="sc-icon-btn" onClick={() => { setExpanded(new Set()); setSelectedEntity(null); }}>Collapse all</button>}
+                <div className="sc-history-summary">
+                    {refreshing && <div className="spinner" style={{ width: 12, height: 12 }} />}
+                    <span><b>{filteredCommits.length}</b> of {commits.length} commits</span>
+                    <span className="sc-dot-sep" aria-hidden="true">·</span>
+                    <span><b>{commits.reduce((total, commit) => total + (commit.change_count || 0), 0).toLocaleString()}</b> field changes</span>
+                    {expanded.size > 0 && <button className="btn sc-collapse-btn" onClick={() => { setExpanded(new Set()); setSelectedEntity(null); }}>Collapse all</button>}
+                </div>
             </div>
-            <div className="sc-history-summary"><StatusPill>{filteredCommits.length} of {commits.length} commits</StatusPill><span>{commits.reduce((total, commit) => total + (commit.change_count || 0), 0).toLocaleString()} recorded field changes</span></div>
             <div className="sc-timeline" role="list">
                 {filteredCommits.length === 0 && <div className="sc-empty"><div className="sc-empty-title">No matching commits</div><div className="sc-empty-sub">Try a different message, author, SHA, or sync filter.</div></div>}
                 {filteredCommits.map((commit, index) => {
@@ -430,14 +429,13 @@ function CommitTimelineView({ active, commits, refresh, refreshing }: {
                             <div className="sc-commit-card">
                                 <button className="sc-commit-toggle" onClick={() => toggleCommit(commit.commit_id)} aria-expanded={isExpanded}>
                                     <span className="sc-commit-chevron">{isExpanded ? I.down() : I.chevR()}</span>
-                                    <span className="sc-commit-primary"><strong>{commit.message || "Untitled commit"}</strong><span className="sc-commit-byline"><b>{commit.author_name || commit.author_id}</b> committed {relTime(commit.merged_at || commit.created_at)}</span></span>
-                                    <span className="sc-commit-facts"><span>{commit.change_count} field{commit.change_count === 1 ? "" : "s"}</span><code>{shortSha(commit.github_sha) || commit.commit_id.slice(0, 7)}</code></span>
+                                    <span className="sc-commit-primary"><strong title={commit.message || undefined}>{commit.message || "Untitled commit"}</strong><span className="sc-commit-byline"><b>{commit.author_name || commit.author_id}</b> committed <time dateTime={commit.merged_at || commit.created_at} title={new Date(commit.merged_at || commit.created_at).toLocaleString()}>{relTime(commit.merged_at || commit.created_at)}</time></span></span>
+                                    <span className="sc-commit-facts">{commit.change_count > 0 && <span>{commit.change_count} field{commit.change_count === 1 ? "" : "s"}</span>}<code>{shortSha(commit.github_sha) || commit.commit_id.slice(0, 7)}</code></span>
                                 </button>
                                 <div className="sc-commit-tags">
                                     <span className="sc-branch-chip">{I.branch()} {commit.branch || "main"}</span>
-                                    {commit.pr_number != null && <span className="sc-pr-chip">PR #{commit.pr_number}{commit.pr_title ? ` · ${commit.pr_title}` : ""}</span>}
+                                    {commit.pr_number != null && <span className="sc-pr-chip" title={commit.pr_title || undefined}>PR #{commit.pr_number}{commit.pr_title ? ` · ${commit.pr_title}` : ""}</span>}
                                     <span className={`sc-sync-chip ${commit.github_sha ? "synced" : "pending"}`}>{commit.github_sha ? "Archive synced" : "Sync pending"}</span>
-                                    <time dateTime={commit.merged_at || commit.created_at}>{new Date(commit.merged_at || commit.created_at).toLocaleString()}</time>
                                 </div>
                                 {isExpanded && (
                                     <div className="sc-commit-tree">
@@ -518,6 +516,7 @@ function SCChangesView({
     openPrId,
     onConsumePrId,
     externalTab,
+    onOverlayClose,
 }: {
     user: User;
     staged: StagingEntry[];
@@ -528,6 +527,7 @@ function SCChangesView({
     openPrId?: string | null;
     onConsumePrId?: () => void;
     externalTab?: string;
+    onOverlayClose?: () => void;
 }) {
     const pageMode = externalTab !== undefined;
     const lvl = ROLE_LEVEL[user.role] || 0;
@@ -663,9 +663,27 @@ function SCChangesView({
         setShowHistory(externalTab === 'history');
         setShowAI(externalTab === 'ai');
         setShowSKUReview(externalTab === 'sku');
-        if (externalTab === 'prs') { setShowPRs(true); loadPRs(); }
+        setShowPRs(externalTab === 'prs');
+        if (externalTab === 'prs') loadPRs();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [externalTab]);
+
+    // When the overlay behind the active page tab closes (X, backdrop, Escape),
+    // hand control back to the page so the tab bar stops showing it as active
+    // and the same tab can be reopened. Keyed by tab so a direct tab-to-tab
+    // switch is not mistaken for a close.
+    const overlayOpen = externalTab === 'history' ? showHistory
+        : externalTab === 'ai' ? showAI
+            : externalTab === 'prs' ? showPRs
+                : externalTab === 'sku' ? showSKUReview
+                    : false;
+    const lastOverlay = useRef<{ tab?: string; open: boolean }>({ open: false });
+    useEffect(() => {
+        const prev = lastOverlay.current;
+        if (prev.tab === externalTab && prev.open && !overlayOpen) onOverlayClose?.();
+        lastOverlay.current = { tab: externalTab, open: overlayOpen };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [externalTab, overlayOpen]);
 
     const loadSKUReview = useCallback(async () => {
         setSkuLoading(true);
@@ -1644,54 +1662,55 @@ export function SourceControlPage({
 
     return (
         <div className="sc-page">
-            <div className="pg-head">
-                <div>
-                    <h2 className="pg-title">Source Control</h2>
-                    <StatusPill ok={!!lastCommit?.github_sha} warn={!lastCommit?.github_sha}>
-                        {I.branch({ style: { width: 12, height: 12 } })}
-                        main
-                        {lastCommit && (
-                            <> · <span className="mono" style={{ fontSize: 11 }}>
-                                {shortSha(lastCommit.github_sha) || lastCommit.commit_id.slice(0, 7)}
-                            </span></>
-                        )}
-                    </StatusPill>
+            <div className="page-head sc-page-head">
+                <div className="sc-page-heading">
+                    <h2>Source Control</h2>
+                    <div className="ph-sub">
+                        <StatusPill ok={!!lastCommit?.github_sha} warn={!lastCommit?.github_sha}>
+                            {I.branch({ style: { width: 12, height: 12 } })}
+                            main
+                            {lastCommit && (
+                                <> · <span className="mono">
+                                    {shortSha(lastCommit.github_sha) || lastCommit.commit_id.slice(0, 7)}
+                                </span></>
+                            )}
+                        </StatusPill>
+                        <span>Review, approve, and audit every inventory change</span>
+                    </div>
                 </div>
-                <button className="btn" onClick={loadData} disabled={loading}>
-                    {I.refresh()} Refresh
+                <div className="ph-actions">
+                    <button className="btn" onClick={loadData} disabled={loading}>
+                        {I.refresh()} {loading ? "Refreshing…" : "Refresh"}
+                    </button>
+                    {(ROLE_LEVEL[user.role] || 0) >= ROLE_LEVEL.manager && <SCPushButton page />}
+                </div>
+            </div>
+            <div className="tab-bar sc-tab-bar" aria-label="Source Control views">
+                <button aria-pressed={tab === 'changes'} className={"tab-btn" + (tab === 'changes' ? " active" : "")} onClick={() => setTab('changes')}>
+                    {I.branch()} Changes
                 </button>
-                {(ROLE_LEVEL[user.role] || 0) >= ROLE_LEVEL.manager && (
-                    <span style={{ borderLeft: "1px solid var(--line)", paddingLeft: 8, marginLeft: 4, display: "inline-flex", alignItems: "center" }}>
-                        <SCPushButton />
-                    </span>
+                <button aria-pressed={tab === 'history'} className={"tab-btn" + (tab === 'history' ? " active" : "")} onClick={() => setTab('history')}>
+                    {I.clock()} History
+                </button>
+                <button aria-pressed={tab === 'prs'} className={"tab-btn" + (tab === 'prs' ? " active" : "")} onClick={() => setTab('prs')}
+                    title={canReview ? "Review Queue — changes submitted by staff for approval" : "My Requests — changes you have submitted for review"}>
+                    {I.inbox()} {canReview ? "Review Queue" : "My Requests"}
+                </button>
+                {canReview && (
+                    <button aria-pressed={tab === 'ai'} className={"tab-btn" + (tab === 'ai' ? " active" : "")} onClick={() => setTab('ai')}>
+                        {I.flame()} AI
+                    </button>
+                )}
+                {canReview && (
+                    <button aria-pressed={tab === 'sku'} className={"tab-btn" + (tab === 'sku' ? " active" : "")} onClick={() => setTab('sku')}>
+                        {I.archive()} SKU Review
+                    </button>
                 )}
             </div>
-            <PageToolbar>
-                <button className={"sc-nav-btn" + (tab === 'changes' ? " active" : "")} onClick={() => setTab('changes')}>
-                    {I.branch({ style: { width: 13, height: 13 } })} Changes
-                </button>
-                <button className={"sc-nav-btn" + (tab === 'history' ? " active" : "")} onClick={() => setTab('history')}>
-                    {I.clock({ style: { width: 13, height: 13 } })} History
-                </button>
-                <button className={"sc-nav-btn" + (tab === 'prs' ? " active" : "")} onClick={() => setTab('prs')}
-                    title={canReview ? "Review Queue — changes submitted by staff for approval" : "My Requests — changes you have submitted for review"}>
-                    {I.inbox({ style: { width: 13, height: 13 } })} {canReview ? "Review Queue" : "My Requests"}
-                </button>
-                {canReview && (
-                    <button className={"sc-nav-btn" + (tab === 'ai' ? " active" : "")} onClick={() => setTab('ai')}>
-                        {I.flame({ style: { width: 13, height: 13 } })} AI
-                    </button>
-                )}
-                {canReview && (
-                    <button className={"sc-nav-btn" + (tab === 'sku' ? " active" : "")} onClick={() => setTab('sku')}>
-                        {I.archive({ style: { width: 13, height: 13 } })} SKU Review
-                    </button>
-                )}
-            </PageToolbar>
             <div className="sc-page-body">
                 <div className="sc-page-panel">
                     {tab === 'history' ? (
-                        <CommitTimelineView active={tab === 'history'} commits={commits} refresh={loadData} refreshing={loading} />
+                        <CommitTimelineView active={tab === 'history'} commits={commits} refreshing={loading} />
                     ) : (
                         <SCChangesView
                             user={user}
@@ -1703,6 +1722,7 @@ export function SourceControlPage({
                             onConsumePrId={onConsumePrId}
                             loadData={loadData}
                             externalTab={tab}
+                            onOverlayClose={() => setTab('changes')}
                         />
                     )}
                 </div>

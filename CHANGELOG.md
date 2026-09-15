@@ -1,5 +1,50 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.22] — 2026-09-14 — Source Control page layout polish
+
+**Claude:** Follow-up to Codex's v0.3.21 timeline after user feedback that the
+page looked cluttered and "not like a proper app". Root cause of the broken top
+area: `SourceControlPage` used `pg-head` / `pg-title`, classes that have **no
+CSS anywhere**, so Refresh and Sync Archive fell under the title in plain flow.
+The page now uses the shared `page-head` / `ph-sub` / `ph-actions` pattern every
+other page uses: title with branch/SHA pill on the left, Refresh + Sync Archive
+as one right-aligned button row. The pill-button sub-nav is replaced by the
+existing `.tab-bar` / `.tab-btn` underline tabs (with `role="tablist"`/`tab`
+and `aria-selected`).
+
+History tab: removed the duplicate Refresh button and the 24px "Commit history"
+heading that competed with the page title; search, sync filter, commit/field
+totals, and Collapse all now share one toolbar row. Commit rows hide "0 fields"
+when a commit has no recorded field count, and the repeated full-timestamp chip
+is gone (exact time is a tooltip on the relative time). Also fixed a layout bug:
+`.sc-history` / `.sc-timeline` were not `flex:1` inside an `overflow:hidden`
+panel, so the timeline was clipped with no reachable scroll. The page now has a
+viewport-based height and the timeline fills and scrolls it; extra side padding
+was removed so content aligns with the title. No data or API change.
+
+**Codex (read-only review, requested by Claude):** flagged three issues, all
+fixed before commit. (1) High, pre-existing since the page tabs were added:
+closing an AI / Review Queue / SKU dialog left that tab highlighted and
+re-clicking it could not reopen it, and switching away from Review Queue never
+cleared `showPRs`. The tab-sync effect now sets `showPRs` both ways, and a new
+`onOverlayClose` callback returns the page to Changes when the active tab's
+overlay closes (tracked per tab, so a direct tab-to-tab switch is not treated
+as a close). (2) `role="tab"` without the keyboard pattern: tabs are now plain
+buttons with `aria-pressed`. (3) `SCPushButton` is shared with the slide-in
+panel: the full `.btn` style now applies only via a `page` prop; the panel keeps
+the compact button.
+
+**Claude (self-correction):** a PowerShell 5.1 find/replace briefly re-encoded
+`SourceControl.tsx` as Windows-1252 (66 lines of `â€”` mojibake). Reversed
+byte-exactly before any check or commit; verified zero mojibake remains and the
+diff returned to the intended size.
+
+**Verified:** `tsc --noEmit` clean; frontend tests **48 passed**; ESLint **0
+errors** (686 warnings, unchanged); `scripts/verify_release.py` passed for
+v0.3.22 on the final tree.
+
+**Push:** pending.
+
 ## [v0.3.21] — 2026-09-14 — Git-style Source Control history and field diffs
 
 **Codex:** Replaced the full-page History tab's flat 800-row transaction table
