@@ -57,6 +57,20 @@ function MarkdownText({ text }: { text: string }) {
             {toBlocks(text).map((block, index) => {
                 if (block.kind === 'p') return <p key={index}><Inline text={block.text} /></p>;
                 if (block.kind === 'code') return <pre key={index}><code>{block.text}</code></pre>;
+                if (block.kind === 'table') return (
+                    <div className="agent-chat-table" key={index}>
+                        <table>
+                            <thead>
+                                <tr>{block.head.map((cell, cellIndex) => <th key={cellIndex}><Inline text={cell} /></th>)}</tr>
+                            </thead>
+                            <tbody>
+                                {block.rows.map((row, rowIndex) => (
+                                    <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}><Inline text={cell} /></td>)}</tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                );
                 const items = block.items.map((item, itemIndex) => <li key={itemIndex}><Inline text={item} /></li>);
                 return block.kind === 'ul' ? <ul key={index}>{items}</ul> : <ol key={index}>{items}</ol>;
             })}

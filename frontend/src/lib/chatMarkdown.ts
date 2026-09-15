@@ -10,7 +10,8 @@ export type ChatBlock =
     | { kind: 'p'; text: string }
     | { kind: 'ul'; items: string[] }
     | { kind: 'ol'; items: string[] }
-    | { kind: 'code'; text: string };
+    | { kind: 'code'; text: string }
+    | { kind: 'table'; head: string[]; rows: string[][] };
 
 export type InlineSpan =
     | { kind: 'text'; value: string }
@@ -23,6 +24,13 @@ const NUMBERED = /^\s*\d+[.)]\s+(.*)$/;
 // Headings are rendered as their own bold paragraph rather than a heading level.
 const HEADING = /^\s*#{1,6}\s+(.*)$/;
 const FENCE = /^\s*```/;
+// A table is a pipe row followed by a dashed separator row.
+const TABLE_ROW = /^\s*\|.*\|\s*$/;
+const TABLE_SEPARATOR = /^\s*\|?(\s*:?-{2,}:?\s*\|)+\s*:?-{2,}:?\s*\|?\s*$/;
+
+function tableCells(line: string): string[] {
+    return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim());
+}
 
 /** Group raw reply text into paragraphs and lists. */
 export function toBlocks(text: string): ChatBlock[] {
@@ -30,7 +38,9 @@ export function toBlocks(text: string): ChatBlock[] {
     // Lines inside ``` fences are kept verbatim; without this the inline code
     // rule pairs the fence backticks and leaves stray markers on screen.
     let fence: string[] | null = null;
-    for (const raw of (text || '').split('\n')) {
+    const lines = (text || '').split('\n');
+    for (let index = 0; index < lines.length; index++) {
+        const raw = lines[index];
         const line = raw.trimEnd();
         if (FENCE.test(line)) {
             if (fence) {
@@ -45,6 +55,19 @@ export function toBlocks(text: string): ChatBlock[] {
             fence.push(raw);
             continue;
         }
+        if (TABLE_ROW.test(line) && index + 1 < lines.length && TABLE_SEPARATOR.test(lines[index + 1])) {
+            const head = tableCells(line);
+            const rows: string[][] = [];
+            let cursor = index + 2;
+            while (cursor < lines.length && TABLE_ROW.test(lines[cursor])) {
+                rows.push(tableCells(lines[cursor]));
+                cursor++;
+            }
+            blocks.push({ kind: 'table', head, rows });
+            index = cursor - 1;
+            continue;
+        }
+
         const bullet = BULLET.exec(line);
         const numbered = NUMBERED.exec(line);
         const heading = HEADING.exec(line);

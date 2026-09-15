@@ -1,5 +1,29 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.27] — 2026-09-15 — MJCC AI answers render their tables
+
+**Claude (UI owner, found while verifying v0.3.26 live):** with Markdown
+rendering fixed, the first real answer still opened with a raw pipe table —
+`| Metric | Value |`, `|---|---|`, `| Active Users | 10 staff members |` — because
+tables were outside the supported subset. The model uses tables constantly for
+operational data (inventory value, items below par, current period), so this is
+the first thing a user sees on the page.
+
+- `lib/chatMarkdown.ts` now reads a pipe row followed by a dashed separator into
+  a `table` block with head and body cells; cells keep inline bold, italic, and
+  code. A pipe line with no separator under it stays plain text, and rows are
+  only consumed while they keep the pipe shape.
+- Tables render as a real `<table>` in a horizontally scrollable frame that
+  matches the app's table styling in both themes.
+- Unit tests cover the head/row split and the not-a-table case.
+
+**Still plain text by design:** links and nested sublists.
+
+**Verification:** tsc clean; frontend tests passed; production build passed;
+ESLint 0 errors.
+
+**Push:** pending.
+
 ## [v0.3.26] — 2026-09-15 — MJCC AI was invisible to every user
 
 **Claude (UI owner, found in live testing minutes after v0.3.25 deployed):**

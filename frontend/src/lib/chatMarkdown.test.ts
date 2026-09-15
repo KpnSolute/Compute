@@ -36,6 +36,22 @@ describe('chat markdown blocks', () => {
     it('does not lose text when a fence is never closed', () => {
         expect(toBlocks('```\nselect 1;')).toEqual([{ kind: 'code', text: 'select 1;' }]);
     });
+
+    it('reads a pipe table into head and rows', () => {
+        const table = '| Metric | Value |\n|---|---|\n| Active Users | 10 staff |\n| Items Below Par | 0 items |\nEverything looks good.';
+        expect(toBlocks(table)).toEqual([
+            {
+                kind: 'table',
+                head: ['Metric', 'Value'],
+                rows: [['Active Users', '10 staff'], ['Items Below Par', '0 items']],
+            },
+            { kind: 'p', text: 'Everything looks good.' },
+        ]);
+    });
+
+    it('leaves a pipe line alone when no separator row follows', () => {
+        expect(toBlocks('| not | a table |')).toEqual([{ kind: 'p', text: '| not | a table |' }]);
+    });
 });
 
 describe('chat markdown inline spans', () => {
