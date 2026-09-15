@@ -801,6 +801,15 @@ table.data.logtbl td{padding:6px 10px}
 .agent-chat-row.user .agent-chat-message-wrap{align-items:flex-end;max-width:min(72%,680px)}
 .agent-user-message{padding:11px 15px;border-radius:18px 18px 5px 18px;background:var(--navy);color:#fff;font-size:13.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
 .agent-chat-response{font-size:13.5px;line-height:1.7;color:var(--ink);white-space:pre-wrap;word-break:break-word;padding:5px 2px}
+.agent-chat-response p{margin:0 0 10px}
+.agent-chat-response>:last-child{margin-bottom:0}
+.agent-chat-response ul,.agent-chat-response ol{margin:0 0 10px;padding-left:22px;display:grid;gap:4px;white-space:normal}
+.agent-chat-response li{line-height:1.6}
+.agent-chat-response li::marker{color:var(--muted)}
+.agent-chat-response strong{font-weight:750}
+.agent-chat-response code{font-family:var(--mono);font-size:12.5px;padding:1px 5px;border:1px solid var(--line-soft);border-radius:5px;background:var(--surface-2);white-space:pre-wrap}
+.agent-chat-response pre{margin:0 0 10px;padding:10px 12px;border:1px solid var(--line-soft);border-radius:8px;background:var(--surface-2);overflow-x:auto;white-space:pre}
+.agent-chat-response pre code{padding:0;border:0;border-radius:0;background:none;white-space:pre}
 .agent-chat-time{font-size:10px;color:var(--faint);margin-top:5px}
 .agent-tool-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
 .agent-tool-call{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:5px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--muted);font-size:11px;font-weight:700;cursor:pointer}

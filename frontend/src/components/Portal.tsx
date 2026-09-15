@@ -5461,6 +5461,14 @@ export function Portal({
         setActive(routeKey);
     };
 
+    // Optional hand-offs (e.g. Data Entry offering MJCC AI after a parse
+    // failure) should stay quiet when the target page is not in the user's
+    // scopes, rather than answering with "this page isn't enabled for you".
+    const goToIfAllowed = (routeKey: string, opts?: { prId?: string }) => {
+        if (!hasScope(routeKey) || !canAccess(routeKey)) return;
+        goTo(routeKey, opts);
+    };
+
     // The Explorer is a docked column on desktop and an overlay below that, so
     // the same control collapses the column or closes the overlay.
     useEffect(() => {
@@ -5603,7 +5611,7 @@ export function Portal({
             return <Reports user={user} period={period} />;
         if (active === "costmgr")
             return <CostManager user={user} period={period} onNav={goTo} />;
-        if (active === "dataentry") return <DataEntry user={user} onNavigate={goTo} />;
+        if (active === "dataentry") return <DataEntry user={user} onNavigate={goToIfAllowed} />;
         if (active === "users") return <UsersView user={user} />;
         if (active === "organization") return <Organization user={user} go={goTo} />;
         if (active === "archives") return <ArchivesView period={period} />;

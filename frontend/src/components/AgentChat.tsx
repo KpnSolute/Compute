@@ -4,6 +4,7 @@ import { ROLE_LEVEL } from '../lib/constants';
 import type { User } from '../lib/constants';
 import { I } from '../lib/icons';
 import { confirmAction } from './ui/ConfirmDialog';
+import { splitInline, toBlocks } from '../lib/chatMarkdown';
 
 interface AgentMessage {
     id: string;
@@ -36,13 +37,42 @@ function ToolCall({ tc }: { tc: { name: string; result_summary: string } }) {
     return <button className="agent-tool-call" onClick={() => setOpen(value => !value)} aria-expanded={open}><SvgIcon name="terminal" size={14} /><span>{tc.name}</span>{open && <span className="agent-tool-result">{tc.result_summary}</span>}<SvgIcon name={open ? 'up' : 'down'} size={13} /></button>;
 }
 
+/** Assistant replies arrive as Markdown; render them as elements, never HTML. */
+function Inline({ text }: { text: string }) {
+    return (
+        <>
+            {splitInline(text).map((span, index) => {
+                if (span.kind === 'bold') return <strong key={index}>{span.value}</strong>;
+                if (span.kind === 'italic') return <em key={index}>{span.value}</em>;
+                if (span.kind === 'code') return <code key={index}>{span.value}</code>;
+                return <span key={index}>{span.value}</span>;
+            })}
+        </>
+    );
+}
+
+function MarkdownText({ text }: { text: string }) {
+    return (
+        <>
+            {toBlocks(text).map((block, index) => {
+                if (block.kind === 'p') return <p key={index}><Inline text={block.text} /></p>;
+                if (block.kind === 'code') return <pre key={index}><code>{block.text}</code></pre>;
+                const items = block.items.map((item, itemIndex) => <li key={itemIndex}><Inline text={item} /></li>);
+                return block.kind === 'ul' ? <ul key={index}>{items}</ul> : <ol key={index}>{items}</ol>;
+            })}
+        </>
+    );
+}
+
 function MessageRow({ msg }: { msg: AgentMessage }) {
     const isUser = msg.role === 'user';
     return (
         <article className={`agent-chat-row ${isUser ? 'user' : 'assistant'}`}>
             {!isUser && <div className="agent-chat-avatar"><SvgIcon name="chat" size={17} /></div>}
             <div className="agent-chat-message-wrap">
-                <div className={isUser ? 'agent-user-message' : 'agent-chat-response'}>{msg.content}</div>
+                <div className={isUser ? 'agent-user-message' : 'agent-chat-response'}>
+                    {isUser ? msg.content : <MarkdownText text={msg.content} />}
+                </div>
                 {msg.tool_calls && msg.tool_calls.length > 0 && <div className="agent-tool-list">{msg.tool_calls.map((tc, index) => <ToolCall key={`${tc.name}-${index}`} tc={tc} />)}</div>}
                 <time className="agent-chat-time">{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
             </div>

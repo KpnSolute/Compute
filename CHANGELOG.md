@@ -1,5 +1,65 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.26] — 2026-09-15 — MJCC AI was invisible to every user
+
+**Claude (UI owner, found in live testing minutes after v0.3.25 deployed):**
+The new MJCC AI page did not appear for anyone. Page visibility comes from the
+Role Scopes grid (`permission_scopes` / `role_permissions`), and `ai-chat` was a
+brand-new NAV key held by no role, so the sidebar filtered it out, Smart Search
+omitted it, and the Data Entry parse-failure handoff to `ai-chat` hit
+`canAccess()` and answered "This page isn't enabled for your role." Verified
+live: AI Studio listed My Usage / Tools / Automation and no MJCC AI.
+
+- **Frontend:** Data Entry's optional hand-off now routes through
+  `goToIfAllowed`, so a user without the scope keeps the parse-error toast
+  instead of a misleading permission message. Data Entry is available to
+  assistants, who do not hold `ai-chat`.
+- **Frontend — MJCC AI replies showed raw Markdown.** Once the page was
+  reachable, live testing showed answers printing literal `**Operational
+  Summary**` and `* Breakfast:` because the reply was rendered as plain text.
+  Replies now render as elements (paragraphs, bullet and numbered lists, bold,
+  italic, inline code) through a small pure parser in `lib/chatMarkdown.ts`
+  with unit tests. No Markdown dependency was added and no model output is ever
+  injected as HTML. Fenced blocks render as real code blocks, including an
+  unterminated fence. Known limits of the subset: tables, links, and nested
+  sublists still render as plain text.
+
+**Codex (read-only review of Claude's changes):** two findings.
+
+1. Medium, fixed: `goToIfAllowed` dropped the optional navigation argument, so
+   Data Entry's post-import link would have opened Source Control without
+   selecting the pull request it had just created. The wrapper now forwards
+   `opts`. TypeScript accepted the narrower signature silently.
+2. Low, partly addressed: Markdown outside the supported subset degrades.
+   Fenced code is now handled; tables, links, and nested lists remain plain
+   text and are recorded above.
+
+Codex found no path from model output to markup, no catastrophic regex
+behavior, no React key warnings, and no dark-mode contrast defect, and agreed
+that silently declining the optional AI hand-off is right because the
+parse-error toast stays on screen.
+
+**Codex (backend and data lane, briefed by Claude):**
+
+- Added `ai-chat` to `VALID_SCOPE_KEYS` and to the manager default scopes in
+  `backend/routes/users.py`; admin and sudo derive from the valid set.
+- Added `backend/migrations/054_ai_chat_permission_scope.sql`, registering
+  `ai-chat | MJCC AI | AI Studio | manager | 170 | active` and granting it to
+  manager/admin/sudo for the MJCC tenant only, all `on conflict do nothing` so
+  an operator's later choices are never overwritten.
+- **Applied to production** as migration `20260915232208 ai_chat_permission_scope`.
+  Before: `ai-usage` (180), `ai-tools` (190), `ai-presets` (200), no `ai-chat`.
+  After: all four exist with MJCC AI sorting first; existing scopes and grants
+  unchanged.
+- Regression test asserts `ai-chat` is valid and defaults to manager/admin/sudo
+  only, so a new NAV key cannot silently be invisible again.
+- Ruff check and format clean; backend suite **371 passed, 21 skipped**.
+
+**Live verification:** after the grant, mjcc.kpnsolute.com shows MJCC AI first
+in AI Studio for a sudo account. The page itself already shipped in v0.3.25.
+
+**Push:** pending.
+
 ## [v0.3.25] — 2026-09-15 — Native AI icons and full-page MJCC AI workspace
 
 **Codex (UI correction requested by user):**

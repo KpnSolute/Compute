@@ -4,6 +4,8 @@ import pytest
 from fastapi import HTTPException
 
 from backend.routes.users import (
+    DEFAULT_ROLE_SCOPES,
+    VALID_SCOPE_KEYS,
     _can_view_user_credentials,
     _enforce_user_update_scope,
     _normalize_username,
@@ -155,3 +157,12 @@ def test_role_scope_sanitizer_keeps_known_scopes_and_forces_sudo_full_access():
     assert "organization" in scopes["manager"]
     assert "servsafe" in scopes["manager"]
     assert "servsafe" not in scopes["assistant"]
+
+
+def test_ai_chat_scope_is_available_to_manager_and_above_by_default():
+    assert "ai-chat" in VALID_SCOPE_KEYS
+    assert "ai-chat" in DEFAULT_ROLE_SCOPES["manager"]
+    assert "ai-chat" in DEFAULT_ROLE_SCOPES["admin"]
+    assert "ai-chat" in DEFAULT_ROLE_SCOPES["sudo"]
+    assert "ai-chat" not in DEFAULT_ROLE_SCOPES["assistant"]
+    assert "ai-chat" not in DEFAULT_ROLE_SCOPES["staff"]
