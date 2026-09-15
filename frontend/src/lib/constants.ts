@@ -105,6 +105,7 @@ export const NAV = [
   {
     group: 'AI Studio',
     items: [
+      { key: 'ai-chat',    label: 'MJCC AI',    icon: 'chat',     min: 30 },
       { key: 'ai-usage',   label: 'My Usage',   icon: 'trend',    min: 30 },
       { key: 'ai-tools',   label: 'Tools',       icon: 'terminal', min: 30 },
       { key: 'ai-presets', label: 'Automation',  icon: 'flame',    min: 30 },
@@ -144,6 +145,7 @@ export const NAV_KEYWORDS: Record<string, string[]> = {
   lioncafe: ['lunchvoice', 'menu review', 'feedback'],
   costmgr: ['budget', 'spend', 'allotment', 'cost', 'money'],
   'ai-usage': ['ai', 'tokens', 'credits'],
+  'ai-chat': ['ai', 'assistant', 'chat', 'ask', 'help'],
   'ai-tools': ['ai', 'models'],
   'ai-presets': ['ai', 'presets', 'workflows'],
   organization: ['tenant', 'workspace', 'company', 'center'],

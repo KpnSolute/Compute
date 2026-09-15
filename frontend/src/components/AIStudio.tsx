@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
 import { ROLE_LEVEL } from '../lib/constants';
 import type { User } from '../lib/constants';
+import { I } from '../lib/icons';
 
 // ── shared helpers ─────────────────────────────────────────────────────────────
 
@@ -64,28 +65,33 @@ function fmtCost(usd: number) {
 
 // ── tool metadata (mirrors backend TOOL_MIN_ROLE + TOOL_DESCRIPTIONS) ──────────
 
-const TOOL_META: Record<string, { label: string; emoji: string; desc: string; minRole: string }> = {
-    stage_inventory_save: { label: 'Stage Inventory', emoji: 'SC', desc: 'Stage month-level inventory edits into Source Control for review.', minRole: 'manager' },
-    stage_inventory_week_update: { label: 'Stage Weekly Data', emoji: 'SC', desc: 'Stage weekly received or issued quantities and attach them to a pull request.', minRole: 'manager' },
-    get_source_control_status: { label: 'Source Status', emoji: 'SC', desc: 'Check pending staged changes and open pull requests.', minRole: 'manager' },
-    get_dashboard_stats: { label: 'Dashboard Stats',   emoji: '📊', desc: 'Inventory value, event count, users, and below-par item summary.',                     minRole: 'staff'   },
-    get_inventory:       { label: 'Inventory',         emoji: '📦', desc: 'Full inventory list with quantities, par levels, and reorder status.',                   minRole: 'staff'   },
-    get_events:          { label: 'Events',            emoji: '📅', desc: 'Upcoming and past events and programs with themes and menu suggestions.',                minRole: 'staff'   },
-    get_menu:            { label: 'Menu',              emoji: '🍽️', desc: 'Meal period menu for any day of the week (Mon–Sun).',                                   minRole: 'staff'   },
-    get_reorders:        { label: 'Reorders',          emoji: '🔄', desc: 'Items that have fallen below par level and need to be reordered.',                       minRole: 'staff'   },
-    get_period_status:   { label: 'Period Status',     emoji: '📆', desc: 'Current inventory period, month/year, and rollover readiness.',                          minRole: 'staff'   },
-    get_haccp_logs:      { label: 'HACCP Logs',        emoji: '🌡️', desc: 'Temperature and compliance log entries for a given date range.',                        minRole: 'staff'   },
-    get_daily_logs:      { label: 'Daily Ops Logs',    emoji: '✅', desc: 'Daily operations journal entries and shift notes.',                                       minRole: 'staff'   },
-    get_users:           { label: 'Users & Roles',     emoji: '👥', desc: 'Active user list with role distribution — manager access required.',                    minRole: 'manager' },
-    create_event:        { label: 'Create Event',      emoji: '✨', desc: 'Create a new event or program on the calendar — manager access required.',              minRole: 'manager' },
-    get_ai_usage:        { label: 'AI Usage Stats',    emoji: '📈', desc: 'System-wide AI usage, token counts, cost, and per-provider breakdown — admin only.',   minRole: 'admin'   },
+const TOOL_META: Record<string, { label: string; icon: string; desc: string; minRole: string }> = {
+    stage_inventory_save: { label: 'Stage Inventory', icon: 'branch', desc: 'Stage month-level inventory edits into Source Control for review.', minRole: 'manager' },
+    stage_inventory_week_update: { label: 'Stage Weekly Data', icon: 'branch', desc: 'Stage weekly received or issued quantities and attach them to a pull request.', minRole: 'manager' },
+    get_source_control_status: { label: 'Source Status', icon: 'branch', desc: 'Check pending staged changes and open pull requests.', minRole: 'manager' },
+    get_dashboard_stats: { label: 'Dashboard Stats', icon: 'grid', desc: 'Inventory value, event count, users, and below-par item summary.', minRole: 'staff' },
+    get_inventory: { label: 'Inventory', icon: 'box', desc: 'Full inventory list with quantities, par levels, and reorder status.', minRole: 'staff' },
+    get_events: { label: 'Events', icon: 'calendar', desc: 'Upcoming and past events and programs with themes and menu suggestions.', minRole: 'staff' },
+    get_menu: { label: 'Menu', icon: 'coffee', desc: 'Meal period menu for any day of the week (Mon–Sun).', minRole: 'staff' },
+    get_reorders: { label: 'Reorders', icon: 'refresh', desc: 'Items that have fallen below par level and need to be reordered.', minRole: 'staff' },
+    get_period_status: { label: 'Period Status', icon: 'clock', desc: 'Current inventory period, month/year, and rollover readiness.', minRole: 'staff' },
+    get_haccp_logs: { label: 'HACCP Logs', icon: 'thermo', desc: 'Temperature and compliance log entries for a given date range.', minRole: 'staff' },
+    get_daily_logs: { label: 'Daily Ops Logs', icon: 'checkSquare', desc: 'Daily operations journal entries and shift notes.', minRole: 'staff' },
+    get_users: { label: 'Users & Roles', icon: 'users', desc: 'Active user list with role distribution — manager access required.', minRole: 'manager' },
+    create_event: { label: 'Create Event', icon: 'plus', desc: 'Create a new event or program on the calendar — manager access required.', minRole: 'manager' },
+    get_ai_usage: { label: 'AI Usage Stats', icon: 'trend', desc: 'System-wide AI usage, token counts, cost, and per-provider breakdown — admin only.', minRole: 'admin' },
 };
+
+function ToolIcon({ name, size = 16 }: { name?: string; size?: number }) {
+    const Icon = I[name || 'terminal'] || I.terminal;
+    return <Icon width={size} height={size} aria-hidden="true" />;
+}
 
 // ── automation presets ─────────────────────────────────────────────────────────
 
 interface Preset {
     id: string;
-    emoji: string;
+    icon: string;
     label: string;
     desc: string;
     tags: string[];
@@ -96,7 +102,7 @@ interface Preset {
 const PRESETS: Preset[] = [
     {
         id: 'dashboard-brief',
-        emoji: '📊',
+        icon: 'grid',
         label: 'Dashboard Briefing',
         desc: 'Full operational snapshot — inventory, menu, events, alerts.',
         tags: ['get_dashboard_stats', 'get_events', 'get_menu'],
@@ -104,7 +110,7 @@ const PRESETS: Preset[] = [
     },
     {
         id: 'inv-health',
-        emoji: '📦',
+        icon: 'box',
         label: 'Inventory Health Check',
         desc: 'Below-par items, reorder urgency, and total value snapshot.',
         tags: ['get_dashboard_stats', 'get_reorders'],
@@ -112,7 +118,7 @@ const PRESETS: Preset[] = [
     },
     {
         id: 'weekly-events',
-        emoji: '📅',
+        icon: 'calendar',
         label: 'Weekly Event Preview',
         desc: 'All events coming up in the next 7 days with themes.',
         tags: ['get_events'],
@@ -120,7 +126,7 @@ const PRESETS: Preset[] = [
     },
     {
         id: 'reorder-report',
-        emoji: '🔄',
+        icon: 'refresh',
         label: 'Reorder Report',
         desc: 'Prioritized reorder list with on-hand quantities vs par.',
         tags: ['get_reorders', 'get_inventory'],
@@ -128,7 +134,7 @@ const PRESETS: Preset[] = [
     },
     {
         id: 'daily-status',
-        emoji: '✅',
+        icon: 'checkSquare',
         label: 'Daily Ops Summary',
         desc: "Today's HACCP and operations status — compliance at a glance.",
         tags: ['get_haccp_logs', 'get_daily_logs'],
@@ -136,7 +142,7 @@ const PRESETS: Preset[] = [
     },
     {
         id: 'menu-tonight',
-        emoji: '🍽️',
+        icon: 'coffee',
         label: "Tonight's Menu",
         desc: "Pull tonight's dinner service in a clean list.",
         tags: ['get_menu'],
@@ -206,7 +212,7 @@ export function AIUsageView({ user }: { user: User }) {
     if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>Loading usage data…</div>;
 
     return (
-        <div style={{ padding: '28px 32px', maxWidth: 900 }}>
+        <div style={{ padding: '28px 32px', width: '100%', maxWidth: 1240 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 24 }}>
                 <h2 style={{ fontSize: 20, fontWeight: 800, color: 'var(--ink)', margin: 0 }}>My AI Usage</h2>
                 <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
@@ -251,7 +257,7 @@ export function AIUsageView({ user }: { user: User }) {
                 </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+            <div className="ai-usage-detail-grid" style={{ marginBottom: 20 }}>
                 {/* Recent conversations */}
                 <div style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px' }}>
                     <SectionLabel>Recent Conversations</SectionLabel>
@@ -290,8 +296,9 @@ export function AIUsageView({ user }: { user: User }) {
                                 return (
                                     <div key={name}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                                            <span style={{ fontSize: 12, color: 'var(--ink)', fontWeight: 600 }}>
-                                                {meta?.emoji} {meta?.label || name}
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0, fontSize: 12, color: 'var(--ink)', fontWeight: 600 }}>
+                                                <ToolIcon name={meta?.icon} />
+                                                <span>{meta?.label || name}</span>
                                             </span>
                                             <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>{count}×</span>
                                         </div>
@@ -406,7 +413,7 @@ export function AIToolsView({ user }: { user: User }) {
                                 }} />
                             )}
                             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
-                                <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>{meta.emoji}</span>
+                                <span className="ai-tool-icon"><ToolIcon name={meta.icon} size={19} /></span>
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--ink)', marginBottom: 2 }}>{meta.label}</div>
                                     <RoleBadge role={meta.minRole} />
@@ -487,7 +494,7 @@ function PresetCard({ preset, user }: { preset: Preset; user: User }) {
             {/* Card header */}
             <div style={{ padding: '18px 20px' }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 8 }}>
-                    <span style={{ fontSize: 28, lineHeight: 1, flexShrink: 0 }}>{preset.emoji}</span>
+                    <span className="ai-preset-icon"><ToolIcon name={preset.icon} size={22} /></span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--ink)', marginBottom: 3 }}>{preset.label}</div>
                         <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.45 }}>{preset.desc}</div>
@@ -523,7 +530,7 @@ function PresetCard({ preset, user }: { preset: Preset; user: User }) {
                                 background: 'var(--surface-2)', border: '1px solid var(--line)',
                                 color: 'var(--muted)', fontWeight: 600,
                             }}>
-                                {meta?.emoji} {meta?.label || t}
+                                <ToolIcon name={meta?.icon} size={13} /> {meta?.label || t}
                             </span>
                         );
                     })}
@@ -545,7 +552,7 @@ function PresetCard({ preset, user }: { preset: Preset; user: User }) {
                 }}>
                     {running && (
                         <div style={{ fontSize: 13, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span>✦</span> MJCC AI is thinking…
+                            <ToolIcon name="terminal" /> MJCC AI is thinking…
                         </div>
                     )}
                     {error && (
@@ -563,7 +570,7 @@ function PresetCard({ preset, user }: { preset: Preset; user: User }) {
                                                 background: '#dcfce7', color: '#15803d',
                                                 border: '1px solid #bbf7d0', fontWeight: 600,
                                             }}>
-                                                {meta?.emoji} {meta?.label || tc.name}
+                                                <ToolIcon name={meta?.icon} size={13} /> {meta?.label || tc.name}
                                             </span>
                                         );
                                     })}
@@ -673,19 +680,19 @@ function AutomationCard({ auto, onRun, onDelete, onToggle }: {
                             background: running ? 'var(--line)' : 'var(--navy)', color: running ? 'var(--muted)' : '#fff',
                             fontWeight: 700, fontSize: 12, cursor: running ? 'default' : 'pointer',
                         }}>
-                            {running ? '…' : '▶ Run'}
+                            {running ? '…' : 'Run'}
                         </button>
                         <button onClick={() => setExpanded(x => !x)} style={{
                             padding: '5px 8px', borderRadius: 7, border: '1px solid var(--line)',
                             background: 'var(--surface-2)', cursor: 'pointer', fontSize: 11,
                         }}>
-                            {expanded ? '▲' : '▼'}
+                            <ToolIcon name={expanded ? 'up' : 'down'} size={14} />
                         </button>
                         <button onClick={() => onDelete(auto.id)} style={{
                             padding: '5px 8px', borderRadius: 7, border: '1px solid var(--line)',
                             background: 'var(--surface-2)', cursor: 'pointer', fontSize: 11,
                             color: 'var(--red)',
-                        }}>✕</button>
+                        }} aria-label="Delete automation"><ToolIcon name="del" size={14} /></button>
                     </div>
                 </div>
                 {expanded && result && (
@@ -761,8 +768,8 @@ export function AIPresetsView({ user }: { user: User }) {
 
             {/* Header */}
             <div style={{ marginBottom: 24 }}>
-                <h2 style={{ fontSize: 20, fontWeight: 800, color: 'var(--ink)', margin: '0 0 6px' }}>
-                    ✦ AI Automations
+                <h2 style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 20, fontWeight: 800, color: 'var(--ink)', margin: '0 0 6px' }}>
+                    <ToolIcon name="terminal" size={20} /> AI Automations
                 </h2>
                 <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
                     Build custom AI workflows in plain English. MJCC AI handles the rest — pulling live data, reasoning through it, and delivering actionable results.
@@ -786,7 +793,7 @@ export function AIPresetsView({ user }: { user: User }) {
                         My Automations {saving && <span style={{ fontWeight: 400, color: 'var(--faint)' }}>· saving…</span>}
                     </div>
                     <button className="btn primary" style={{ fontSize: 12, padding: '5px 14px' }} onClick={() => setAdding(a => !a)}>
-                        {adding ? '✕ Cancel' : '+ New Automation'}
+                        {adding ? 'Cancel' : 'New Automation'}
                     </button>
                 </div>
 
@@ -796,8 +803,8 @@ export function AIPresetsView({ user }: { user: User }) {
                         padding: '18px 20px', marginBottom: 14, borderRadius: 12,
                         background: 'var(--accent-soft)', border: '1.5px solid var(--accent)',
                     }}>
-                        <div style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--navy)', marginBottom: 14 }}>
-                            ✦ Describe your automation
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontWeight: 800, fontSize: 13.5, color: 'var(--navy)', marginBottom: 14 }}>
+                            <ToolIcon name="edit" size={16} /> Describe your automation
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
                             <div>
@@ -843,7 +850,7 @@ export function AIPresetsView({ user }: { user: User }) {
                         padding: '28px', textAlign: 'center', borderRadius: 12,
                         background: 'var(--surface-2)', border: '1px dashed var(--line)',
                     }}>
-                        <div style={{ fontSize: 28, marginBottom: 10 }}>🤖</div>
+                        <div className="ai-preset-icon" style={{ margin: '0 auto 10px' }}><ToolIcon name="terminal" size={22} /></div>
                         <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)', marginBottom: 6 }}>No automations yet</div>
                         <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
                             Build your first automation above — describe what you want in plain English and MJCC AI will execute it on schedule.

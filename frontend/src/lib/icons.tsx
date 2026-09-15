@@ -165,6 +165,11 @@ export const I: Record<string, (props?: React.SVGProps<SVGSVGElement>) => React.
     <path key={1} d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11" />,
   ]),
   terminal: mk(['M4 17l6-6-6-6', 'M12 19h8']),
+  chat: mk(['M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z']),
+  panelLeft: mkRaw([
+    <rect key={0} x={3} y={4} width={18} height={16} rx={2} />,
+    <path key={1} d="M10 4v16" />,
+  ]),
 };
 
 export function KpnMark({ size = 52 }: { size?: number }) {

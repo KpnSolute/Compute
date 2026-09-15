@@ -50,7 +50,7 @@ import { ItemInspector } from "./ui/ItemInspector";
 import { Reports } from "./Reports";
 import { PullSheet } from "./PullSheet";
 import { Settings } from "./Settings";
-import { AgentBubble } from "./AgentBubble";
+import { AgentChatView } from "./AgentChat";
 import { AIUsageView, AIToolsView, AIPresetsView } from "./AIStudio";
 import { FlowPanel } from "./FlowPanel";
 import { CostManager } from "./CostManager";
@@ -585,6 +585,17 @@ function Topbar({
 }
 
 const SIDEBAR_COLLAPSED_KEY = "kpn_sidebar_collapsed";
+// Whole-Explorer collapse (desktop), remembered between visits.
+const EXPLORER_COLLAPSED_KEY = "kpn_explorer_collapsed";
+const DESKTOP_QUERY = "(min-width:1024px)";
+
+function readExplorerCollapsed(): boolean {
+    try {
+        return localStorage.getItem(EXPLORER_COLLAPSED_KEY) === "1";
+    } catch {
+        return false;
+    }
+}
 
 function readCollapsedGroups(): string[] {
     try {
@@ -604,6 +615,7 @@ function Sidebar({
     skuReviewCount,
     allowedScopes,
     onOpenSearch,
+    onCollapse,
 }: {
     user: User;
     active: string;
@@ -613,6 +625,7 @@ function Sidebar({
     skuReviewCount: number;
     allowedScopes?: string[] | null;
     onOpenSearch: () => void;
+    onCollapse: () => void;
 }) {
     const lvl = ROLE_LEVEL[user.role];
     const [collapsed, setCollapsed] = useState<string[]>(readCollapsedGroups);
@@ -627,6 +640,15 @@ function Sidebar({
         <nav className="sidebar" aria-label="Explorer">
             <div className="explorer-head">
                 <div className="explorer-title">Explorer</div>
+                <button
+                    className="explorer-collapse-btn"
+                    onClick={onCollapse}
+                    title="Collapse Explorer (Ctrl+B)"
+                    aria-label="Collapse Explorer"
+                    aria-keyshortcuts="Control+B"
+                >
+                    {I.panelLeft()}
+                </button>
             </div>
             <button className="explorer-search" onClick={onOpenSearch} title="Smart Search (Ctrl+S)" aria-keyshortcuts="Control+S">
                 {I.search()}
@@ -725,8 +747,8 @@ function ActivityBar({
 
     const inGroup = (keys: string[]) => keys.some((k) => active === k);
     const hasScope = (key: string) => !allowedScopes || allowedScopes.includes(key);
-    const aiKeys = ["ai-usage", "ai-tools", "ai-presets"];
-    const firstAllowedAiKey = aiKeys.find(hasScope) ?? "ai-usage";
+    const aiKeys = ["ai-chat", "ai-usage", "ai-tools", "ai-presets"];
+    const firstAllowedAiKey = aiKeys.find(hasScope) ?? "ai-chat";
 
     return (
         <div className="activity-bar">
@@ -734,7 +756,10 @@ function ActivityBar({
                 <button
                     className={"ab-btn" + (explorerOpen ? " active" : "")}
                     onClick={onToggleExplorer}
-                    title="Explorer"
+                    title={explorerOpen ? "Collapse Explorer (Ctrl+B)" : "Show Explorer (Ctrl+B)"}
+                    aria-label="Explorer"
+                    aria-expanded={explorerOpen}
+                    aria-keyshortcuts="Control+B"
                 >
                     {I.grid({})}
                 </button>
@@ -3092,7 +3117,7 @@ function InventoryView({
                                                     </span>
                                                     {hasRcvd && (
                                                         <span className="pill ok csh-low">
-                                                            🚚 received
+                                                            {I.inbox({ "aria-hidden": true })} received
                                                         </span>
                                                     )}
                                                     {lowCount > 0 && (
@@ -5315,6 +5340,8 @@ export function Portal({
         new Date().getFullYear(),
     ]);
     const [explorerOpen, setExplorerOpen] = useState(false);
+    const [explorerCollapsed, setExplorerCollapsed] = useState(readExplorerCollapsed);
+    const [isDesktop, setIsDesktop] = useState(() => window.matchMedia(DESKTOP_QUERY).matches);
     const [paletteOpen, setPaletteOpen] = useState(false);
     const [openPrId, setOpenPrId] = useState<string | null>(null); // deep-link target PR for SourceControl
     const [showPullSheet, setShowPullSheet] = useState(false);
@@ -5434,7 +5461,29 @@ export function Portal({
         setActive(routeKey);
     };
 
+    // The Explorer is a docked column on desktop and an overlay below that, so
+    // the same control collapses the column or closes the overlay.
+    useEffect(() => {
+        const mq = window.matchMedia(DESKTOP_QUERY);
+        const onChange = () => setIsDesktop(mq.matches);
+        mq.addEventListener("change", onChange);
+        return () => mq.removeEventListener("change", onChange);
+    }, []);
+
+    const toggleExplorer = () => {
+        if (window.matchMedia(DESKTOP_QUERY).matches) {
+            setExplorerCollapsed((collapsed) => {
+                const next = !collapsed;
+                try { localStorage.setItem(EXPLORER_COLLAPSED_KEY, next ? "1" : "0"); } catch { /* storage blocked */ }
+                return next;
+            });
+            return;
+        }
+        setExplorerOpen((open) => !open);
+    };
+
     // Smart Search: Ctrl+S / Cmd+S toggles the feature palette from anywhere.
+    // Ctrl+B / Cmd+B collapses or reopens the Explorer, as in code editors.
     // Captured so the browser's "Save page" never opens (nothing in the app
     // saves on Ctrl+S). Ctrl+K also works, but not while typing in a field,
     // where it can mean "delete to end of line".
@@ -5442,9 +5491,18 @@ export function Portal({
         const onKey = (e: KeyboardEvent) => {
             if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
             const key = e.key.toLowerCase();
-            if (key !== "s" && key !== "k") return;
             const target = e.target as HTMLElement | null;
             const typing = !!target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+            if (key === "b") {
+                // Not while typing, and not inside a dialog, where it would
+                // collapse navigation the user cannot see.
+                if (typing || target?.closest('[role="dialog"],[role="alertdialog"]')) return;
+                e.preventDefault();
+                e.stopPropagation();
+                toggleExplorer();
+                return;
+            }
+            if (key !== "s" && key !== "k") return;
             if (key === "k" && typing && !target.classList.contains("cmdk-input")) return;
             e.preventDefault();
             e.stopPropagation();
@@ -5476,7 +5534,7 @@ export function Portal({
         { id: "action:theme-light", label: "Use light theme", group: "Actions", icon: "eye", keywords: ["appearance", "light mode"], hint: currentTheme === "light" ? "Current" : undefined, run: () => setThemeFromPalette("light") },
         { id: "action:theme-dark", label: "Use dark theme", group: "Actions", icon: "eyeOff", keywords: ["appearance", "dark mode", "night"], hint: currentTheme === "dark" ? "Current" : undefined, run: () => setThemeFromPalette("dark") },
         { id: "action:theme-auto", label: "Match system theme", group: "Actions", icon: "settings", keywords: ["appearance", "auto", "system", "os"], hint: currentTheme === "auto" ? "Current" : undefined, run: () => setThemeFromPalette("auto") },
-        { id: "action:explorer", label: "Open Explorer", group: "Actions", icon: "grid", keywords: ["sidebar", "menu", "navigation"], run: () => setExplorerOpen(true) },
+        { id: "action:explorer", label: isDesktop && !explorerCollapsed ? "Collapse Explorer" : "Show Explorer", group: "Actions", icon: "panelLeft", keywords: ["sidebar", "menu", "navigation", "collapse", "hide"], hint: "Ctrl B", run: toggleExplorer },
         ...(hasScope("sourcectrl") ? [{ id: "action:sc-panel", label: "Open Source Control panel", group: "Actions", icon: "branch", keywords: ["staged", "commit", "changes"], run: () => setScPanelOpen(true) }] : []),
         { id: "action:refresh", label: "Refresh live data", group: "Actions", icon: "refresh", keywords: ["reload", "sync", "update"], run: doSync },
     ];
@@ -5551,6 +5609,7 @@ export function Portal({
         if (active === "archives") return <ArchivesView period={period} />;
         if (active === "filevault") return <FileVault />;
         if (active === "settings") return <Settings user={user} />;
+        if (active === "ai-chat")    return <AgentChatView user={user} />;
         if (active === "ai-usage")   return <AIUsageView user={user} />;
         if (active === "ai-tools")   return <AIToolsView user={user} />;
         if (active === "ai-presets") return <AIPresetsView user={user} />;
@@ -5561,9 +5620,11 @@ export function Portal({
     const portalCls = [
         "portal",
         explorerOpen ? "explorer-open" : "",
+        explorerCollapsed ? "explorer-collapsed" : "",
         scPanelOpen ? "sc-open" : "",
     ].filter(Boolean).join(" ");
-    const toggleExplorer = () => setExplorerOpen((v) => !v);
+    // Docked on desktop, overlay below it.
+    const explorerVisible = isDesktop ? !explorerCollapsed : explorerOpen;
 
     return (
         <div className={portalCls} data-density={density}>
@@ -5571,7 +5632,7 @@ export function Portal({
                 user={user}
                 period={period}
                 setPeriod={setPeriod}
-                sidebarOpen={explorerOpen}
+                sidebarOpen={explorerVisible}
                 toggleSidebar={toggleExplorer}
                 scOpen={scPanelOpen}
                 onToggleSC={() => setScPanelOpen((v) => !v)}
@@ -5587,7 +5648,7 @@ export function Portal({
             <ActivityBar
                 user={user}
                 active={active}
-                explorerOpen={explorerOpen}
+                explorerOpen={explorerVisible}
                 onToggleExplorer={toggleExplorer}
                 onToggleSC={() => setScPanelOpen((v) => !v)}
                 scOpen={scPanelOpen}
@@ -5614,6 +5675,7 @@ export function Portal({
                     setExplorerOpen(false);
                     setPaletteOpen(true);
                 }}
+                onCollapse={toggleExplorer}
             />
             {explorerOpen && (
                 <div
@@ -5662,7 +5724,6 @@ export function Portal({
                 onCountChange={(n) => setStagedCount(n)}
                 onSkuReviewCount={(n) => setSkuReviewCount(n)}
             />
-            <AgentBubble user={user} />
             {paletteOpen && <CommandPalette items={paletteItems} onClose={() => setPaletteOpen(false)} />}
         </div>
     );

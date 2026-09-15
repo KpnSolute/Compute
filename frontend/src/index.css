@@ -775,6 +775,60 @@ table.data.logtbl td{padding:6px 10px}
 .agent-send-btn:active:not(:disabled){transform:translateY(1px)}
 .agent-send-btn:disabled{background:var(--line);cursor:default}
 
+/* Full-page MJCC AI workspace */
+/* The chat owns the whole work area: main drops its padding so the composer
+   stays pinned instead of scrolling below the fold. Main is a flex column so
+   the credential and rollover banners keep their own height and the chat takes
+   only what is left — a fixed 100% height would push the composer out of a
+   clipped container. */
+.main:has(>.agent-chat-page){display:flex;flex-direction:column;padding:0;overflow:hidden}
+.main:has(>.agent-chat-page)>:not(.agent-chat-page){flex:0 0 auto;margin:10px 12px 0}
+.agent-chat-page{flex:1;height:auto;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;background:var(--bg);overflow:hidden}
+.agent-chat-header{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:20px 28px;border-bottom:1px solid var(--line);background:var(--surface)}
+.agent-chat-heading,.agent-chat-actions{display:flex;align-items:center;gap:12px;min-width:0}
+.agent-chat-heading h2{font-size:19px;line-height:1.2;margin:0 0 3px;color:var(--ink)}
+.agent-chat-heading p{font-size:12px;line-height:1.4;margin:0;color:var(--muted)}
+.agent-chat-mark,.agent-chat-welcome-mark,.agent-chat-avatar{display:flex;align-items:center;justify-content:center;color:var(--navy);background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 28%,var(--line));flex:0 0 auto}
+.agent-chat-mark{width:40px;height:40px;border-radius:11px}
+.agent-chat-actions .btn{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.agent-chat-rate{font-size:11px;color:var(--muted);white-space:nowrap}
+.agent-chat-scroll{overflow-y:auto;min-height:0;scrollbar-gutter:stable}
+.agent-chat-thread{width:min(880px,calc(100% - 40px));margin:0 auto;padding:34px 0 44px;display:flex;flex-direction:column;gap:28px}
+.agent-chat-row{display:flex;gap:12px;align-items:flex-start;width:100%}
+.agent-chat-row.user{justify-content:flex-end}
+.agent-chat-avatar{width:32px;height:32px;border-radius:9px;margin-top:2px}
+.agent-chat-message-wrap{display:flex;flex-direction:column;min-width:0;max-width:calc(100% - 44px)}
+.agent-chat-row.user .agent-chat-message-wrap{align-items:flex-end;max-width:min(72%,680px)}
+.agent-user-message{padding:11px 15px;border-radius:18px 18px 5px 18px;background:var(--navy);color:#fff;font-size:13.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+.agent-chat-response{font-size:13.5px;line-height:1.7;color:var(--ink);white-space:pre-wrap;word-break:break-word;padding:5px 2px}
+.agent-chat-time{font-size:10px;color:var(--faint);margin-top:5px}
+.agent-tool-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.agent-tool-call{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:5px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--muted);font-size:11px;font-weight:700;cursor:pointer}
+.agent-tool-call:hover{border-color:var(--accent);color:var(--ink)}
+.agent-tool-result{max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--faint);font-weight:500}
+.agent-thinking{display:flex;align-items:center;gap:8px;color:var(--muted)}
+.agent-thinking-dots{display:inline-flex;gap:3px}
+.agent-thinking-dots i{width:5px;height:5px;border-radius:50%;background:currentColor;animation:agentBounce 1.2s infinite ease-in-out}
+.agent-thinking-dots i:nth-child(2){animation-delay:.18s}.agent-thinking-dots i:nth-child(3){animation-delay:.36s}
+.agent-chat-welcome{width:min(720px,100%);margin:auto;padding:42px 0;text-align:center}
+.agent-chat-welcome-mark{width:52px;height:52px;border-radius:15px;margin:0 auto 16px}
+.agent-chat-welcome h3{font-size:22px;margin:0 0 7px;color:var(--ink)}
+.agent-chat-welcome>p{font-size:13px;color:var(--muted);margin:0 auto 24px}
+.agent-chat-suggestions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;text-align:left}
+.agent-chat-suggestions button{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;padding:13px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--muted);cursor:pointer;transition:border-color .14s,background .14s,transform .14s}
+.agent-chat-suggestions button:hover{border-color:var(--accent);background:var(--accent-soft);transform:translateY(-1px)}
+.agent-chat-suggestions strong,.agent-chat-suggestions small{display:block}
+.agent-chat-suggestions strong{font-size:12.5px;color:var(--ink);margin-bottom:2px}.agent-chat-suggestions small{font-size:10.5px;line-height:1.35;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agent-composer-shell{padding:12px 24px 10px;background:linear-gradient(180deg,transparent,var(--bg) 22%)}
+.agent-composer{width:min(880px,100%);margin:0 auto;display:flex;align-items:flex-end;gap:10px;padding:9px 10px 9px 15px;border:1px solid var(--line-strong,var(--line));border-radius:17px;background:var(--surface);box-shadow:0 8px 24px rgba(15,23,42,.08)}
+.agent-composer:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(30,115,232,.1),0 8px 24px rgba(15,23,42,.08)}
+.agent-composer textarea{flex:1;resize:none;min-height:24px;max-height:150px;padding:4px 0;border:0;outline:0;background:transparent;color:var(--ink);font:inherit;font-size:14px;line-height:1.5}
+.agent-composer textarea::placeholder{color:var(--faint)}
+.agent-composer button{width:34px;height:34px;border:0;border-radius:10px;display:flex;align-items:center;justify-content:center;background:var(--navy);color:#fff;cursor:pointer;flex:0 0 auto}
+.agent-composer button:disabled{background:var(--line);color:var(--faint);cursor:default}
+.agent-composer-shell>p{text-align:center;font-size:10px;color:var(--faint);margin:7px 0 0}
+.agent-chat-loading{padding:48px;text-align:center;color:var(--muted)}
+
 /* AI data-entry glow */
 .ai-glow-zone{animation:aiGlowPulse 1.6s ease-in-out infinite!important;border-style:solid!important}
 @keyframes aiGlowPulse{0%,100%{box-shadow:0 0 0 0 rgba(30,58,138,0),0 0 0 0 rgba(59,130,246,0);border-color:var(--navy)}50%{box-shadow:0 0 0 6px rgba(30,58,138,0.15),0 0 22px 6px rgba(59,130,246,0.12);border-color:#3b82f6}}
@@ -835,12 +889,40 @@ table.data.logtbl td{padding:6px 10px}
 }
 [data-theme="dark"] .ai-ring-wrap>*,.dark .ai-ring-wrap>*{background:var(--input-bg)}
 
+.ai-usage-detail-grid{
+  display:grid;
+  grid-template-columns:minmax(0,2fr) minmax(240px,1fr);
+  gap:16px;
+  align-items:start;
+}
+.ai-tool-icon,.ai-preset-icon{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  flex:0 0 auto;
+  color:var(--navy);
+  background:var(--surface-2);
+  border:1px solid var(--line);
+}
+.ai-tool-icon{width:34px;height:34px;border-radius:9px}
+.ai-preset-icon{width:42px;height:42px;border-radius:11px}
+
 /* mobile responsive helpers */
 @media(max-width:640px){
   .de-controls-row{flex-direction:column!important;gap:12px!important}
   .ai-studio-grid{grid-template-columns:1fr!important}
   .ai-preset-grid{grid-template-columns:1fr!important}
   .ai-stat-row{flex-direction:column!important}
+  .ai-usage-detail-grid{grid-template-columns:1fr}
+  .agent-chat-page{height:auto;min-height:0}
+  .agent-chat-header{padding:14px 16px;align-items:flex-start}
+  .agent-chat-heading p,.agent-chat-rate{display:none}
+  .agent-chat-actions .btn{width:38px;height:38px;padding:0;overflow:hidden;font-size:0;justify-content:center}
+  .agent-chat-thread{width:calc(100% - 24px);padding:24px 0 30px;gap:22px}
+  .agent-chat-row.user .agent-chat-message-wrap{max-width:88%}
+  .agent-chat-suggestions{grid-template-columns:1fr}
+  .agent-chat-welcome{padding:20px 0}
+  .agent-composer-shell{padding:8px 10px 7px}
   .de-file-zone{padding:18px 14px!important}
   .de-upload-card .card-body{padding:14px!important}
   .de-period-controls,.de-target-grid,.de-submit-row,.de-submit-actions{width:100%}
@@ -3506,6 +3588,16 @@ textarea.ipt{min-height:76px;resize:vertical;line-height:1.5}
   .ws-card,.confirm-sheet,.modal,.modal-box{animation:none!important}
   .ws-spinner{animation-duration:2.4s}
 }
+
+/* ── Explorer collapse (Ctrl+B) ── */
+@media(min-width:1024px){
+  /* The docked column folds away; visibility:hidden also drops it from tab order. */
+  .portal.explorer-collapsed{grid-template-columns:48px 0 1fr}
+  .portal.explorer-collapsed .sidebar{max-width:0;padding-left:0;padding-right:0;border-right:0;overflow:hidden;visibility:hidden}
+}
+.explorer-collapse-btn{width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;border:0;border-radius:7px;background:none;color:var(--muted);cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.explorer-collapse-btn:hover{background:var(--hover-bg);color:var(--ink)}
+.explorer-collapse-btn svg{width:15px;height:15px}
 
 /* ── Sign-in brand panel ── */
 .brand-points{display:grid;gap:10px;margin-top:26px;padding:0;list-style:none}

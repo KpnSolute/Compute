@@ -1,5 +1,86 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.25] — 2026-09-15 — Native AI icons and full-page MJCC AI workspace
+
+**Codex (UI correction requested by user):**
+
+- Removed the operating-system emoji icon metadata from AI Usage, AI Tools,
+  automation presets, tool-call badges, empty states, and the remaining
+  inventory "received" label. These surfaces now use KpnCompute's shared
+  stroke-SVG icon system, so they render consistently across Windows, macOS,
+  browsers, light mode, and dark mode.
+- Corrected the AI Usage layout: the page now uses the available workspace
+  width and the conversation/tools section has a stable responsive 2:1 grid
+  rather than allowing Top Tools to collapse into a narrow strip.
+- Removed the floating `AgentBubble` widget. **MJCC AI** is now the first AI
+  Studio destination and a full-page, ChatGPT-style workspace with a readable
+  conversation canvas, assistant identity, user messages, expandable tool-call
+  details, starter prompts, request-limit status, clear-history control, and a
+  persistent multiline composer.
+- Data Entry parse failures now navigate to the MJCC AI workspace with the
+  diagnostic question prefilled, preserving the previous assistance handoff
+  without reopening a floating overlay.
+- Responsive behavior keeps the chat usable as a single-column workspace on
+  phones, while desktop conversations remain centered and comfortably sized.
+
+**Codex verification:** frontend production build passed; 54 frontend tests
+passed; ESLint completed with 0 errors (686 pre-existing warnings). A repository
+scan found no remaining pictographic emoji code points in frontend TypeScript.
+
+**Claude (UI owner — review of the above, plus Explorer collapse):**
+
+Reviewed Codex's work as design owner and fixed four defects in it:
+
+1. `.agent-chat-page` sized itself with `--topbar-h`, `--status-h` and
+   `--canvas`, none of which exist in the stylesheet, so its height and
+   background declarations were invalid. The chat now fills the work area
+   (`main:has(>.agent-chat-page)` drops the page padding), which also removes
+   the nested scrollbar that pushed the composer below the fold.
+2. **Clear conversation** deleted history with no confirmation. It now uses the
+   v0.3.24 confirm sheet, as a destructive action.
+3. MJCC AI reused the terminal icon already used by AI Tools. Added a proper
+   `chat` icon and used it for the nav entry, the header mark, the assistant
+   avatar, and the welcome mark.
+4. The chat thread had no live region, so screen readers announced nothing when
+   a reply arrived; it is now `role="log"` with `aria-live="polite"`.
+
+**Explorer collapse (requested).** The Explorer is a docked column at ≥1024px,
+so its activity-bar button did nothing visible on desktop. It can now be
+collapsed and restored: a collapse button in the Explorer header, the
+activity-bar button, **Ctrl+B / Cmd+B**, or Smart Search ("Collapse Explorer" /
+"Show Explorer"). The state is remembered per device, a collapsed Explorer is
+removed from keyboard tab order, and below 1024px the same control closes the
+overlay.
+
+**Codex (read-only review of Claude's changes):** three findings, all fixed
+before commit:
+
+1. High: the chat shares `.main` with the credential and rollover banners, so a
+   user required to change a password would have had the composer clipped by
+   `overflow:hidden` with no scrollbar. `.main` is now a flex column: banners
+   keep their height and the chat takes what is left.
+2. Medium: Ctrl+B was captured while typing and inside dialogs, so it could
+   collapse navigation behind a modal. It is now ignored in text fields and in
+   any `role="dialog"`/`alertdialog`. (Chrome's bookmarks bar is Ctrl+Shift+B,
+   which was already excluded.)
+3. Low: the activity-bar Explorer button — the only way to reopen a collapsed
+   Explorer — had no accessible name or state. It now has `aria-label`,
+   `aria-expanded`, `aria-keyshortcuts`, and a title that reflects its action.
+
+Codex found no regression in breakpoint recovery, confirm focus/Escape
+ordering, icon geometry, or dark-theme variables.
+
+**Known follow-up:** removing the floating agent widget left ~29 inert CSS
+declarations (`.agent-shell`, `.agent-head*`, `.agent-inputbar`, `.agent-input`,
+`.agent-send-btn`, `.agent-suggestion`, plus dark and mobile overrides) that no
+component references. Left in place deliberately; they affect nothing and are
+safer to remove as their own change.
+
+**Verification:** tsc clean; 54 frontend tests passed; production build passed;
+ESLint 0 errors.
+
+**Push:** pending.
+
 ## [v0.3.24] — 2026-09-15 — Workspace landing fix, native-style app chrome, standard confirm sheets
 
 **Claude (UI and user interaction owner):**
@@ -77,7 +158,20 @@ Codex found no credential or Portal exposure before tenant verification, and no
 regressions in dark contrast, footer ordering, focus trapping, or tall/wide
 panels.
 
-**Push:** pending.
+**Push:** Claude → `f8c183b` — 2026-09-15. CI run 35030704653 green (gate +
+tag/release v0.3.24); Render frontend `dep-daksalbtqb8s73ca95rg` and backend
+`dep-daksalbtqb8s73ca95ag` are live on that commit.
+
+Live-verified, signed in as the user via browser-autofilled sign-in:
+- mjcc.kpnsolute.com renders the Portal with the new neutral chrome and
+  top-bar breadcrumbs; the status-bar breadcrumbs are gone, the Explorer
+  "Ctrl S" label no longer wraps, and the system font is applied.
+- compute.kpnsolute.com/mjcc (signed out) shows the new sign-in card with the
+  resolved name "Miami Job Corps Center" instead of the marketing page.
+- Dark-mode chrome is consistent.
+
+Not exercised live: the unavailable/retry screen (needs a failing resolve) and
+the confirm sheet (every trigger is a destructive action).
 
 ## [v0.3.23] — 2026-09-15 — Smart Search, Explorer regroup, theme auto-detect, UI foundation
 

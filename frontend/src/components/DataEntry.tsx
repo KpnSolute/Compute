@@ -753,11 +753,8 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
             setVisionPageTrace(formatVisionPageTrace(e?.detail));
             (window as any).toast?.(`AI parsing failed: ${msg}`);
             if (!userCancelled) {
-                window.dispatchEvent(new CustomEvent('mjcc:open-agent', {
-                    detail: {
-                        prompt: `Data Entry could not parse ${effectiveFile.name} for ${MONTHS[month]} ${year}${week > 0 ? ` W${week} ${direction}` : ' full month'}. Error: ${msg}. What information do you need from me to map this upload correctly?`,
-                    },
-                }));
+                sessionStorage.setItem('mjcc:agent-draft', `Data Entry could not parse ${effectiveFile.name} for ${MONTHS[month]} ${year}${week > 0 ? ` W${week} ${direction}` : ' full month'}. Error: ${msg}. What information do you need from me to map this upload correctly?`);
+                onNavigate?.('ai-chat');
             }
         } finally {
             setUploading(false);
@@ -779,6 +776,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
         setUploadErr,
         setVisionPageTrace,
         setUploading,
+        onNavigate,
     ]);
 
     const doCommitBatch = useCallback(async () => {
