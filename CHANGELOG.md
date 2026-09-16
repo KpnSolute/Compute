@@ -1,5 +1,43 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.31] — 2026-09-16 — The glass never actually frosted: the bundle was dropping backdrop-filter
+
+**Claude:** verifying v0.3.29 in the user's own Chrome showed the mini chat still
+ghosting dashboard figures through itself — "$23,255.41", "ISSUED $0.00",
+"Manage →" all legible through the panel. The opacity change had shipped. The
+blur had not, anywhere in the app.
+
+- **Cause, confirmed on the live bundle rather than inferred.** `index.css`
+  declared `backdrop-filter` first and `-webkit-backdrop-filter` second. The CSS
+  minifier keeps only the last of the pair, so production carried only the
+  `-webkit-` alias — which current Chrome reports as unsupported
+  (`CSS.supports('-webkit-backdrop-filter','blur(20px)')` is `false`, while the
+  standard property is `true`). The shipped `.glass-panel` rule contained the
+  alias and nothing else, so every glass surface rendered with no blur at all.
+  This predates v0.3.29; that release only made it visible by keeping the panel
+  large and translucent.
+- **The `@supports` fallback could not rescue it.** Chrome *does* support the
+  standard property, so `not (A or B)` evaluated false and the solid-fill
+  fallback never engaged.
+- **Fix 1 — ordering.** The `-webkit-` alias now comes first and the standard
+  property last, so the standard one survives minification. Re-checked in the
+  built bundle: `.glass-panel` ships both declarations, and unprefixed
+  `backdrop-filter` declarations across the sheet went from 7 to 9.
+- **Fix 2 — do not depend on blur for legibility.** `.agent-mini` is now an
+  opaque `var(--surface)` in both themes. A conversation has to stay readable
+  over dense tables whether or not a filter applies. Glass stays on the small
+  hover card, which carries no body text.
+
+**Correction to v0.3.29:** that entry recorded the transparency complaint as
+resolved. That was true of the opacity value and false of the rendered result.
+Recorded here rather than by editing the earlier entry.
+
+**Note:** push, CI and deployment state for this release is recorded in the
+shared governance ledger, which accepts appended corrections without a version
+bump — see the v0.3.30 entry for why this file no longer carries a line that
+would need correcting later.
+
+
 ## [v0.3.30] — 2026-09-16 — Release-gate correction: main back to green
 
 **Claude:** v0.3.29's push line was corrected in `1ee1eb6` without bumping

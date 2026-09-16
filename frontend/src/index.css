@@ -758,8 +758,12 @@ table.data.logtbl td{padding:6px 10px}
    edge, the sheen, and the shadow instead of in what bleeds through. */
 .glass-panel{
   background:color-mix(in srgb,var(--surface) 96%,transparent);
-  backdrop-filter:blur(20px) saturate(160%);
+  /* The -webkit- alias goes FIRST and the standard property LAST: the CSS
+     minifier keeps only the last of the pair, and current Chrome supports the
+     standard property while reporting no support for the alias. Reversed, the
+     blur silently never applies in the production bundle. */
   -webkit-backdrop-filter:blur(20px) saturate(160%);
+  backdrop-filter:blur(20px) saturate(160%);
   border:1px solid color-mix(in srgb,var(--ink) 12%,transparent);
   box-shadow:0 18px 50px rgba(9,22,51,.22),inset 0 1px 0 rgba(255,255,255,.4);
 }
@@ -787,8 +791,8 @@ table.data.logtbl td{padding:6px 10px}
     radial-gradient(120% 120% at 30% 24%,rgba(255,255,255,.55),rgba(255,255,255,.06) 42%,transparent 62%),
     radial-gradient(100% 100% at 72% 82%,color-mix(in srgb,var(--accent) 60%,transparent),transparent 70%),
     color-mix(in srgb,var(--navy) 72%,transparent);
-  backdrop-filter:blur(10px) saturate(170%);
   -webkit-backdrop-filter:blur(10px) saturate(170%);
+  backdrop-filter:blur(10px) saturate(170%);
   box-shadow:0 10px 30px rgba(9,22,51,.35),inset 0 0 18px rgba(255,255,255,.18),inset 0 -6px 14px color-mix(in srgb,var(--accent) 25%,transparent);
   animation:orb-breathe 5.5s ease-in-out infinite;
   transition:transform .18s var(--ease-out),box-shadow .18s var(--ease-out);
@@ -841,7 +845,11 @@ table.data.logtbl td{padding:6px 10px}
 .agent-orb-layer.open .agent-orb-card{display:none!important}
 
 /* Compact chat that shares the conversation with the full page. */
-.agent-mini{width:min(380px,calc(100vw - 28px));height:min(520px,calc(100dvh - 150px));display:flex;flex-direction:column;overflow:hidden;border-radius:18px;animation:popIn .18s var(--ease-out) both}
+/* The chat panel is opaque, not glass. A conversation has to stay readable
+   over dense tables, and its legibility must not depend on backdrop-filter
+   surviving minification or being supported. The hover card keeps the glass. */
+.agent-mini{width:min(380px,calc(100vw - 28px));height:min(520px,calc(100dvh - 150px));display:flex;flex-direction:column;overflow:hidden;border-radius:18px;animation:popIn .18s var(--ease-out) both;background:var(--surface)}
+[data-theme="dark"] .agent-mini{background:var(--surface)}
 .agent-mini-head{display:flex;align-items:center;gap:8px;padding:10px 10px 10px 14px;border-bottom:1px solid color-mix(in srgb,var(--ink) 8%,transparent)}
 .agent-mini-head strong{font-size:13px}
 /* The header wears the orb in miniature, not a status LED: the same material
