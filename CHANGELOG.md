@@ -1,5 +1,66 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.32] — 2026-09-16 — MyAI keeps up to ten named conversations
+
+**Claude:** the assistant had one flat history per user. It now keeps up to ten
+named conversations that can be started, switched, renamed and deleted, in the
+manner of a mainstream chat product.
+
+**Governance first.** New endpoints plus a schema change is material under
+`PRODUCT_CHANGE_CONTROL` on three counts — API/event contract, major feature,
+and an entitlement-shaped limit. It was classified, the KpnCompute charter was
+checked for conflict, and the owner approved it as an explicit override, which
+is recorded in the shared ledger as
+`KPNCOMPUTE-ADR-MYAI-CONVERSATIONS-OWNER-OVERRIDE-2026-09-16` with what it does
+*not* authorize. SSE streaming remains blocked pending its own verdict.
+
+- **Schema** (`backend/migrations/055_myai_conversation_threads.sql`): a new
+  `agent_threads` table, plus a nullable `thread_id` on the turn log. A note on
+  naming: the existing `agent_conversations` table is a *turn log*, one row per
+  turn — rather than deepen that confusion, threads got their own table.
+  Existing history is adopted into each user's first conversation, so nothing
+  is lost, and re-running the backfill is a no-op.
+- **Tenant safety.** `agent_threads` is registered in `TENANT_TABLES`. That is
+  not bookkeeping: `supabase_service` is a `TenantScopedClient`, and membership
+  in that set is what makes it inject the tenant predicate on reads and stamp
+  `tenant_id` on writes. Without it this would have been the one assistant
+  table reached with no tenant predicate. The migration also installs the same
+  `legacy_mjcc_tenant_default` trigger every other tenant table carries, as a
+  backstop rather than the mechanism.
+- **Ownership is in the query, not around it.** Every thread operation resolves
+  through a lookup filtered by both id *and* `user_id`; an unknown or foreign
+  id is a 404 rather than a silent fall back to another conversation. The agent
+  store leaked across accounts once already (v0.3.28), so this is pinned down
+  by tests rather than assumed.
+- **The cap is the server's.** Ten per user, enforced in the API; the UI
+  attempts and surfaces the refusal instead of re-implementing the limit where
+  it could drift.
+- **Conversations are optional.** Where the table does not exist yet, listing
+  reports `max: 0`, the picker and the bubble's new-conversation control are
+  hidden entirely, and turns are written without a conversation exactly as
+  before. The assistant therefore keeps working when the code deploys ahead of
+  the migration, which is the real state described below.
+- **UI:** a switcher in the full page with rename and delete; the bubble can
+  start a conversation but does not list them — choosing among ten belongs on
+  the full page, not in a 380px panel. The first message names a conversation
+  automatically.
+
+**Not yet live, stated plainly:** migration 055 has **not** been applied. This
+repository applies migrations by hand through the Supabase MCP, and that server
+returned `Unauthorized` in this session, so the change could not be applied and
+was not faked. Until an authorized session applies it, MyAI behaves exactly as
+it did in v0.3.31 and the conversation UI stays hidden.
+
+**Local verification:** backend 379 passed / 15 skipped (up 16 — the new
+`test_agent_threads.py` covers the cap, both ownership rejections, title
+clamping, history scoping and the missing-table path), ruff clean, ESLint 0
+errors, `tsc --noEmit` clean, Vitest 69/69, production build green.
+
+**Note:** the version bump used `npm version` rather than a `sed` on the
+version string — a dependency in the lockfile is pinned at `0.3.31`, which a
+blind substitution would have silently rewritten.
+
+
 ## [v0.3.31] — 2026-09-16 — The glass never actually frosted: the bundle was dropping backdrop-filter
 
 **Claude:** verifying v0.3.29 in the user's own Chrome showed the mini chat still

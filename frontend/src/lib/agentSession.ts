@@ -27,6 +27,14 @@ export interface AgentConfig {
 /** idle → working → (ready | error). "ready" clears once the thread is seen. */
 export type AgentStatus = 'idle' | 'working' | 'ready' | 'error';
 
+/** One named conversation. The server caps how many a user may keep. */
+export interface AgentThread {
+    id: string;
+    title: string;
+    created_at?: string;
+    updated_at?: string;
+}
+
 export interface AgentState {
     ready: boolean;
     available: boolean;
@@ -40,6 +48,11 @@ export interface AgentState {
     unread: number;
     draft: string;
     remainingHour: number | null;
+    /** Conversations, most recently used first. */
+    threads: AgentThread[];
+    activeThreadId: string | null;
+    /** How many conversations the server allows; 0 until config loads. */
+    maxThreads: number;
 }
 
 // The draft is stored per account: one browser tab can sign out and sign in as
@@ -80,7 +93,25 @@ function emptyState(userId: string | null): AgentState {
         unread: 0,
         draft: readDraft(userId),
         remainingHour: null,
+        threads: [],
+        activeThreadId: null,
+        maxThreads: 0,
     };
+}
+
+/** Turns from the API into messages, dropping the tool rows the UI never shows. */
+function toMessages(turns: unknown[]): AgentMessage[] {
+    return (turns || [])
+        .filter((turn) => (turn as { role?: string }).role !== 'tool')
+        .map((turn) => {
+            const row = turn as { id: string; role: AgentMessage['role']; content: string; created_at: string };
+            return {
+                id: row.id,
+                role: row.role,
+                content: row.content,
+                timestamp: new Date(row.created_at),
+            };
+        });
 }
 
 let state: AgentState = emptyState(null);
@@ -130,16 +161,29 @@ export function initAgentSession(user: User): void {
                 set({ ready: true, available: false, config });
                 return;
             }
-            const turns = await api.getAgentHistory(60);
-            const messages: AgentMessage[] = (turns || [])
-                .filter((turn: { role?: string }) => turn.role !== 'tool')
-                .map((turn: { id: string; role: AgentMessage['role']; content: string; created_at: string }) => ({
-                    id: turn.id,
-                    role: turn.role,
-                    content: turn.content,
-                    timestamp: new Date(turn.created_at),
-                }));
-            set({ ready: true, available: true, config, messages });
+            // Conversations load first so the newest one decides which history
+            // to fetch. A build talking to an older API gets an empty list and
+            // falls back to the single shared thread, which still works.
+            let threads: AgentThread[] = [];
+            let maxThreads = 0;
+            try {
+                const listed = await api.listAgentThreads();
+                threads = (listed.threads || []) as AgentThread[];
+                maxThreads = listed.max || 0;
+            } catch {
+                threads = [];
+            }
+            const activeThreadId = threads.length ? threads[0].id : null;
+            const turns = await api.getAgentHistory(60, activeThreadId ?? undefined);
+            set({
+                ready: true,
+                available: true,
+                config,
+                messages: toMessages(turns),
+                threads,
+                activeThreadId,
+                maxThreads,
+            });
         } catch {
             // MyAI stays optional when its service is unavailable.
             set({ ready: true, available: false });
@@ -176,8 +220,13 @@ export async function sendAgentMessage(text: string): Promise<void> {
         lastTools: [],
     });
     try {
-        const result = await api.sendAgentMessage(trimmed);
+        const result = await api.sendAgentMessage(trimmed, state.activeThreadId ?? undefined);
         const tools = (result.tool_calls || []).map((call: { name: string }) => call.name);
+        // The server decides the conversation when the client had none, and it
+        // names a new one from the first message, so re-read the list.
+        const threadId = result.thread_id || state.activeThreadId;
+        if (threadId && threadId !== state.activeThreadId) set({ activeThreadId: threadId });
+        void refreshAgentThreads();
         set({
             messages: [...state.messages, {
                 id: crypto.randomUUID(),
@@ -210,8 +259,79 @@ export async function sendAgentMessage(text: string): Promise<void> {
 }
 
 export async function clearAgentHistory(): Promise<void> {
-    await api.clearAgentHistory();
+    await api.clearAgentHistory(state.activeThreadId ?? undefined);
     set({ messages: [], lastTools: [], unread: 0, status: 'idle' });
+}
+
+/** Re-read the conversation list; titles change as the server names them. */
+export async function refreshAgentThreads(): Promise<void> {
+    try {
+        const listed = await api.listAgentThreads();
+        set({
+            threads: (listed.threads || []) as AgentThread[],
+            maxThreads: listed.max || state.maxThreads,
+        });
+    } catch {
+        // an older API has no conversations; the single thread still works
+    }
+}
+
+/** Switch conversations, loading that thread's messages. */
+export async function selectAgentThread(threadId: string): Promise<void> {
+    if (threadId === state.activeThreadId || state.status === 'working') return;
+    set({ activeThreadId: threadId, messages: [], status: 'idle', lastTools: [], unread: 0 });
+    try {
+        const turns = await api.getAgentHistory(60, threadId);
+        // Ignore a slow response for a conversation the user has since left.
+        if (state.activeThreadId === threadId) set({ messages: toMessages(turns) });
+    } catch {
+        if (state.activeThreadId === threadId) set({ messages: [] });
+    }
+}
+
+/**
+ * Start a new conversation. The cap is the server's to enforce; its refusal
+ * message is surfaced rather than second-guessed here.
+ */
+export async function createAgentThread(): Promise<string | null> {
+    if (state.status === 'working') return null;
+    const created = await api.createAgentThread();
+    const thread = (created?.thread || created) as AgentThread;
+    if (!thread?.id) return null;
+    set({
+        threads: [thread, ...state.threads],
+        activeThreadId: thread.id,
+        messages: [],
+        lastTools: [],
+        unread: 0,
+        status: 'idle',
+    });
+    return thread.id;
+}
+
+export async function renameAgentThread(threadId: string, title: string): Promise<void> {
+    const clean = title.trim();
+    if (!clean) return;
+    await api.renameAgentThread(threadId, clean);
+    set({
+        threads: state.threads.map((thread) =>
+            thread.id === threadId ? { ...thread, title: clean } : thread,
+        ),
+    });
+}
+
+/** Delete a conversation, moving to the next one if it was the open one. */
+export async function deleteAgentThread(threadId: string): Promise<void> {
+    await api.deleteAgentThread(threadId);
+    const remaining = state.threads.filter((thread) => thread.id !== threadId);
+    set({ threads: remaining });
+    if (state.activeThreadId !== threadId) return;
+    if (remaining.length) {
+        set({ activeThreadId: null });
+        await selectAgentThread(remaining[0].id);
+    } else {
+        set({ activeThreadId: null, messages: [], lastTools: [], unread: 0, status: 'idle' });
+    }
 }
 
 /** Short label for the bubble's status card. */

@@ -30,6 +30,7 @@ GLOBAL_TABLES = {
 }
 TENANT_TABLES = {
     "agent_conversations",
+    "agent_threads",
     "agent_usage",
     "ai_provider_keys",
     "ai_stack_config",

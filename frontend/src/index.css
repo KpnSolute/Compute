@@ -881,6 +881,30 @@ table.data.logtbl td{padding:6px 10px}
 .agent-mini-composer button{width:30px;height:30px;flex:none;display:grid;place-items:center;border:0;border-radius:9px;background:var(--navy);color:#fff;cursor:pointer}
 .agent-mini-composer button:disabled{background:var(--line);color:var(--faint);cursor:default}
 
+/* ── MyAI conversations: the switcher on the full page ── */
+.agent-convo{position:relative}
+.agent-convo-btn{display:inline-flex;align-items:center;gap:7px;height:var(--control-h);max-width:260px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:600 12.5px var(--font);cursor:pointer}
+.agent-convo-btn:hover:not(:disabled){background:var(--hover-bg)}
+.agent-convo-btn:disabled{opacity:.55;cursor:not-allowed}
+.agent-convo-btn>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agent-convo-btn small{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
+.agent-convo-menu{position:absolute;top:calc(100% + 6px);right:0;z-index:60;width:min(320px,80vw);padding:6px;border:1px solid var(--line);border-radius:12px;background:var(--popover-bg);box-shadow:var(--popover-shadow);animation:kpn-pop-menu .14s var(--ease-out) both}
+.agent-convo-list{max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.agent-convo-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:2px;border-radius:8px}
+.agent-convo-row:hover{background:var(--hover-bg)}
+.agent-convo-row.active{background:var(--accent-soft);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 28%,transparent)}
+.agent-convo-pick{min-width:0;padding:8px 10px;border:0;background:none;color:var(--ink);font:500 12.5px var(--font);text-align:left;cursor:pointer}
+.agent-convo-pick span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agent-convo-act{width:28px;height:28px;display:grid;place-items:center;border:0;border-radius:7px;background:none;color:var(--muted);cursor:pointer}
+.agent-convo-act:hover{background:var(--surface-2);color:var(--ink)}
+.agent-convo-rename{min-width:0;margin:4px 6px;padding:6px 8px;border:1px solid var(--accent);border-radius:7px;background:var(--input-bg);color:var(--ink);font:500 12.5px var(--font);outline:none}
+.agent-convo-empty{padding:16px 12px;text-align:center;font-size:12px;color:var(--muted)}
+.agent-convo-error{margin:4px 6px 0;font-size:11.5px;line-height:1.45;color:var(--red)}
+.agent-convo-new{width:100%;margin-top:4px;display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:34px;border:1px dashed var(--line);border-radius:9px;background:none;color:var(--accent);font:700 12px var(--font);cursor:pointer}
+.agent-convo-new:hover:not(:disabled){background:var(--accent-soft)}
+.agent-convo-new:disabled{color:var(--muted);border-style:solid;cursor:not-allowed}
+@media(max-width:860px){.agent-convo-btn{max-width:150px}.agent-convo-btn small{display:none}}
+
 @media(max-width:640px){
   .agent-orb-layer{right:14px;bottom:52px}
   .agent-orb{width:42px;height:42px}

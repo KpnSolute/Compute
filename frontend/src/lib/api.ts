@@ -1829,18 +1829,53 @@ export const api = {
     return req('/api/agent/config', { method: 'PUT', body: JSON.stringify(body) });
   },
 
-  async sendAgentMessage(message: string): Promise<{ response: string; tool_calls: any[]; rate_limit: any }> {
-    return req('/api/agent/chat', { method: 'POST', body: JSON.stringify({ message }) });
+  // Every call below takes an optional threadId. Omitting it keeps the old
+  // single-conversation behaviour, so nothing breaks while the UI migrates.
+  async sendAgentMessage(
+    message: string,
+    threadId?: string,
+  ): Promise<{ response: string; tool_calls: any[]; rate_limit: any; thread_id: string }> {
+    const body = threadId ? { message, thread_id: threadId } : { message };
+    return req('/api/agent/chat', { method: 'POST', body: JSON.stringify(body) });
   },
 
-  async getAgentHistory(limit?: number): Promise<any[]> {
-    const qs = limit ? `?limit=${limit}` : '';
-    const data: any = await req(`/api/agent/history${qs}`);
+  async getAgentHistory(limit?: number, threadId?: string): Promise<any[]> {
+    const p = new URLSearchParams();
+    if (limit) p.set('limit', String(limit));
+    if (threadId) p.set('thread_id', threadId);
+    const qs = p.toString();
+    const data: any = await req(`/api/agent/history${qs ? '?' + qs : ''}`);
     return data.turns || [];
   },
 
-  async clearAgentHistory(): Promise<{ deleted: number }> {
-    return req('/api/agent/history', { method: 'DELETE' });
+  async clearAgentHistory(threadId?: string): Promise<{ deleted: number }> {
+    const qs = threadId ? `?thread_id=${encodeURIComponent(threadId)}` : '';
+    return req(`/api/agent/history${qs}`, { method: 'DELETE' });
+  },
+
+  // ── MyAI conversation threads (cap enforced server-side) ─────────────────
+
+  async listAgentThreads(): Promise<{ threads: any[]; max: number }> {
+    const d: any = await req('/api/agent/threads');
+    return { threads: d.threads || [], max: d.max || 0 };
+  },
+
+  async createAgentThread(title?: string): Promise<any> {
+    return req('/api/agent/threads', {
+      method: 'POST',
+      body: JSON.stringify(title ? { title } : {}),
+    });
+  },
+
+  async renameAgentThread(threadId: string, title: string): Promise<any> {
+    return req(`/api/agent/threads/${encodeURIComponent(threadId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    });
+  },
+
+  async deleteAgentThread(threadId: string): Promise<{ deleted: number }> {
+    return req(`/api/agent/threads/${encodeURIComponent(threadId)}`, { method: 'DELETE' });
   },
 
   // Automations — stored server-side in app_settings keyed by user

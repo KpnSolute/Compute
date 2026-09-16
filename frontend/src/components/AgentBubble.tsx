@@ -4,6 +4,7 @@ import type { User } from "../lib/constants";
 import {
     agentStatusLabel,
     clearAgentHistory,
+    createAgentThread,
     getAgentState,
     initAgentSession,
     markAgentSeen,
@@ -87,6 +88,18 @@ export function AgentBubble({ user, onOpenFullPage }: { user: User; onOpenFullPa
         if (ok) await clearAgentHistory();
     };
 
+    // The bubble starts conversations but does not list them: switching among
+    // ten belongs on the full page, not in a 380px panel.
+    const atCap = state.maxThreads > 0 && state.threads.length >= state.maxThreads;
+    const startNewConversation = async () => {
+        try {
+            await createAgentThread();
+            inputRef.current?.focus();
+        } catch {
+            // The cap is the server's to enforce; the full page shows why.
+        }
+    };
+
     return (
         <div className={"agent-orb-layer" + (open ? " open" : "")}>
             {open && (
@@ -95,6 +108,17 @@ export function AgentBubble({ user, onOpenFullPage }: { user: User; onOpenFullPa
                         <span className={"agent-mini-mark state-" + state.status} aria-hidden="true" />
                         <strong>MyAI</strong>
                         <span className="agent-mini-status">{status}</span>
+                        {state.maxThreads > 0 && (
+                            <button
+                                className="agent-mini-btn"
+                                onClick={() => void startNewConversation()}
+                                disabled={state.status === "working" || atCap}
+                                title={atCap ? `You have all ${state.maxThreads} conversations` : "New conversation"}
+                                aria-label="New conversation"
+                            >
+                                {I.plus({ width: 15, height: 15 })}
+                            </button>
+                        )}
                         <button className="agent-mini-btn" onClick={onOpenFullPage} title="Open the full workspace" aria-label="Open full workspace">
                             {I.scan({ width: 15, height: 15 })}
                         </button>

@@ -16,6 +16,7 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 
 MAX_ITERATIONS = 8
 HISTORY_TRIM = 16  # turns sent to AI (keeps token count bounded)
+MAX_THREADS = 10  # named conversations a user may keep at once
 
 DEFAULT_CONFIG: dict = {
     "enabled": True,
@@ -138,9 +139,12 @@ def _store_turn(
     tool_name: str | None = None,
     tool_args: dict | None = None,
     tool_result: dict | None = None,
+    thread_id: str | None = None,
 ) -> None:
     try:
         row: dict = {"user_id": user_id, "role": role, "content": content}
+        if thread_id:
+            row["thread_id"] = thread_id
         if tool_name:
             row["tool_name"] = tool_name
         if tool_args:
@@ -152,19 +156,130 @@ def _store_turn(
         pass
 
 
-def _load_history(user_id: str, limit: int = 20) -> list[dict]:
+def _load_history(
+    user_id: str, limit: int = 20, thread_id: str | None = None
+) -> list[dict]:
     try:
-        r = (
+        q = (
             supabase_service.table("agent_conversations")
             .select("id,role,content,tool_name,tool_args,tool_result,created_at")
             .eq("user_id", user_id)
-            .order("created_at", desc=True)
-            .limit(limit)
-            .execute()
         )
+        if thread_id:
+            q = q.eq("thread_id", thread_id)
+        r = q.order("created_at", desc=True).limit(limit).execute()
         return list(reversed(r.data or []))
     except Exception:
         return []
+
+
+def _thread_row(thread_id: str, user_id: str) -> dict | None:
+    """Fetch a thread only when it belongs to this user.
+
+    Every thread operation goes through here, and ownership is part of the
+    query rather than something the caller asserts. The agent store leaked
+    across accounts once already; this is the place that must not repeat it.
+    """
+    try:
+        r = (
+            supabase_service.table("agent_threads")
+            .select("id,title,created_at,updated_at")
+            .eq("id", thread_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        rows = r.data or []
+        return rows[0] if rows else None
+    except Exception:
+        return None
+
+
+def _list_threads(user_id: str) -> list[dict]:
+    try:
+        r = (
+            supabase_service.table("agent_threads")
+            .select("id,title,created_at,updated_at")
+            .eq("user_id", user_id)
+            .order("updated_at", desc=True)
+            .limit(MAX_THREADS)
+            .execute()
+        )
+        return list(r.data or [])
+    except Exception:
+        return []
+
+
+def _threads_available() -> bool:
+    """Whether conversations exist as a feature yet.
+
+    _list_threads cannot answer this: it returns an empty list both for a user
+    with no conversations and for a database where the table has not been
+    created. The API reports availability separately so the UI can hide the
+    feature entirely rather than offering a button that fails.
+    """
+    try:
+        supabase_service.table("agent_threads").select("id").limit(1).execute()
+        return True
+    except Exception:
+        return False
+
+
+def _create_thread(user_id: str, title: str | None = None) -> dict:
+    """Create a conversation, refusing once the user is at the cap."""
+    if len(_list_threads(user_id)) >= MAX_THREADS:
+        raise HTTPException(
+            status_code=409,
+            detail=f"You can keep {MAX_THREADS} conversations. Delete one to start another.",
+        )
+    clean = (title or "").strip()[:80] or "New chat"
+    r = (
+        supabase_service.table("agent_threads")
+        .insert({"user_id": user_id, "title": clean})
+        .execute()
+    )
+    return (r.data or [{}])[0]
+
+
+def _touch_thread(thread_id: str, title: str | None = None) -> None:
+    """Mark a conversation as the most recently used, optionally renaming it."""
+    patch: dict = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    if title:
+        patch["title"] = title.strip()[:80]
+    try:
+        supabase_service.table("agent_threads").update(patch).eq(
+            "id", thread_id
+        ).execute()
+    except Exception:
+        pass
+
+
+def _resolve_thread(user_id: str, thread_id: str | None) -> dict | None:
+    """The conversation this request writes to, or None when there are none.
+
+    A named thread must exist and belong to the caller. An unknown or foreign
+    id raises rather than quietly falling back, so a stale tab can never write
+    into somebody else's conversation — or into the wrong one of your own.
+
+    Returning None is the deliberate escape hatch: where the threads table does
+    not exist yet, turns are written without a conversation exactly as they
+    were before this feature. That lets the code deploy before the migration is
+    applied without taking the assistant down in between.
+    """
+    if thread_id:
+        owned = _thread_row(thread_id, user_id)
+        if not owned:
+            raise HTTPException(status_code=404, detail="Conversation not found.")
+        return owned
+    existing = _list_threads(user_id)
+    if existing:
+        return existing[0]
+    try:
+        return _create_thread(user_id)
+    except HTTPException:
+        raise
+    except Exception:
+        return None
 
 
 def _parse_tool_calls(text: str) -> list[dict]:
@@ -264,6 +379,7 @@ Rules:
 
 class ChatRequest(BaseModel):
     message: str
+    thread_id: str | None = None
 
 
 @router.post("/chat")
@@ -288,8 +404,16 @@ async def agent_chat(body: ChatRequest, user: dict = Depends(_get_auth_user)):
         user_id = user["id"]
         rem_h, rem_d = _check_rate_limit(user_id, user_role, cfg)
 
-        # Load recent conversation history
-        history = _load_history(user_id, limit=cfg.get("max_turns", 20))
+        # The conversation this turn belongs to. Resolved before any work so an
+        # unknown or foreign id fails fast instead of spending a rate-limited
+        # request and then discovering the thread is not the caller's.
+        thread = _resolve_thread(user_id, body.thread_id)
+        thread_id = str(thread["id"]) if thread else None
+
+        # Load recent history for this conversation only
+        history = _load_history(
+            user_id, limit=cfg.get("max_turns", 20), thread_id=thread_id
+        )
         messages: list[dict] = [
             {"role": "system", "content": _build_system_prompt(user, cfg)}
         ]
@@ -370,6 +494,7 @@ async def agent_chat(body: ChatRequest, user: dict = Depends(_get_auth_user)):
                     tool_name,
                     tool_args,
                     result,
+                    thread_id=thread_id,
                 )
 
             messages.append({"role": "assistant", "content": response_text})
@@ -385,13 +510,25 @@ async def agent_chat(body: ChatRequest, user: dict = Depends(_get_auth_user)):
                 "I reached my step limit. Please try a more specific question."
             )
 
-        _store_turn(user_id, "user", body.message)
-        _store_turn(user_id, "assistant", final_response)
+        _store_turn(user_id, "user", body.message, thread_id=thread_id)
+        _store_turn(user_id, "assistant", final_response, thread_id=thread_id)
         _record_usage(user_id)
+
+        # The first real message names the conversation, the way a chat app
+        # does, so the list is not ten rows all reading "New chat".
+        if thread_id:
+            unnamed = str((thread or {}).get("title") or "").strip() in ("", "New chat")
+            auto_title = (
+                body.message.strip().splitlines()[0][:60]
+                if not history and unnamed
+                else None
+            )
+            _touch_thread(thread_id, auto_title)
 
         return {
             "response": final_response,
             "tool_calls": used_tool_calls,
+            "thread_id": thread_id,
             "rate_limit": {"remaining_hour": rem_h, "remaining_day": rem_d},
         }
 
@@ -446,27 +583,110 @@ def _summarize_result(tool_name: str, result: dict) -> str:
 
 
 @router.get("/history")
-async def get_history(limit: int = 30, user: dict = Depends(_get_auth_user)):
+async def get_history(
+    limit: int = 30,
+    thread_id: str | None = None,
+    user: dict = Depends(_get_auth_user),
+):
+    """Turns for one conversation, or the whole log when none is named."""
     cfg = _load_config()
     _check_min_role(user, cfg)
-    turns = _load_history(user["id"], limit=limit)
-    return {"turns": turns}
+    if thread_id and not _thread_row(thread_id, user["id"]):
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    turns = _load_history(user["id"], limit=limit, thread_id=thread_id)
+    return {"turns": turns, "thread_id": thread_id}
 
 
 @router.delete("/history")
-async def clear_history(user: dict = Depends(_get_auth_user)):
+async def clear_history(
+    thread_id: str | None = None,
+    user: dict = Depends(_get_auth_user),
+):
+    """Clear one conversation, or every turn when no conversation is named."""
     cfg = _load_config()
     _check_min_role(user, cfg)
+    if thread_id and not _thread_row(thread_id, user["id"]):
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    try:
+        q = (
+            supabase_service.table("agent_conversations")
+            .delete()
+            .eq("user_id", user["id"])
+        )
+        if thread_id:
+            q = q.eq("thread_id", thread_id)
+        r = q.execute()
+        deleted = len(r.data or [])
+    except Exception:
+        deleted = 0
+    return {"deleted": deleted}
+
+
+# ── conversation threads ──────────────────────────────────────────────────────
+
+
+class ThreadRequest(BaseModel):
+    title: str | None = None
+
+
+@router.get("/threads")
+async def list_threads(user: dict = Depends(_get_auth_user)):
+    """List conversations. A max of 0 means the feature is not available yet."""
+    cfg = _load_config()
+    _check_min_role(user, cfg)
+    if not _threads_available():
+        return {"threads": [], "max": 0}
+    return {"threads": _list_threads(user["id"]), "max": MAX_THREADS}
+
+
+@router.post("/threads")
+async def create_thread(body: ThreadRequest, user: dict = Depends(_get_auth_user)):
+    cfg = _load_config()
+    _check_min_role(user, cfg)
+    return {"thread": _create_thread(user["id"], body.title)}
+
+
+@router.patch("/threads/{thread_id}")
+async def rename_thread(
+    thread_id: str, body: ThreadRequest, user: dict = Depends(_get_auth_user)
+):
+    cfg = _load_config()
+    _check_min_role(user, cfg)
+    if not _thread_row(thread_id, user["id"]):
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    title = (body.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="A conversation needs a name.")
+    _touch_thread(thread_id, title)
+    return {"thread": _thread_row(thread_id, user["id"])}
+
+
+@router.delete("/threads/{thread_id}")
+async def delete_thread(thread_id: str, user: dict = Depends(_get_auth_user)):
+    """Delete a conversation and its turns.
+
+    The foreign key cascades, but the turns are removed explicitly so the
+    returned count reflects what actually went away.
+    """
+    cfg = _load_config()
+    _check_min_role(user, cfg)
+    if not _thread_row(thread_id, user["id"]):
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    deleted = 0
     try:
         r = (
             supabase_service.table("agent_conversations")
             .delete()
             .eq("user_id", user["id"])
+            .eq("thread_id", thread_id)
             .execute()
         )
         deleted = len(r.data or [])
+        supabase_service.table("agent_threads").delete().eq("id", thread_id).eq(
+            "user_id", user["id"]
+        ).execute()
     except Exception:
-        deleted = 0
+        pass
     return {"deleted": deleted}
 
 
