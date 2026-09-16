@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { Select } from "./ui/Select";
 import { I } from "../lib/icons";
 import { type User, ROLE_LEVEL, ROLE_LABEL } from "../lib/constants";
 import { api, type Commit, type SourceTransaction, type StagingEntry } from "../lib/api";
@@ -258,20 +259,35 @@ export function TransactionLogView({ active }: { active: boolean }) {
                         placeholder="Search transactions, SKU, item, commit..."
                     />
                 </label>
-                <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-                    <option value="all">All Types</option>
-                    <option value="enter">Received</option>
-                    <option value="pull">Issued</option>
-                    <option value="revert">Reverted</option>
-                </select>
-                <select value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)}>
-                    <option value="all">All Months</option>
-                    {MONTH_LABELS.map((label, idx) => <option key={label} value={idx}>{label}</option>)}
-                </select>
-                <select value={yearFilter} onChange={(e) => setYearFilter(e.target.value)}>
-                    <option value="all">All Years</option>
-                    {years.map((year) => <option key={year} value={year}>{year}</option>)}
-                </select>
+                <Select
+                    value={typeFilter}
+                    onChange={setTypeFilter}
+                    label="Filter by type"
+                    options={[
+                        { value: "all", label: "All Types" },
+                        { value: "enter", label: "Received" },
+                        { value: "pull", label: "Issued" },
+                        { value: "revert", label: "Reverted" },
+                    ]}
+                />
+                <Select
+                    value={monthFilter}
+                    onChange={setMonthFilter}
+                    label="Filter by month"
+                    options={[
+                        { value: "all", label: "All Months" },
+                        ...MONTH_LABELS.map((label, idx) => ({ value: String(idx), label })),
+                    ]}
+                />
+                <Select
+                    value={yearFilter}
+                    onChange={setYearFilter}
+                    label="Filter by year"
+                    options={[
+                        { value: "all", label: "All Years" },
+                        ...years.map((year) => ({ value: String(year), label: String(year) })),
+                    ]}
+                />
             </div>
 
             <div className="sc-log-table-wrap">
@@ -406,9 +422,16 @@ function CommitTimelineView({ active, commits, refreshing }: {
         <div className="sc-history">
             <div className="sc-history-tools">
                 <label className="sc-log-search">{I.search({ style: { width: 15, height: 15 } })}<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search commits, people, pull requests, SHA…" aria-label="Search commits" /></label>
-                <select value={syncFilter} onChange={(event) => setSyncFilter(event.target.value as typeof syncFilter)} aria-label="Filter sync status">
-                    <option value="all">All pushes</option><option value="synced">Archive synced</option><option value="pending">Sync pending</option>
-                </select>
+                <Select
+                    value={syncFilter}
+                    onChange={setSyncFilter}
+                    label="Filter sync status"
+                    options={[
+                        { value: "all", label: "All pushes" },
+                        { value: "synced", label: "Archive synced" },
+                        { value: "pending", label: "Sync pending" },
+                    ]}
+                />
                 <div className="sc-history-summary">
                     {refreshing && <div className="spinner" style={{ width: 12, height: 12 }} />}
                     <span><b>{filteredCommits.length}</b> of {commits.length} commits</span>

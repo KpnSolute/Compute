@@ -1,5 +1,46 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.33] — 2026-09-16 — One dropdown, everywhere
+
+**Claude:** the Source Control filters were native `<select>` elements. A native
+option list is drawn by the operating system, so it ignores every design token —
+square corners, system-blue highlight, system font — which is exactly what the
+user saw in dark mode. No amount of CSS fixes that; the control has to render
+its own list.
+
+- **New shared `components/ui/Select.tsx`**, lifted from the implementation
+  PullSheet had grown locally rather than invented fresh: closes on outside
+  click and on Escape, and carries real listbox semantics (`role="listbox"`,
+  `role="option"`, `aria-selected`, `aria-haspopup`) instead of a div that
+  merely looks the part.
+- **PullSheet now uses the shared control** and its local copy is gone, so the
+  extraction is proven against the page that already worked.
+- **Source Control's four filter dropdowns** — type, month, year and sync
+  status — converted.
+- **Styling by alias, not rename.** `kpn-select*` was added alongside
+  `pull-select*` on all 24 existing rules by comma-extension: base, both dark
+  overrides, this page's responsive filter-bar sizing, and the standardised
+  popover block. Nothing was renamed or removed, so PullSheet's appearance is
+  unchanged. Renaming classes across a 3,800-line stylesheet would have been a
+  separate refactor with real regression risk and no user-visible benefit.
+
+**Deliberately not converted:** the SKU Review add-row's category select is a
+`className="ipt"` form field sitting between two `ipt` text inputs. Turning it
+into a pill-shaped filter control would make it inconsistent with the fields
+beside it.
+
+**Still native: 41 further `<select>` elements across 16 files.** This release
+fixes the page that was reported and creates the shared control; converting the
+rest is now mechanical and belongs in its own pass.
+
+**Local verification:** `tsc --noEmit` clean, ESLint 0 errors, production build
+green, and the built bundle confirmed to carry all 24 aliased rules.
+
+**Note:** push, CI and deployment state is recorded in the shared governance
+ledger rather than here — see the v0.3.30 entry for why this file no longer
+carries a line that would need correcting later.
+
+
 ## [v0.3.32] — 2026-09-16 — MyAI keeps up to ten named conversations
 
 **Claude:** the assistant had one flat history per user. It now keeps up to ten

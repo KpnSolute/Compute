@@ -6,6 +6,7 @@ import { useEscapeClose } from '../lib/useEscapeClose';
 import { itemTotals } from '../lib/inventoryFormulas';
 import * as draftsLib from '../lib/drafts';
 import { StatusPill } from './ui/StatusPill';
+import { Select } from './ui/Select';
 
 const t = (msg: string) => (window as any).toast?.(msg);
 
@@ -31,73 +32,11 @@ const pavailable = (it: any) => typeof it.closingQty === 'number'
   ? it.closingQty
   : itemTotals(it).ending;
 
-function PullSheetSelect<T extends number | string>({
-  value,
-  onChange,
-  options,
-  label,
-}: {
-  value: T;
-  onChange: (v: T) => void;
-  options: { value: T; label: string }[];
-  label: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const selected = options.find((option) => option.value === value);
-
-  useEffect(() => {
-    if (!open) return;
-    const closeOnOutside = (event: MouseEvent) => {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', closeOnOutside);
-    window.addEventListener('keydown', closeOnEscape);
-    return () => {
-      document.removeEventListener('mousedown', closeOnOutside);
-      window.removeEventListener('keydown', closeOnEscape);
-    };
-  }, [open]);
-
-  return (
-    <div className="pull-select" ref={ref}>
-      <button
-        type="button"
-        className="pull-select-btn"
-        onClick={() => setOpen((current) => !current)}
-        aria-label={label}
-        aria-expanded={open}
-        aria-haspopup="listbox"
-      >
-        <span>{selected?.label ?? String(value)}</span>
-        {I.down({ style: { width: 12, height: 12 } })}
-      </button>
-      {open && (
-        <div className="pull-select-menu" role="listbox" aria-label={label}>
-          {options.map((option) => (
-            <button
-              key={String(option.value)}
-              type="button"
-              role="option"
-              aria-selected={option.value === value}
-              className="pull-select-option"
-              data-active={option.value === value}
-              onClick={() => {
-                onChange(option.value);
-                setOpen(false);
-              }}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+// This page's dropdown moved to components/ui/Select so every page shares one
+// implementation. The stylesheet lists kpn-select* alongside pull-select* on
+// every rule, including this page's responsive filter-bar sizing, so the
+// control keeps its appearance here without a per-call-site class.
+const PullSheetSelect = Select;
 
 interface PullSheetProps {
   user: User;
