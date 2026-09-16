@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { I } from "../lib/icons";
-import { splitInline, toBlocks } from "../lib/chatMarkdown";
+import { nestListItems, splitInline, toBlocks, type ListNode } from "../lib/chatMarkdown";
 import type { AgentMessage, AgentState } from "../lib/agentSession";
 
 /** Assistant replies arrive as Markdown; render them as elements, never HTML. */
@@ -10,10 +10,33 @@ function Inline({ text }: { text: string }) {
             {splitInline(text).map((span, index) => {
                 if (span.kind === "bold") return <strong key={index}>{span.value}</strong>;
                 if (span.kind === "italic") return <em key={index}>{span.value}</em>;
+                if (span.kind === "strike") return <s key={index}>{span.value}</s>;
                 if (span.kind === "code") return <code key={index}>{span.value}</code>;
+                if (span.kind === "link") {
+                    // Schemes are filtered in chatMarkdown.safeHref before this point.
+                    return (
+                        <a key={index} href={span.href} target="_blank" rel="noopener noreferrer nofollow">
+                            {span.value}
+                        </a>
+                    );
+                }
                 return <span key={index}>{span.value}</span>;
             })}
         </>
+    );
+}
+
+function ListNodes({ nodes, ordered }: { nodes: ListNode[]; ordered: boolean }) {
+    const Tag = ordered ? "ol" : "ul";
+    return (
+        <Tag>
+            {nodes.map((node, index) => (
+                <li key={index}>
+                    <Inline text={node.text} />
+                    {node.children.length > 0 && <ListNodes nodes={node.children} ordered={ordered} />}
+                </li>
+            ))}
+        </Tag>
     );
 }
 
@@ -22,6 +45,11 @@ export function MarkdownText({ text }: { text: string }) {
         <>
             {toBlocks(text).map((block, index) => {
                 if (block.kind === "p") return <p key={index}><Inline text={block.text} /></p>;
+                if (block.kind === "h") return block.level === 3
+                    ? <h3 key={index}><Inline text={block.text} /></h3>
+                    : <h4 key={index}><Inline text={block.text} /></h4>;
+                if (block.kind === "quote") return <blockquote key={index}><Inline text={block.text} /></blockquote>;
+                if (block.kind === "hr") return <hr key={index} />;
                 if (block.kind === "code") return <pre key={index}><code>{block.text}</code></pre>;
                 if (block.kind === "table") return (
                     <div className="agent-chat-table" key={index}>
@@ -37,8 +65,7 @@ export function MarkdownText({ text }: { text: string }) {
                         </table>
                     </div>
                 );
-                const items = block.items.map((item, itemIndex) => <li key={itemIndex}><Inline text={item} /></li>);
-                return block.kind === "ul" ? <ul key={index}>{items}</ul> : <ol key={index}>{items}</ol>;
+                return <ListNodes key={index} nodes={nestListItems(block.items)} ordered={block.kind === "ol"} />;
             })}
         </>
     );
@@ -82,7 +109,7 @@ export function ThinkingState({ compact }: { compact?: boolean }) {
             {!compact && <div className="agent-chat-avatar">{I.chat({ width: 17, height: 17 })}</div>}
             <div className="agent-chat-response agent-thinking">
                 <span>Working</span>
-                <span className="agent-thinking-dots" aria-label="MJCC AI is working"><i /><i /><i /></span>
+                <span className="agent-thinking-dots" aria-label="MyAI is working"><i /><i /><i /></span>
             </div>
         </div>
     );

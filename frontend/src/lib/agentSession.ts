@@ -2,7 +2,7 @@ import { api } from './api';
 import { ROLE_LEVEL, type User } from './constants';
 
 /**
- * One MJCC AI conversation shared by the floating bubble and the full page.
+ * One MyAI conversation shared by the floating bubble and the full page.
  *
  * Both surfaces read and write this store, so opening the page from the bubble
  * (or minimising back) keeps the same messages, the same draft, and the same
@@ -141,7 +141,7 @@ export function initAgentSession(user: User): void {
                 }));
             set({ ready: true, available: true, config, messages });
         } catch {
-            // MJCC AI stays optional when its service is unavailable.
+            // MyAI stays optional when its service is unavailable.
             set({ ready: true, available: false });
         }
     })();
@@ -222,6 +222,6 @@ export function agentStatusLabel(current: AgentState, now = Date.now()): string 
     }
     if (current.status === 'error') return 'Last request failed';
     if (current.unread > 0) return current.unread === 1 ? '1 new answer' : `${current.unread} new answers`;
-    if (current.messages.length > 0) return 'Ask MJCC AI';
-    return 'Ask MJCC AI anything';
+    if (current.messages.length > 0) return 'Ask MyAI';
+    return 'Ask MyAI anything';
 }

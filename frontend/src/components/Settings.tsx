@@ -948,8 +948,9 @@ function ProvidersTab() {
                             <label style={LBL}>
                                 Model
                                 {stackVision && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 800,
-                                    background: '#eff5fe', color: '#1e3a8a',
-                                    padding: '2px 7px', borderRadius: 5, border: '1px solid #bfdbfe' }}>✶ Vision</span>}
+                                    background: 'var(--accent-soft)', color: 'var(--accent-chip-ink)',
+                                    padding: '2px 7px', borderRadius: 5,
+                                    border: '1px solid color-mix(in srgb,var(--accent) 35%,var(--line))' }}>✶ Vision</span>}
                             </label>
                             {modelsLoading ? (
                                 <div style={{ fontSize: 12, color: 'var(--muted)', padding: '6px 0' }}>Loading models...</div>
@@ -1301,7 +1302,7 @@ function AgentTab() {
                     }} />
                 </div>
                 <div>
-                    <div style={{ fontWeight: 700, fontSize: 13 }}>Enable MJCC AI Agent</div>
+                    <div style={{ fontWeight: 700, fontSize: 13 }}>Enable MyAI Agent</div>
                     <div style={{ fontSize: 11, color: 'var(--faint)' }}>Show the floating agent bubble to eligible users</div>
                 </div>
             </label>

@@ -1,5 +1,62 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.29] — 2026-09-16 — MyAI: a name, a mark, a panel you can read — and a dark sign-in that works
+
+**Claude (UI owner, at the user's request):** four complaints, four causes. The
+assistant is renamed, the glass stopped being see-through, the generic status
+LED is gone, and the dark login was genuinely broken rather than merely ugly.
+
+- **Rebrand: MJCC AI → MyAI.** 33 strings across 10 files — nav label, bubble,
+  full page, AI Tools, Data Entry, Settings, and the backend system prompt in
+  `backend/routes/agent.py`, so the assistant introduces itself by the name on
+  the panel instead of the old one. `API.md` updated to match. Smart Search
+  keeps `mjcc ai` as an alias, so the old name still finds the page.
+- **Glass belongs at the rim, not through the text.** `.glass-panel` was 80%
+  opaque in light and 74% in dark — fine for a tooltip, wrong for a 380×520
+  chat sitting over dense inventory tables. Now 96%/95% with a 20px blur, so
+  the material shows in the edge, sheen and shadow rather than in what bleeds
+  through. Added an `@supports` fallback to a solid fill where `backdrop-filter`
+  is unavailable, which previously left the panel simply transparent.
+- **The green dot is gone.** The header wore a status LED — the same one every
+  chat widget ships. It is replaced by `.agent-mini-mark`: the orb in
+  miniature, same material, carrying the same states (idle sheen, working
+  breathe, error rim). Reduced-motion stills it.
+- **Dark sign-in repaired.** The dark block had covered exactly two auth rules
+  (page background) and `.seg`. Everything inside the card stayed keyed to
+  light tokens: `--navy` went murky against the dark page, `.auth-err` kept
+  light-red text on a translucent red fill, the keypad and PIN dots stayed
+  light, and — the visible fault in the user's screenshot — the global
+  `-webkit-autofill` rule forced `box-shadow:0 0 0 30px white inset`, painting
+  an autofilled username as a white slab. All now token-driven, with the
+  primary action on accent over `--navy-ink` for contrast.
+- **Markdown in replies** (carried in this release): links, nested lists,
+  headings, block quotes, rules and strikethrough now render as elements.
+  Link targets are filtered to http/https/mailto at the parse step in
+  `safeHref`, so an unsafe scheme can never reach an anchor.
+- **Colour cleanup:** the navy bar on `.stat-card` removed, `.pill.off`
+  tokenized, dark overrides added for `.pill.role-admin` / `.role-assistant`,
+  and the last inline light chips in `Settings.tsx` and `DataEntry.tsx`
+  replaced with tokens.
+
+**Governance note:** renaming the assistant changes a product-facing identity.
+It was directed explicitly by the product owner in-session; recorded here and in
+the shared ledger rather than treated as a silent implementation detail.
+
+**Local verification:** ESLint 0 errors (682 pre-existing warnings), `tsc
+--noEmit` clean, Vitest 69/69 across 7 files, `ruff check backend/` all checks
+passed, `vite build` succeeded.
+
+**Dark-mode verification:** computed styles on login DOM in a real
+`data-theme="dark"` page — input `rgb(15,20,27)`, Sign in `rgb(88,166,255)` on
+`rgb(13,17,23)`, keypad `rgb(28,33,40)`, error `rgb(248,81,73)`, PIN dot and
+active tab on accent. Glass panel resolves at alpha 0.95 with
+`blur(20px) saturate(1.6)`. **Not** a live sign-in: the dev origin is
+CORS-blocked from `api.kpnsolute.com`, so the workspace gate reports
+"Workspace unavailable" locally and the real form does not mount.
+
+**Push:** pending.
+
+
 ## [v0.3.28] — 2026-09-15 — The MJCC AI orb returns as liquid glass, sharing one conversation
 
 **Claude (UI owner, at the user's request):** the floating assistant came back,

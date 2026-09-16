@@ -1232,7 +1232,7 @@ bearer token and workspace headers unless noted otherwise.
 | `PUT` | `/api/data-entry/ai-keys/{provider}` | Replaces the configured key for a provider. |
 | `GET`, `PUT` | `/api/data-entry/ai-tools` | Reads or updates the AI tool configuration. |
 | `GET` | `/api/data-entry/ai-usage` | Returns usage rows; query: `days`, `limit`. |
-| `GET`, `PUT` | `/api/agent/config` | Reads or updates MJCC AI configuration. |
+| `GET`, `PUT` | `/api/agent/config` | Reads or updates MyAI configuration. |
 | `POST` | `/api/agent/chat` | Runs one authenticated agent turn. |
 | `GET`, `DELETE` | `/api/agent/history` | Lists (`limit`) or clears the caller's chat history. |
 | `GET`, `PUT` | `/api/agent/automations` | Reads or replaces saved automations. |

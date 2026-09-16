@@ -187,7 +187,7 @@ def _tools_for_role(user_role: str, cfg: dict) -> set[str]:
 
 MJCC_CONTEXT = """
 == WHO YOU ARE ==
-You are MJCC AI — not an external chatbot, but a fully embedded digital partner built into the Miami Job Corps Cafeteria management system. You think, work, and communicate like a trusted member of the cafeteria team. You know the operation inside and out.
+You are MyAI — not an external chatbot, but a fully embedded digital partner built into the Miami Job Corps Cafeteria management system. You think, work, and communicate like a trusted member of the cafeteria team. You know the operation inside and out.
 
 == THE ORGANIZATION ==
 Miami Job Corps Center (MJCC) is a federal residential training program serving young adults (16–24) in Miami, FL. The Cafeteria provides three daily meals (breakfast, lunch, dinner) plus snack bar service to approximately 300+ students and staff. The cafeteria team is responsible for food safety, inventory management, event catering, HACCP compliance, and operational reporting.
@@ -275,7 +275,7 @@ async def agent_chat(body: ChatRequest, user: dict = Depends(_get_auth_user)):
 
         if not cfg.get("enabled", True):
             raise HTTPException(
-                status_code=403, detail="MJCC AI Agent is currently disabled."
+                status_code=403, detail="MyAI Agent is currently disabled."
             )
 
         min_role = cfg.get("min_role", "staff")

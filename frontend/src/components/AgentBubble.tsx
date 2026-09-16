@@ -15,7 +15,7 @@ import { AgentThread } from "./AgentThread";
 import { confirmAction } from "./ui/ConfirmDialog";
 
 /**
- * Floating MJCC AI orb.
+ * Floating MyAI orb.
  *
  * The surface carries the state: it breathes when idle, boils while a request
  * is in flight, swells once when an answer lands, and keeps an unread dot until
@@ -90,10 +90,10 @@ export function AgentBubble({ user, onOpenFullPage }: { user: User; onOpenFullPa
     return (
         <div className={"agent-orb-layer" + (open ? " open" : "")}>
             {open && (
-                <section className="agent-mini glass-panel" aria-label="MJCC AI quick chat">
+                <section className="agent-mini glass-panel" aria-label="MyAI quick chat">
                     <header className="agent-mini-head">
-                        <span className={"agent-mini-dot state-" + state.status} aria-hidden="true" />
-                        <strong>MJCC AI</strong>
+                        <span className={"agent-mini-mark state-" + state.status} aria-hidden="true" />
+                        <strong>MyAI</strong>
                         <span className="agent-mini-status">{status}</span>
                         <button className="agent-mini-btn" onClick={onOpenFullPage} title="Open the full workspace" aria-label="Open full workspace">
                             {I.scan({ width: 15, height: 15 })}
@@ -121,8 +121,8 @@ export function AgentBubble({ user, onOpenFullPage }: { user: User; onOpenFullPa
                                     void sendAgentMessage(state.draft);
                                 }
                             }}
-                            placeholder="Ask MJCC AI"
-                            aria-label="Message MJCC AI"
+                            placeholder="Ask MyAI"
+                            aria-label="Message MyAI"
                             disabled={state.status === "working"}
                         />
                         <button type="submit" disabled={state.status === "working" || !state.draft.trim()} aria-label="Send message">
@@ -139,7 +139,7 @@ export function AgentBubble({ user, onOpenFullPage }: { user: User; onOpenFullPa
                 onPointerMove={trackPointer}
                 onClick={() => setOpen((value) => !value)}
                 aria-expanded={open}
-                aria-label={open ? "Close MJCC AI" : `MJCC AI — ${status}`}
+                aria-label={open ? "Close MyAI" : `MyAI — ${status}`}
                 data-unread={state.unread > 0 ? Math.min(9, state.unread) : undefined}
             >
                 <span className="agent-orb-glass" aria-hidden="true" />

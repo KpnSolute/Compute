@@ -5462,10 +5462,10 @@ export function Portal({
         setActive(routeKey);
     };
 
-    // Optional hand-offs (e.g. Data Entry offering MJCC AI after a parse
+    // Optional hand-offs (e.g. Data Entry offering MyAI after a parse
     // failure) should stay quiet when the target page is not in the user's
     // scopes, rather than answering with "this page isn't enabled for you".
-    // Minimising MJCC AI returns to the page the user came from, not a fixed one.
+    // Minimising MyAI returns to the page the user came from, not a fixed one.
     const previousPageRef = useRef<string>("dashboard");
     useEffect(() => {
         if (active !== "ai-chat") previousPageRef.current = active;
@@ -5740,7 +5740,7 @@ export function Portal({
                 onSkuReviewCount={(n) => setSkuReviewCount(n)}
             />
             {paletteOpen && <CommandPalette items={paletteItems} onClose={() => setPaletteOpen(false)} />}
-            {/* The orb is the way back to MJCC AI from anywhere — except its own page. */}
+            {/* The orb is the way back to MyAI from anywhere — except its own page. */}
             {active !== "ai-chat" && hasScope("ai-chat") && canAccess("ai-chat") && (
                 <AgentBubble user={user} onOpenFullPage={() => goTo("ai-chat")} />
             )}

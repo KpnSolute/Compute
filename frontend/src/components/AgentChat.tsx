@@ -21,7 +21,7 @@ const SUGGESTIONS = [
 ];
 
 /**
- * Full-page MJCC AI workspace. It shares one conversation with the floating
+ * Full-page MyAI workspace. It shares one conversation with the floating
  * bubble through the agent session store, so moving between them is seamless.
  */
 export function AgentChatView({ user, onMinimize }: { user: User; onMinimize?: () => void }) {
@@ -44,19 +44,19 @@ export function AgentChatView({ user, onMinimize }: { user: User; onMinimize?: (
         inputRef.current?.focus();
     };
 
-    if (!state.ready) return <div className="agent-chat-loading">Opening MJCC AI…</div>;
-    if (!state.available) return <div className="agent-chat-loading">MJCC AI is not available for this account.</div>;
+    if (!state.ready) return <div className="agent-chat-loading">Opening MyAI…</div>;
+    if (!state.available) return <div className="agent-chat-loading">MyAI is not available for this account.</div>;
 
     const working = state.status === 'working';
 
     return (
-        <section className="agent-chat-page" aria-label="MJCC AI chat">
+        <section className="agent-chat-page" aria-label="MyAI chat">
             <header className="agent-chat-header">
                 <div className="agent-chat-header-inner">
                     <div className="agent-chat-heading">
                         <div className="agent-chat-mark">{I.chat({ width: 20, height: 20 })}</div>
                         <div>
-                            <h2>MJCC AI</h2>
+                            <h2>MyAI</h2>
                             <p>Ask about operations, inventory, menus, events, reports, and connected API data.</p>
                         </div>
                     </div>
@@ -113,15 +113,15 @@ export function AgentChatView({ user, onMinimize }: { user: User; onMinimize?: (
                                 void sendAgentMessage(state.draft);
                             }
                         }}
-                        placeholder="Ask MJCC AI"
+                        placeholder="Ask MyAI"
                         disabled={working}
-                        aria-label="Message MJCC AI"
+                        aria-label="Message MyAI"
                     />
                     <button type="submit" disabled={working || !state.draft.trim()} aria-label="Send message">
                         {I.up({ width: 18, height: 18 })}
                     </button>
                 </form>
-                <p>MJCC AI can make mistakes. Verify important operational decisions and records.</p>
+                <p>MyAI can make mistakes. Verify important operational decisions and records.</p>
             </footer>
         </section>
     );

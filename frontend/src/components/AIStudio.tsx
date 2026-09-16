@@ -262,7 +262,7 @@ export function AIUsageView({ user }: { user: User }) {
                 <div style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px' }}>
                     <SectionLabel>Recent Conversations</SectionLabel>
                     {displayTurns.length === 0 ? (
-                        <div style={{ fontSize: 12.5, color: 'var(--faint)', padding: '16px 0' }}>No conversations yet — try asking MJCC AI something!</div>
+                        <div style={{ fontSize: 12.5, color: 'var(--faint)', padding: '16px 0' }}>No conversations yet — try asking MyAI something!</div>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
                             {displayTurns.slice(0, 12).map((t, i) => (
@@ -384,7 +384,7 @@ export function AIToolsView({ user }: { user: User }) {
             <div style={{ marginBottom: 24 }}>
                 <h2 style={{ fontSize: 20, fontWeight: 800, color: 'var(--ink)', margin: '0 0 6px' }}>Available Tools</h2>
                 <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
-                    MJCC AI can perform these actions on your behalf. Green = enabled for your role.
+                    MyAI can perform these actions on your behalf. Green = enabled for your role.
                     {userLevel >= 50 && ' Configure which tools are active in Settings → AI Studio → Agent tab.'}
                 </p>
             </div>
@@ -444,7 +444,7 @@ export function AIToolsView({ user }: { user: User }) {
                 background: 'var(--surface-2)', border: '1px solid var(--line)', borderRadius: 10,
                 fontSize: 12, color: 'var(--muted)', lineHeight: 1.6,
             }}>
-                <strong style={{ color: 'var(--ink)' }}>Tip:</strong> Tools are executed automatically when MJCC AI determines they're needed — you don't call them directly.
+                <strong style={{ color: 'var(--ink)' }}>Tip:</strong> Tools are executed automatically when MyAI determines they're needed — you don't call them directly.
                 Just ask naturally: <em>"What items need reordering?"</em> or <em>"Create an event for next Friday."</em>
             </div>
         </div>
@@ -552,7 +552,7 @@ function PresetCard({ preset, user }: { preset: Preset; user: User }) {
                 }}>
                     {running && (
                         <div style={{ fontSize: 13, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <ToolIcon name="terminal" /> MJCC AI is thinking…
+                            <ToolIcon name="terminal" /> MyAI is thinking…
                         </div>
                     )}
                     {error && (
@@ -567,8 +567,8 @@ function PresetCard({ preset, user }: { preset: Preset; user: User }) {
                                         return (
                                             <span key={i} style={{
                                                 fontSize: 10.5, padding: '2px 8px', borderRadius: 8,
-                                                background: '#dcfce7', color: '#15803d',
-                                                border: '1px solid #bbf7d0', fontWeight: 600,
+                                                background: 'var(--green-bg)', color: 'var(--green-ink)',
+                                                border: '1px solid var(--green-chip)', fontWeight: 600,
                                             }}>
                                                 <ToolIcon name={meta?.icon} size={13} /> {meta?.label || tc.name}
                                             </span>
@@ -772,7 +772,7 @@ export function AIPresetsView({ user }: { user: User }) {
                     <ToolIcon name="terminal" size={20} /> AI Automations
                 </h2>
                 <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
-                    Build custom AI workflows in plain English. MJCC AI handles the rest — pulling live data, reasoning through it, and delivering actionable results.
+                    Build custom AI workflows in plain English. MyAI handles the rest — pulling live data, reasoning through it, and delivering actionable results.
                 </p>
             </div>
 
@@ -853,7 +853,7 @@ export function AIPresetsView({ user }: { user: User }) {
                         <div className="ai-preset-icon" style={{ margin: '0 auto 10px' }}><ToolIcon name="terminal" size={22} /></div>
                         <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)', marginBottom: 6 }}>No automations yet</div>
                         <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-                            Build your first automation above — describe what you want in plain English and MJCC AI will execute it on schedule.
+                            Build your first automation above — describe what you want in plain English and MyAI will execute it on schedule.
                         </div>
                     </div>
                 ) : (

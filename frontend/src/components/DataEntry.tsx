@@ -383,7 +383,7 @@ function FileZone({
             <div style={{ flex: 1, minWidth: 0 }}>
                 {uploading ? (
                     <>
-                        <div style={{ fontWeight: 700, fontSize: 13, color: '#1e3a8a' }}>✦ MJCC AI is parsing...</div>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--accent-chip-ink)' }}>✦ MyAI is parsing...</div>
                         <div style={{ fontSize: 11, color: '#3b82f6', marginTop: 2 }}>{file?.name}</div>
                         {isLarge && <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 3 }}>Large file — may take a few minutes</div>}
                     </>

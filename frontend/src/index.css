@@ -475,12 +475,16 @@ table.data tbody tr:hover td{background:var(--surface-2)}
 table.data .num{font-family:var(--mono);font-weight:700}
 .pill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:10.5px;font-weight:800}
 .pill.role-admin{background:#EDE9FE;color:#6D28D9}
+/* Role chips keep their light tints in light mode; dark mode needs its own pair
+   or the chip stays a bright block with dark text. */
+[data-theme="dark"] .pill.role-admin{background:rgba(139,92,246,.20);color:#c4b5fd}
+[data-theme="dark"] .pill.role-assistant{background:rgba(6,182,212,.18);color:#67e8f9}
 .pill.role-manager{background:var(--blue-bg);color:var(--blue)}
 .pill.role-assistant{background:#CFFAFE;color:#0E7490}
 .pill.role-staff{background:var(--surface-2);color:var(--muted)}
 .pill.ok{background:var(--green-chip);color:var(--green-ink)}
 .pill.warn{background:var(--amber-bg);color:var(--amber-ink)}
-.pill.off{background:#F1F5F9;color:var(--faint)}
+.pill.off{background:var(--surface-2);color:var(--muted)}
 .user-cell{display:flex;align-items:center;gap:10px}
 .user-cell .avatar{width:30px;height:30px;border-radius:8px;font-size:11px;background:var(--navy)}
 
@@ -749,17 +753,25 @@ table.data.logtbl td{padding:6px 10px}
    lands, and pulses red on failure. The specular highlight tracks the
    pointer through --px/--py set in AgentBubble.
 ═══════════════════════════════════════════════════════════════ */
+/* Glass belongs at the rim, not through the text. These panels sit over dense
+   tables, so the fill is all but opaque and the material shows in the blurred
+   edge, the sheen, and the shadow instead of in what bleeds through. */
 .glass-panel{
-  background:color-mix(in srgb,var(--surface) 80%,transparent);
-  backdrop-filter:blur(18px) saturate(150%);
-  -webkit-backdrop-filter:blur(18px) saturate(150%);
-  border:1px solid color-mix(in srgb,var(--ink) 10%,transparent);
-  box-shadow:0 18px 50px rgba(9,22,51,.20),inset 0 1px 0 rgba(255,255,255,.35);
+  background:color-mix(in srgb,var(--surface) 96%,transparent);
+  backdrop-filter:blur(20px) saturate(160%);
+  -webkit-backdrop-filter:blur(20px) saturate(160%);
+  border:1px solid color-mix(in srgb,var(--ink) 12%,transparent);
+  box-shadow:0 18px 50px rgba(9,22,51,.22),inset 0 1px 0 rgba(255,255,255,.4);
 }
 [data-theme="dark"] .glass-panel{
-  background:color-mix(in srgb,var(--surface) 74%,transparent);
-  border-color:rgba(255,255,255,.10);
-  box-shadow:0 18px 50px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.08);
+  background:color-mix(in srgb,var(--surface) 95%,transparent);
+  border-color:rgba(255,255,255,.12);
+  box-shadow:0 18px 50px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.07);
+}
+/* Without backdrop-filter there is no blur to hide the page behind, so fill
+   the panel completely rather than leaving it see-through. */
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  .glass-panel{background:var(--surface)}
 }
 
 /* Below the Source Control panel (150) and every dialog (200+), so the orb can
@@ -832,9 +844,21 @@ table.data.logtbl td{padding:6px 10px}
 .agent-mini{width:min(380px,calc(100vw - 28px));height:min(520px,calc(100dvh - 150px));display:flex;flex-direction:column;overflow:hidden;border-radius:18px;animation:popIn .18s var(--ease-out) both}
 .agent-mini-head{display:flex;align-items:center;gap:8px;padding:10px 10px 10px 14px;border-bottom:1px solid color-mix(in srgb,var(--ink) 8%,transparent)}
 .agent-mini-head strong{font-size:13px}
-.agent-mini-dot{width:8px;height:8px;flex:none;border-radius:50%;background:var(--green)}
-.agent-mini-dot.state-working{background:var(--amber);animation:orb-breathe 1.4s ease-in-out infinite}
-.agent-mini-dot.state-error{background:var(--red)}
+/* The header wears the orb in miniature, not a status LED: the same material
+   reports the same states, so the panel reads as MyAI rather than as any
+   chat widget with a green dot. */
+.agent-mini-mark{position:relative;width:20px;height:20px;flex:none;border-radius:50%;overflow:hidden;
+  background:
+    radial-gradient(120% 120% at 30% 24%,rgba(255,255,255,.6),rgba(255,255,255,.05) 44%,transparent 62%),
+    radial-gradient(100% 100% at 72% 82%,color-mix(in srgb,var(--accent) 70%,transparent),transparent 70%),
+    color-mix(in srgb,var(--navy) 88%,transparent);
+  box-shadow:inset 0 0 8px rgba(255,255,255,.22),0 1px 3px rgba(9,22,51,.3)}
+.agent-mini-mark::after{content:"";position:absolute;inset:0;border-radius:inherit;mix-blend-mode:screen;opacity:.6;
+  background:conic-gradient(from 0deg,rgba(255,255,255,.3),rgba(120,190,255,.28),rgba(255,255,255,.04),rgba(180,140,255,.28),rgba(255,255,255,.3));
+  animation:orb-rotate 14s linear infinite}
+.agent-mini-mark.state-working{animation:orb-breathe 1.4s ease-in-out infinite}
+.agent-mini-mark.state-working::after{animation-duration:3.4s;opacity:.95}
+.agent-mini-mark.state-error{box-shadow:inset 0 0 8px rgba(255,255,255,.18),0 0 0 2px color-mix(in srgb,var(--red) 55%,transparent)}
 .agent-mini-status{flex:1;min-width:0;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .agent-mini-btn{width:28px;height:28px;flex:none;display:grid;place-items:center;border:0;border-radius:8px;background:none;color:var(--muted);cursor:pointer;transition:background-color .12s ease,color .12s ease}
 .agent-mini-btn:hover{background:var(--hover-bg);color:var(--ink)}
@@ -857,7 +881,7 @@ table.data.logtbl td{padding:6px 10px}
 }
 @media print{.agent-orb-layer{display:none!important}}
 @media (prefers-reduced-motion:reduce){
-  .agent-orb,.agent-orb-glass,.agent-orb-caustic,.agent-mini,.agent-orb-card,.agent-mini-dot.state-working,
+  .agent-orb,.agent-orb-glass,.agent-orb-caustic,.agent-mini,.agent-orb-card,.agent-mini-mark,.agent-mini-mark::after,
   .agent-orb.state-working,.agent-orb.state-ready,.agent-orb.state-error,
   .agent-thinking-dots i,.agent-dot{animation:none!important}
 }
@@ -897,6 +921,15 @@ table.data.logtbl td{padding:6px 10px}
 .agent-chat-response ul,.agent-chat-response ol{margin:0 0 10px;padding-left:22px;display:grid;gap:4px;white-space:normal}
 .agent-chat-response li{line-height:1.6}
 .agent-chat-response li::marker{color:var(--muted)}
+.agent-chat-response li>ul,.agent-chat-response li>ol{margin:4px 0 0;padding-left:18px}
+.agent-chat-response h3{font-size:15px;font-weight:750;margin:2px 0 8px;letter-spacing:-.1px}
+.agent-chat-response h4{font-size:13.5px;font-weight:700;margin:2px 0 6px;color:var(--muted)}
+.agent-chat-response blockquote{margin:0 0 10px;padding:6px 0 6px 12px;border-left:3px solid var(--accent-chip);color:var(--muted);white-space:pre-wrap}
+.agent-chat-response hr{margin:14px 0;border:0;border-top:1px solid var(--line)}
+.agent-chat-response s{color:var(--muted)}
+.agent-chat-response a{color:var(--accent);text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}
+.agent-chat-response a:hover{text-decoration-thickness:2px}
+.agent-chat-response a:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
 .agent-chat-response strong{font-weight:750}
 .agent-chat-response code{font-family:var(--mono);font-size:12.5px;padding:1px 5px;border:1px solid var(--line-soft);border-radius:5px;background:var(--surface-2);white-space:pre-wrap}
 .agent-chat-response pre{margin:0 0 10px;padding:10px 12px;border:1px solid var(--line-soft);border-radius:8px;background:var(--surface-2);overflow-x:auto;white-space:pre}
@@ -1472,11 +1505,8 @@ table.data.logtbl td{padding:6px 10px}
 .portal.sidebar-open .sidebar{transform:translateX(0)}
 
 /* ── Stat grid: KPI accent bar (template style) ── */
-.stat-card::before{
-  content:'';position:absolute;top:0;left:0;right:0;
-  height:3px;background:var(--navy);
-  border-radius:var(--radius) var(--radius) 0 0;
-}
+/* The navy cap bar was removed in v0.3.29: the cards read cleaner without it,
+   and it clashed with the neutral chrome in both themes. */
 
 /* ════════════════════════════════════════════════════════════
    Phone (max-width: 640px)
@@ -2237,9 +2267,37 @@ table.data.compact tfoot td{border-top:1.5px solid var(--line);background:var(--
 [data-theme="dark"] body { background:var(--bg); color:var(--ink) }
 [data-theme="dark"] ::selection { background:rgba(88,166,255,.25) }
 
-/* ── auth / login page ── */
+/* ── auth / login page ──
+   The sign-in card was only ever given a dark background. Everything inside it
+   stayed keyed to light tokens, so navy went murky, the error box kept its
+   light-red text, and an autofilled field was painted a white slab by the
+   -webkit-autofill rule near the top of this file. */
 [data-theme="dark"] .auth,
 [data-theme="dark"] .auth-form-wrap { background:var(--bg) }
+[data-theme="dark"] .field .ipt,
+[data-theme="dark"] .auth .ipt:not(.sel){background:var(--input-bg);border-color:var(--line);color:var(--ink)}
+[data-theme="dark"] .field .ipt:focus{background:var(--input-bg-focus);border-color:var(--accent)}
+/* Navy on a dark page is nearly the page: the primary action takes the accent
+   and dark ink, which clears contrast instead of sinking into the background. */
+[data-theme="dark"] .btn-auth{background:var(--accent);color:var(--navy-ink)}
+[data-theme="dark"] .btn-auth:hover{background:var(--accent-2)}
+[data-theme="dark"] .check input{accent-color:var(--accent)}
+[data-theme="dark"] .pin-dot[data-filled="true"]{background:var(--accent);border-color:var(--accent)}
+[data-theme="dark"] .key{background:var(--surface-2);border-color:var(--line);color:var(--ink)}
+[data-theme="dark"] .key:hover{background:var(--surface);border-color:var(--accent)}
+[data-theme="dark"] .key:active{background:var(--accent-soft);border-color:var(--accent)}
+[data-theme="dark"] .auth-err{border-color:color-mix(in srgb,var(--red) 45%,transparent);color:var(--red)}
+[data-theme="dark"] .demo-creds{background:var(--surface-2);border-color:var(--line)}
+[data-theme="dark"] .demo-creds td.k{color:var(--ink)}
+[data-theme="dark"] .link{color:var(--accent)}
+[data-theme="dark"] input:-webkit-autofill,
+[data-theme="dark"] input:-webkit-autofill:hover,
+[data-theme="dark"] input:-webkit-autofill:focus,
+[data-theme="dark"] input:-webkit-autofill:active{
+  -webkit-box-shadow:0 0 0 30px var(--input-bg) inset !important;
+  -webkit-text-fill-color:var(--ink) !important;
+  caret-color:var(--ink);
+}
 
 /* ── topbar stays navy — no override needed; it already uses var(--navy) ── */
 
