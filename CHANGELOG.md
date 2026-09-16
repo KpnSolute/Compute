@@ -1,5 +1,29 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.30] — 2026-09-16 — Release-gate correction: main back to green
+
+**Claude:** v0.3.29's push line was corrected in `1ee1eb6` without bumping
+VERSION. The local pre-commit gate passed because it does not consult the
+remote; CI's gate does, found `v0.3.29` already tagged on `288d2d0`, and failed
+run 35081946780. My error, recorded rather than hidden. No product code changed
+in `1ee1eb6` or in this release.
+
+- `1ee1eb6` sits on main unreleased and untagged, with CI red for that commit.
+- Render deploys on commit, not on CI. The backend auto-deployed `1ee1eb6`
+  (`dep-dal6e5cs728c7397oof0`); the frontend created no deploy and stayed live
+  on `288d2d0`. Both carry identical application code — the only difference is
+  a Markdown file that is not part of the frontend build.
+- The v0.3.29 entry above is left exactly as written and corrected here, per the
+  governance rule against rewriting prior entries.
+
+**Note on this file's "pending" push lines:** correcting a push line is itself a
+commit, and any commit reusing a released VERSION is rejected by the gate. That
+is how v0.3.25–v0.3.29 accumulated "pending" lines. To stop the cycle, the
+push, CI and deployment state for this release is recorded in the shared ledger
+— which accepts appended corrections without a version bump — rather than being
+restated here and needing yet another release to fix.
+
+
 ## [v0.3.29] — 2026-09-16 — MyAI: a name, a mark, a panel you can read — and a dark sign-in that works
 
 **Claude (UI owner, at the user's request):** four complaints, four causes. The
