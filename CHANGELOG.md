@@ -54,7 +54,7 @@ active tab on accent. Glass panel resolves at alpha 0.95 with
 CORS-blocked from `api.kpnsolute.com`, so the workspace gate reports
 "Workspace unavailable" locally and the real form does not mount.
 
-**Push:** pending.
+**Push:** Claude → `288d2d0` — 2026-09-16. Actions run 35081546012 green (gate + tag/release). Render frontend `dep-dal6c495efls73fqfcgg` and backend `dep-dal6c495efls73fqfc00` both live on 288d2d0. Live-verified: the dark sign-in at the tenant host.
 
 
 ## [v0.3.28] — 2026-09-15 — The MJCC AI orb returns as liquid glass, sharing one conversation
