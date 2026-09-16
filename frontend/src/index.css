@@ -743,37 +743,124 @@ table.data.logtbl td{padding:6px 10px}
 /* Agent bubble */
 .agent-dot{width:6px;height:6px;border-radius:50%;background:var(--navy);animation:agentBounce 1.2s infinite ease-in-out}
 @keyframes agentBounce{0%,80%,100%{transform:translateY(0);opacity:.6}40%{transform:translateY(-6px);opacity:1}}
-.agent-shell{isolation:isolate}
-.agent-launch-icon{display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#fff;pointer-events:none}
-.agent-launch-icon svg{width:21px;height:21px;transition:transform .18s ease}
-.agent-shell.nearby .agent-launch-icon svg{transform:scale(1.19)}
-.agent-head{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line);flex-shrink:0;background:var(--surface)}
-.agent-status-dot{width:8px;height:8px;border-radius:50%;background:#22c55e;transition:background .3s;flex-shrink:0}
-.agent-status-dot.busy{background:#f59e0b}
-.agent-title{font-weight:800;font-size:13px;flex:1;color:var(--ink);min-width:0}
-.agent-rate{font-size:10px;color:var(--faint);white-space:nowrap}
-.agent-head-btn,.agent-close-btn{border:none;background:none;color:var(--faint);cursor:pointer;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;min-height:30px}
-.agent-head-btn{font-size:11px;padding:2px 8px;font-weight:700}
-.agent-close-btn{width:30px;height:30px}
-.agent-head-btn:hover,.agent-close-btn:hover{background:var(--surface-2);color:var(--ink)}
-.agent-close-btn svg{width:16px;height:16px}
-.agent-messages{flex:1;overflow-y:auto;padding:14px 12px;display:flex;flex-direction:column;gap:10px;min-height:0}
-.agent-empty{text-align:center;margin-top:32px}
-.agent-empty-icon{display:flex;justify-content:center;color:var(--accent);margin-bottom:8px}
-.agent-empty-icon svg{width:30px;height:30px}
-.agent-empty-text{font-size:12.5px;color:var(--muted);margin-bottom:14px;line-height:1.45}
-.agent-suggestions{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
-.agent-suggestion{font-size:11.5px;padding:6px 12px;border:1px solid var(--line);border-radius:14px;background:var(--surface-2);cursor:pointer;color:var(--ink);font-weight:700;min-height:32px}
-.agent-suggestion:hover{background:var(--accent-soft);border-color:var(--accent);color:var(--navy)}
-.agent-inputbar{padding:10px 12px;border-top:1px solid var(--line);display:flex;gap:8px;flex-shrink:0;background:var(--surface)}
-.agent-input{flex:1;padding:8px 13px;border-radius:20px;border:1px solid var(--line);background:var(--surface-2);font-size:13px;outline:none;color:var(--ink);min-width:0}
-.agent-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(30,115,232,.1)}
-.agent-input:disabled{opacity:.6}
-.agent-send-btn{width:36px;height:36px;border-radius:50%;flex-shrink:0;background:var(--navy);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,transform .05s}
-.agent-send-btn svg{width:17px;height:17px}
-.agent-send-btn:hover:not(:disabled){background:var(--navy-hover)}
-.agent-send-btn:active:not(:disabled){transform:translateY(1px)}
-.agent-send-btn:disabled{background:var(--line);cursor:default}
+/* ══════════════════════════════════════════════════════════════
+   MJCC AI orb — liquid glass. The surface carries the state: it breathes
+   when idle, boils while a request is in flight, swells once when an answer
+   lands, and pulses red on failure. The specular highlight tracks the
+   pointer through --px/--py set in AgentBubble.
+═══════════════════════════════════════════════════════════════ */
+.glass-panel{
+  background:color-mix(in srgb,var(--surface) 80%,transparent);
+  backdrop-filter:blur(18px) saturate(150%);
+  -webkit-backdrop-filter:blur(18px) saturate(150%);
+  border:1px solid color-mix(in srgb,var(--ink) 10%,transparent);
+  box-shadow:0 18px 50px rgba(9,22,51,.20),inset 0 1px 0 rgba(255,255,255,.35);
+}
+[data-theme="dark"] .glass-panel{
+  background:color-mix(in srgb,var(--surface) 74%,transparent);
+  border-color:rgba(255,255,255,.10);
+  box-shadow:0 18px 50px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.08);
+}
+
+/* Below the Source Control panel (150) and every dialog (200+), so the orb can
+   never cover a dialog action or stay clickable through a backdrop. */
+.agent-orb-layer{position:fixed;right:22px;bottom:44px;z-index:140;display:flex;flex-direction:column;align-items:flex-end;gap:10px;pointer-events:none}
+.agent-orb-layer>*{pointer-events:auto}
+.agent-mini{order:-2}
+.agent-orb-card{order:-1}
+
+.agent-orb{
+  position:relative;width:46px;height:46px;flex:none;padding:0;border:0;border-radius:50%;cursor:pointer;isolation:isolate;overflow:hidden;
+  background:
+    radial-gradient(120% 120% at 30% 24%,rgba(255,255,255,.55),rgba(255,255,255,.06) 42%,transparent 62%),
+    radial-gradient(100% 100% at 72% 82%,color-mix(in srgb,var(--accent) 60%,transparent),transparent 70%),
+    color-mix(in srgb,var(--navy) 72%,transparent);
+  backdrop-filter:blur(10px) saturate(170%);
+  -webkit-backdrop-filter:blur(10px) saturate(170%);
+  box-shadow:0 10px 30px rgba(9,22,51,.35),inset 0 0 18px rgba(255,255,255,.18),inset 0 -6px 14px color-mix(in srgb,var(--accent) 25%,transparent);
+  animation:orb-breathe 5.5s ease-in-out infinite;
+  transition:transform .18s var(--ease-out),box-shadow .18s var(--ease-out);
+}
+.agent-orb:hover{transform:scale(1.08)}
+.agent-orb:active{transform:scale(.96)}
+.agent-orb-glass{position:absolute;inset:0;border-radius:inherit;mix-blend-mode:screen;opacity:.55;
+  background:conic-gradient(from 0deg,rgba(255,255,255,.22),rgba(120,190,255,.20),rgba(255,255,255,.05),rgba(180,140,255,.20),rgba(255,255,255,.22));
+  animation:orb-rotate 14s linear infinite}
+.agent-orb-caustic{position:absolute;inset:-20%;border-radius:50%;filter:blur(6px);opacity:.5;
+  background:
+    radial-gradient(40% 40% at 30% 30%,rgba(255,255,255,.5),transparent 60%),
+    radial-gradient(35% 35% at 70% 65%,color-mix(in srgb,var(--accent) 60%,transparent),transparent 65%);
+  animation:orb-drift 9s ease-in-out infinite}
+.agent-orb-spec{position:absolute;inset:0;border-radius:inherit;opacity:.8;
+  background:radial-gradient(26% 26% at var(--px,32%) var(--py,26%),rgba(255,255,255,.9),rgba(255,255,255,0) 70%)}
+.agent-orb-icon{position:relative;display:grid;place-items:center;width:100%;height:100%;color:#fff;filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))}
+.agent-orb-badge{position:absolute;top:-1px;right:-1px;min-width:17px;height:17px;padding:0 4px;display:grid;place-items:center;border-radius:9px;background:var(--amber);color:#1b1200;font:800 10px var(--font);box-shadow:0 2px 6px rgba(0,0,0,.32)}
+
+@keyframes orb-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.045)}}
+@keyframes orb-rotate{to{transform:rotate(360deg)}}
+@keyframes orb-drift{0%,100%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(6%,-8%,0) scale(1.15)}}
+/* Working: the shape wobbles and the caustics speed up, like a bubble under strain. */
+.agent-orb.state-working{animation:orb-wobble 1.9s ease-in-out infinite}
+.agent-orb.state-working .agent-orb-caustic{animation-duration:2.6s;opacity:.9;filter:blur(4px)}
+.agent-orb.state-working .agent-orb-glass{animation-duration:4s;opacity:.85}
+@keyframes orb-wobble{
+  0%,100%{border-radius:50%;transform:scale(1.02) rotate(0deg)}
+  25%{border-radius:58% 42% 55% 45%/48% 56% 44% 52%}
+  50%{border-radius:44% 56% 46% 54%/56% 44% 58% 42%;transform:scale(1.06) rotate(2deg)}
+  75%{border-radius:54% 46% 58% 42%/44% 54% 46% 56%}
+}
+/* Ready: one bright swell, then settle. */
+.agent-orb.state-ready{animation:orb-swell 1.1s var(--ease-out) 2}
+@keyframes orb-swell{
+  0%{transform:scale(1);box-shadow:0 10px 30px rgba(9,22,51,.35)}
+  35%{transform:scale(1.14);box-shadow:0 12px 36px color-mix(in srgb,var(--accent) 45%,transparent),0 0 0 6px color-mix(in srgb,var(--accent) 18%,transparent)}
+  100%{transform:scale(1)}
+}
+.agent-orb.state-error{animation:orb-alert 1.6s ease-in-out infinite}
+@keyframes orb-alert{
+  0%,100%{box-shadow:0 10px 30px rgba(9,22,51,.35),0 0 0 0 color-mix(in srgb,var(--red) 40%,transparent)}
+  50%{box-shadow:0 10px 30px rgba(9,22,51,.35),0 0 0 7px color-mix(in srgb,var(--red) 22%,transparent)}
+}
+
+.agent-orb-card{display:none;flex-direction:column;gap:2px;max-width:252px;padding:9px 12px;border-radius:12px;font-size:11.5px;color:var(--ink)}
+.agent-orb-card strong{font-size:12px;font-weight:700}
+.agent-orb-card span{color:var(--muted);line-height:1.45}
+.agent-orb-layer:hover .agent-orb-card,.agent-orb-layer:focus-within .agent-orb-card{display:flex;animation:fadeIn .16s ease both}
+.agent-orb-layer.open .agent-orb-card{display:none!important}
+
+/* Compact chat that shares the conversation with the full page. */
+.agent-mini{width:min(380px,calc(100vw - 28px));height:min(520px,calc(100dvh - 150px));display:flex;flex-direction:column;overflow:hidden;border-radius:18px;animation:popIn .18s var(--ease-out) both}
+.agent-mini-head{display:flex;align-items:center;gap:8px;padding:10px 10px 10px 14px;border-bottom:1px solid color-mix(in srgb,var(--ink) 8%,transparent)}
+.agent-mini-head strong{font-size:13px}
+.agent-mini-dot{width:8px;height:8px;flex:none;border-radius:50%;background:var(--green)}
+.agent-mini-dot.state-working{background:var(--amber);animation:orb-breathe 1.4s ease-in-out infinite}
+.agent-mini-dot.state-error{background:var(--red)}
+.agent-mini-status{flex:1;min-width:0;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.agent-mini-btn{width:28px;height:28px;flex:none;display:grid;place-items:center;border:0;border-radius:8px;background:none;color:var(--muted);cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.agent-mini-btn:hover{background:var(--hover-bg);color:var(--ink)}
+.agent-mini-btn:disabled{opacity:.4;cursor:not-allowed}
+.agent-mini-empty{padding:28px 20px;text-align:center;font-size:12.5px;line-height:1.55;color:var(--muted)}
+.agent-chat-scroll.compact .agent-chat-thread{width:auto;padding:14px 14px 18px;gap:16px}
+.agent-chat-scroll.compact .agent-chat-response,.agent-chat-scroll.compact .agent-user-message{font-size:13px}
+.agent-chat-scroll.compact .agent-chat-row.user .agent-chat-message-wrap{max-width:88%}
+.agent-mini-composer{display:flex;align-items:flex-end;gap:8px;padding:10px 12px;border-top:1px solid color-mix(in srgb,var(--ink) 8%,transparent)}
+.agent-mini-composer textarea{flex:1;min-height:22px;max-height:120px;resize:none;border:0;outline:0;background:transparent;color:var(--ink);font:inherit;font-size:13px;line-height:1.5}
+.agent-mini-composer textarea::placeholder{color:var(--faint)}
+.agent-mini-composer button{width:30px;height:30px;flex:none;display:grid;place-items:center;border:0;border-radius:9px;background:var(--navy);color:#fff;cursor:pointer}
+.agent-mini-composer button:disabled{background:var(--line);color:var(--faint);cursor:default}
+
+@media(max-width:640px){
+  .agent-orb-layer{right:14px;bottom:52px}
+  .agent-orb{width:42px;height:42px}
+  .agent-mini{height:min(62dvh,460px)}
+  .agent-orb-card{display:none!important}
+}
+@media print{.agent-orb-layer{display:none!important}}
+@media (prefers-reduced-motion:reduce){
+  .agent-orb,.agent-orb-glass,.agent-orb-caustic,.agent-mini,.agent-orb-card,.agent-mini-dot.state-working,
+  .agent-orb.state-working,.agent-orb.state-ready,.agent-orb.state-error,
+  .agent-thinking-dots i,.agent-dot{animation:none!important}
+}
 
 /* Full-page MJCC AI workspace */
 /* The chat owns the whole work area: main drops its padding so the composer
@@ -784,7 +871,11 @@ table.data.logtbl td{padding:6px 10px}
 .main:has(>.agent-chat-page){display:flex;flex-direction:column;padding:0;overflow:hidden}
 .main:has(>.agent-chat-page)>:not(.agent-chat-page){flex:0 0 auto;margin:10px 12px 0}
 .agent-chat-page{flex:1;height:auto;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;background:var(--bg);overflow:hidden}
-.agent-chat-header{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:20px 28px;border-bottom:1px solid var(--line);background:var(--surface)}
+/* Header, thread, and composer share one column so the title lines up with
+   the conversation instead of hugging the window edge. */
+:root{--chat-col:min(880px,calc(100% - 40px))}
+.agent-chat-header{padding:16px 0;border-bottom:1px solid var(--line);background:var(--surface)}
+.agent-chat-header-inner{width:var(--chat-col);margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:24px}
 .agent-chat-heading,.agent-chat-actions{display:flex;align-items:center;gap:12px;min-width:0}
 .agent-chat-heading h2{font-size:19px;line-height:1.2;margin:0 0 3px;color:var(--ink)}
 .agent-chat-heading p{font-size:12px;line-height:1.4;margin:0;color:var(--muted)}
@@ -793,7 +884,7 @@ table.data.logtbl td{padding:6px 10px}
 .agent-chat-actions .btn{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
 .agent-chat-rate{font-size:11px;color:var(--muted);white-space:nowrap}
 .agent-chat-scroll{overflow-y:auto;min-height:0;scrollbar-gutter:stable}
-.agent-chat-thread{width:min(880px,calc(100% - 40px));margin:0 auto;padding:34px 0 44px;display:flex;flex-direction:column;gap:28px}
+.agent-chat-thread{width:var(--chat-col);margin:0 auto;padding:34px 0 44px;display:flex;flex-direction:column;gap:28px}
 .agent-chat-row{display:flex;gap:12px;align-items:flex-start;width:100%}
 .agent-chat-row.user{justify-content:flex-end}
 .agent-chat-avatar{width:32px;height:32px;border-radius:9px;margin-top:2px}
@@ -832,9 +923,10 @@ table.data.logtbl td{padding:6px 10px}
 .agent-chat-suggestions button{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;padding:13px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--muted);cursor:pointer;transition:border-color .14s,background .14s,transform .14s}
 .agent-chat-suggestions button:hover{border-color:var(--accent);background:var(--accent-soft);transform:translateY(-1px)}
 .agent-chat-suggestions strong,.agent-chat-suggestions small{display:block}
-.agent-chat-suggestions strong{font-size:12.5px;color:var(--ink);margin-bottom:2px}.agent-chat-suggestions small{font-size:10.5px;line-height:1.35;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agent-chat-suggestions strong{font-size:12.5px;color:var(--ink);margin-bottom:2px}
+.agent-chat-suggestions small{font-size:10.5px;line-height:1.35;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal}
 .agent-composer-shell{padding:12px 24px 10px;background:linear-gradient(180deg,transparent,var(--bg) 22%)}
-.agent-composer{width:min(880px,100%);margin:0 auto;display:flex;align-items:flex-end;gap:10px;padding:9px 10px 9px 15px;border:1px solid var(--line-strong,var(--line));border-radius:17px;background:var(--surface);box-shadow:0 8px 24px rgba(15,23,42,.08)}
+.agent-composer{width:var(--chat-col);margin:0 auto;display:flex;align-items:flex-end;gap:10px;padding:9px 10px 9px 15px;border:1px solid var(--line-strong,var(--line));border-radius:17px;background:var(--surface);box-shadow:0 8px 24px rgba(15,23,42,.08)}
 .agent-composer:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(30,115,232,.1),0 8px 24px rgba(15,23,42,.08)}
 .agent-composer textarea{flex:1;resize:none;min-height:24px;max-height:150px;padding:4px 0;border:0;outline:0;background:transparent;color:var(--ink);font:inherit;font-size:14px;line-height:1.5}
 .agent-composer textarea::placeholder{color:var(--faint)}
@@ -929,7 +1021,8 @@ table.data.logtbl td{padding:6px 10px}
   .ai-stat-row{flex-direction:column!important}
   .ai-usage-detail-grid{grid-template-columns:1fr}
   .agent-chat-page{height:auto;min-height:0}
-  .agent-chat-header{padding:14px 16px;align-items:flex-start}
+  .agent-chat-header{padding:14px 0}
+  .agent-chat-header-inner{width:calc(100% - 24px);align-items:flex-start}
   .agent-chat-heading p,.agent-chat-rate{display:none}
   .agent-chat-actions .btn{width:38px;height:38px;padding:0;overflow:hidden;font-size:0;justify-content:center}
   .agent-chat-thread{width:calc(100% - 24px);padding:24px 0 30px;gap:22px}

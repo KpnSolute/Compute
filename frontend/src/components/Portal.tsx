@@ -51,6 +51,7 @@ import { Reports } from "./Reports";
 import { PullSheet } from "./PullSheet";
 import { Settings } from "./Settings";
 import { AgentChatView } from "./AgentChat";
+import { AgentBubble } from "./AgentBubble";
 import { AIUsageView, AIToolsView, AIPresetsView } from "./AIStudio";
 import { FlowPanel } from "./FlowPanel";
 import { CostManager } from "./CostManager";
@@ -5464,6 +5465,12 @@ export function Portal({
     // Optional hand-offs (e.g. Data Entry offering MJCC AI after a parse
     // failure) should stay quiet when the target page is not in the user's
     // scopes, rather than answering with "this page isn't enabled for you".
+    // Minimising MJCC AI returns to the page the user came from, not a fixed one.
+    const previousPageRef = useRef<string>("dashboard");
+    useEffect(() => {
+        if (active !== "ai-chat") previousPageRef.current = active;
+    }, [active]);
+
     const goToIfAllowed = (routeKey: string, opts?: { prId?: string }) => {
         if (!hasScope(routeKey) || !canAccess(routeKey)) return;
         goTo(routeKey, opts);
@@ -5617,7 +5624,7 @@ export function Portal({
         if (active === "archives") return <ArchivesView period={period} />;
         if (active === "filevault") return <FileVault />;
         if (active === "settings") return <Settings user={user} />;
-        if (active === "ai-chat")    return <AgentChatView user={user} />;
+        if (active === "ai-chat")    return <AgentChatView user={user} onMinimize={() => goTo(previousPageRef.current)} />;
         if (active === "ai-usage")   return <AIUsageView user={user} />;
         if (active === "ai-tools")   return <AIToolsView user={user} />;
         if (active === "ai-presets") return <AIPresetsView user={user} />;
@@ -5733,6 +5740,10 @@ export function Portal({
                 onSkuReviewCount={(n) => setSkuReviewCount(n)}
             />
             {paletteOpen && <CommandPalette items={paletteItems} onClose={() => setPaletteOpen(false)} />}
+            {/* The orb is the way back to MJCC AI from anywhere — except its own page. */}
+            {active !== "ai-chat" && hasScope("ai-chat") && canAccess("ai-chat") && (
+                <AgentBubble user={user} onOpenFullPage={() => goTo("ai-chat")} />
+            )}
         </div>
     );
 }

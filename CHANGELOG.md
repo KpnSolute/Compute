@@ -1,5 +1,57 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.28] — 2026-09-15 — The MJCC AI orb returns as liquid glass, sharing one conversation
+
+**Claude (UI owner, at the user's request):** the floating assistant came back,
+but smaller, interactive, and honest about what the AI is doing — and the
+bubble and the full page are now the same conversation rather than two.
+
+- **One session, two surfaces.** New `lib/agentSession.ts` holds the config,
+  messages, status, draft, unread count, and rate limit. The orb's quick chat
+  and the full page both read it, so expanding or minimising keeps the thread,
+  the in-flight request, and even the half-typed draft. `AgentThread.tsx` is the
+  shared renderer, so formatting (lists, tables, code, tool calls) is identical
+  in both.
+- **The surface reports the state.** Idle: a slow breathe with a drifting
+  iridescent sheen. Working: the shape wobbles and the caustics speed up, like a
+  bubble under strain, with elapsed seconds on hover. Answer ready: one bright
+  swell, then an unread dot until the thread is seen. Failure: a red rim pulse.
+  The specular highlight tracks the pointer across the glass.
+- **Hover tells you what it is doing** — "Working · 12s", or which tools the last
+  answer used — without opening anything.
+- **Never on its own page.** The orb is hidden on MJCC AI, and hidden entirely
+  for roles without the `ai-chat` scope. **Minimize** on the page returns to
+  whichever page you came from, not a fixed one.
+- **Full-page alignment.** The header now shares one column (`--chat-col`) with
+  the thread and composer, so the title lines up with the conversation instead
+  of hugging the window edge, and suggestion text wraps to two lines instead of
+  truncating mid-word.
+
+**Codex (read-only review):** four findings, all fixed before commit.
+
+1. **High — cross-account conversation leak.** The store, its load flag, and the
+   draft key were global, so signing out and into another account in the same
+   tab would have shown the previous user's messages and draft, and would have
+   blocked the new user's history from loading. The session is now keyed by user
+   id: a different account resets the store, and drafts are stored per account.
+2. Medium: at `z-index:8000` the orb sat above dialogs and the Source Control
+   panel, able to cover their controls. It now sits at 140 — above page chrome,
+   below every panel and dialog.
+3. Medium: closing the quick chat with Escape or the close button dropped focus
+   onto the body; it now returns to the orb.
+4. Low: thinking dots kept animating and scrolling stayed smooth under
+   `prefers-reduced-motion`; both are now covered.
+
+Codex confirmed the store's snapshot identity is stable and its listeners
+unsubscribe correctly.
+
+**Known limit:** `/api/agent/chat` returns one JSON response at the end, so the
+orb shows "working" plus elapsed time and reveals the tools afterwards, rather
+than narrating each tool live. A streaming variant is being evaluated separately
+and is subject to its own governance check.
+
+**Push:** pending.
+
 ## [v0.3.27] — 2026-09-15 — MJCC AI answers render their tables
 
 **Claude (UI owner, found while verifying v0.3.26 live):** with Markdown

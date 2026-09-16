@@ -3,6 +3,7 @@ import { I } from '../lib/icons';
 import { ROLE_LEVEL, MONTHS, loadAIPrefs } from '../lib/constants';
 import { api, type AuditReport } from '../lib/api';
 import { fmtMoney } from '../lib/format';
+import { setAgentDraft } from '../lib/agentSession';
 
 type Hint = '' | 'inventory' | 'events' | 'haccp' | 'menu' | 'log' | 'budget';
 type Direction = 'received' | 'issued' | 'both';
@@ -753,7 +754,7 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
             setVisionPageTrace(formatVisionPageTrace(e?.detail));
             (window as any).toast?.(`AI parsing failed: ${msg}`);
             if (!userCancelled) {
-                sessionStorage.setItem('mjcc:agent-draft', `Data Entry could not parse ${effectiveFile.name} for ${MONTHS[month]} ${year}${week > 0 ? ` W${week} ${direction}` : ' full month'}. Error: ${msg}. What information do you need from me to map this upload correctly?`);
+                setAgentDraft(`Data Entry could not parse ${effectiveFile.name} for ${MONTHS[month]} ${year}${week > 0 ? ` W${week} ${direction}` : ' full month'}. Error: ${msg}. What information do you need from me to map this upload correctly?`);
                 onNavigate?.('ai-chat');
             }
         } finally {
