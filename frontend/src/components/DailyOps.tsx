@@ -5,6 +5,7 @@ import { api, type FlowAssignment } from '../lib/api';
 import { StatusPill } from './ui/StatusPill';
 import { SaveBar } from './ui/ActionBars';
 import { FlowAdmin } from './FlowAdmin';
+import { Select } from './ui/Select';
 
 interface Incident {
   id: string;
@@ -526,15 +527,13 @@ export function DailyOps({ user, go }: { user: User; go?: (key: string) => void 
                 <>
                   <label className="ft-field">
                     <span>Type</span>
-                    <select
-                      className="ipt sel"
+                    <Select
+                      variant="field"
+                      label="Incident type"
                       value={iType}
-                      onChange={(e) => setIType(e.target.value)}
-                    >
-                      {INCIDENT_TYPES.map((t) => (
-                        <option key={t}>{t}</option>
-                      ))}
-                    </select>
+                      onChange={setIType}
+                      options={INCIDENT_TYPES.map((t) => ({ value: t, label: t }))}
+                    />
                   </label>
                   <label className="ft-field">
                     <span>Details</span>

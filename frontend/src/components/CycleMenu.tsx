@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import type { User } from '../lib/constants';
 import { I } from '../lib/icons';
 import { api } from '../lib/api';
+import { Select } from './ui/Select';
 import type {
   MenuCycleOverview,
   MenuCycleDay,
@@ -539,11 +540,16 @@ function PrintModal({ overview, onClose, onPrint, onDownloadPdf }: {
           {scope === 'day' && (
             <div className="ft-field">
               <span>Day</span>
-              <select className="ipt sel" value={day} onChange={e => setDay(Number(e.target.value))}>
-                {overview.days.map(d => (
-                  <option key={d.cycle_day} value={d.cycle_day}>Day {d.cycle_day} — {d.day_of_week}</option>
-                ))}
-              </select>
+              <Select
+                variant="field"
+                label="Cycle day"
+                value={day}
+                onChange={setDay}
+                options={overview.days.map(d => ({
+                  value: d.cycle_day,
+                  label: `Day ${d.cycle_day} — ${d.day_of_week}`,
+                }))}
+              />
             </div>
           )}
           {scope === 'week' && (

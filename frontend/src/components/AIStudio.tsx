@@ -3,6 +3,7 @@ import { api } from '../lib/api';
 import { ROLE_LEVEL } from '../lib/constants';
 import type { User } from '../lib/constants';
 import { I } from '../lib/icons';
+import { Select } from './ui/Select';
 
 // ── shared helpers ─────────────────────────────────────────────────────────────
 
@@ -815,14 +816,17 @@ export function AIPresetsView({ user }: { user: User }) {
                             </div>
                             <div>
                                 <label style={LBL}>Schedule</label>
-                                <select className="tb-select" style={{ width: '100%' }}
+                                <Select
+                                    variant="field"
+                                    label="Schedule"
+                                    style={{ width: '100%' }}
                                     value={form.schedule}
-                                    onChange={e => {
-                                        const opt = SCHEDULE_OPTIONS.find(o => o.label === e.target.value);
-                                        setForm(f => ({ ...f, schedule: e.target.value, cron: opt?.cron || '0 8 * * 1' }));
-                                    }}>
-                                    {SCHEDULE_OPTIONS.map(o => <option key={o.cron} value={o.label}>{o.label}</option>)}
-                                </select>
+                                    onChange={v => {
+                                        const opt = SCHEDULE_OPTIONS.find(o => o.label === v);
+                                        setForm(f => ({ ...f, schedule: v, cron: opt?.cron || '0 8 * * 1' }));
+                                    }}
+                                    options={SCHEDULE_OPTIONS.map(o => ({ value: o.label, label: o.label }))}
+                                />
                             </div>
                         </div>
                         <div style={{ marginBottom: 14 }}>

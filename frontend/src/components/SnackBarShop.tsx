@@ -2,6 +2,7 @@ import { confirmAction } from './ui/ConfirmDialog';
 import { useEffect, useState } from 'react';
 import { ROLE_LEVEL, type User } from '../lib/constants';
 import { fmtMoney } from '../lib/format';
+import { Select } from './ui/Select';
 import {
   api,
   type SnackBarProduct,
@@ -188,18 +189,32 @@ function NewTransactionPanel({ products, onSaved }: { products: SnackBarProduct[
       <div className="card-head"><h3>New Sale</h3></div>
       <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', gap: 8 }}>
-          <select className="ipt sel" value={entityType} onChange={(e) => setEntityType(e.target.value as SnackBarEntityType)} style={{ width: 110 }}>
-            <option value="student">Student</option>
-            <option value="staff">Staff</option>
-          </select>
+          <Select
+            variant="field"
+            label="Buyer type"
+            style={{ width: 110 }}
+            value={entityType}
+            onChange={(v) => setEntityType(v as SnackBarEntityType)}
+            options={[
+              { value: 'student', label: 'Student' },
+              { value: 'staff', label: 'Staff' },
+            ]}
+          />
           <input className="ipt" placeholder="Who bought it (name/ID)" value={entityName} onChange={(e) => setEntityName(e.target.value)} style={{ flex: 1 }} />
         </div>
         {rows.map((row, i) => (
           <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <select className="ipt sel" value={row.productId} onChange={(e) => updateRow(i, { productId: e.target.value })} style={{ flex: 1 }}>
-              <option value="">Select item…</option>
-              {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmtMoney(p.price)}</option>)}
-            </select>
+            <Select
+              variant="field"
+              label="Item"
+              style={{ flex: 1 }}
+              value={row.productId}
+              onChange={(v) => updateRow(i, { productId: v })}
+              options={[
+                { value: '', label: 'Select item…' },
+                ...products.map((p) => ({ value: p.id, label: `${p.name} — ${fmtMoney(p.price)}` })),
+              ]}
+            />
             <input className="ipt" type="number" min={1} value={row.qty} onChange={(e) => updateRow(i, { qty: e.target.value })} style={{ width: 70 }} />
             {rows.length > 1 && (
               <button className="row-del" type="button" onClick={() => removeRow(i)} title="Remove item">

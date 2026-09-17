@@ -12,6 +12,7 @@ import { I } from "../lib/icons";
 import { api } from "../lib/api";
 import { SaveBar } from "./ui/ActionBars";
 import { StatusPill } from "./ui/StatusPill";
+import { Select } from "./ui/Select";
 
 /* ── typed persistence hook ──
  * Backed by daily_operations_logs via entry_type + title (api.ts). No
@@ -300,17 +301,13 @@ export function MachineLog({ user, period, setPeriod }: PeriodFormProps) {
                 <div className="ft-l">
                     <label className="ft-field">
                         <span>Machine</span>
-                        <select
-                            className="ipt sel"
+                        <Select
+                            variant="field"
+                            label="Machine"
                             value={mid}
-                            onChange={(e) => setMid(e.target.value)}
-                        >
-                            {MACHINES.map((x) => (
-                                <option key={x.id} value={x.id}>
-                                    {x.name}
-                                </option>
-                            ))}
-                        </select>
+                            onChange={setMid}
+                            options={MACHINES.map((x) => ({ value: x.id, label: x.name }))}
+                        />
                     </label>
                     <span
                         className={
@@ -873,27 +870,17 @@ export function MealLog({ user }: FormProps) {
                                     </td>
                                     <td>
                                         {canEdit ? (
-                                            <select
-                                                className="ipt sel sm"
+                                            <Select
+                                                variant="field-sm"
+                                                label="Meal type"
                                                 style={{ width: 96 }}
                                                 value={r.type || "Staff"}
-                                                onChange={(e) =>
-                                                    setR(
-                                                        r.id,
-                                                        "type",
-                                                        e.target.value,
-                                                    )
-                                                }
-                                            >
-                                                {mealTypes.map((t: any) => (
-                                                    <option
-                                                        key={t.key}
-                                                        value={t.key}
-                                                    >
-                                                        {t.label}
-                                                    </option>
-                                                ))}
-                                            </select>
+                                                onChange={(v) => setR(r.id, "type", v)}
+                                                options={mealTypes.map((t: any) => ({
+                                                    value: t.key as string,
+                                                    label: t.label as string,
+                                                }))}
+                                            />
                                         ) : (
                                             <span
                                                 className={
@@ -1106,24 +1093,24 @@ export function InspectionSheet({ user }: FormProps) {
                     </label>
                     <label className="ft-field">
                         <span>Meal</span>
-                        <select
-                            className="ipt sel"
+                        <Select
+                            variant="field"
+                            label="Meal"
                             value={data.meal || ""}
                             disabled={!canEdit}
-                            onChange={(e) =>
-                                update((d: any) => ({
-                                    ...d,
-                                    meal: e.target.value,
-                                }))
+                            onChange={(v) =>
+                                update((d: any) => ({ ...d, meal: v }))
                             }
-                        >
-                            <option value="">Select…</option>
-                            {["Breakfast", "Lunch", "Brunch", "Dinner"].map(
-                                (x) => (
-                                    <option key={x}>{x}</option>
-                                ),
-                            )}
-                        </select>
+                            options={[
+                                { value: "", label: "Select…" },
+                                // These options carried no value attribute, so
+                                // their text was the value that got saved.
+                                ...["Breakfast", "Lunch", "Brunch", "Dinner"].map((x) => ({
+                                    value: x,
+                                    label: x,
+                                })),
+                            ]}
+                        />
                     </label>
                 </div>
             </div>

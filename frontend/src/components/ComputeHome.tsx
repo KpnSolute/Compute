@@ -3,6 +3,7 @@ import type { User } from '../lib/constants';
 import { api, type WorkspaceProject, type WorkspaceSite, type WorkspaceSummary } from '../lib/api';
 import type { Workspace } from '../lib/workspace';
 import { KpnMark } from '../lib/icons';
+import { Select } from './ui/Select';
 
 // Organization management lives in Platform, never inside a product runtime.
 const PLATFORM_URL =
@@ -236,8 +237,26 @@ export function WorkspaceConsole({ user, slug, onBack, onOpenOperations, onLogou
           <form className="compute-modal" onSubmit={createResource} onMouseDown={(event) => event.stopPropagation()} aria-labelledby="new-resource-title">
             <button type="button" className="modal-close" onClick={() => setCreating(null)} aria-label="Close">×</button>
             <span className="eyebrow">Workspace resource</span><h2 id="new-resource-title">Add {creating === 'site' ? 'a site' : 'a project'}</h2>
-            {creating === 'site' && <label>Resource type<select value={siteType} onChange={(event) => setSiteType(event.target.value as 'venue' | 'location')}><option value="venue">Venue</option><option value="location" disabled={!venues.length}>Location inside a venue</option></select></label>}
-            {creating === 'site' && siteType === 'location' && <label>Parent venue<select value={parentId} onChange={(event) => setParentId(event.target.value)} required><option value="">Select a venue</option>{venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name}</option>)}</select></label>}
+            {creating === 'site' && <label>Resource type<Select
+              variant="field"
+              label="Resource type"
+              value={siteType}
+              onChange={(v) => setSiteType(v as 'venue' | 'location')}
+              options={[
+                { value: 'venue', label: 'Venue' },
+                { value: 'location', label: 'Location inside a venue', disabled: !venues.length },
+              ]}
+            /></label>}
+            {creating === 'site' && siteType === 'location' && <label>Parent venue<Select
+              variant="field"
+              label="Parent venue"
+              value={parentId}
+              onChange={setParentId}
+              options={[
+                { value: '', label: 'Select a venue' },
+                ...venues.map((venue) => ({ value: venue.id, label: venue.name })),
+              ]}
+            /></label>}
             <label>Name<input value={resourceName} onChange={(event) => { setResourceName(event.target.value); if (!resourceSlug) setResourceSlug(slugify(event.target.value)); }} required minLength={2} /></label>
             <label>Slug<input value={resourceSlug} onChange={(event) => setResourceSlug(slugify(event.target.value))} required minLength={2} /></label>
             {creating === 'project' && <label>Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={4} /></label>}

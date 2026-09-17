@@ -4,6 +4,7 @@ import { ROLE_LEVEL, MONTHS } from '../lib/constants';
 import { I } from '../lib/icons';
 import { api } from '../lib/api';
 import { StatusPill } from './ui/StatusPill';
+import { Select } from './ui/Select';
 
 const t = (msg: string) => (window as any).toast?.(msg);
 
@@ -381,9 +382,13 @@ function AddEventModal({ CAT_META, defaultMonth, onClose, onAdd }: AddEventModal
             <input className="ipt sel" value={f.title} onChange={e => set('title', e.target.value)} placeholder="e.g. Haitian Flag Day Dinner" /></div>
           <div className="split-grid" style={{ gap: 12 }}>
             <div className="ft-field"><span style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--faint)' }}>Category</span>
-              <select className="ipt sel" value={f.cat} onChange={e => set('cat', e.target.value)}>
-                {Object.keys(CAT_META).map(k => <option key={k} value={k}>{CAT_META[k].label}</option>)}
-              </select></div>
+              <Select
+                variant="field"
+                label="Category"
+                value={f.cat}
+                onChange={v => set('cat', v)}
+                options={Object.keys(CAT_META).map(k => ({ value: k, label: CAT_META[k].label }))}
+              /></div>
             <div className="ft-field"><span style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--faint)' }}>Date</span>
               <input className="ipt sel" type="date" value={f.date} onChange={e => set('date', e.target.value)} /></div>
           </div>

@@ -1399,6 +1399,36 @@ table.data.logtbl td{padding:6px 10px}
 }
 .pull-select-option:hover,.kpn-select-option:hover{background:var(--surface-2)}
 .pull-select-option[data-active="true"],.kpn-select-option[data-active="true"]{background:var(--accent);color:#fff}
+
+/* ── Form variants of the shared dropdown ──
+   A dropdown inside a form must match the text inputs beside it, otherwise
+   converting it from a native <select> trades one inconsistency for another.
+   These mirror .ipt.sel and .ipt.sel.sm metrics exactly; the option list is
+   unchanged, only the trigger's shape. The dark rules are more specific than
+   the shared [data-theme="dark"] .kpn-select-btn override, which would
+   otherwise win on source order and repaint the field as a filter pill. */
+.kpn-select--field,.kpn-select--field-sm{display:block;width:100%;flex:1 1 auto}
+.kpn-select--field .kpn-select-btn,.kpn-select--field-sm .kpn-select-btn{
+  width:100%;min-width:0;justify-content:space-between;font-weight:500;
+  border:1px solid var(--line);border-radius:8px;
+  background:var(--surface);color:var(--ink);box-shadow:none;
+}
+.kpn-select--field .kpn-select-btn{height:auto;min-height:38px;padding:8px 11px;font-size:12.5px}
+.kpn-select--field-sm .kpn-select-btn{height:auto;min-height:30px;padding:5px 8px;font-size:11.5px}
+.kpn-select--field .kpn-select-btn:hover:not(:disabled),
+.kpn-select--field-sm .kpn-select-btn:hover:not(:disabled){background:var(--surface);border-color:var(--control-border-hover);color:var(--ink)}
+.kpn-select--field .kpn-select-btn:focus-visible,
+.kpn-select--field-sm .kpn-select-btn:focus-visible{border-color:var(--accent);box-shadow:var(--focus-ring);outline:none}
+.kpn-select--field .kpn-select-menu,.kpn-select--field-sm .kpn-select-menu{left:0;right:auto;min-width:100%}
+.kpn-select-btn:disabled{opacity:.62;cursor:not-allowed}
+/* Group heading, standing in for what an <optgroup> label used to draw. */
+.kpn-select-group{padding:7px 10px 3px;font-size:10px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--faint)}
+.kpn-select-option:disabled{opacity:.45;cursor:not-allowed}
+.kpn-select-option:disabled:hover{background:none}
+[data-theme="dark"] .kpn-select--field .kpn-select-btn,
+[data-theme="dark"] .kpn-select--field-sm .kpn-select-btn{background:var(--input-bg);border-color:var(--line);color:var(--ink)}
+[data-theme="dark"] .kpn-select--field .kpn-select-btn:hover:not(:disabled),
+[data-theme="dark"] .kpn-select--field-sm .kpn-select-btn:hover:not(:disabled){background:var(--surface-2);border-color:var(--control-border-hover)}
 .pull-zero-toggle{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer;min-height:33px}
 .pull-week-tabs{display:flex;align-items:center;gap:6px;margin:0 0 12px;border-bottom:1px solid var(--line);overflow-x:auto}
 .pull-week-tab{height:36px;padding:0 14px;border:0;background:transparent;color:var(--muted);font-size:13px;font-weight:750;cursor:pointer;border-radius:9px 9px 0 0;white-space:nowrap}

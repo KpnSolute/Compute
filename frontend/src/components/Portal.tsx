@@ -12,6 +12,7 @@ import {
     DOW_FULL,
 } from "../lib/constants";
 import { useEscapeClose } from "../lib/useEscapeClose";
+import { Select } from "./ui/Select";
 import { CommandPalette } from "./ui/CommandPalette";
 import { confirmAction } from "./ui/ConfirmDialog";
 import type { PaletteItem } from "../lib/commandSearch";
@@ -479,19 +480,22 @@ function Topbar({
                                         <span className="tb-notify-dot info" />
                                         <span className="tb-notify-item-copy" onClick={() => { onNav?.('inventory'); setNotificationsOpen(false); }}><b>{notification.title}</b><small>{notification.body}</small></span>
                                         {ROLE_LEVEL[user.role] >= 30 && (
-                                            <select
-                                                className="tb-notify-category"
-                                                value={stagedReassignments[item.sku] || 'New Items'}
-                                                disabled={reassigningSku === item.sku || Boolean(stagedReassignments[item.sku])}
-                                                aria-label={`Reassign ${notification.title}`}
-                                                onChange={(event) => reassignNewItem(item, event.target.value)}
-                                                onClick={(event) => event.stopPropagation()}
-                                            >
-                                                <option value="New Items">Reassign…</option>
-                                                {notificationData.categories.filter((category) => category !== 'New Items').map((category) => (
-                                                    <option key={category} value={category}>{category}</option>
-                                                ))}
-                                            </select>
+                                            <span onClick={(event) => event.stopPropagation()}>
+                                                <Select
+                                                    variant="field-sm"
+                                                    className="tb-notify-category"
+                                                    label={`Reassign ${notification.title}`}
+                                                    value={stagedReassignments[item.sku] || 'New Items'}
+                                                    disabled={reassigningSku === item.sku || Boolean(stagedReassignments[item.sku])}
+                                                    onChange={(v) => reassignNewItem(item, v)}
+                                                    options={[
+                                                        { value: 'New Items', label: 'Reassign…' },
+                                                        ...notificationData.categories
+                                                            .filter((category) => category !== 'New Items')
+                                                            .map((category) => ({ value: category, label: category })),
+                                                    ]}
+                                                />
+                                            </span>
                                         )}
                                     </div>;
                                 })}
@@ -2474,19 +2478,15 @@ function InventoryView({
                                 }}
                             />
                         </div>
-                        <select
-                            className="btn"
+                        <Select
+                            label="Filter by category"
                             value={cat}
-                            onChange={(e) => setCat(e.target.value)}
-                            style={{ paddingRight: 8 }}
-                        >
-                            <option value="">All categories</option>
-                            {cats.map((c) => (
-                                <option key={c} value={c}>
-                                    {c}
-                                </option>
-                            ))}
-                        </select>
+                            onChange={setCat}
+                            options={[
+                                { value: "", label: "All categories" },
+                                ...cats.map((c) => ({ value: c, label: c })),
+                            ]}
+                        />
                         {lvl >= 40 && (
                             <div style={{ display: "flex", gap: 4 }}>
                                 {(() => {
@@ -3532,23 +3532,18 @@ function InventoryView({
                             </div>
                             <div className="field">
                                 <label>Category *</label>
-                                <select
-                                    className="ipt sel"
+                                <Select
+                                    variant="field"
+                                    label="Category"
                                     value={newItem.category}
-                                    onChange={(e) =>
-                                        setNewItem((p) => ({
-                                            ...p,
-                                            category: e.target.value,
-                                        }))
+                                    onChange={(v) =>
+                                        setNewItem((p) => ({ ...p, category: v }))
                                     }
-                                >
-                                    <option value="">Select a category…</option>
-                                    {(catOptions || []).map((c) => (
-                                        <option key={c} value={c}>
-                                            {c}
-                                        </option>
-                                    ))}
-                                </select>
+                                    options={[
+                                        { value: "", label: "Select a category…" },
+                                        ...(catOptions || []).map((c) => ({ value: c, label: c })),
+                                    ]}
+                                />
                             </div>
                             <div className="grid-2" style={{ gap: 12 }}>
                                 <div className="field">
@@ -3745,22 +3740,15 @@ function InventoryView({
                                         </span>
                                     </div>
                                 )}
-                                <select
-                                    className="ipt sel"
+                                <Select
+                                    variant="field"
+                                    label="Category"
                                     value={editForm.category}
-                                    onChange={(e) =>
-                                        setEditForm((p) => ({
-                                            ...p,
-                                            category: e.target.value,
-                                        }))
+                                    onChange={(v) =>
+                                        setEditForm((p) => ({ ...p, category: v }))
                                     }
-                                >
-                                    {(catOptions || []).map((c) => (
-                                        <option key={c} value={c}>
-                                            {c}
-                                        </option>
-                                    ))}
-                                </select>
+                                    options={(catOptions || []).map((c) => ({ value: c, label: c }))}
+                                />
                             </div>
                             <div className="grid-2" style={{ gap: 12 }}>
                                 <div className="field">
@@ -4661,21 +4649,24 @@ function UsersView({ user: currentUser }: { user: User }) {
                             </label>
                             <label>
                                 <span>Role</span>
-                                <select
+                                <Select
+                                    variant="field"
+                                    label="Role"
                                     value={form.role}
-                                    onChange={(e) => updateForm("role", e.target.value)}
+                                    onChange={(v) => updateForm("role", v)}
                                     disabled={editing && !isSudo}
-                                >
-                                    <option value="staff">Staff</option>
-                                    {isSudo && (
-                                        <>
-                                            <option value="assistant">Assistant</option>
-                                            <option value="manager">Manager</option>
-                                            <option value="admin">Administrator</option>
-                                            <option value="sudo">Sudo Administrator</option>
-                                        </>
-                                    )}
-                                </select>
+                                    options={[
+                                        { value: "staff", label: "Staff" },
+                                        ...(isSudo
+                                            ? [
+                                                { value: "assistant", label: "Assistant" },
+                                                { value: "manager", label: "Manager" },
+                                                { value: "admin", label: "Administrator" },
+                                                { value: "sudo", label: "Sudo Administrator" },
+                                            ]
+                                            : []),
+                                    ]}
+                                />
                             </label>
                             {form.role === "staff" && (
                                 <label>

@@ -1329,12 +1329,16 @@ function SCChangesView({
                                                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                                                     <input className="ipt" placeholder="SKU" value={skuNewSku} onChange={(e) => setSkuNewSku(e.target.value)} style={{ fontSize: 12 }} />
                                                     <input className="ipt" placeholder="Description" value={skuNewDesc} onChange={(e) => setSkuNewDesc(e.target.value)} style={{ fontSize: 12 }} />
-                                                    <select className="ipt" value={skuNewCategory} onChange={(e) => setSkuNewCategory(e.target.value)} style={{ fontSize: 12 }}>
-                                                        <option value="">Category (leave blank → Uncategorized)</option>
-                                                        {categories.map((c: any) => (
-                                                            <option key={c.id} value={c.name}>{c.name}</option>
-                                                        ))}
-                                                    </select>
+                                                    <Select
+                                                        variant="field"
+                                                        label="Category"
+                                                        value={skuNewCategory}
+                                                        onChange={setSkuNewCategory}
+                                                        options={[
+                                                            { value: "", label: "Category (leave blank → Uncategorized)" },
+                                                            ...categories.map((c: any) => ({ value: c.name as string, label: c.name as string })),
+                                                        ]}
+                                                    />
                                                     <button
                                                         className="btn primary"
                                                         style={{ fontSize: 11, padding: "4px 10px", alignSelf: "flex-start" }}

@@ -4,6 +4,7 @@ import { ROLE_LEVEL, MONTHS, loadAIPrefs } from '../lib/constants';
 import { api, type AuditReport } from '../lib/api';
 import { fmtMoney } from '../lib/format';
 import { setAgentDraft } from '../lib/agentSession';
+import { Select } from './ui/Select';
 
 type Hint = '' | 'inventory' | 'events' | 'haccp' | 'menu' | 'log' | 'budget';
 type Direction = 'received' | 'issued' | 'both';
@@ -903,40 +904,39 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                         <div className="form-grid" style={{ padding: '4px 20px 8px' }}>
                             <label className="full">
                                 <span>Configured key</span>
-                                <select
+                                <Select
+                                    variant="field"
+                                    label="Configured key"
                                     value={pickerKeyId}
-                                    onChange={e => { setPickerKeyId(e.target.value); setPickerModel(''); }}
-                                >
-                                    {aiKeys.map(k => (
-                                        <option key={k.id} value={k.id}>
-                                            {k.provider.charAt(0).toUpperCase() + k.provider.slice(1)} · {k.label}
-                                        </option>
-                                    ))}
-                                </select>
+                                    onChange={v => { setPickerKeyId(v); setPickerModel(''); }}
+                                    options={aiKeys.map(k => ({
+                                        value: k.id,
+                                        label: `${k.provider.charAt(0).toUpperCase() + k.provider.slice(1)} · ${k.label}`,
+                                    }))}
+                                />
                             </label>
                             <label className="full">
                                 <span>Model</span>
-                                <select
+                                <Select
+                                    variant="field"
+                                    label="Model"
                                     value={pickerModel}
-                                    onChange={e => setPickerModel(e.target.value)}
+                                    onChange={setPickerModel}
                                     disabled={pickerModelsLoading}
-                                >
-                                    <option value="">{pickerModelsLoading ? 'Loading models…' : 'Select a model'}</option>
-                                    {pickerModels.filter(m => m.vision).length > 0 && (
-                                        <optgroup label="Vision capable">
-                                            {pickerModels.filter(m => m.vision).map(m => (
-                                                <option key={m.id} value={m.id}>✶ {m.id}</option>
-                                            ))}
-                                        </optgroup>
-                                    )}
-                                    {pickerModels.filter(m => !m.vision).length > 0 && (
-                                        <optgroup label="Text only">
-                                            {pickerModels.filter(m => !m.vision).map(m => (
-                                                <option key={m.id} value={m.id}>{m.id}</option>
-                                            ))}
-                                        </optgroup>
-                                    )}
-                                </select>
+                                    options={[
+                                        { value: '', label: pickerModelsLoading ? 'Loading models…' : 'Select a model' },
+                                        ...pickerModels.filter(m => m.vision).map(m => ({
+                                            value: m.id,
+                                            label: `✶ ${m.id}`,
+                                            group: 'Vision capable',
+                                        })),
+                                        ...pickerModels.filter(m => !m.vision).map(m => ({
+                                            value: m.id,
+                                            label: m.id,
+                                            group: 'Text only',
+                                        })),
+                                    ]}
+                                />
                             </label>
                         </div>
                         <div className="modal-foot">
@@ -1073,27 +1073,41 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                         <div className="de-period-controls" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                             <div>
                                 <label style={LBL}>Month</label>
-                                <select className="ipt sel" value={month} onChange={e => setMonth(+e.target.value)}>
-                                    {allowedMonths.map(i => <option key={i} value={i}>{MONTHS[i]}</option>)}
-                                </select>
+                                <Select
+                                    variant="field"
+                                    label="Month"
+                                    value={month}
+                                    onChange={setMonth}
+                                    options={allowedMonths.map(i => ({ value: i, label: MONTHS[i] }))}
+                                />
                             </div>
                             <div>
                                 <label style={LBL}>Year</label>
-                                <select className="ipt sel" value={year} onChange={e => setYear(+e.target.value)}>
-                                    {allowedYears.map(yr => <option key={yr} value={yr}>{yr}</option>)}
-                                </select>
+                                <Select
+                                    variant="field"
+                                    label="Year"
+                                    value={year}
+                                    onChange={setYear}
+                                    options={allowedYears.map(yr => ({ value: yr, label: String(yr) }))}
+                                />
                             </div>
                             <div>
                                 <label style={LBL}>Hint <span style={{ fontWeight: 400, color: 'var(--faint)' }}>(optional)</span></label>
-                                <select className="ipt sel" value={hint} onChange={e => setHint(e.target.value as Hint)}>
-                                    <option value="">Auto-detect</option>
-                                    <option value="inventory">Inventory</option>
-                                    <option value="events">Events</option>
-                                    <option value="haccp">HACCP</option>
-                                    <option value="menu">Menu</option>
-                                    <option value="log">Log</option>
-                                    <option value="budget">Budget</option>
-                                </select>
+                                <Select
+                                    variant="field"
+                                    label="Content hint"
+                                    value={hint}
+                                    onChange={v => setHint(v as Hint)}
+                                    options={[
+                                        { value: '', label: 'Auto-detect' },
+                                        { value: 'inventory', label: 'Inventory' },
+                                        { value: 'events', label: 'Events' },
+                                        { value: 'haccp', label: 'HACCP' },
+                                        { value: 'menu', label: 'Menu' },
+                                        { value: 'log', label: 'Log' },
+                                        { value: 'budget', label: 'Budget' },
+                                    ]}
+                                />
                             </div>
                         </div>
 

@@ -4,6 +4,7 @@ import { I } from '../lib/icons';
 import { api } from '../lib/api';
 import { type ThemePref, getThemePref, saveThemePref } from '../lib/theme';
 import { type AIPrefs, loadAIPrefs, saveAIPrefs } from '../lib/constants';
+import { Select } from './ui/Select';
 
 // ── shared label style ────────────────────────────────────────────────────────
 
@@ -919,26 +920,37 @@ function ProvidersTab() {
                     {/* Provider selector */}
                     <div>
                         <label style={LBL}>Provider</label>
-                        <select className="tb-select" value={stackProvider} style={{ minWidth: 160 }}
-                            onChange={e => handleStackProviderChange(e.target.value)}>
-                            <option value="">-- select --</option>
-                            {providers.map((p: any) => (
-                                <option key={p.provider} value={p.provider}>{p.label}</option>
-                            ))}
-                        </select>
+                        <Select
+                            variant="field"
+                            label="Provider"
+                            style={{ minWidth: 160 }}
+                            value={stackProvider}
+                            onChange={handleStackProviderChange}
+                            options={[
+                                { value: '', label: '-- select --' },
+                                ...providers.map((p: any) => ({ value: p.provider as string, label: p.label as string })),
+                            ]}
+                        />
                     </div>
 
                     {/* Key selector */}
                     {stackProvider && (
                         <div>
                             <label style={LBL}>Key</label>
-                            <select className="tb-select" value={stackKeyId} style={{ minWidth: 180 }}
-                                onChange={e => setStackKeyId(e.target.value)}>
-                                <option value="">-- select key --</option>
-                                {stackKeys.map((k: any) => (
-                                    <option key={k.id} value={k.id}>{k.label || k.id.slice(0, 8)}</option>
-                                ))}
-                            </select>
+                            <Select
+                                variant="field"
+                                label="Key"
+                                style={{ minWidth: 180 }}
+                                value={stackKeyId}
+                                onChange={setStackKeyId}
+                                options={[
+                                    { value: '', label: '-- select key --' },
+                                    ...stackKeys.map((k: any) => ({
+                                        value: k.id as string,
+                                        label: (k.label || k.id.slice(0, 8)) as string,
+                                    })),
+                                ]}
+                            />
                         </div>
                     )}
 
@@ -955,25 +967,40 @@ function ProvidersTab() {
                             {modelsLoading ? (
                                 <div style={{ fontSize: 12, color: 'var(--muted)', padding: '6px 0' }}>Loading models...</div>
                             ) : (
-                                <select className="tb-select" value={stackModel} style={{ minWidth: 260 }}
-                                    onChange={e => {
-                                        const m = e.target.value;
+                                <Select
+                                    variant="field"
+                                    label="Model"
+                                    style={{ minWidth: 260 }}
+                                    value={stackModel}
+                                    onChange={m => {
                                         setStackModel(m);
                                         setStackVision(visionSet.has(m));
-                                    }}>
-                                    <option value="">-- select model --</option>
-                                    {visionModels.length > 0 && (
-                                        <optgroup label="Vision capable ✶">
-                                            {visionModels.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-                                        </optgroup>
-                                    )}
-                                    {textModels.length > 0 && (
-                                        <optgroup label="Text only">
-                                            {textModels.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-                                        </optgroup>
-                                    )}
-                                    {models.length === 0 && <option value={stackModel}>{stackModel || '(enter model name)'}</option>}
-                                </select>
+                                    }}
+                                    options={[
+                                        // The native markup emitted a second option also valued "" as
+                                        // the no-models hint. Options are keyed by value here, so the
+                                        // hint folds into this label rather than colliding with it.
+                                        {
+                                            value: '',
+                                            label: models.length === 0 && !stackModel
+                                                ? '(enter model name)'
+                                                : '-- select model --',
+                                        },
+                                        ...visionModels.map(m => ({
+                                            value: m.id as string,
+                                            label: m.label as string,
+                                            group: 'Vision capable ✶',
+                                        })),
+                                        ...textModels.map(m => ({
+                                            value: m.id as string,
+                                            label: m.label as string,
+                                            group: 'Text only',
+                                        })),
+                                        ...(models.length === 0 && stackModel
+                                            ? [{ value: stackModel, label: stackModel }]
+                                            : []),
+                                    ]}
+                                />
                             )}
                         </div>
                     )}

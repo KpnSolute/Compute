@@ -2,6 +2,7 @@ import { confirmAction } from './ui/ConfirmDialog';
 import { useState, useEffect } from 'react';
 import { type User, ROLE_LABEL, NAV } from '../lib/constants';
 import { api, type FlowAssignment } from '../lib/api';
+import { Select } from './ui/Select';
 
 type Priority = 'low' | 'normal' | 'high' | 'urgent';
 
@@ -288,12 +289,18 @@ export function FlowAdmin({ user: _user }: { user: User }) {
                 </div>
                 <div className="field">
                   <label>Priority</label>
-                  <select className="ipt sel" value={priority} onChange={e => setPriority(e.target.value as Priority)}>
-                    <option value="low">Low</option>
-                    <option value="normal">Normal</option>
-                    <option value="high">High</option>
-                    <option value="urgent">Urgent</option>
-                  </select>
+                  <Select
+                    variant="field"
+                    label="Priority"
+                    value={priority}
+                    onChange={v => setPriority(v as Priority)}
+                    options={[
+                      { value: 'low', label: 'Low' },
+                      { value: 'normal', label: 'Normal' },
+                      { value: 'high', label: 'High' },
+                      { value: 'urgent', label: 'Urgent' },
+                    ]}
+                  />
                 </div>
                 <div className="field">
                   <label>Due Date</label>
@@ -301,13 +308,19 @@ export function FlowAdmin({ user: _user }: { user: User }) {
                 </div>
                 <div className="field">
                   <label>Link Type</label>
-                  <select className="ipt sel" value={linkType} onChange={e => { setLinkType(e.target.value); setLinkKey(''); }}>
-                    <option value="none">None</option>
-                    <option value="nav_page">Page</option>
-                    <option value="inventory_item">Inventory Item</option>
-                    <option value="daily_log">Daily Log</option>
-                    <option value="haccp_log">HACCP Log</option>
-                  </select>
+                  <Select
+                    variant="field"
+                    label="Link type"
+                    value={linkType}
+                    onChange={v => { setLinkType(v); setLinkKey(''); }}
+                    options={[
+                      { value: 'none', label: 'None' },
+                      { value: 'nav_page', label: 'Page' },
+                      { value: 'inventory_item', label: 'Inventory Item' },
+                      { value: 'daily_log', label: 'Daily Log' },
+                      { value: 'haccp_log', label: 'HACCP Log' },
+                    ]}
+                  />
                 </div>
                 {linkType !== 'none' && (
                   <div className="field">
@@ -318,26 +331,40 @@ export function FlowAdmin({ user: _user }: { user: User }) {
                        linkType === 'inventory_item' ? 'SKU' : 'Key'}
                     </label>
                     {linkType === 'nav_page' ? (
-                      <select className="ipt sel" value={linkKey} onChange={e => setLinkKey(e.target.value)}>
-                        <option value="">Select a page…</option>
-                        {navItems.map(ni => (
-                          <option key={ni.key} value={ni.key}>{ni.label}</option>
-                        ))}
-                      </select>
+                      <Select
+                        variant="field"
+                        label="Page"
+                        value={linkKey}
+                        onChange={setLinkKey}
+                        options={[
+                          { value: '', label: 'Select a page…' },
+                          ...navItems.map(ni => ({ value: ni.key, label: ni.label })),
+                        ]}
+                      />
                     ) : linkType === 'daily_log' ? (
                       logsLoading ? (
-                        <select className="ipt sel" disabled>
-                          <option>Loading logs…</option>
-                        </select>
+                        <Select
+                          variant="field"
+                          label="Daily log"
+                          disabled
+                          value=""
+                          onChange={() => {}}
+                          options={[{ value: '', label: 'Loading logs…' }]}
+                        />
                       ) : dailyLogs.length > 0 ? (
-                        <select className="ipt sel" value={linkKey} onChange={e => setLinkKey(e.target.value)}>
-                          <option value="">Select a daily log…</option>
-                          {dailyLogs.map((log: any) => (
-                            <option key={log.id} value={log.id}>
-                              {log.entry_type} — {log.title} ({new Date(log.created_at).toLocaleDateString()})
-                            </option>
-                          ))}
-                        </select>
+                        <Select
+                          variant="field"
+                          label="Daily log"
+                          value={linkKey}
+                          onChange={setLinkKey}
+                          options={[
+                            { value: '', label: 'Select a daily log…' },
+                            ...dailyLogs.map((log: any) => ({
+                              value: log.id,
+                              label: `${log.entry_type} — ${log.title} (${new Date(log.created_at).toLocaleDateString()})`,
+                            })),
+                          ]}
+                        />
                       ) : (
                         <span>
                           <input className="ipt" value={linkKey} onChange={e => setLinkKey(e.target.value)} placeholder="No existing logs found — enter an ID manually." />
@@ -346,18 +373,28 @@ export function FlowAdmin({ user: _user }: { user: User }) {
                       )
                     ) : linkType === 'haccp_log' ? (
                       logsLoading ? (
-                        <select className="ipt sel" disabled>
-                          <option>Loading logs…</option>
-                        </select>
+                        <Select
+                          variant="field"
+                          label="HACCP log"
+                          disabled
+                          value=""
+                          onChange={() => {}}
+                          options={[{ value: '', label: 'Loading logs…' }]}
+                        />
                       ) : haccpLogs.length > 0 ? (
-                        <select className="ipt sel" value={linkKey} onChange={e => setLinkKey(e.target.value)}>
-                          <option value="">Select a HACCP log…</option>
-                          {haccpLogs.map((log: any) => (
-                            <option key={log.id} value={log.id}>
-                              {log.location} — {log.temperature}°{log.unit} ({new Date(log.timestamp).toLocaleDateString()})
-                            </option>
-                          ))}
-                        </select>
+                        <Select
+                          variant="field"
+                          label="HACCP log"
+                          value={linkKey}
+                          onChange={setLinkKey}
+                          options={[
+                            { value: '', label: 'Select a HACCP log…' },
+                            ...haccpLogs.map((log: any) => ({
+                              value: log.id,
+                              label: `${log.location} — ${log.temperature}°${log.unit} (${new Date(log.timestamp).toLocaleDateString()})`,
+                            })),
+                          ]}
+                        />
                       ) : (
                         <span>
                           <input className="ipt" value={linkKey} onChange={e => setLinkKey(e.target.value)} placeholder="No existing logs found — enter an ID manually." />

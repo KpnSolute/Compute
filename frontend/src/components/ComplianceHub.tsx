@@ -5,6 +5,7 @@ import { I } from '../lib/icons';
 import { api } from '../lib/api';
 import { StatusPill } from './ui/StatusPill';
 import { SaveBar as SharedSaveBar } from './ui/ActionBars';
+import { Select } from './ui/Select';
 
 interface TempRow {
   am?: string;
@@ -301,17 +302,13 @@ function TemperatureLog({
         <div className="ft-l">
           <label className="ft-field">
             <span>Appliance</span>
-            <select
-              className="ipt sel"
+            <Select
+              variant="field"
+              label="Appliance"
               value={appId}
-              onChange={e => setAppId(e.target.value)}
-            >
-              {APPLIANCES.map(a => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
+              onChange={setAppId}
+              options={APPLIANCES.map(a => ({ value: a.id, label: a.name }))}
+            />
           </label>
           <span
             className={'thresh-chip ' + (app.type === 'freezer' ? 'frz' : 'rfg')}
@@ -738,18 +735,19 @@ function TastePanel({
                   </td>
                   <td>
                     {canEdit ? (
-                      <select
-                        className="ipt sel sm"
+                      <Select
+                        variant="field-sm"
+                        label="Taste code"
                         value={it.code}
-                        onChange={e => setItem(it.id, 'code', e.target.value)}
-                      >
-                        <option value="">—</option>
-                        {TASTE_CODES.map(c => (
-                          <option key={c.code} value={c.code}>
-                            {c.code} · {c.label.split(' —')[0]}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={v => setItem(it.id, 'code', v)}
+                        options={[
+                          { value: '', label: '—' },
+                          ...TASTE_CODES.map(c => ({
+                            value: c.code,
+                            label: `${c.code} · ${c.label.split(' —')[0]}`,
+                          })),
+                        ]}
+                      />
                     ) : (
                       <span>{it.code}</span>
                     )}

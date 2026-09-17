@@ -2,6 +2,7 @@ import { confirmAction } from './ui/ConfirmDialog';
 import { useEffect, useState } from 'react';
 import { ROLE_LEVEL, type User } from '../lib/constants';
 import { fmtMoney } from '../lib/format';
+import { Select } from './ui/Select';
 import { api, type BudgetLineItem, type BudgetLineItemInput, type BudgetLineType, type BudgetLineAutoSource } from '../lib/api';
 
 const toast = (msg: string) => (window as any).toast?.(msg);
@@ -60,18 +61,32 @@ function LineItemForm({
         onChange={(e) => setDescription(e.target.value)}
         style={{ flex: 1, minWidth: 160 }}
       />
-      <select className="ipt sel" value={lineType} onChange={(e) => setLineType(e.target.value as BudgetLineType)} style={{ width: 100 }}>
-        <option value="cost">Cost</option>
-        <option value="revenue">Revenue</option>
-      </select>
+      <Select
+        variant="field"
+        label="Line type"
+        style={{ width: 100 }}
+        value={lineType}
+        onChange={(v) => setLineType(v as BudgetLineType)}
+        options={[
+          { value: 'cost', label: 'Cost' },
+          { value: 'revenue', label: 'Revenue' },
+        ]}
+      />
       <input className="ipt" type="number" min={0} step="0.01" placeholder="Annual $" value={annual} onChange={(e) => setAnnual(e.target.value)} style={{ width: 110 }} />
-      <select className="ipt sel" value={autoSource} onChange={(e) => setAutoSource(e.target.value as BudgetLineAutoSource | '')} style={{ width: 170 }}>
-        <option value="">Manual entry</option>
-        <option value="received">Auto: Received total</option>
-        <option value="pulled">Auto: Pulled total</option>
-        <option value="renewable">Auto: Renewable total</option>
-        <option value="snack_bar_revenue">Auto: Snack Bar sales</option>
-      </select>
+      <Select
+        variant="field"
+        label="Value source"
+        style={{ width: 170 }}
+        value={autoSource}
+        onChange={(v) => setAutoSource(v as BudgetLineAutoSource | '')}
+        options={[
+          { value: '', label: 'Manual entry' },
+          { value: 'received', label: 'Auto: Received total' },
+          { value: 'pulled', label: 'Auto: Pulled total' },
+          { value: 'renewable', label: 'Auto: Renewable total' },
+          { value: 'snack_bar_revenue', label: 'Auto: Snack Bar sales' },
+        ]}
+      />
       <button className="btn primary" type="submit" style={{ padding: '7px 12px' }}>Save</button>
       <button className="btn" type="button" onClick={onCancel} style={{ padding: '7px 12px' }}>Cancel</button>
     </form>

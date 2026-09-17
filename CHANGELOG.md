@@ -1,5 +1,50 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.35] — 2026-09-16 — One dropdown component, everywhere
+
+**Claude:** every native `<select>` in the app is gone. 46 dropdowns across 17
+files now render the shared control, so they look and behave the same in both
+themes instead of falling back to the operating system's own menu.
+
+**What the inconsistency actually was.** Five different classes were doing this
+job — `ipt sel`, `ipt`, `tb-select`, `select`, `tb-notify-category` — plus 18
+dropdowns carrying no class at all. FileVault's two used a `.select` class that
+**does not exist in the stylesheet**: those were unstyled natives, not merely
+inconsistent ones.
+
+**The control grew what the sweep genuinely required**, rather than forcing every
+site into a filter pill:
+
+- `variant` (`filter` / `field` / `field-sm`), so a dropdown inside a form
+  matches the `.ipt` text inputs beside it. Converting a form field into a pill
+  would have traded one inconsistency for another.
+- `style`, because many call sites size their control inline (`flex: 1`,
+  `width: 96`); dropping that would have quietly changed their layout.
+- `disabled`, and a per-option `disabled` — ComputeHome keeps "Location inside
+  a venue" visible but unselectable until a venue exists, rather than hiding
+  the concept.
+- `group`, standing in for `<optgroup>`. Settings' and Data Entry's model
+  pickers keep their "Vision capable" and "Text only" headings; flattening them
+  would have deleted real meaning.
+
+**Fidelity details that were easy to lose and were not:** options written without
+a `value` attribute (DailyOps, Forms, ServSafeManager) keep their text as the
+stored value; numeric state stays numeric rather than becoming a string; and
+Settings' no-models hint folds into the placeholder instead of emitting a second
+option with the same value, which HTML tolerated but a keyed list does not.
+
+**Deliberately not done:** removing the `.tb-select` rules the sweep left without
+call sites. Dead-CSS removal is its own pass with its own risk, and bundling it
+here would obscure this diff.
+
+**Local verification:** production build green, ESLint 0 errors, Vitest 83/83
+across 9 files (up 5, covering the group-heading and disabled-option rules), and
+zero native `<select>` elements remain outside a doc comment.
+
+**Note:** push, CI and deployment state is recorded in the shared governance
+ledger rather than here.
+
+
 ## [v0.3.34] — 2026-09-16 — The Review Queue now says when a request can never be merged
 
 **Claude:** five pull requests had sat in the Review Queue since July and

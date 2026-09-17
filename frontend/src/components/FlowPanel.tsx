@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { type User, ROLE_LABEL, ROLE_LEVEL } from '../lib/constants';
 import { api, type FlowAssignment } from '../lib/api';
 import { statusPill } from './FlowAdmin';
+import { Select } from './ui/Select';
 
 type Priority = 'low' | 'normal' | 'high' | 'urgent';
 
@@ -76,17 +77,31 @@ export function FlowPanel({ user, onNav, onClose }: { user: User; onNav?: (k: st
         <form className="flow-panel-new" onSubmit={createTask}>
           <input className="ipt" placeholder="Task title" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
           <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-            <select className="ipt sel" value={priority} onChange={(e) => setPriority(e.target.value as Priority)} style={{ flex: 1 }}>
-              <option value="low">Low</option>
-              <option value="normal">Normal</option>
-              <option value="high">High</option>
-              <option value="urgent">Urgent</option>
-            </select>
-            <select className="ipt sel" value={role} onChange={(e) => setRole(e.target.value)} style={{ flex: 1 }}>
-              <option value="staff">Staff</option>
-              <option value="assistant">Assistant</option>
-              <option value="manager">Manager</option>
-            </select>
+            <Select
+              variant="field"
+              label="Priority"
+              style={{ flex: 1 }}
+              value={priority}
+              onChange={(v) => setPriority(v as Priority)}
+              options={[
+                { value: 'low', label: 'Low' },
+                { value: 'normal', label: 'Normal' },
+                { value: 'high', label: 'High' },
+                { value: 'urgent', label: 'Urgent' },
+              ]}
+            />
+            <Select
+              variant="field"
+              label="Assign to role"
+              style={{ flex: 1 }}
+              value={role}
+              onChange={setRole}
+              options={[
+                { value: 'staff', label: 'Staff' },
+                { value: 'assistant', label: 'Assistant' },
+                { value: 'manager', label: 'Manager' },
+              ]}
+            />
           </div>
           <button className="btn primary" type="submit" disabled={saving} style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}>
             {saving ? 'Creating…' : 'Create'}

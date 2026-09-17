@@ -2,6 +2,7 @@ import { confirmAction } from './ui/ConfirmDialog';
 import { useCallback, useEffect, useState } from 'react';
 import { api, type ArchivedFile } from '../lib/api';
 import { I } from '../lib/icons';
+import { Select } from './ui/Select';
 
 const CATEGORIES = ['invoice', 'menu', 'recipe', 'report', 'document', 'other'];
 
@@ -74,9 +75,14 @@ export function FileVault() {
         <div className="card-head"><h3>Upload a file</h3></div>
         <div className="card-body" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <input type="file" onChange={(event) => setSelected(event.target.files?.[0] || null)} />
-          <select className="select" value={uploadCategory} onChange={(event) => setUploadCategory(event.target.value)}>
-            {CATEGORIES.map((value) => <option key={value} value={value}>{value}</option>)}
-          </select>
+          <Select
+            variant="field"
+            label="Upload category"
+            style={{ width: 200 }}
+            value={uploadCategory}
+            onChange={setUploadCategory}
+            options={CATEGORIES.map((value) => ({ value, label: value }))}
+          />
           <button className="btn primary" disabled={!selected || busy || !storageReady} onClick={() => void upload()}>
             {I.plus()} {busy ? 'Uploading…' : 'Upload'}
           </button>
@@ -87,10 +93,15 @@ export function FileVault() {
         <div className="card-head" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <h3 style={{ marginRight: 'auto' }}>Stored files</h3>
           <input className="input" placeholder="Search filename" value={search} onChange={(event) => setSearch(event.target.value)} />
-          <select className="select" value={category} onChange={(event) => setCategory(event.target.value)}>
-            <option value="">All categories</option>
-            {CATEGORIES.map((value) => <option key={value} value={value}>{value}</option>)}
-          </select>
+          <Select
+            label="Filter by category"
+            value={category}
+            onChange={setCategory}
+            options={[
+              { value: '', label: 'All categories' },
+              ...CATEGORIES.map((value) => ({ value, label: value })),
+            ]}
+          />
         </div>
         <div className="table-wrap">
           <table className="table">

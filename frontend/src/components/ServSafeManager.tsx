@@ -5,6 +5,7 @@ import { ROLE_LABEL } from '../lib/constants';
 import { api } from '../lib/api';
 import { I } from '../lib/icons';
 import { StatusPill } from './ui/StatusPill';
+import { Select } from './ui/Select';
 
 type StaffUser = {
   id: string;
@@ -256,8 +257,28 @@ export function ServSafeManager() {
           <div className="modal" style={{ maxWidth: 540 }} onClick={(event) => event.stopPropagation()}>
             <div className="modal-head"><h3>{editing ? 'Edit certification' : 'Assign certification'}</h3><button className="btn" onClick={() => setShowForm(false)} disabled={saving}>Close</button></div>
             <div className="form-grid" style={{ padding: 16 }}>
-              <label style={{ gridColumn: '1 / -1' }}><span>Staff account</span><select value={form.user_id} onChange={(event) => chooseUser(event.target.value)}>{staff.map((member) => <option key={member.id} value={member.id}>{fullName(member)} — {member.job_title || ROLE_LABEL[member.role]}</option>)}</select></label>
-              <label><span>Certification</span><select value={form.certification} onChange={(event) => setForm((current) => ({ ...current, certification: event.target.value }))}><option>ServSafe Food Handler</option><option>ServSafe Manager</option><option>ServSafe Allergens</option><option>ServSafe Workplace</option></select></label>
+              <label style={{ gridColumn: '1 / -1' }}><span>Staff account</span><Select
+                variant="field"
+                label="Staff account"
+                value={form.user_id}
+                onChange={chooseUser}
+                options={staff.map((member) => ({
+                  value: member.id,
+                  label: `${fullName(member)} — ${member.job_title || ROLE_LABEL[member.role]}`,
+                }))}
+              /></label>
+              <label><span>Certification</span><Select
+                variant="field"
+                label="Certification"
+                value={form.certification}
+                onChange={(v) => setForm((current) => ({ ...current, certification: v }))}
+                options={[
+                  { value: 'ServSafe Food Handler', label: 'ServSafe Food Handler' },
+                  { value: 'ServSafe Manager', label: 'ServSafe Manager' },
+                  { value: 'ServSafe Allergens', label: 'ServSafe Allergens' },
+                  { value: 'ServSafe Workplace', label: 'ServSafe Workplace' },
+                ]}
+              /></label>
               <label><span>Expiration date</span><input type="date" value={form.expiry_date} onChange={(event) => setForm((current) => ({ ...current, expiry_date: event.target.value }))} /></label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" checked={form.is_proctor} onChange={(event) => setForm((current) => ({ ...current, is_proctor: event.target.checked }))} /><span>Certified proctor</span></label>
             </div>
