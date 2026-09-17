@@ -1,5 +1,27 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.36] — 2026-09-16 — Remove the dead `.tb-select` rules
+
+**Claude:** the dropdown sweep in v0.3.35 left `.tb-select` without a single
+call site. This removes its nine rules — the base block, its `option` rule, four
+responsive overrides across the phone breakpoints, and the two theme-token
+overrides. 37 deletions, no insertions.
+
+- **Verified dead before removing:** zero references in any `.ts`, `.tsx` or
+  `.html` file anywhere under `src`. The base rule already carried the comment
+  *"kept for any legacy references"*, so it was vestigial well before the sweep
+  — the sweep merely made that provable.
+- `templates/portal/styles.css` still defines its own copy. That tree is frozen,
+  read-only, and not part of the build, so it is deliberately untouched.
+- Removing it now, in its own release, keeps it out of the 24-file v0.3.35 diff
+  where it would have been invisible.
+
+**Local verification:** production build green; stylesheet 220.50 kB → 219.83 kB.
+
+**Note:** push, CI and deployment state is recorded in the shared governance
+ledger rather than here.
+
+
 ## [v0.3.35] — 2026-09-16 — One dropdown component, everywhere
 
 **Claude:** every native `<select>` in the app is gone. 46 dropdowns across 17
