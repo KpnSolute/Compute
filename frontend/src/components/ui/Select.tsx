@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import { I } from '../../lib/icons';
+import { placeMenu } from '../../lib/selectPlacement';
 
 /**
  * The standard dropdown.
@@ -60,23 +62,73 @@ export function Select<T extends number | string>({
 }) {
     const [open, setOpen] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
+    const [position, setPosition] = useState<CSSProperties | null>(null);
     const selected = options.find((option) => option.value === value);
+
+    /**
+     * Place the menu against the trigger in viewport coordinates.
+     *
+     * The menu is rendered into document.body rather than beside the trigger,
+     * because an absolutely-positioned menu is clipped by any ancestor with
+     * `overflow`, and plenty of them have it — `.card`, `.modal`, `.modal-body`,
+     * `.table-wrap`, `.de-upload-card`. A native <select> never hit this because
+     * the operating system drew its popup outside the page entirely. Escaping to
+     * the body is the only fix that holds for all 46 call sites; widening the
+     * containers would mean loosening overflow rules that exist for good reason.
+     */
+    const place = useCallback(() => {
+        const trigger = ref.current;
+        if (!trigger) return;
+        const rect = trigger.getBoundingClientRect();
+        // The arithmetic lives in lib/selectPlacement so the flip and clamp
+        // rules can be tested without a DOM. scrollHeight is 0 on the first
+        // open, before the menu has been measured; placeMenu treats that as
+        // "assume it wants room" rather than "wants nothing".
+        const placement = placeMenu(
+            { top: rect.top, bottom: rect.bottom, left: rect.left, width: rect.width },
+            { height: window.innerHeight },
+            menuRef.current?.scrollHeight ?? 0,
+        );
+        setPosition({
+            position: 'fixed',
+            left: placement.left,
+            minWidth: placement.minWidth,
+            maxHeight: placement.maxHeight,
+            overflowY: 'auto',
+            ...(placement.flip ? { bottom: placement.offset } : { top: placement.offset }),
+        });
+    }, []);
+
+    // Measure before paint so the menu never appears in the wrong place first.
+    useLayoutEffect(() => {
+        if (open) place();
+    }, [open, place, options.length]);
 
     useEffect(() => {
         if (!open) return;
         const closeOnOutside = (event: MouseEvent) => {
-            if (!ref.current?.contains(event.target as Node)) setOpen(false);
+            const target = event.target as Node;
+            if (ref.current?.contains(target) || menuRef.current?.contains(target)) return;
+            setOpen(false);
         };
         const closeOnEscape = (event: KeyboardEvent) => {
             if (event.key === 'Escape') setOpen(false);
         };
+        // A fixed menu does not travel with a scrolling ancestor, so follow the
+        // trigger; `true` catches scrolls on inner containers, not just window.
+        const reposition = () => place();
         document.addEventListener('mousedown', closeOnOutside);
         window.addEventListener('keydown', closeOnEscape);
+        window.addEventListener('scroll', reposition, true);
+        window.addEventListener('resize', reposition);
         return () => {
             document.removeEventListener('mousedown', closeOnOutside);
             window.removeEventListener('keydown', closeOnEscape);
+            window.removeEventListener('scroll', reposition, true);
+            window.removeEventListener('resize', reposition);
         };
-    }, [open]);
+    }, [open, place]);
 
     // 'filter' is the base look, so it carries no modifier class.
     const variantClass = variant === 'filter' ? '' : ` kpn-select--${variant}`;
@@ -95,8 +147,14 @@ export function Select<T extends number | string>({
                 <span>{selected?.label ?? String(value)}</span>
                 {I.down({ style: { width: 12, height: 12 } })}
             </button>
-            {open && !disabled && (
-                <div className="kpn-select-menu" role="listbox" aria-label={label}>
+            {open && !disabled && createPortal(
+                <div
+                    className={'kpn-select-menu kpn-select-menu--portal' + variantClass}
+                    role="listbox"
+                    aria-label={label}
+                    ref={menuRef}
+                    style={position ?? { position: 'fixed', visibility: 'hidden' }}
+                >
                     {options.map((option, index) => {
                         // A heading is drawn when the group changes, so a run of
                         // options stays visually grouped as its optgroup was.
@@ -126,7 +184,8 @@ export function Select<T extends number | string>({
                             </div>
                         );
                     })}
-                </div>
+                </div>,
+                document.body,
             )}
         </div>
     );

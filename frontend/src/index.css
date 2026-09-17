@@ -1397,7 +1397,24 @@ table.data.logtbl td{padding:6px 10px}
 .kpn-select--field-sm .kpn-select-btn:hover:not(:disabled){background:var(--surface);border-color:var(--control-border-hover);color:var(--ink)}
 .kpn-select--field .kpn-select-btn:focus-visible,
 .kpn-select--field-sm .kpn-select-btn:focus-visible{border-color:var(--accent);box-shadow:var(--focus-ring);outline:none}
-.kpn-select--field .kpn-select-menu,.kpn-select--field-sm .kpn-select-menu{left:0;right:auto;min-width:100%}
+/* The menu renders into document.body, so it is no longer a descendant of
+   .kpn-select and cannot be selected through it. Position comes from inline
+   styles measured off the trigger; this only supplies the stacking and the
+   scroll behaviour for a long list. Above dialogs (200) and the orb (140). */
+/* The shared base block above still matches this node and sets
+   position:absolute with right:0 / top:calc(100% + 6px) / max-height:290px for
+   the non-portaled PullSheet menu. Those are neutralised explicitly here rather
+   than left to inline styles and source order, so the geometry does not depend
+   on which declaration happens to win. Height comes from the measured inline
+   maxHeight; `auto` here simply removes the 290px ceiling. */
+.kpn-select-menu--portal{
+  position:fixed;z-index:10060;
+  top:auto;right:auto;bottom:auto;
+  max-height:none;
+  overscroll-behavior:contain;
+}
+.kpn-select-menu--portal.kpn-select--field,
+.kpn-select-menu--portal.kpn-select--field-sm{min-width:0}
 .kpn-select-btn:disabled{opacity:.62;cursor:not-allowed}
 /* Group heading, standing in for what an <optgroup> label used to draw. */
 .kpn-select-group{padding:7px 10px 3px;font-size:10px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--faint)}
@@ -1684,7 +1701,12 @@ table.data.logtbl td{padding:6px 10px}
   .pull-search-input{height:44px}
   .pull-filter-bar .pull-select,.pull-filter-bar .kpn-select{flex:1 1 180px}
   .pull-filter-bar .pull-select-btn,.pull-filter-bar .kpn-select-btn{width:100%;height:44px}
-  .pull-select-menu,.kpn-select-menu{left:0;right:auto;width:100%}
+  /* PullSheet's menu is still a positioned child of its trigger, so it keeps
+     the full-width phone treatment. The shared control's menu is portaled to
+     <body> and positioned from the trigger's measured rect: width:100% there
+     would resolve against the viewport and stretch it edge to edge, and left:0
+     would override the measured position. It is deliberately excluded. */
+  .pull-select-menu{left:0;right:auto;width:100%}
   .pull-zero-toggle{min-height:44px}
 
   .meal-summary{gap:6px}

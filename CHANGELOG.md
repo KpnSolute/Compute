@@ -1,5 +1,50 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.37] — 2026-09-16 — Fix: dropdown menus were being clipped by their container
+
+**Claude:** my own regression from v0.3.35, reported with a screenshot of the
+Data Entry Hint menu cut off mid-list and spilling over the section below.
+
+**Cause.** The menu was `position:absolute` inside the trigger's container, so
+any ancestor with `overflow` clipped it — `.de-upload-card` in the reported
+case, but equally `.card`, `.modal`, `.modal-body`, `.table-wrap`, `.sc-panel`.
+A native `<select>` never hit this because the operating system draws its popup
+outside the page entirely. Replacing it with real markup inherited a constraint
+the native control never had, and 46 call sites now sit inside such containers.
+
+- **The menu is rendered into `document.body`** via `createPortal` and
+  positioned from the trigger's measured rect. That is the only fix that holds
+  everywhere; widening containers would mean loosening `overflow` rules that
+  exist for good reason, one at a time, forever.
+- **It flips upward** when the space below is genuinely cramped *and* above is
+  roomier — flipping toward an equally tight edge just moves the problem — caps
+  its height to the space available, and scrolls rather than running off-screen.
+- **It follows the trigger** on scroll and resize, including scrolls of inner
+  containers, since a fixed element does not travel with its ancestor.
+- **The geometry lives in `lib/selectPlacement.ts`** with 8 tests, because the
+  decisions worth getting right here are numeric: when to flip, and never
+  clamping so short the menu becomes unusable. Extracting it also fixed a bug in
+  my first attempt, where an unmeasured menu reported height 0 and could never
+  flip on first open.
+
+**Two CSS conflicts found and fixed, not left to luck:**
+
+- The phone breakpoint set `width:100%` on the menu. On a fixed child of
+  `<body>` that resolves against the *viewport*, so the menu would have
+  stretched edge to edge on phones, with `left:0` overriding its measured
+  position. That rule is now scoped to PullSheet's still-positioned menu.
+- The shared base block still applies `position:absolute`, `right:0`,
+  `top:calc(100% + 6px)` and `max-height:290px` to this node. The portal rule
+  now neutralises those explicitly instead of relying on inline styles and
+  source order to win.
+
+**Local verification:** production build green, ESLint 0 errors, Vitest 91/91
+across 10 files (up 8).
+
+**Note:** push, CI and deployment state is recorded in the shared governance
+ledger rather than here.
+
+
 ## [v0.3.36] — 2026-09-16 — Remove the dead `.tb-select` rules
 
 **Claude:** the dropdown sweep in v0.3.35 left `.tb-select` without a single
