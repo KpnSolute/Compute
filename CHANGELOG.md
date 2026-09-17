@@ -1,5 +1,51 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.34] — 2026-09-16 — The Review Queue now says when a request can never be merged
+
+**Claude:** five pull requests had sat in the Review Queue since July and
+August. They were not waiting on a reviewer: their periods had been published,
+and the backend refuses to overwrite published inventory with no override, so
+they could never have merged. Nothing in the interface said so, which is why
+they accumulated.
+
+- **Closed the five** at the owner's direction — #190, #189, #168, #166, #149,
+  all authored by Othniel. Closing is not destructive, confirmed from the RPC
+  before acting: `sc_close_pull_request` marks the request closed and moves its
+  staged entries from `pending` to `rejected`, so the submitted work is retained
+  and auditable. Each carries a review note giving the reason.
+- **Prevention, in the queue itself.** A weekly pull sheet's `entity_scope`
+  already encodes its period (`entity:w{week}:{direction}:{month}:{year}`), so
+  the queue reads it, looks each distinct period up once, marks affected
+  requests **Blocked**, disables Merge on them, and states the reason inline.
+  The header counts them. No API or schema change was required, which kept this
+  inside approved scope.
+- **The parse is the risky part**, so `prPeriod`/`periodKey` live in
+  `lib/prPeriod.ts` with their own tests. It requires exactly five parts with a
+  valid 1-indexed month and year and returns null for anything else — a bare
+  `inventory`, `mixed`, or a near-miss shape. Labelling live work "blocked"
+  would push somebody to close something valid, so an unreachable status lookup
+  also leaves a request unbadged rather than wrongly blocked.
+
+**Deliberately not done:** auto-closing requests when a period is published.
+That silently rejects submitted work. Refusing to publish while requests are
+open was also considered. Both change a production operation's behaviour and
+belong to an owner decision rather than being slipped into a bug fix.
+
+**Finding recorded, not changed:** the two published-period guards disagree.
+`inventory.py` skips its published check entirely for admin, manager and sudo,
+while `sourcectrl.py`'s `_assert_inventory_overwrite_allowed` applies
+unconditionally. So the same rule binds differently depending on the path taken.
+Tightening either is a behaviour change and is left for a decision.
+
+**Local verification:** production build green, ESLint 0 errors, Vitest 78/78
+across 8 files (up 9). Note that `tsc --noEmit` reported clean while `tsc -b`
+caught a duplicate identifier — the build, which the release gate runs, is the
+authority.
+
+**Note:** push, CI and deployment state is recorded in the shared governance
+ledger rather than here.
+
+
 ## [v0.3.33] — 2026-09-16 — One dropdown, everywhere
 
 **Claude:** the Source Control filters were native `<select>` elements. A native

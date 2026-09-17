@@ -7,6 +7,7 @@ import { useEscapeClose } from "../lib/useEscapeClose";
 import { StatusPill } from "./ui/StatusPill";
 import { matchesInventoryQuery, parseInventoryQuery } from "../lib/inventorySearch";
 import { displayDiffValue, groupCommitChanges, type LogicalCommitChange } from "../lib/sourceControlDiff";
+import { periodKey, prPeriod, type PrPeriod } from "../lib/prPeriod";
 
 const t = (msg: string) => (window as any).toast?.(msg);
 
@@ -134,6 +135,12 @@ const MONTH_LABELS = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
 ];
+
+// prPeriod/periodKey live in lib so the parsing rules can be tested on their
+// own. Named prPeriodLabel because periodLabel further down already formats a
+// transaction's period, and the two are not interchangeable: that one takes a
+// zero-indexed DB month, whereas a pull request's period month is 1-indexed.
+const prPeriodLabel = (period: PrPeriod) => `${MONTH_LABELS[period.month - 1]} ${period.year}`;
 
 function actionLabel(action?: string | null) {
     if (action === "pull") return "Issued";
@@ -581,6 +588,9 @@ function SCChangesView({
 
     // PR state
     const [pulls, setPulls] = useState<any[]>([]);
+    // "{month}-{year}" → whether that period is published. A period missing
+    // from this map is simply unknown, and is never treated as blocked.
+    const [periodPublished, setPeriodPublished] = useState<Record<string, boolean>>({});
     const [pullsLoading, setPullsLoading] = useState(false);
     const [prTitle, setPrTitle] = useState("");
     const [prBusy, setPrBusy] = useState(false);
@@ -652,6 +662,32 @@ function SCChangesView({
         try {
             const results = await api.getPulls(canReview ? "open" : "all");
             setPulls(results);
+
+            // A request whose period has since been published can never be
+            // merged — the backend refuses to overwrite published inventory,
+            // with no override. Five such requests sat in this queue for weeks
+            // because nothing said so. Look each distinct period up once and
+            // let the queue show it, rather than letting a reviewer discover
+            // it as a failure at merge time.
+            const periods = new Map<string, { month: number; year: number }>();
+            for (const pr of results as any[]) {
+                const period = prPeriod(pr.entity_scope);
+                if (period) periods.set(periodKey(period), period);
+            }
+            const looked = await Promise.all(
+                [...periods.entries()].map(async ([key, period]) => {
+                    try {
+                        const status = await api.getMonthStatus(period.month, period.year);
+                        return [key, !!status.published] as const;
+                    } catch {
+                        // Unknown stays unbadged: better silent than wrong.
+                        return null;
+                    }
+                }),
+            );
+            setPeriodPublished(
+                Object.fromEntries(looked.filter((row): row is readonly [string, boolean] => row !== null)),
+            );
         } catch { /* silent */ }
         setPullsLoading(false);
     }, [canReview]);
@@ -999,6 +1035,11 @@ function SCChangesView({
     const renderPRs = () => {
         if (!showPRs) return null;
         const openCount = pulls.filter((p) => p.status === "open").length;
+        const isBlocked = (pr: any) => {
+            const period = prPeriod(pr.entity_scope);
+            return !!period && periodPublished[periodKey(period)] === true;
+        };
+        const blockedCount = pulls.filter((p) => p.status === "open" && isBlocked(p)).length;
         return (
             <div className="overlay" onClick={() => setShowPRs(false)}>
                 <div className="modal" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
@@ -1006,7 +1047,9 @@ function SCChangesView({
                         <h3>{I.inbox()} {canReview ? "Review Queue" : "My Requests"}</h3>
                         <div className="sub">
                             {canReview
-                                ? (openCount > 0 ? `${openCount} awaiting approval` : "No pending approvals")
+                                ? (openCount > 0
+                                    ? `${openCount} awaiting approval${blockedCount > 0 ? ` · ${blockedCount} blocked by a published period` : ""}`
+                                    : "No pending approvals")
                                 : "Changes you have submitted for manager review"}
                         </div>
                         <button className="modal-x" onClick={() => setShowPRs(false)} aria-label="Close">{I.x()}</button>
@@ -1071,6 +1114,12 @@ function SCChangesView({
                             const isBusy = prActionBusy === pr.pr_id;
                             const isDetailLoading = prDetailLoading === pr.pr_id;
                             const canClose = canReview || pr.author_id === user.id;
+                            const prBlockedPeriod = prPeriod(pr.entity_scope);
+                            const blocked = !!prBlockedPeriod
+                                && periodPublished[periodKey(prBlockedPeriod)] === true;
+                            const blockedReason = prBlockedPeriod
+                                ? `${prPeriodLabel(prBlockedPeriod)} is published, so this request can no longer be merged. Close it, or reopen the period first.`
+                                : "";
 
                             return (
                                 <div key={pr.pr_id} style={{ borderBottom: "1px solid var(--line)" }}>
@@ -1091,6 +1140,15 @@ function SCChangesView({
                                                 {pr.entry_count} change{pr.entry_count !== 1 ? "s" : ""} · {relTime(pr.created_at)}
                                             </div>
                                         </div>
+                                        {blocked && pr.status === "open" && (
+                                            <span
+                                                className="pill warn"
+                                                style={{ fontSize: 9, padding: "1px 6px" }}
+                                                title={blockedReason}
+                                            >
+                                                Blocked
+                                            </span>
+                                        )}
                                         {prStatusPill(pr.status)}
                                     </div>
 
@@ -1124,11 +1182,17 @@ function SCChangesView({
                                                         <button
                                                             className="btn primary"
                                                             style={{ fontSize: 11, padding: "4px 10px" }}
-                                                            disabled={isBusy}
+                                                            disabled={isBusy || blocked}
+                                                            title={blocked ? blockedReason : undefined}
                                                             onClick={(e) => { e.stopPropagation(); doMergePR(pr.pr_id); }}
                                                         >
                                                             {isBusy ? "Merging…" : <>{I.check({ style: { width: 11, height: 11 } })}&nbsp;Merge</>}
                                                         </button>
+                                                    )}
+                                                    {blocked && (
+                                                        <span style={{ fontSize: 10.5, color: "var(--muted)", alignSelf: "center" }}>
+                                                            {blockedReason}
+                                                        </span>
                                                     )}
                                                     {canClose && (
                                                         <button
