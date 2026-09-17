@@ -1,5 +1,36 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.38] — 2026-09-16 — Fix: the portaled dropdown menu stretched to full width
+
+**Claude:** a defect in my own v0.3.37 fix, caught by verifying it live rather
+than trusting a green build. The clipping was genuinely resolved — the menu
+portals to `<body>`, all seven Hint options render, and "Budget" is reachable —
+but the menu measured **1882px wide** on a ~110px trigger.
+
+**Cause.** v0.3.37 appended the variant modifier to the portaled menu as well as
+the wrapper. `.kpn-select--field` sets `width:100%`, which is right for a
+wrapper sitting in a form, but a `position:fixed` element's containing block is
+the **viewport** — so `width:100%` resolved to nearly the full screen.
+
+- The menu no longer carries the wrapper's variant classes. Its width comes from
+  the inline `min-width` measured off the trigger.
+- The portal rule sets `width:auto` explicitly and caps at
+  `min(92vw, 420px)`, so a long option label cannot run off-screen either.
+- The stale `.kpn-select-menu--portal.kpn-select--field{min-width:0}` rules,
+  which existed only to undo that inherited width, are gone.
+
+**Worth recording:** the previous release verified as "fixed" on every check it
+ran — portal parent, position, z-index, max-height, option count, last option
+visible, inside viewport — and was still wrong, because none of those checks
+looked at width. A live measurement caught what the build could not.
+
+**Local verification:** production build green, ESLint 0 errors, Vitest 91/91
+across 10 files.
+
+**Note:** push, CI and deployment state is recorded in the shared governance
+ledger rather than here.
+
+
 ## [v0.3.37] — 2026-09-16 — Fix: dropdown menus were being clipped by their container
 
 **Claude:** my own regression from v0.3.35, reported with a screenshot of the

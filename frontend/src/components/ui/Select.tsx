@@ -149,7 +149,12 @@ export function Select<T extends number | string>({
             </button>
             {open && !disabled && createPortal(
                 <div
-                    className={'kpn-select-menu kpn-select-menu--portal' + variantClass}
+                    // Deliberately NOT carrying variantClass: those modifiers
+                    // style the wrapper, and `.kpn-select--field{width:100%}`
+                    // on a fixed child of <body> resolves against the viewport,
+                    // which stretched the menu to full width. Width comes from
+                    // the measured minWidth below instead.
+                    className="kpn-select-menu kpn-select-menu--portal"
                     role="listbox"
                     aria-label={label}
                     ref={menuRef}
