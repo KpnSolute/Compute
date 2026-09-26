@@ -1,4 +1,3 @@
-import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -90,11 +89,9 @@ def test_create_servsafe_links_real_account_and_uses_role_default(monkeypatch):
     monkeypatch.setattr(data_routes, "supabase_service", fake)
     monkeypatch.setattr(data_routes, "tenancy_mode", lambda: "legacy")
 
-    created = asyncio.run(
-        data_routes.create_servsafe(
-            data_routes.ServSafeCreate(user_id="manager-1"),
-            {"id": "actor-1", "role": "manager"},
-        )
+    created = data_routes.create_servsafe(
+        data_routes.ServSafeCreate(user_id="manager-1"),
+        {"id": "actor-1", "role": "manager"},
     )
 
     assert created["user_id"] == "manager-1"
@@ -116,11 +113,9 @@ def test_create_servsafe_rejects_duplicate_account_certification(monkeypatch):
     monkeypatch.setattr(data_routes, "tenancy_mode", lambda: "legacy")
 
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(
-            data_routes.create_servsafe(
-                data_routes.ServSafeCreate(user_id="manager-1"),
-                {"id": "actor-1", "role": "manager"},
-            )
+        data_routes.create_servsafe(
+            data_routes.ServSafeCreate(user_id="manager-1"),
+            {"id": "actor-1", "role": "manager"},
         )
 
     assert exc.value.status_code == 409

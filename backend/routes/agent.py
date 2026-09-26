@@ -383,7 +383,7 @@ class ChatRequest(BaseModel):
 
 
 @router.post("/chat")
-async def agent_chat(body: ChatRequest, user: dict = Depends(_get_auth_user)):
+def agent_chat(body: ChatRequest, user: dict = Depends(_get_auth_user)):
     from fastapi.responses import JSONResponse
 
     try:
@@ -583,7 +583,7 @@ def _summarize_result(tool_name: str, result: dict) -> str:
 
 
 @router.get("/history")
-async def get_history(
+def get_history(
     limit: int = 30,
     thread_id: str | None = None,
     user: dict = Depends(_get_auth_user),
@@ -598,7 +598,7 @@ async def get_history(
 
 
 @router.delete("/history")
-async def clear_history(
+def clear_history(
     thread_id: str | None = None,
     user: dict = Depends(_get_auth_user),
 ):
@@ -630,7 +630,7 @@ class ThreadRequest(BaseModel):
 
 
 @router.get("/threads")
-async def list_threads(user: dict = Depends(_get_auth_user)):
+def list_threads(user: dict = Depends(_get_auth_user)):
     """List conversations. A max of 0 means the feature is not available yet."""
     cfg = _load_config()
     _check_min_role(user, cfg)
@@ -640,14 +640,14 @@ async def list_threads(user: dict = Depends(_get_auth_user)):
 
 
 @router.post("/threads")
-async def create_thread(body: ThreadRequest, user: dict = Depends(_get_auth_user)):
+def create_thread(body: ThreadRequest, user: dict = Depends(_get_auth_user)):
     cfg = _load_config()
     _check_min_role(user, cfg)
     return {"thread": _create_thread(user["id"], body.title)}
 
 
 @router.patch("/threads/{thread_id}")
-async def rename_thread(
+def rename_thread(
     thread_id: str, body: ThreadRequest, user: dict = Depends(_get_auth_user)
 ):
     cfg = _load_config()
@@ -662,7 +662,7 @@ async def rename_thread(
 
 
 @router.delete("/threads/{thread_id}")
-async def delete_thread(thread_id: str, user: dict = Depends(_get_auth_user)):
+def delete_thread(thread_id: str, user: dict = Depends(_get_auth_user)):
     """Delete a conversation and its turns.
 
     The foreign key cascades, but the turns are removed explicitly so the
@@ -691,7 +691,7 @@ async def delete_thread(thread_id: str, user: dict = Depends(_get_auth_user)):
 
 
 @router.get("/config")
-async def get_config(user: dict = Depends(_get_auth_user)):
+def get_config(user: dict = Depends(_get_auth_user)):
     _ = user
     cfg = _load_config()
     # Return public-safe config (no secrets)
@@ -718,7 +718,7 @@ class AgentConfigRequest(BaseModel):
 
 
 @router.put("/config")
-async def update_config(body: AgentConfigRequest, user: dict = Depends(_get_auth_user)):
+def update_config(body: AgentConfigRequest, user: dict = Depends(_get_auth_user)):
     if user.get("role") != "sudo":
         raise HTTPException(
             status_code=403, detail="Agent configuration requires sudo role."
@@ -749,7 +749,7 @@ def _auto_key(user_id: str) -> str:
 
 
 @router.get("/automations")
-async def get_automations(user: dict = Depends(_get_auth_user)):
+def get_automations(user: dict = Depends(_get_auth_user)):
     cfg = _load_config()
     _check_min_role(user, cfg)
     key = _auto_key(user["id"])
@@ -779,9 +779,7 @@ class AutomationsRequest(BaseModel):
 
 
 @router.put("/automations")
-async def save_automations(
-    body: AutomationsRequest, user: dict = Depends(_get_auth_user)
-):
+def save_automations(body: AutomationsRequest, user: dict = Depends(_get_auth_user)):
     cfg = _load_config()
     _check_min_role(user, cfg)
     key = _auto_key(user["id"])

@@ -117,6 +117,8 @@ TENANT_RPCS = {
     "link_invoice_items_by_id",
     "perform_rollover",
     "recompute_week_totals",
+    "recompute_week_totals_batch",
+    "settle_inventory_values_batch",
     "sc_close_pull_request",
     "sc_finalize_merge",
     "set_week_status",

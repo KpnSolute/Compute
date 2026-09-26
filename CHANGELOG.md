@@ -1,5 +1,101 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.39] — 2026-09-26
+
+**Codex:** KPNCOMPUTE-ASYNC-PIPELINE-V0339-2026-09-26, user-authorized publication.
+Moved blocking service handlers into workers; commits use a dedicated ordered
+executor with shared inventory/staging coordination. Recent tenant-specific
+inventory snapshots remain available during replay; cold reads wait for a
+consistent result. Batched catalog lookup/create/update, inventory diffs,
+weekly ledger recomputation, rollover, and sparse financial settlement.
+Post-commit audits run in a worker; the durable archive queue polls at startup
+and every 30 seconds with bounded retries. Auth, data-entry streaming, uploads,
+and live log delivery retain context across worker execution.
+
+**Database:** additive migration applied to MJCCv1 as
+`20260926190804_batch_inventory_commit_totals`. Rolled-back verification matched
+392 eligible rows; batch recompute 98.722 ms versus legacy 1301.003 ms in one
+database run. Sparse settlement, tenant rejection and execution grants passed.
+These measurements do not establish client commit latency. Existing triggers
+remain authoritative. Local migration filename retains its original timestamp.
+
+**Checks:** full release gate passed: Ruff lint/format, 508 backend tests
+(15 skipped), 51 inventory formula tests, frontend lint (0 errors; 688 existing
+warnings), TypeScript and production build. Production under-30-second commit
+and authenticated concurrent-request acceptance remain pending. Single-process
+coordination requires further work before scaling to multiple instances.
+Prior Claude CLI coordination failed because organization subscription access
+was disabled; worker capacity also exhausted during preparation. Codex resumed
+and reviewed the remaining implementation. Render health-path configuration
+was rejected by automatic approval review and remains unchanged.
+
+**Push:** pending — preparing the verified v0.3.39 release.
+
+## 2026-09-26 — Commit performance fix prepared locally
+
+**Codex:** moved direct commit and PR merge execution to Starlette's worker
+threadpool, with a shared commit lock retaining previous commit ordering while
+unrelated API requests remain serviceable. Request ContextVars carry tenant
+scope into the worker. Batched inventory diff snapshots (catalog + period rows),
+catalog resolution/changed-item writes for whole-month saves, overpull reads,
+and identical valuation corrections. Sparse catalog fields and manager category
+assignments are retained; placeholder SKU resolution keeps its existing path.
+Verified live MJCCv1 columns and tenant-inclusive unique indexes via the scoped
+Supabase MCP; no database migration or live write performed.
+
+**Checks:** Ruff clean; backend 384 passed, 15 skipped. New 300-item regressions
+verify 6 diff queries, 6 catalog lookup/update calls, 3 overpull reads, and 6
+identical valuation read/correction calls; responsiveness regression checks
+the event loop remains available and request context survives worker dispatch.
+These are call-count tests, not production timing measurements. Under-30-second
+acceptance remains unverified until deployed and measured with real workload.
+Weekly ledger recompute RPCs and new/placeholder item writes remain per item.
+OpenCode read-only research delegation failed at startup with config EEXIST;
+manager continued locally. No runnable Gemini CLI was found.
+
+**Push:** pending — local implementation only, uncommitted and undeployed.
+
+## 2026-09-26 — Production commit latency investigation
+
+**Codex follow-up:** today's error-level query returned no entries. Two more
+commit windows repeat the stall pattern: first valuation log 17:49:33 UTC to
+201 completion 17:53:04 (at least 211 seconds), and 18:18:50 to 18:22:16
+(at least 206 seconds). Both windows show no HTTP completion logs until the
+commit returns, followed by a burst of normal responses. These are observed
+processing lower bounds, not exact client request durations. Together with the
+single-worker async handler's synchronous calls, this strongly identifies
+in-app commit execution as the source of today's API stalls.
+
+**Codex:** Render login verified. Backend latest deployment remains 018cb6b
+from September 17; today's in-app commits did not trigger deployments. At
+18:08:55 UTC commit processing was logging sequential per-item valuation work;
+a forward sample hit its 500-line cap with only valuation messages. Commit
+completed at 18:10:47 UTC (201), followed immediately by queued-looking OPTIONS
+and GET traffic. This establishes at least 112 seconds of commit processing,
+not the full request duration. `approve_commit` directly invokes synchronous
+`_apply_entries` inside an async route; Docker starts one Uvicorn worker. These
+facts strongly support event-loop blocking during in-app commits. Recent normal
+requests return 200; filtered today's logs show recurring HEAD / 405 warnings.
+The completed error query since September 20 returned September 24 upstream
+504 Gateway Timeout errors on GET /api/commits (20:55 UTC) and GET /api/staging
+(21:45 UTC), plus September 21 invoice vision JSON extraction failure. These
+are separate observed errors; their link to commit execution is unproven.
+Render backend is free, one instance, empty HTTP
+health-check path. No application fix or live configuration change made.
+
+**Push:** pending — investigation recorded locally; no commit or deployment.
+
+## 2026-09-26 — Render CLI availability
+
+**Codex:** installed official Render CLI v2.28.0 for Windows amd64 at
+`C:\Users\ogdev\AppData\Local\Programs\RenderCLI\render.exe` and added its
+directory to the user PATH. Verified the release archive against GitHub's SHA256
+digest and confirmed `render --version`. `render whoami` reports the saved token
+is expired; authentication requires `render login`. Existing app sessions may
+need a restart to inherit the updated PATH.
+
+**Push:** pending — local tooling only; no commit, push, or deployment.
+
 ## [v0.3.38] — 2026-09-16 — Fix: the portaled dropdown menu stretched to full width
 
 **Claude:** a defect in my own v0.3.37 fix, caught by verifying it live rather

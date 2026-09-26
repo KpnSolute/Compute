@@ -75,7 +75,7 @@ class DailyLogResponse(BaseModel):
 
 
 @router.get("/haccp", response_model=list[HACCPLogResponse])
-async def get_haccp_logs(
+def get_haccp_logs(
     limit: int = Query(50, ge=1, le=500),
     location: str = Query(None),
     auth_user: dict = Depends(_get_auth_user),
@@ -112,7 +112,7 @@ async def get_haccp_logs(
 
 
 @router.post("/haccp", response_model=HACCPLogResponse, status_code=201)
-async def record_haccp_log(
+def record_haccp_log(
     entry: HACCPLogEntry, auth_user: dict = Depends(_require_assistant)
 ):
     """
@@ -175,7 +175,7 @@ async def record_haccp_log(
 
 
 @router.get("/daily", response_model=list[DailyLogResponse])
-async def get_daily_logs(
+def get_daily_logs(
     limit: int = Query(50, ge=1, le=500),
     entry_type: str = Query(None),
     severity: str = Query(None),
@@ -227,9 +227,7 @@ ASSISTANT_ONLY_ENTRY_TYPES = {
 
 
 @router.post("/daily", response_model=DailyLogResponse, status_code=201)
-async def record_daily_log(
-    entry: DailyLogEntry, auth_user: dict = Depends(_get_auth_user)
-):
+def record_daily_log(entry: DailyLogEntry, auth_user: dict = Depends(_get_auth_user)):
     """
     Record a new daily operations log entry.
 
@@ -288,7 +286,7 @@ async def record_daily_log(
 
 
 @router.get("/compliance")
-async def get_compliance_status(auth_user: dict = Depends(_get_auth_user)):
+def get_compliance_status(auth_user: dict = Depends(_get_auth_user)):
     """
     Get compliance status summary.
 
@@ -362,7 +360,7 @@ class SnackBarSaleResponse(BaseModel):
 
 
 @router.get("/snack-bar-sales", response_model=list[SnackBarSaleResponse])
-async def get_snack_bar_sales(
+def get_snack_bar_sales(
     start: str = Query(None),
     end: str = Query(None),
     limit: int = Query(60, ge=1, le=200),
@@ -382,7 +380,7 @@ async def get_snack_bar_sales(
 
 
 @router.post("/snack-bar-sales", response_model=SnackBarSaleResponse, status_code=201)
-async def save_snack_bar_sale(
+def save_snack_bar_sale(
     body: SnackBarSaleIn,
     auth_user: dict = Depends(_get_auth_user),
 ):

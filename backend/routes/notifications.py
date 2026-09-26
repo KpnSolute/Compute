@@ -252,7 +252,7 @@ def _temp_alerts() -> list[dict]:
 
 
 @router.get("")
-async def get_notifications(auth_user: dict = Depends(_get_auth_user)):
+def get_notifications(auth_user: dict = Depends(_get_auth_user)):
     prefs = _read_prefs(auth_user["id"])
     seen = set(prefs.get("notification_read_keys") or [])
     feeds: list[dict] = []
@@ -298,9 +298,7 @@ async def get_notifications(auth_user: dict = Depends(_get_auth_user)):
 
 
 @router.post("/read")
-async def mark_notifications_read(
-    body: ReadBody, auth_user: dict = Depends(_get_auth_user)
-):
+def mark_notifications_read(body: ReadBody, auth_user: dict = Depends(_get_auth_user)):
     prefs = _read_prefs(auth_user["id"])
     existing = [str(value) for value in (prefs.get("notification_read_keys") or [])]
     merged = list(

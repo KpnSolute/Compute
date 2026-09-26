@@ -1,13 +1,17 @@
 import os
 import json
 import base64
+import asyncio
+import logging
+import threading
 import httpx
 from datetime import datetime, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from backend.routes import supabase_service
+from backend.routes import supabase_admin, supabase_service
 from backend.routes._deps import _require_admin_or_manager
-from backend.tenancy import current_tenant, tenant_scope
+from backend.tenancy import TenantContext, current_tenant, tenant_scope
 from dotenv import load_dotenv
+from starlette.concurrency import run_in_threadpool
 
 load_dotenv()
 
@@ -18,6 +22,10 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "MJCC-Portal/mjcc")
 GITHUB_API = "https://api.github.com"
 MAX_ATTEMPTS = 3
+ARCHIVE_POLL_INTERVAL = 30
+TENANT_PAGE_SIZE = 100
+_drain_lock = threading.Lock()
+log = logging.getLogger("mjcc.github_sync")
 
 
 def _gh_headers() -> dict:
@@ -52,15 +60,28 @@ async def _push_to_github(commit_id: str, payload: dict) -> str:
 
 async def _drain_queue():
     """Process pending github_sync_queue rows."""
+    # Nonblocking acquisition works across event loops without occupying a worker
+    # while waiting. Cancellation before acquisition cannot leak the lock.
+    while not _drain_lock.acquire(blocking=False):
+        await asyncio.sleep(0.01)
+    try:
+        return await _drain_queue_locked()
+    finally:
+        _drain_lock.release()
+
+
+async def _drain_queue_locked():
     supabase = supabase_service
-    queue_r = (
-        supabase.table("github_sync_queue")
-        .select("*")
-        .is_("synced_at", "null")
-        .lt("attempts", MAX_ATTEMPTS)
-        .order("created_at")
-        .limit(10)
-        .execute()
+    queue_r = await run_in_threadpool(
+        lambda: (
+            supabase.table("github_sync_queue")
+            .select("*")
+            .is_("synced_at", "null")
+            .lt("attempts", MAX_ATTEMPTS)
+            .order("created_at")
+            .limit(10)
+            .execute()
+        )
     )
     rows = queue_r.data or []
     results = {"processed": 0, "failed": 0, "skipped": 0}
@@ -74,31 +95,49 @@ async def _drain_queue():
             sha = await _push_to_github(commit_id, payload)
             now = datetime.now(timezone.utc).isoformat()
 
-            # Mark queue row synced
-            supabase.table("github_sync_queue").update(
-                {
-                    "synced_at": now,
-                    "last_error": None,
-                }
-            ).eq("id", queue_id).execute()
-
             # Write SHA back to commits row
             if commit_id:
-                supabase.table("commits").update(
-                    {
-                        "github_sha": sha,
-                        "github_synced_at": now,
-                    }
-                ).eq("commit_id", commit_id).execute()
+                await run_in_threadpool(
+                    lambda: (
+                        supabase.table("commits")
+                        .update(
+                            {
+                                "github_sha": sha,
+                                "github_synced_at": now,
+                            }
+                        )
+                        .eq("commit_id", commit_id)
+                        .execute()
+                    )
+                )
 
+            # A row is complete only after its commit metadata is durable.
+            # If that write fails or the process restarts, the row stays eligible
+            # for an idempotent upload and retry on the next poll.
+            await run_in_threadpool(
+                lambda: (
+                    supabase.table("github_sync_queue")
+                    .update({"synced_at": now, "last_error": None})
+                    .eq("id", queue_id)
+                    .execute()
+                )
+            )
             results["processed"] += 1
         except Exception as e:
-            supabase.table("github_sync_queue").update(
-                {
-                    "attempts": row["attempts"] + 1,
-                    "last_error": str(e)[:500],
-                }
-            ).eq("id", queue_id).execute()
+            error = str(e)[:500]
+            await run_in_threadpool(
+                lambda: (
+                    supabase.table("github_sync_queue")
+                    .update(
+                        {
+                            "attempts": row["attempts"] + 1,
+                            "last_error": error,
+                        }
+                    )
+                    .eq("id", queue_id)
+                    .execute()
+                )
+            )
             results["failed"] += 1
 
     results["skipped"] = 0
@@ -110,6 +149,62 @@ async def _drain_queue_for_tenant(context):
         return await _drain_queue()
     with tenant_scope(context):
         return await _drain_queue()
+
+
+def _archive_tenants_page(offset: int) -> list[dict]:
+    # Only discovery uses the unscoped admin client. Queue and commit access
+    # continues through supabase_service inside an explicit tenant scope.
+    return (
+        supabase_admin.table("tenants")
+        .select("id,slug")
+        .order("id")
+        .range(offset, offset + TENANT_PAGE_SIZE - 1)
+        .execute()
+    ).data or []
+
+
+async def _poll_archive_queues(stop: asyncio.Event | None = None) -> None:
+    if not GITHUB_TOKEN:
+        return
+    offset = 0
+    while stop is None or not stop.is_set():
+        tenants = await run_in_threadpool(_archive_tenants_page, offset)
+        for tenant in tenants:
+            if stop is not None and stop.is_set():
+                return
+            try:
+                context = TenantContext(
+                    id=str(tenant["id"]), slug=tenant["slug"], name=tenant["slug"]
+                )
+                result = await _drain_queue_for_tenant(context)
+                if result["failed"]:
+                    log.warning(
+                        "Archive queue poll: %d failed uploads", result["failed"]
+                    )
+            except Exception as exc:
+                # Exception text can contain credentials, URLs or payloads.
+                # Log the failure class only; the queue retains retry state.
+                log.warning("Archive tenant poll failed (%s)", type(exc).__name__)
+        if len(tenants) < TENANT_PAGE_SIZE:
+            return
+        offset += TENANT_PAGE_SIZE
+
+
+async def poll_archive_queue(stop: asyncio.Event) -> None:
+    """Resume durable pending archives on startup, then poll every 30 seconds."""
+    if not GITHUB_TOKEN:
+        log.warning(
+            "Automatic archive sync is disabled: GitHub token is not configured"
+        )
+    while not stop.is_set():
+        try:
+            await _poll_archive_queues(stop)
+        except Exception as exc:
+            log.warning("Archive queue discovery failed (%s)", type(exc).__name__)
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=ARCHIVE_POLL_INTERVAL)
+        except asyncio.TimeoutError:
+            pass
 
 
 @router.post("/run")
@@ -125,7 +220,7 @@ async def run_sync(
 
 
 @router.get("/status")
-async def sync_status(auth_user: dict = Depends(_require_admin_or_manager)):
+def sync_status(auth_user: dict = Depends(_require_admin_or_manager)):
     """Return queue counts plus the latest sync rows for archive visibility."""
     try:
         all_r = (

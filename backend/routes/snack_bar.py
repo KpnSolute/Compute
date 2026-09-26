@@ -49,7 +49,7 @@ class SnackBarProductResponse(BaseModel):
 
 
 @router.get("/products", response_model=list[SnackBarProductResponse])
-async def list_products(
+def list_products(
     include_inactive: bool = Query(False),
     auth_user: dict = Depends(_get_auth_user),
 ):
@@ -64,7 +64,7 @@ async def list_products(
 
 
 @router.post("/products", response_model=SnackBarProductResponse, status_code=201)
-async def create_product(
+def create_product(
     body: SnackBarProductIn,
     auth_user: dict = Depends(_require_admin_or_manager),
 ):
@@ -80,7 +80,7 @@ async def create_product(
 
 
 @router.patch("/products/{product_id}", response_model=SnackBarProductResponse)
-async def update_product(
+def update_product(
     product_id: str,
     body: SnackBarProductIn,
     auth_user: dict = Depends(_require_admin_or_manager),
@@ -102,7 +102,7 @@ async def update_product(
 
 
 @router.delete("/products/{product_id}", status_code=204)
-async def deactivate_product(
+def deactivate_product(
     product_id: str,
     auth_user: dict = Depends(_require_admin_or_manager),
 ):
@@ -134,7 +134,7 @@ class EntityRateResponse(BaseModel):
 
 
 @router.get("/rates", response_model=list[EntityRateResponse])
-async def list_rates(auth_user: dict = Depends(_get_auth_user)):
+def list_rates(auth_user: dict = Depends(_get_auth_user)):
     try:
         result = supabase_service.table("snack_bar_entity_rates").select("*").execute()
     except Exception as e:
@@ -143,7 +143,7 @@ async def list_rates(auth_user: dict = Depends(_get_auth_user)):
 
 
 @router.put("/rates/{entity_type}", response_model=EntityRateResponse)
-async def update_rate(
+def update_rate(
     entity_type: str,
     body: EntityRateIn,
     auth_user: dict = Depends(_require_admin_or_manager),
@@ -212,7 +212,7 @@ class TransactionResponse(BaseModel):
 
 
 @router.post("/transactions", response_model=TransactionResponse, status_code=201)
-async def create_transaction(
+def create_transaction(
     body: TransactionIn,
     auth_user: dict = Depends(_get_auth_user),
 ):
@@ -319,7 +319,7 @@ async def create_transaction(
 
 
 @router.get("/transactions", response_model=list[TransactionResponse])
-async def list_transactions(
+def list_transactions(
     start: str = Query(None),
     end: str = Query(None),
     limit: int = Query(50, ge=1, le=200),

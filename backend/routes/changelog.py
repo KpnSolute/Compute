@@ -91,7 +91,7 @@ def _last_seen_version(user_id: str) -> str | None:
 
 
 @router.get("/whats-new")
-async def get_whats_new(auth_user: dict = Depends(_get_auth_user)):
+def get_whats_new(auth_user: dict = Depends(_get_auth_user)):
     """Return the latest changelog entry if it's new to this user and role-visible."""
     if not _whats_new_enabled():
         return {"show": False}
@@ -120,13 +120,13 @@ class ToggleBody(BaseModel):
 
 
 @router.get("/settings")
-async def get_whats_new_settings(auth_user: dict = Depends(_get_auth_user)):
+def get_whats_new_settings(auth_user: dict = Depends(_get_auth_user)):
     _ = auth_user
     return {"enabled": _whats_new_enabled()}
 
 
 @router.put("/settings")
-async def update_whats_new_settings(
+def update_whats_new_settings(
     body: ToggleBody, auth_user: dict = Depends(_get_auth_user)
 ):
     role = (auth_user.get("role") or "").lower()

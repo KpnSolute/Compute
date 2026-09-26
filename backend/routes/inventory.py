@@ -30,6 +30,7 @@ from backend.inventory_identity import (
 )
 from backend import inventory_formulas as fi
 from backend.periods import business_now, weeks_in_month
+from backend.concurrency import inventory_snapshot_read, serialized_inventory_write
 
 logger = logging.getLogger(__name__)
 
@@ -413,7 +414,8 @@ def _settle_value_invariants(item_ids: list[str], db_month: int, year: int) -> i
 
 
 @router.get("", response_model=InventoryResponse)
-async def get_inventory(
+@inventory_snapshot_read
+def get_inventory(
     month: int = Query(None),
     year: int = Query(None),
     auth_user: dict = Depends(_get_auth_user),
@@ -657,7 +659,8 @@ async def get_inventory(
 
 
 @router.get("/items")
-async def list_inventory_items(
+@serialized_inventory_write
+def list_inventory_items(
     sku: Optional[str] = Query(None),
     sku_pending: Optional[bool] = Query(None),
     needs_attention: Optional[bool] = Query(None),
@@ -733,7 +736,8 @@ class MergeBody(BaseModel):
 
 
 @router.post("/merge")
-async def merge_inventory_items(
+@serialized_inventory_write
+def merge_inventory_items(
     body: MergeBody,
     auth_user: dict = Depends(_get_auth_user),
 ):
@@ -759,7 +763,8 @@ async def merge_inventory_items(
 
 
 @router.post("", response_model=InventoryResponse, status_code=201)
-async def save_inventory(
+@serialized_inventory_write
+def save_inventory(
     payload: InventorySnapshot, auth_user: dict = Depends(_get_auth_user)
 ):
     """
@@ -947,7 +952,8 @@ async def _save_inventory_retired(payload: "InventorySnapshot", auth_user: dict)
 
 
 @router.get("/history", response_model=list[InventoryResponse])
-async def get_inventory_history(
+@serialized_inventory_write
+def get_inventory_history(
     limit: int = Query(10, ge=1, le=100), auth_user: dict = Depends(_get_auth_user)
 ):
     """
@@ -1054,7 +1060,8 @@ async def get_inventory_history(
 
 
 @router.get("/reorders", response_model=list[LowStockItem])
-async def get_reorders(auth_user: dict = Depends(_get_auth_user)):
+@serialized_inventory_write
+def get_reorders(auth_user: dict = Depends(_get_auth_user)):
     """
     Get low-stock items requiring reorder.
 
@@ -1111,7 +1118,8 @@ class ItemMetaUpdate(BaseModel):
 
 
 @router.patch("/items/{sku}")
-async def update_item_meta(
+@serialized_inventory_write
+def update_item_meta(
     sku: str,
     body: ItemMetaUpdate,
     auth_user: dict = Depends(_get_auth_user),
@@ -1302,9 +1310,8 @@ def _next_period(db_month: int, year: int) -> tuple[int, int]:
 
 
 @router.get("/month-status")
-async def get_month_status(
-    month: int, year: int, auth_user: dict = Depends(_get_auth_user)
-):
+@serialized_inventory_write
+def get_month_status(month: int, year: int, auth_user: dict = Depends(_get_auth_user)):
     """Return published/open status for a specific period.
     month is 1-indexed (API convention); DB stores 0-indexed.
     """
@@ -1327,7 +1334,8 @@ async def get_month_status(
 
 
 @router.get("/period-status", response_model=PeriodStatus)
-async def get_period_status(auth_user: dict = Depends(_get_auth_user)):
+@serialized_inventory_write
+def get_period_status(auth_user: dict = Depends(_get_auth_user)):
     """Compare the current real-world month to the latest inventory period.
 
     Months are 0-indexed (0=Jan) to match monthly_inventory and the frontend.
@@ -1381,9 +1389,8 @@ async def get_period_status(auth_user: dict = Depends(_get_auth_user)):
 
 
 @router.post("/rollover")
-async def rollover_period(
-    body: RolloverRequest, auth_user: dict = Depends(_get_auth_user)
-):
+@serialized_inventory_write
+def rollover_period(body: RolloverRequest, auth_user: dict = Depends(_get_auth_user)):
     """Roll the latest inventory month forward to the next month (manager+ only).
 
     Wraps the `perform_rollover()` SECURITY DEFINER function via the service-role
@@ -1503,7 +1510,8 @@ class WeekStatusRequest(BaseModel):
 
 
 @router.get("/week-status")
-async def get_week_status(
+@serialized_inventory_write
+def get_week_status(
     month: int = Query(...),
     year: int = Query(...),
     auth_user: dict = Depends(_get_auth_user),
@@ -1539,7 +1547,8 @@ async def get_week_status(
 
 
 @router.get("/audit")
-async def get_audit_findings(
+@serialized_inventory_write
+def get_audit_findings(
     month: int = Query(...),
     year: int = Query(...),
     auth_user: dict = Depends(_get_auth_user),
@@ -1578,7 +1587,8 @@ async def get_audit_findings(
 
 
 @router.post("/audit")
-async def run_audit(
+@serialized_inventory_write
+def run_audit(
     month: int = Query(...),
     year: int = Query(...),
     auth_user: dict = Depends(_require_admin_or_manager),
@@ -1601,7 +1611,8 @@ async def run_audit(
 
 
 @router.post("/week-status")
-async def set_week_status(
+@serialized_inventory_write
+def set_week_status(
     body: WeekStatusRequest,
     auth_user: dict = Depends(_get_auth_user),
 ):

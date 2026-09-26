@@ -29,6 +29,7 @@ from fastapi import (
     Request,
 )
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from backend.ai import context as ctx
@@ -44,6 +45,7 @@ from backend.archive_storage import (
     delete_archive_object,
 )
 from backend.inventory_identity import canonical_sku
+from backend.concurrency import serialized_inventory_write
 from backend.periods import business_now
 from backend.routes import supabase_service
 from backend.routes._deps import (
@@ -1266,7 +1268,10 @@ async def preflight_pdf(
         raise HTTPException(status_code=400, detail="Empty file.")
 
     max_file_size_mb = float(
-        _data_entry_period_settings().get("max_file_size_mb", 10) or 10
+        (await run_in_threadpool(_data_entry_period_settings)).get(
+            "max_file_size_mb", 10
+        )
+        or 10
     )
     if len(content) > max_file_size_mb * 1024 * 1024:
         raise HTTPException(
@@ -1274,7 +1279,7 @@ async def preflight_pdf(
             detail=f"File too large (max {max_file_size_mb:g} MB).",
         )
 
-    has_native_text = file_parser._pdf_has_native_text(content)
+    has_native_text = await run_in_threadpool(file_parser._pdf_has_native_text, content)
     return {
         "is_pdf": True,
         "has_native_text": has_native_text,
@@ -1308,9 +1313,9 @@ async def upload_file(
         month = now.month
     if not year:
         year = now.year
-    period_settings = _data_entry_period_settings()
+    period_settings = await run_in_threadpool(_data_entry_period_settings)
     _validate_period(month, year, period_settings)
-    _assert_not_published(month, year)
+    await run_in_threadpool(_assert_not_published, month, year)
     direction = direction.lower().strip()
     if direction not in ("received", "issued", "both"):
         raise HTTPException(
@@ -1379,34 +1384,8 @@ async def upload_file(
             "document",
         )
     )
-    archived_row: dict | None = None
-    if archive_is_configured() or archive_is_required():
-        try:
-            archived_row = archive_file_bytes(
-                content=content,
-                filename=fname,
-                content_type=file.content_type,
-                category=archive_category,
-                uploaded_by=auth_user["id"],
-                source="data_entry",
-                description=description,
-                linked_entity_type="data_entry_source",
-                linked_entity_id=source_hash,
-                month=month,
-                year=year,
-                week=week,
-                metadata={"direction": direction, "hint": hint or ""},
-            )
-        except Exception as exc:
-            log.exception("[DATA-ENTRY] Original-file archive failed | file=%s", fname)
-            if archive_is_required():
-                raise HTTPException(
-                    status_code=503,
-                    detail="The original file could not be archived; parsing was stopped safely.",
-                ) from exc
-
-    ai_config = ctx.get_ai_config()
-    tools_cfg = ctx.get_ai_tools_config()
+    ai_config = await run_in_threadpool(ctx.get_ai_config)
+    tools_cfg = await run_in_threadpool(ctx.get_ai_tools_config)
 
     if await request.is_disconnected():
         log.warning("[DATA-ENTRY] Client disconnected before parse | file=%s", fname)
@@ -1417,73 +1396,58 @@ async def upload_file(
     # in a thread executor keeps the event loop free so uvicorn can flush the
     # heartbeat comments below — preventing Render's 100-second idle-connection
     # timeout from silently killing the request mid-parse.
-    async def _sse():
-        def _err(status: int, detail: Any) -> bytes:
-            return (
-                b"data: "
-                + json.dumps(
-                    {"__ok": False, "status": status, "detail": detail}
-                ).encode()
-                + b"\n\n"
-            )
-
-        loop = asyncio.get_event_loop()
-        parse_start = time.monotonic()
-        request_context = contextvars.copy_context()
-        parse_task = loop.run_in_executor(
-            _parse_executor,
-            lambda: request_context.run(
-                _extract_ops,
-                fname,
-                content,
-                hint,
-                month,
-                year,
-                ai_config,
-                week=week,
-                direction=direction,
-                tools_cfg=tools_cfg,
-                called_by=auth_user["id"],
-            ),
+    def _err(status: int, detail: Any) -> bytes:
+        return (
+            b"data: "
+            + json.dumps({"__ok": False, "status": status, "detail": detail}).encode()
+            + b"\n\n"
         )
 
-        # Yield SSE heartbeat comments while parse is running.
-        while True:
-            done, _ = await asyncio.wait({parse_task}, timeout=15)
-            if done:
-                break
-            yield b": heartbeat\n\n"
+    def _post_parse(ops, invoice_meta):
+        """Validate and persist in one worker, retaining request context and order."""
+        archived_row: dict | None = None
+        if archive_is_configured() or archive_is_required():
+            try:
+                archived_row = archive_file_bytes(
+                    content=content,
+                    filename=fname,
+                    content_type=file.content_type,
+                    category=archive_category,
+                    uploaded_by=auth_user["id"],
+                    source="data_entry",
+                    description=description,
+                    linked_entity_type="data_entry_source",
+                    linked_entity_id=source_hash,
+                    month=month,
+                    year=year,
+                    week=week,
+                    metadata={"direction": direction, "hint": hint or ""},
+                )
+            except Exception:
+                log.exception(
+                    "[DATA-ENTRY] Original-file archive failed | file=%s", fname
+                )
+                if archive_is_required():
+                    yield _err(
+                        503,
+                        "The original file could not be archived; parsing was stopped safely.",
+                    )
+                    return
 
-        parse_elapsed = round(time.monotonic() - parse_start, 2)
+        yield from _stage_parsed(ops, invoice_meta, archived_row)
+
+    @serialized_inventory_write
+    def _stage_parsed(ops, invoice_meta, archived_row):
+        # Consume the generator while the lock is held; decorating a generator
+        # itself would release the lock before any of its body executes.
+        return list(_validate_and_stage(ops, invoice_meta, archived_row))
+
+    def _validate_and_stage(ops, invoice_meta, archived_row):
         try:
-            ops, invoice_meta = parse_task.result()
+            _assert_not_published(month, year)
         except HTTPException as exc:
             yield _err(exc.status_code, exc.detail)
             return
-        except Exception as exc:
-            log.error("[DATA-ENTRY] Parse failed | file=%s error=%s", fname, exc)
-            yield _err(422, _safe_parse_error(exc))
-            return
-
-        log.info(
-            "[DATA-ENTRY] Parse complete | file=%s ops=%d elapsed=%.2fs provider=%s",
-            fname,
-            len(ops),
-            parse_elapsed,
-            ai_config.get("provider", "?"),
-        )
-
-        # Guard: if the client aborted/cancelled while the parse was running,
-        # stop here — nothing must be written to the DB for a cancelled upload.
-        try:
-            if await request.is_disconnected():
-                log.warning(
-                    "[DATA-ENTRY] Client cancelled during parse — nothing staged | file=%s",
-                    fname,
-                )
-                return
-        except Exception:
-            pass  # don't let a disconnect-check failure block a valid upload
 
         if not ops:
             log.warning("[DATA-ENTRY] No data extracted | file=%s", fname)
@@ -1874,6 +1838,81 @@ async def upload_file(
 
         yield b"data: " + json.dumps(resp).encode() + b"\n\n"
 
+    async def _sse():
+        loop = asyncio.get_event_loop()
+        parse_start = time.monotonic()
+        request_context = contextvars.copy_context()
+        parse_task = loop.run_in_executor(
+            _parse_executor,
+            lambda: request_context.run(
+                _extract_ops,
+                fname,
+                content,
+                hint,
+                month,
+                year,
+                ai_config,
+                week=week,
+                direction=direction,
+                tools_cfg=tools_cfg,
+                called_by=auth_user["id"],
+            ),
+        )
+
+        # Yield SSE heartbeat comments while parse is running.
+        while True:
+            done, _ = await asyncio.wait({parse_task}, timeout=15)
+            if done:
+                break
+            yield b": heartbeat\n\n"
+
+        parse_elapsed = round(time.monotonic() - parse_start, 2)
+        try:
+            ops, invoice_meta = parse_task.result()
+        except HTTPException as exc:
+            yield _err(exc.status_code, exc.detail)
+            return
+        except Exception as exc:
+            log.error("[DATA-ENTRY] Parse failed | file=%s error=%s", fname, exc)
+            yield _err(422, _safe_parse_error(exc))
+            return
+
+        log.info(
+            "[DATA-ENTRY] Parse complete | file=%s ops=%d elapsed=%.2fs provider=%s",
+            fname,
+            len(ops),
+            parse_elapsed,
+            ai_config.get("provider", "?"),
+        )
+
+        # Guard: if the client aborted/cancelled while the parse was running,
+        # stop here — nothing must be written to the DB for a cancelled upload.
+        try:
+            if await request.is_disconnected():
+                log.warning(
+                    "[DATA-ENTRY] Client cancelled during parse — nothing staged | file=%s",
+                    fname,
+                )
+                return
+        except Exception:
+            pass  # don't let a disconnect-check failure block a valid upload
+
+        # Consume the synchronous generator inside the worker, not on the loop.
+        # The disconnect guard above runs before any archive/staging mutations.
+        post_context = contextvars.copy_context()
+        post_task = asyncio.create_task(
+            run_in_threadpool(
+                post_context.run, lambda: list(_post_parse(ops, invoice_meta))
+            )
+        )
+        while True:
+            done, _ = await asyncio.wait({post_task}, timeout=15)
+            if done:
+                break
+            yield b": heartbeat\n\n"
+        for event in post_task.result():
+            yield event
+
     return StreamingResponse(
         _sse(),
         media_type="text/event-stream",
@@ -1882,7 +1921,7 @@ async def upload_file(
 
 
 @router.get("/preview/{batch_id}")
-async def preview_batch(batch_id: str, auth_user: dict = Depends(_get_auth_user)):
+def preview_batch(batch_id: str, auth_user: dict = Depends(_get_auth_user)):
     """
     Row-level diff for all staged entries in a batch.
     Shows exactly which tables and rows will change on commit.
@@ -1976,7 +2015,7 @@ class AISettingsBody(BaseModel):
 
 
 @router.get("/settings")
-async def get_settings(auth_user: dict = Depends(_get_auth_user)):
+def get_settings(auth_user: dict = Depends(_get_auth_user)):
     """Get current AI stack configuration from ai_stack_config + ai_provider_keys + ai_providers."""
     svc = supabase_service
     # Current active stack
@@ -2079,9 +2118,7 @@ _ROLE_LEVELS = {"staff": 10, "assistant": 20, "manager": 30, "admin": 40, "sudo"
 
 
 @router.put("/settings")
-async def update_settings(
-    body: AISettingsBody, auth_user: dict = Depends(_get_auth_user)
-):
+def update_settings(body: AISettingsBody, auth_user: dict = Depends(_get_auth_user)):
     """Update AI stack — provider, model, optional Ollama URL."""
     if _ROLE_LEVELS.get(auth_user.get("role", ""), 0) < 30:
         raise HTTPException(status_code=403, detail="Manager or higher required")
@@ -2101,7 +2138,7 @@ async def update_settings(
 
 
 @router.get("/models")
-async def get_models(provider: str, auth_user: dict = Depends(_get_auth_user)):
+def get_models(provider: str, auth_user: dict = Depends(_get_auth_user)):
     """Live model discovery for a provider. Falls back to static list on any error."""
     if _ROLE_LEVELS.get(auth_user.get("role", ""), 0) < 30:
         raise HTTPException(status_code=403, detail="Manager+ required")
@@ -2214,9 +2251,7 @@ async def get_models(provider: str, auth_user: dict = Depends(_get_auth_user)):
 
 
 @router.post("/ai-keys")
-async def create_ai_key(
-    body: AIKeyCreateBody, auth_user: dict = Depends(_get_auth_user)
-):
+def create_ai_key(body: AIKeyCreateBody, auth_user: dict = Depends(_get_auth_user)):
     """Create a named key in ai_provider_keys. Sudo only."""
     if auth_user.get("role") != "sudo":
         raise HTTPException(status_code=403, detail="Sudo required")
@@ -2270,7 +2305,7 @@ async def create_ai_key(
 
 
 @router.patch("/ai-keys/{key_id}")
-async def patch_ai_key(
+def patch_ai_key(
     key_id: str, body: AIKeyPatchBody, auth_user: dict = Depends(_get_auth_user)
 ):
     """Update a named key by UUID. Sudo only."""
@@ -2327,7 +2362,7 @@ async def patch_ai_key(
 
 
 @router.delete("/ai-keys/{key_id}")
-async def delete_ai_key(key_id: str, auth_user: dict = Depends(_get_auth_user)):
+def delete_ai_key(key_id: str, auth_user: dict = Depends(_get_auth_user)):
     """Delete a named key. Sudo only. 409 if it is the only active key for its provider."""
     if auth_user.get("role") != "sudo":
         raise HTTPException(status_code=403, detail="Sudo required")
@@ -2368,7 +2403,7 @@ async def delete_ai_key(key_id: str, auth_user: dict = Depends(_get_auth_user)):
 
 
 @router.post("/ai-stack")
-async def set_ai_stack(body: AIStackBody, auth_user: dict = Depends(_get_auth_user)):
+def set_ai_stack(body: AIStackBody, auth_user: dict = Depends(_get_auth_user)):
     """Set the active AI stack (provider + key + model). Manager+ required."""
     if _ROLE_LEVELS.get(auth_user.get("role", ""), 0) < 30:
         raise HTTPException(status_code=403, detail="Manager+ required")
@@ -2414,7 +2449,7 @@ class AIKeyUpdateBody(BaseModel):
 
 
 @router.get("/ai-keys")
-async def get_ai_keys(auth_user: dict = Depends(_require_sudo_for_ai)):
+def get_ai_keys(auth_user: dict = Depends(_require_sudo_for_ai)):
     """List all AI provider key status. Never returns the actual key string."""
     try:
         result = (
@@ -2444,7 +2479,7 @@ async def get_ai_keys(auth_user: dict = Depends(_require_sudo_for_ai)):
 
 
 @router.put("/ai-keys/{provider}")
-async def update_ai_key(
+def update_ai_key(
     provider: str,
     body: AIKeyUpdateBody,
     auth_user: dict = Depends(_require_sudo_for_ai),
@@ -2527,15 +2562,13 @@ class AIToolsBody(BaseModel):
 
 
 @router.get("/ai-tools")
-async def get_ai_tools(auth_user: dict = Depends(_require_sudo_for_ai)):
+def get_ai_tools(auth_user: dict = Depends(_require_sudo_for_ai)):
     """Return current AI tool toggle configuration."""
     return ctx.get_ai_tools_config()
 
 
 @router.put("/ai-tools")
-async def update_ai_tools(
-    body: AIToolsBody, auth_user: dict = Depends(_require_sudo_for_ai)
-):
+def update_ai_tools(body: AIToolsBody, auth_user: dict = Depends(_require_sudo_for_ai)):
     """Update AI tool toggles. Only known tool keys are stored."""
     from backend.ai.context import DEFAULT_TOOLS
 
@@ -2551,7 +2584,7 @@ async def update_ai_tools(
 
 
 @router.get("/ai-usage")
-async def get_ai_usage(
+def get_ai_usage(
     days: int = 30,
     limit: int = 50,
     auth_user: dict = Depends(_require_sudo_for_ai),

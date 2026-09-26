@@ -20,13 +20,13 @@ class EventCreate(BaseModel):
 
 
 @router.get("")
-async def list_events(auth_user: dict = Depends(_get_auth_user)):
+def list_events(auth_user: dict = Depends(_get_auth_user)):
     result = supabase_service.table("events").select("*").order("date").execute()
     return result.data
 
 
 @router.post("")
-async def create_event(event: EventCreate, auth_user: dict = Depends(_get_auth_user)):
+def create_event(event: EventCreate, auth_user: dict = Depends(_get_auth_user)):
     payload = event.model_dump(exclude_none=True)
     result = supabase_service.table("events").insert(payload).execute()
     if not result.data:
@@ -35,7 +35,7 @@ async def create_event(event: EventCreate, auth_user: dict = Depends(_get_auth_u
 
 
 @router.delete("/{event_id}")
-async def delete_event(event_id: str, auth_user: dict = Depends(_require_assistant)):
+def delete_event(event_id: str, auth_user: dict = Depends(_require_assistant)):
     result = supabase_service.table("events").delete().eq("id", event_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Event not found")

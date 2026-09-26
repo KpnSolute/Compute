@@ -270,12 +270,12 @@ def system_info() -> dict:
 
 
 @router.get("/health/live")
-async def health_live():
+def health_live():
     return {"status": "ok", "service": "MJCC Management API", "checked_at": _utc_now()}
 
 
 @router.get("/health/ready")
-async def health_ready(response: Response):
+def health_ready(response: Response):
     payload = collect_system_status()
     if any(c["status"] == "outage" for c in payload["components"][:4]):
         response.status_code = 503
@@ -283,12 +283,12 @@ async def health_ready(response: Response):
 
 
 @router.get("/api/system/status")
-async def api_system_status():
+def api_system_status():
     return collect_system_status()
 
 
 @router.get("/api/system/info")
-async def api_system_info():
+def api_system_info():
     return system_info()
 
 
@@ -374,5 +374,5 @@ def render_status_page(payload: dict) -> str:
 
 
 @router.get("/status", response_class=HTMLResponse)
-async def status_page():
+def status_page():
     return HTMLResponse(render_status_page(collect_system_status()))

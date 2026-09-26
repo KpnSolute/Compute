@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api", tags=["data"])
 
 
 @router.get("/opening-checklist")
-async def get_opening_checklist(auth_user: dict = Depends(_get_auth_user)):
+def get_opening_checklist(auth_user: dict = Depends(_get_auth_user)):
     try:
         result = (
             supabase_service.table("opening_checklist_items")
@@ -40,7 +40,7 @@ async def get_opening_checklist(auth_user: dict = Depends(_get_auth_user)):
 
 
 @router.get("/servsafe")
-async def get_servsafe(auth_user: dict = Depends(_get_auth_user)):
+def get_servsafe(auth_user: dict = Depends(_get_auth_user)):
     try:
         result = (
             supabase_service.table("servsafe_certifications")
@@ -121,7 +121,7 @@ def _default_servsafe_certification(role: str | None) -> str:
 
 
 @router.post("/servsafe", status_code=201)
-async def create_servsafe(
+def create_servsafe(
     body: ServSafeCreate,
     auth_user: dict = Depends(_require_admin_or_manager),
 ):
@@ -169,7 +169,7 @@ async def create_servsafe(
 
 
 @router.put("/servsafe/{cert_id}")
-async def update_servsafe(
+def update_servsafe(
     cert_id: str,
     body: ServSafeUpdate,
     auth_user: dict = Depends(_require_admin_or_manager),
@@ -204,7 +204,7 @@ async def update_servsafe(
 
 
 @router.delete("/servsafe/{cert_id}")
-async def delete_servsafe(
+def delete_servsafe(
     cert_id: str,
     auth_user: dict = Depends(_require_admin_or_manager),
 ):
@@ -235,7 +235,7 @@ class MealPeriodUpdate(BaseModel):
 
 
 @router.get("/meal-periods")
-async def get_meal_periods(auth_user: dict = Depends(_get_auth_user)):
+def get_meal_periods(auth_user: dict = Depends(_get_auth_user)):
     try:
         result = (
             supabase_service.table("meal_periods")
@@ -252,7 +252,7 @@ async def get_meal_periods(auth_user: dict = Depends(_get_auth_user)):
 
 
 @router.put("/meal-periods/{period_id}")
-async def update_meal_period(
+def update_meal_period(
     period_id: str,
     body: MealPeriodUpdate,
     auth_user: dict = Depends(_require_admin_or_manager),
@@ -307,7 +307,7 @@ class IncidentCreate(BaseModel):
 
 
 @router.get("/incidents")
-async def get_incidents(
+def get_incidents(
     limit: int = Query(50, ge=1, le=500),
     incident_type: str = Query(None, alias="type"),
     auth_user: dict = Depends(_get_auth_user),
@@ -323,9 +323,7 @@ async def get_incidents(
 
 
 @router.post("/incidents", status_code=201)
-async def create_incident(
-    payload: IncidentCreate, auth_user: dict = Depends(_get_auth_user)
-):
+def create_incident(payload: IncidentCreate, auth_user: dict = Depends(_get_auth_user)):
     try:
         now = datetime.now(timezone.utc).isoformat()
         result = (
@@ -355,7 +353,7 @@ async def create_incident(
 
 
 @router.get("/invoices")
-async def get_invoices(
+def get_invoices(
     month: int = Query(None),
     year: int = Query(None),
     auth_user: dict = Depends(_get_auth_user),
@@ -419,7 +417,7 @@ async def get_invoices(
 
 
 @router.get("/invoices/{id}/items")
-async def get_invoice_items(id: str, auth_user: dict = Depends(_get_auth_user)):
+def get_invoice_items(id: str, auth_user: dict = Depends(_get_auth_user)):
     try:
         result = (
             supabase_service.table("invoice_items")
@@ -436,7 +434,7 @@ async def get_invoice_items(id: str, auth_user: dict = Depends(_get_auth_user)):
 
 
 @router.get("/inventory-categories")
-async def get_inventory_categories(auth_user: dict = Depends(_get_auth_user)):
+def get_inventory_categories(auth_user: dict = Depends(_get_auth_user)):
     try:
         result = (
             supabase_service.table("inventory_categories")
@@ -470,9 +468,7 @@ _PROTECTED_CATEGORY_NAMES = {"New Items", "Uncategorized"}
 
 
 @router.post("/inventory-categories", status_code=201)
-async def create_category(
-    body: CategoryBody, auth_user: dict = Depends(_require_manager)
-):
+def create_category(body: CategoryBody, auth_user: dict = Depends(_require_manager)):
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="Category name is required")
@@ -511,7 +507,7 @@ def _protected_category_name(cat_id: str) -> str | None:
 
 
 @router.patch("/inventory-categories/{cat_id}")
-async def update_category(
+def update_category(
     cat_id: str, body: CategoryBody, auth_user: dict = Depends(_require_manager)
 ):
     name = body.name.strip()
@@ -540,7 +536,7 @@ async def update_category(
 
 
 @router.delete("/inventory-categories/{cat_id}", status_code=204)
-async def delete_category(cat_id: str, auth_user: dict = Depends(_require_manager)):
+def delete_category(cat_id: str, auth_user: dict = Depends(_require_manager)):
     protected = _protected_category_name(cat_id)
     if protected:
         raise HTTPException(
@@ -576,7 +572,7 @@ async def delete_category(cat_id: str, auth_user: dict = Depends(_require_manage
 
 
 @router.get("/dashboard/stats")
-async def get_dashboard_stats(auth_user: dict = Depends(_get_auth_user)):
+def get_dashboard_stats(auth_user: dict = Depends(_get_auth_user)):
     try:
         # total_value = the latest monthly inventory period, using the same
         # quantity x period-price resolver as /api/inventory. Do not use the
@@ -735,7 +731,7 @@ async def get_dashboard_stats(auth_user: dict = Depends(_get_auth_user)):
 
 
 @router.get("/archives")
-async def get_archives(auth_user: dict = Depends(_get_auth_user)):
+def get_archives(auth_user: dict = Depends(_get_auth_user)):
     try:
         result = (
             supabase_service.table("monthly_snapshots")
@@ -754,7 +750,7 @@ async def get_archives(auth_user: dict = Depends(_get_auth_user)):
 
 
 @router.get("/archives/{year}/{month}")
-async def get_archive_detail(
+def get_archive_detail(
     year: int, month: int, auth_user: dict = Depends(_get_auth_user)
 ):
     try:

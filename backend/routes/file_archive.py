@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
 from backend.archive_storage import (
     ARCHIVE_CATEGORIES,
@@ -86,7 +87,8 @@ async def upload_file(
     if len(content) > max_file_bytes():
         raise HTTPException(status_code=413, detail="File exceeds archive size limit")
     try:
-        return archive_file_bytes(
+        return await run_in_threadpool(
+            archive_file_bytes,
             content=content,
             filename=file.filename or "upload",
             content_type=file.content_type,

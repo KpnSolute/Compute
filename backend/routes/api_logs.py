@@ -5,10 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
-import time
-import traceback
-from collections import deque
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncGenerator
@@ -16,6 +12,23 @@ from typing import Any, AsyncGenerator
 import jwt
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from starlette.concurrency import run_in_threadpool
+
+from backend.api_logs import (
+    HISTORY_ON_CONNECT,
+    MAX_EVENTS,
+    InMemoryLogHandler as InMemoryLogHandler,
+    _append_event as _append_event,
+    _now_iso as _now_iso,
+    _public_path as _public_path,
+    _status_band as _status_band,
+    get_events,
+    install_log_capture as install_log_capture,
+    record_log as record_log,
+    record_request as record_request,
+    subscribe,
+    unsubscribe,
+)
 
 from backend.routes import jwt_validator, supabase, supabase_admin, supabase_service
 from backend.routes._deps import ROLE_LEVEL, _get_auth_user, _profile_for_token
@@ -29,61 +42,15 @@ from backend.tenancy import (
     tenancy_mode,
 )
 
-MAX_EVENTS = 1000
-HISTORY_ON_CONNECT = 80
-_events: deque[dict[str, Any]] = deque(maxlen=MAX_EVENTS)
-_subscribers: list[asyncio.Queue] = []
-_handler_installed = False
-
 router = APIRouter(tags=["api-logs"])
 
 _FAVICON_SVG = """<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 32 32\"><rect width=\"32\" height=\"32\" rx=\"7\" fill=\"#0f274d\"/><path d=\"M8 8h16v4H12v4h9v4h-9v4H8z\" fill=\"#fff\"/></svg>"""
 
 
 @router.get("/favicon.ico", include_in_schema=False)
-async def favicon():
+def favicon():
     """Handle the conventional browser favicon request without a 404."""
     return Response(content=_FAVICON_SVG, media_type="image/svg+xml")
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _public_path(path: str) -> str:
-    if "token=" not in path:
-        return path
-    base, _, query = path.partition("?")
-    parts = []
-    for item in query.split("&"):
-        if item.startswith("token="):
-            parts.append("token=redacted")
-        else:
-            parts.append(item)
-    return f"{base}?{'&'.join(parts)}"
-
-
-def _append_event(event: dict[str, Any]) -> None:
-    _events.append(event)
-    stale: list[asyncio.Queue] = []
-    for queue in list(_subscribers):
-        try:
-            queue.put_nowait(event)
-        except asyncio.QueueFull:
-            stale.append(queue)
-    for queue in stale:
-        try:
-            _subscribers.remove(queue)
-        except ValueError:
-            pass
-
-
-def _status_band(status_code: int) -> str:
-    if status_code >= 500:
-        return "error"
-    if status_code >= 400:
-        return "warn"
-    return "info"
 
 
 def _token_user_hint(authorization: str | None) -> str:
@@ -133,57 +100,6 @@ def _token_actor_hint(authorization: str | None) -> dict[str, str | None]:
         or (f"user:{user_id[:8]}" if user_id else "authenticated"),
         "role": str(role) if role else None,
     }
-
-
-def record_request(
-    *,
-    method: str,
-    path: str,
-    status_code: int,
-    duration_ms: int,
-    user_hint: str = "",
-    client_ip: str = "",
-    request_id: str = "",
-    tenant_id: str | None = None,
-) -> None:
-    _append_event(
-        {
-            "id": f"{time.time_ns()}",
-            "ts": _now_iso(),
-            "type": "request",
-            "level": _status_band(status_code),
-            "source": "http",
-            "message": f"{method} {_public_path(path)} -> {status_code}",
-            "method": method,
-            "path": _public_path(path),
-            "status": status_code,
-            "duration_ms": duration_ms,
-            "user": user_hint,
-            "ip": client_ip,
-            "request_id": request_id,
-            "tenant_id": tenant_id,
-        }
-    )
-
-
-def record_log(
-    level: str, source: str, message: str, extra: dict[str, Any] | None = None
-) -> None:
-    from backend.tenancy import current_tenant
-
-    tenant = current_tenant()
-    _append_event(
-        {
-            "id": f"{time.time_ns()}",
-            "ts": _now_iso(),
-            "type": "log",
-            "level": level.lower(),
-            "source": source,
-            "message": message[:4000],
-            "meta": extra or {},
-            "tenant_id": tenant.id if tenant else None,
-        }
-    )
 
 
 def _audit_level(result: str) -> str:
@@ -291,31 +207,6 @@ def _summarize_request_events(events: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-class InMemoryLogHandler(logging.Handler):
-    """Capture Python log records into the portal ring buffer."""
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            message = record.getMessage()
-            if record.exc_info:
-                message = f"{message}\n{''.join(traceback.format_exception(*record.exc_info))}"
-            record_log(record.levelname, record.name, message)
-        except Exception:
-            pass
-
-
-def install_log_capture() -> None:
-    global _handler_installed
-    if _handler_installed:
-        return
-    handler = InMemoryLogHandler()
-    mode = os.getenv("MJCC_LOG_MODE", "live").strip().lower()
-    handler.setLevel(logging.DEBUG if mode in {"debug", "dev"} else logging.INFO)
-    logging.getLogger().addHandler(handler)
-    _handler_installed = True
-    record_log("info", "mjcc.api_logs", "API log capture initialized.")
-
-
 def require_elevated_user(auth_user: dict = Depends(_get_auth_user)) -> dict:
     role = (auth_user or {}).get("role", "")
     if ROLE_LEVEL.get(role, 0) < ROLE_LEVEL["manager"]:
@@ -411,7 +302,7 @@ def _user_from_token(token: str) -> dict:
 
 
 @router.get("/api/system/logs")
-async def get_api_logs(
+def get_api_logs(
     limit: int = Query(250, ge=1, le=MAX_EVENTS),
     kind: str = Query("all", pattern="^(all|request|log|audit)$"),
     level: str = Query("all"),
@@ -422,7 +313,7 @@ async def get_api_logs(
     context = current_tenant()
     entries = [
         entry
-        for entry in _events
+        for entry in get_events()
         if context is None or entry.get("tenant_id") in (None, context.id)
     ]
     buffered = len(entries)
@@ -440,7 +331,7 @@ async def get_api_logs(
 
 
 @router.get("/api/system/logs/audit")
-async def get_audit_logs(
+def get_audit_logs(
     limit: int = Query(250, ge=1, le=500),
     auth_user: dict = Depends(require_log_reader),
 ) -> JSONResponse:
@@ -450,7 +341,7 @@ async def get_audit_logs(
 
 
 @router.get("/api/system/logs/errors")
-async def get_persisted_errors(
+def get_persisted_errors(
     limit: int = Query(100, ge=1, le=500),
     status_min: int = Query(400, ge=400, le=599),
     since_hours: int = Query(168, ge=1, le=2160),
@@ -482,7 +373,7 @@ async def get_persisted_errors(
 
 
 @router.get("/api/system/logs/stats")
-async def get_log_stats(
+def get_log_stats(
     since_hours: int = Query(24, ge=1, le=2160),
     auth_user: dict = Depends(require_log_reader),
 ) -> JSONResponse:
@@ -526,7 +417,7 @@ async def get_log_stats(
 
 
 @router.get("/api/diagnostics/logs")
-async def get_diagnostic_logs(
+def get_diagnostic_logs(
     limit: int = Query(250, ge=1, le=MAX_EVENTS),
     kind: str = Query("all", pattern="^(all|request|log|audit)$"),
     level: str = Query("all"),
@@ -534,45 +425,45 @@ async def get_diagnostic_logs(
 ) -> JSONResponse:
     """Stable read-only CLI endpoint; never exposes business records."""
     _ = principal
-    return await get_api_logs(
+    return get_api_logs(
         limit=limit, kind=kind, level=level, include_durable=True, auth_user=principal
     )
 
 
 @router.get("/api/diagnostics/logs/stats")
-async def get_diagnostic_log_stats(
+def get_diagnostic_log_stats(
     since_hours: int = Query(24, ge=1, le=2160),
     principal: dict = Depends(require_log_reader),
 ) -> JSONResponse:
     _ = principal
-    return await get_log_stats(since_hours=since_hours, auth_user=principal)
+    return get_log_stats(since_hours=since_hours, auth_user=principal)
 
 
 @router.get("/api/diagnostics/logs/errors")
-async def get_diagnostic_errors(
+def get_diagnostic_errors(
     limit: int = Query(100, ge=1, le=500),
     status_min: int = Query(400, ge=400, le=599),
     since_hours: int = Query(168, ge=1, le=2160),
     principal: dict = Depends(require_log_reader),
 ) -> JSONResponse:
     _ = principal
-    return await get_persisted_errors(
+    return get_persisted_errors(
         limit=limit, status_min=status_min, since_hours=since_hours, auth_user=principal
     )
 
 
 @router.get("/api/system/logs/stream")
 async def stream_api_logs(token: str = Query("")) -> StreamingResponse:
-    user = _user_from_token(token)
+    user = await run_in_threadpool(_user_from_token, token)
     tenant_id = (user.get("tenant") or {}).get("id")
 
     async def events() -> AsyncGenerator[str, None]:
         queue: asyncio.Queue = asyncio.Queue(maxsize=250)
-        _subscribers.append(queue)
+        subscribe(queue)
         try:
             history = [
                 event
-                for event in _events
+                for event in get_events()
                 if not tenant_id or event.get("tenant_id") in (None, tenant_id)
             ]
             for event in history[-HISTORY_ON_CONNECT:]:
@@ -588,10 +479,7 @@ async def stream_api_logs(token: str = Query("")) -> StreamingResponse:
         except asyncio.CancelledError:
             pass
         finally:
-            try:
-                _subscribers.remove(queue)
-            except ValueError:
-                pass
+            unsubscribe(queue)
 
     return StreamingResponse(
         events(),
@@ -606,6 +494,11 @@ async def portal_logs_login(request: Request) -> JSONResponse:
         body = await request.json()
     except Exception:
         body = {}
+    return await run_in_threadpool(_portal_logs_login, body)
+
+
+def _portal_logs_login(body: dict[str, Any]) -> JSONResponse:
+    """Authenticate and resolve the portal profile off the request loop."""
     username = str(body.get("username", "")).strip()
     password = str(body.get("password", ""))
     if not username or not password:
@@ -767,7 +660,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter' && $('login').style.d
 
 
 @router.get("/portal/logs", response_class=HTMLResponse)
-async def api_log_portal(token: str = Query(default="")) -> HTMLResponse:
+def api_log_portal(token: str = Query(default="")) -> HTMLResponse:
     return HTMLResponse(_portal_html(auto_token=token.strip()))
 
 

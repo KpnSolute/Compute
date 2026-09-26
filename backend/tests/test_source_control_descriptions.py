@@ -1,5 +1,4 @@
 import importlib
-import asyncio
 
 
 def _import_sourcectrl(monkeypatch):
@@ -75,8 +74,8 @@ def test_transactions_can_be_scoped_to_one_commit(monkeypatch):
 
     monkeypatch.setattr(sourcectrl, "supabase_service", Supabase())
 
-    result = asyncio.run(
-        sourcectrl.get_transactions(commit_id="commit-123", auth_user={"id": "user-1"})
+    result = sourcectrl.get_transactions(
+        commit_id="commit-123", auth_user={"id": "user-1"}
     )
 
     assert result == []

@@ -5,6 +5,8 @@ from backend.routes import supabase_service
 from backend.inventory_identity import (
     get_new_items_category_id,
     resolve_and_write_item,
+    prepare_items_for_batch,
+    flush_item_updates,
 )
 from backend import inventory_formulas as fi
 
@@ -83,6 +85,7 @@ def _enforce_value_invariants(sup, db_month: int, year: int, item_ids) -> int:
         except Exception as exc:
             log.warning("[dispatch] value-invariant read failed: %s", exc)
             continue
+        corrections = []
         for row in res.data or []:
             item_meta = row.get("inventory_items") or {}
             if (
@@ -93,22 +96,25 @@ def _enforce_value_invariants(sup, db_month: int, year: int, item_ids) -> int:
             updates = fi.value_invariant_updates(row)
             if not updates:
                 continue
+            corrections.append({"item_id": row["item_id"], **updates})
+        if corrections:
             try:
-                sup.table("monthly_inventory").update(updates).eq(
-                    "item_id", row["item_id"]
-                ).eq("month", db_month).eq("year", year).execute()
-                corrected += 1
+                sup.rpc(
+                    "settle_inventory_values_batch",
+                    {"p_month": db_month, "p_year": year, "p_updates": corrections},
+                ).execute()
+                corrected += len(corrections)
                 log.info(
-                    "[dispatch] value invariant settled | item_id=%s month=%s year=%s %s",
-                    row["item_id"],
+                    "[dispatch] value invariant settled | items=%s month=%s year=%s %s",
+                    len(corrections),
                     db_month,
                     year,
-                    updates,
+                    corrections,
                 )
             except Exception as exc:
                 log.warning(
                     "[dispatch] value-invariant write failed for item_id=%s: %s",
-                    row.get("item_id"),
+                    [row["item_id"] for row in corrections],
                     exc,
                 )
     return corrected
@@ -185,20 +191,32 @@ def _overpull_error(sku: str | None, opening, received, pulled) -> str | None:
 
 def _validate_monthly_rows_no_overpull(sup, rows: list[dict]) -> str | None:
     """Validate merged monthly rows before the atomic upsert occurs."""
-    for row in rows:
-        current = (
-            sup.table("monthly_inventory")
-            .select(
-                "opening_oh,w1_received,w2_received,w3_received,"
-                "w1_pulled,w2_pulled,w3_pulled"
-            )
-            .eq("item_id", row["item_id"])
-            .eq("month", row["month"])
-            .eq("year", row["year"])
-            .limit(1)
-            .execute()
+    current_rows = {}
+    periods = {(row["month"], row["year"]) for row in rows}
+    for month, year in periods:
+        ids = list(
+            {
+                row["item_id"]
+                for row in rows
+                if (row["month"], row["year"]) == (month, year)
+            }
         )
-        base = (current.data or [{}])[0]
+        for start in range(0, len(ids), 100):
+            current = (
+                sup.table("monthly_inventory")
+                .select(
+                    "item_id,opening_oh,w1_received,w2_received,w3_received,w1_pulled,w2_pulled,w3_pulled"
+                )
+                .eq("month", month)
+                .eq("year", year)
+                .in_("item_id", ids[start : start + 100])
+                .execute()
+            )
+            current_rows.update(
+                {(r["item_id"], month, year): r for r in current.data or []}
+            )
+    for row in rows:
+        base = current_rows.get((row["item_id"], row["month"], row["year"]), {})
         merged = {**base, **row}
         error = _overpull_error(
             row.get("sku"),
@@ -342,7 +360,7 @@ def _rollover_opening_balances(
     if not prev_r.data:
         return 0
 
-    updated = 0
+    rows = []
     for prev in prev_r.data:
         iid = prev["item_id"]
         if iid in explicit_on_hand_item_ids:
@@ -363,7 +381,7 @@ def _rollover_opening_balances(
             # propagating one bad row forward indefinitely.
             ending_value = fi.resolve_row_financials(prev)["ending_value"]
             opening_unit_cost = (ending_value / closing) if closing else None
-            sup.table("monthly_inventory").upsert(
+            rows.append(
                 {
                     "item_id": iid,
                     "month": db_month,
@@ -375,11 +393,13 @@ def _rollover_opening_balances(
                     "received_value": 0,
                     "pulled_value": 0,
                     "ending_value": ending_value,
-                },
-                on_conflict="item_id,month,year",
-            ).execute()
-            updated += 1
-    return updated
+                }
+            )
+    for start in range(0, len(rows), 100):
+        sup.table("monthly_inventory").upsert(
+            rows[start : start + 100], on_conflict="item_id,month,year"
+        ).execute()
+    return len(rows)
 
 
 def dispatch_inventory_save(payload: dict) -> dict:
@@ -448,6 +468,10 @@ def dispatch_inventory_save(payload: dict) -> dict:
     rows: list[dict] = []
     txn_rows: list[dict] = []  # week 1-3 spreadsheet cells + aggregate pulls
     explicit_on_hand_item_ids: set[str] = set()
+    existing_items = prepare_items_for_batch(
+        sup, items, cat_map, new_items_cat_id, force_review_category=review_new
+    )
+    pending_item_updates = {}
     for item in items:
         # Identity is resolved by SKU only; an unknown category resolves to None
         # so a brand-new item lands in "New Items" for manager review.
@@ -466,6 +490,8 @@ def dispatch_inventory_save(payload: dict) -> dict:
             par=item.get("par"),
             unit=item.get("unit") or None,
             force_review_category=review_new,
+            existing_items=existing_items,
+            pending_updates=pending_item_updates,
         )
         if not item_id:
             log.warning(
@@ -599,6 +625,8 @@ def dispatch_inventory_save(payload: dict) -> dict:
     overpull_error = _validate_monthly_rows_no_overpull(sup, rows)
     if overpull_error:
         return {"applied": 0, "error": overpull_error}
+
+    flush_item_updates(sup, pending_item_updates)
 
     # Batched, atomic write. Rows are grouped by their exact column signature so a
     # batched upsert never introduces NULLs for columns a row omitted (which would
@@ -902,6 +930,16 @@ def dispatch_inventory_week(payload: dict) -> dict:
     dropped = 0
     txn_rows: list[dict] = []
     affected_items: set[str] = set()
+    existing_items = prepare_items_for_batch(
+        sup,
+        items,
+        cat_map,
+        new_items_cat_id,
+        force_review_category=review_new,
+        direction=direction,
+    )
+    pending_item_updates = {}
+    resolved_items = []
     for item in items:
         cat_id = cat_map.get(item.get("category", ""))
         # Received invoices provide the source unit price. Pull sheets do not:
@@ -917,6 +955,8 @@ def dispatch_inventory_week(payload: dict) -> dict:
             par=None,  # par is item-level; use dispatch_item_update for par changes
             unit=item.get("unit") or None,
             force_review_category=review_new,
+            existing_items=existing_items,
+            pending_updates=pending_item_updates,
         )
         if not item_id:
             log.warning(
@@ -931,14 +971,28 @@ def dispatch_inventory_week(payload: dict) -> dict:
             dropped += 1
             continue
 
-        item_price_row = (
+        resolved_items.append((item, item_id, _sku))
+
+    if dropped:
+        return _unresolved_items_rejected(
+            dropped, month=month, year=year, week=week, direction=direction
+        )
+    catalog_prices = {
+        row["id"]: row.get("unit_price") for row in existing_items.values()
+    }
+    missing_ids = sorted({iid for _, iid, _ in resolved_items} - catalog_prices.keys())
+    for start in range(0, len(missing_ids), 100):
+        price_rows = (
             sup.table("inventory_items")
-            .select("unit_price")
-            .eq("id", item_id)
-            .limit(1)
+            .select("id,unit_price")
+            .in_("id", missing_ids[start : start + 100])
             .execute()
         )
-        backend_price = (item_price_row.data or [{}])[0].get("unit_price")
+        catalog_prices.update(
+            {row["id"]: row.get("unit_price") for row in price_rows.data or []}
+        )
+    for item, item_id, _sku in resolved_items:
+        backend_price = catalog_prices.get(item_id)
         if backend_price is None and direction == "issued":
             return {"applied": 0, "error": f"No backend price for SKU {_sku}"}
 
@@ -976,6 +1030,10 @@ def dispatch_inventory_week(payload: dict) -> dict:
         affected_items.add(item_id)
         count += 1
 
+    staging_ids = {
+        row.get("staging_entry_id") for row in txn_rows if row.get("staging_entry_id")
+    }
+    staging_ids.update(sid for sid in batch_staging_ids if sid)
     if direction == "issued":
         pending_by_item: dict[str, float] = {}
         sku_by_item: dict[str, str] = {}
@@ -986,20 +1044,49 @@ def dispatch_inventory_week(payload: dict) -> dict:
                 movement["item_id"], 0.0
             ) + float(movement["quantity"] or 0)
             sku_by_item[movement["item_id"]] = movement.get("sku") or "unknown"
-        for item_id, pending_pull in pending_by_item.items():
+        current_rows = {}
+        ids = sorted(pending_by_item)
+        for start in range(0, len(ids), 100):
             current = (
                 sup.table("monthly_inventory")
                 .select(
-                    "opening_oh,w1_received,w2_received,w3_received,"
+                    "item_id,opening_oh,w1_received,w2_received,w3_received,"
                     "w1_pulled,w2_pulled,w3_pulled"
                 )
-                .eq("item_id", item_id)
+                .in_("item_id", ids[start : start + 100])
                 .eq("month", db_month)
                 .eq("year", year)
-                .limit(1)
                 .execute()
             )
-            row = (current.data or [{}])[0]
+            current_rows.update({row["item_id"]: row for row in current.data or []})
+        prior_pulls = {}
+        replay_ids = sorted(staging_ids)
+        for start in range(0, len(replay_ids), 100):
+            offset = 0
+            while True:
+                prior = (
+                    sup.table("inventory_transactions")
+                    .select("item_id,quantity,txn_type,week_number")
+                    .eq("month", db_month)
+                    .eq("year", year)
+                    .in_("staging_entry_id", replay_ids[start : start + 100])
+                    .in_("txn_type", ["issued", "adjustment_decrease"])
+                    .in_("week_number", [1, 2, 3])
+                    .order("txn_id")
+                    .range(offset, offset + 999)
+                    .execute()
+                )
+                movements = prior.data or []
+                for movement in movements:
+                    iid = movement["item_id"]
+                    prior_pulls[iid] = prior_pulls.get(iid, 0.0) + float(
+                        movement.get("quantity") or 0
+                    )
+                if len(movements) < 1000:
+                    break
+                offset += 1000
+        for item_id, pending_pull in pending_by_item.items():
+            row = current_rows.get(item_id, {})
             existing_received = sum(
                 float(row.get(f"w{i}_received") or 0) for i in range(1, 4)
             )
@@ -1010,38 +1097,36 @@ def dispatch_inventory_week(payload: dict) -> dict:
                 sku_by_item.get(item_id),
                 row.get("opening_oh"),
                 existing_received,
-                existing_pulled + pending_pull,
+                max(0.0, existing_pulled - prior_pulls.get(item_id, 0.0))
+                + pending_pull,
             )
             if overpull_error:
                 return {"applied": 0, "error": overpull_error}
-
-    if dropped:
-        return _unresolved_items_rejected(
-            dropped, month=month, year=year, week=week, direction=direction
-        )
 
     # Idempotent append: clear any prior ledger rows from this exact staging entry
     # (a retried commit), then insert. The unique index on staging_entry_id is the
     # backstop. Then recompute the derived weekly columns from the full ledger so
     # repeat invoices in the same week ACCUMULATE.
-    staging_ids = {
-        row.get("staging_entry_id") for row in txn_rows if row.get("staging_entry_id")
-    }
-    staging_ids.update(sid for sid in batch_staging_ids if sid)
-    if staging_ids:
+    flush_item_updates(sup, pending_item_updates)
+    replay_ids = sorted(staging_ids)
+    for start in range(0, len(replay_ids), 100):
         sup.table("inventory_transactions").delete().in_(
-            "staging_entry_id", sorted(staging_ids)
+            "staging_entry_id", replay_ids[start : start + 100]
         ).execute()
     if txn_rows:
         sup.table("inventory_transactions").insert(txn_rows).execute()
-    for iid in affected_items:
+    affected_ids = sorted(affected_items)
+    for start in range(0, len(affected_ids), 100):
         sup.rpc(
-            "recompute_week_totals",
-            {"p_item_id": iid, "p_month": db_month, "p_year": year},
+            "recompute_week_totals_batch",
+            {
+                "p_item_ids": affected_ids[start : start + 100],
+                "p_month": db_month,
+                "p_year": year,
+            },
         ).execute()
-    # recompute_week_totals derives ending_value WITHOUT a zero-clamp and
-    # without the quantity rule, so it is the writer that produced the negative
-    # stored balances in the audit. Settle every row it just touched.
+    # Reconcile every touched row with the canonical financial calculation;
+    # recomputation and sparse posting can otherwise leave stale opening values.
     settled = _enforce_value_invariants(sup, db_month, year, affected_items)
 
     result = {

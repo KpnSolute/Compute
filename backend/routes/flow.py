@@ -99,7 +99,7 @@ class FlowAssignmentResponse(BaseModel):
 
 
 @router.post("/assignments", response_model=FlowAssignmentResponse, status_code=201)
-async def create_assignment(
+def create_assignment(
     entry: FlowAssignmentCreate, auth_user: dict = Depends(_require_assistant)
 ):
     """
@@ -191,7 +191,7 @@ async def create_assignment(
 
 
 @router.get("/assignments", response_model=list[FlowAssignmentResponse])
-async def list_assignments(
+def list_assignments(
     status: str = Query(None),
     all: bool = Query(False),
     auth_user: dict = Depends(_get_auth_user),
@@ -244,7 +244,7 @@ async def list_assignments(
 
 
 @router.patch("/assignments/{assignment_id}", response_model=FlowAssignmentResponse)
-async def update_assignment(
+def update_assignment(
     assignment_id: str,
     entry: FlowAssignmentUpdate,
     auth_user: dict = Depends(_get_auth_user),
@@ -402,7 +402,7 @@ async def update_assignment(
 
 
 @router.delete("/assignments/{assignment_id}", status_code=204)
-async def delete_assignment(
+def delete_assignment(
     assignment_id: str,
     auth_user: dict = Depends(_require_assistant),
 ):

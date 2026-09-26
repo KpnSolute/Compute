@@ -121,7 +121,7 @@ def _public_day_for_date(d: date) -> dict:
 
 
 @router.get("/today")
-async def public_today():
+def public_today():
     try:
         return _public_day_for_date(business_now().date())
     except HTTPException:
@@ -131,7 +131,7 @@ async def public_today():
 
 
 @router.get("/date/{iso_date}")
-async def public_date(iso_date: str):
+def public_date(iso_date: str):
     try:
         d = date.fromisoformat(iso_date)
     except ValueError:
@@ -168,7 +168,7 @@ def _fetch_all_cycle_slots() -> list[dict]:
 
 
 @router.get("/cycle")
-async def public_cycle(include_stats: bool = False):
+def public_cycle(include_stats: bool = False):
     anchor = _get_anchor_date()
     days_r = (
         supabase_service.table("menu_cycle_days")
@@ -209,7 +209,7 @@ def _feedback_sort_key(row: dict) -> tuple[int, float]:
 
 
 @router.get("/stats")
-async def public_menu_stats(limit: int = Query(10, ge=1, le=100)):
+def public_menu_stats(limit: int = Query(10, ge=1, le=100)):
     rows = (
         supabase_service.table("menu_feedback_summary").select("*").execute().data or []
     )
@@ -228,7 +228,7 @@ class SuggestionCreate(BaseModel):
 
 
 @router.post("/suggestions")
-async def public_create_suggestion(body: SuggestionCreate, x_api_key: str = Header("")):
+def public_create_suggestion(body: SuggestionCreate, x_api_key: str = Header("")):
     expected = os.getenv("MENU_API_KEY")
     if not expected:
         raise HTTPException(status_code=503, detail="MENU_API_KEY is not configured")

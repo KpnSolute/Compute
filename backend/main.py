@@ -1,10 +1,12 @@
 # ruff: noqa: E402
+import asyncio
 import logging
 import os
 import sys
 import time
 import traceback
 import uuid
+from contextlib import asynccontextmanager
 
 # Load local environment before configuring logging. Render supplies environment
 # variables directly, while this keeps local CLI diagnostics consistent.
@@ -69,6 +71,7 @@ from backend.routes.menu import router as menu_router
 from backend.routes.public_menu import router as public_menu_router
 from backend.routes.sourcectrl import router as sourcectrl_router
 from backend.routes.github_sync import router as github_sync_router
+from backend.routes.github_sync import poll_archive_queue
 from backend.routes.data import router as data_router
 from backend.routes.data_entry import router as data_entry_router
 from backend.routes.file_archive import router as file_archive_router
@@ -95,10 +98,26 @@ from backend.error_log import record_error
 from backend.audit_events import current_request_id, record_audit_event
 from fastapi.responses import HTMLResponse
 
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    stop = asyncio.Event()
+    task = asyncio.create_task(poll_archive_queue(stop), name="archive-queue-poller")
+    application.state.archive_queue_task = task
+    try:
+        yield
+    finally:
+        # Finish any in-flight bounded drain before releasing its shared lock.
+        # Setting the event also wakes the interval wait immediately.
+        stop.set()
+        await task
+
+
 app = FastAPI(
     title="KpnCompute API",
     description="Tenant-safe managed business software and workspace operations.",
     version=os.getenv("KPNCOMPUTE_VERSION", "0.3.0"),
+    lifespan=lifespan,
 )
 install_log_capture()
 

@@ -70,6 +70,8 @@ def resolve_and_write_item(
     par=None,
     unit: str | None = None,
     force_review_category: bool = False,
+    existing_items: dict | None = None,
+    pending_updates: dict | None = None,
 ) -> tuple[str | None, str, bool]:
     """Find an inventory_items row by SKU (or create it). Returns
     (item_id, effective_sku, created).
@@ -106,10 +108,17 @@ def resolve_and_write_item(
             row = None
     else:
         sku = raw_sku or gen_sku()
-        existing = (
-            sup.table("inventory_items").select("id").eq("sku", sku).limit(1).execute()
-        )
-        row = (existing.data or [None])[0]
+        if existing_items is not None:
+            row = existing_items.get(sku)
+        else:
+            existing = (
+                sup.table("inventory_items")
+                .select("id")
+                .eq("sku", sku)
+                .limit(1)
+                .execute()
+            )
+            row = (existing.data or [None])[0]
 
     # Shared fields written on both insert and update. Only write par/price/unit
     # when the payload actually carries them — a missing value must not zero the
@@ -128,8 +137,25 @@ def resolve_and_write_item(
 
     if row:
         item_id = row["id"]
+        # Batch preparation already wrote this first occurrence's fields. The
+        # transient flag is consumed once and never sent back to the database.
+        if row.pop("_batch_created", False):
+            return item_id, sku, True
         # NOTE: category_id intentionally omitted on update (preserve reassign).
-        sup.table("inventory_items").update(fields).eq("id", item_id).execute()
+        if pending_updates is not None and raw_sku not in _PLACEHOLDER_SKUS:
+            if any(
+                row.get(key) != value
+                for key, value in fields.items()
+                if key != "updated_at"
+            ):
+                pending_updates[item_id] = {
+                    **pending_updates.get(item_id, {}),
+                    "id": item_id,
+                    **fields,
+                }
+            row.update(fields)
+        else:
+            sup.table("inventory_items").update(fields).eq("id", item_id).execute()
         return item_id, sku, False
 
     # New item: data-entry review mode routes every parsed item into New Items
@@ -151,4 +177,117 @@ def resolve_and_write_item(
         fields["unit"] = None
     ins = sup.table("inventory_items").insert(fields).execute()
     new_id = ins.data[0]["id"] if ins.data else None
+    if existing_items is not None and new_id:
+        existing_items[sku] = {**fields, "id": new_id}
     return new_id, sku, True
+
+
+def load_items_for_batch(sup, items: list[dict]) -> dict:
+    skus = sorted(
+        {canonical_sku(item.get("sku")) for item in items} - _PLACEHOLDER_SKUS - {""}
+    )
+    result = {}
+    for start in range(0, len(skus), 100):
+        rows = (
+            sup.table("inventory_items")
+            .select("*")
+            .in_("sku", skus[start : start + 100])
+            .execute()
+            .data
+            or []
+        )
+        result.update({row["sku"]: row for row in rows})
+    return result
+
+
+def prepare_items_for_batch(
+    sup,
+    items: list[dict],
+    cat_map: dict,
+    fallback_category_id: str | None,
+    *,
+    force_review_category: bool = False,
+    direction: str | None = None,
+    existing_items: dict | None = None,
+) -> dict:
+    """Load catalog rows and bulk-create missing canonical SKUs.
+
+    Return the SKU-keyed cache accepted by resolve_and_write_item. Replace
+    load_items_for_batch with this call before resolving the SAME items in the
+    SAME order under the shared inventory-write lock. direction=None denotes
+    whole-month payloads (price + par); received keeps price but omits par;
+    issued omits both. Blank/placeholder SKUs retain the existing resolver path.
+
+    This helper writes catalog rows; call only after applicable rejection gates.
+    It does not validate quantities, mutate input items, or acquire the lock.
+    The first resolver call for each inserted SKU consumes a cache-only marker
+    and returns created=True without another write. Later duplicates resolve
+    normally, preserving first-occurrence category and later sparse updates.
+    """
+    if direction not in (None, "received", "issued"):
+        raise ValueError("direction must be None, received, or issued")
+    cache = (
+        load_items_for_batch(sup, items) if existing_items is None else existing_items
+    )
+    missing = {}
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for item in items:
+        sku = canonical_sku(item.get("sku"))
+        if not sku or sku in _PLACEHOLDER_SKUS or sku in cache or sku in missing:
+            continue
+        category_id = cat_map.get(item.get("category", ""))
+        fields = {
+            "sku": sku,
+            "description": (item.get("desc") or "").strip() or "No description",
+            "updated_at": now_iso,
+            "created_at": now_iso,
+            "active": True,
+            "unit": item.get("unit") or None,
+            "category_id": fallback_category_id
+            if force_review_category
+            else category_id or fallback_category_id,
+        }
+        if (
+            force_review_category
+            and category_id
+            and category_id != fallback_category_id
+        ):
+            fields["suggested_category_id"] = category_id
+        if direction != "issued" and item.get("price") is not None:
+            fields["unit_price"] = item["price"]
+        if direction is None and item.get("par") is not None:
+            fields["par_level"] = item["par"]
+        missing[sku] = fields
+
+    # Preserve omitted columns/defaults: every PostgREST insert array has the
+    # same keys, rather than filling sparse price/par fields with fabricated NULL.
+    groups = {}
+    for fields in missing.values():
+        groups.setdefault(tuple(sorted(fields)), []).append(fields)
+    for rows in groups.values():
+        for start in range(0, len(rows), 100):
+            chunk = rows[start : start + 100]
+            inserted = sup.table("inventory_items").insert(chunk).execute().data or []
+            returned = {
+                canonical_sku(row.get("sku")): row for row in inserted if row.get("id")
+            }
+            for fields in chunk:
+                sku = fields["sku"]
+                if sku not in returned:
+                    raise RuntimeError(
+                        f"Batch catalog insert returned no item id for SKU {sku}"
+                    )
+                cache[sku] = {**fields, **returned[sku], "_batch_created": True}
+    return cache
+
+
+def flush_item_updates(sup, updates: dict) -> None:
+    # Exact column signatures preserve omitted price/par/unit/category fields.
+    groups = {}
+    for row in updates.values():
+        groups.setdefault(tuple(sorted(row)), []).append(row)
+    for rows in groups.values():
+        for start in range(0, len(rows), 100):
+            sup.table("inventory_items").upsert(
+                rows[start : start + 100], on_conflict="id"
+            ).execute()

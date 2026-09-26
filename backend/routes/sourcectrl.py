@@ -4,6 +4,11 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
+from backend.concurrency import (
+    run_commit,
+    schedule_inventory_audit,
+    serialized_inventory_write,
+)
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from typing import Optional
@@ -735,6 +740,7 @@ def _safe_replay(replay_fn, operation: str, payload: dict) -> dict:
 # ── core replay→commit helper ─────────────────────────────────────────────────
 
 
+@serialized_inventory_write
 def _apply_entries(
     entries: list[dict],
     author_id: str,
@@ -1148,10 +1154,8 @@ def _apply_entries(
             for fp in [e.get("full_payload") or {}]
             if isinstance(fp.get("month"), int) and isinstance(fp.get("year"), int)
         }
-        for db_m, yr in periods:
-            supabase_service.rpc(
-                "audit_inventory_period", {"p_month": db_m, "p_year": yr}
-            ).execute()
+        if periods:
+            schedule_inventory_audit(_audit_committed_periods, periods)
     except Exception as exc:
         log.warning(
             "[COMMIT] post-commit inventory audit failed (non-blocking): %s", exc
@@ -1167,11 +1171,24 @@ def _apply_entries(
     }
 
 
+@serialized_inventory_write
+def _audit_committed_periods(periods):
+    for db_m, yr in periods:
+        try:
+            supabase_service.rpc(
+                "audit_inventory_period", {"p_month": db_m, "p_year": yr}
+            ).execute()
+        except Exception:
+            log.exception(
+                "[COMMIT] background inventory audit failed for %s/%s", db_m, yr
+            )
+
+
 # ── routes ───────────────────────────────────────────────────────────────────
 
 
 @router.get("/commits")
-async def get_commits(
+def get_commits(
     limit: int = 50, offset: int = 0, auth_user: dict = Depends(_get_auth_user)
 ):
     try:
@@ -1258,7 +1275,7 @@ async def get_commits(
 
 
 @router.get("/transactions")
-async def get_transactions(
+def get_transactions(
     limit: int = 200,
     offset: int = 0,
     action: Optional[str] = None,
@@ -1362,7 +1379,7 @@ async def get_transactions(
 
 
 @router.get("/staging")
-async def get_staging(
+def get_staging(
     entity_type: Optional[str] = None, auth_user: dict = Depends(_get_auth_user)
 ):
     try:
@@ -1417,7 +1434,7 @@ async def get_staging(
 
 
 @router.get("/staging/mine")
-async def get_my_staging(auth_user: dict = Depends(_get_auth_user)):
+def get_my_staging(auth_user: dict = Depends(_get_auth_user)):
     """Return the current user's pending staging entries (not yet linked to a PR)."""
     try:
         r = (
@@ -1438,9 +1455,8 @@ async def get_my_staging(auth_user: dict = Depends(_get_auth_user)):
 
 
 @router.post("/staging", status_code=201)
-async def submit_staging(
-    body: SubmitStagingBody, auth_user: dict = Depends(_get_auth_user)
-):
+@serialized_inventory_write
+def submit_staging(body: SubmitStagingBody, auth_user: dict = Depends(_get_auth_user)):
     if body.entity_type not in ENTITY_TYPES:
         raise HTTPException(
             status_code=422, detail=f"entity_type must be one of {sorted(ENTITY_TYPES)}"
@@ -1638,6 +1654,13 @@ async def approve_commit(
     body: ApproveCommitBody,
     auth_user: dict = Depends(_require_assistant),
 ):
+    return await run_commit(_approve_commit_sync, body, auth_user)
+
+
+def _approve_commit_sync(
+    body: ApproveCommitBody,
+    auth_user: dict = Depends(_require_assistant),
+):
     """Backward-compatible direct commit endpoint. Delegates to _apply_entries.
 
     Assistant role or higher may approve — but never their own staged entries,
@@ -1714,7 +1737,8 @@ async def approve_commit(
 
 
 @router.delete("/staging/{entry_id}", status_code=204)
-async def reject_staging(
+@serialized_inventory_write
+def reject_staging(
     entry_id: str,
     review_note: Optional[str] = None,
     auth_user: dict = Depends(_require_assistant),
@@ -1798,7 +1822,8 @@ class BulkUnstageBody(BaseModel):
 
 
 @router.delete("/staging", status_code=200)
-async def bulk_unstage(
+@serialized_inventory_write
+def bulk_unstage(
     body: BulkUnstageBody,
     auth_user: dict = Depends(_require_assistant),
 ):
@@ -1854,7 +1879,8 @@ async def bulk_unstage(
 
 
 @router.post("/pulls", status_code=201)
-async def open_pull_request(
+@serialized_inventory_write
+def open_pull_request(
     body: OpenPRBody,
     auth_user: dict = Depends(_get_auth_user),
 ):
@@ -1938,7 +1964,7 @@ async def open_pull_request(
 
 
 @router.get("/pulls")
-async def list_pull_requests(
+def list_pull_requests(
     status: str = "open",
     limit: int = 50,
     offset: int = 0,
@@ -2009,7 +2035,7 @@ async def list_pull_requests(
 
 
 @router.get("/pulls/{pr_id}")
-async def get_pull_request(
+def get_pull_request(
     pr_id: str,
     auth_user: dict = Depends(_get_auth_user),
 ):
@@ -2075,6 +2101,13 @@ async def get_pull_request(
 
 @router.post("/pulls/{pr_id}/merge")
 async def merge_pull_request(
+    pr_id: str,
+    auth_user: dict = Depends(_require_assistant),
+):
+    return await run_commit(_merge_pull_request_sync, pr_id, auth_user)
+
+
+def _merge_pull_request_sync(
     pr_id: str,
     auth_user: dict = Depends(_require_assistant),
 ):
@@ -2261,7 +2294,8 @@ async def merge_pull_request(
 
 
 @router.post("/pulls/{pr_id}/close")
-async def close_pull_request(
+@serialized_inventory_write
+def close_pull_request(
     pr_id: str,
     body: ClosePRBody = ClosePRBody(),
     auth_user: dict = Depends(_get_auth_user),

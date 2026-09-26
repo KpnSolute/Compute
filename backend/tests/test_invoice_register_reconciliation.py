@@ -11,7 +11,6 @@ Pins the 2026-07-18 production-audit findings:
 Uses in-memory fake Supabase clients per house pattern — zero network/DB.
 """
 
-import asyncio
 import os
 import sys
 from unittest.mock import patch
@@ -245,9 +244,7 @@ def test_get_invoices_attaches_item_counts():
         }
     )
     with patch.object(data_routes, "supabase_service", fake):
-        rows = asyncio.run(
-            data_routes.get_invoices(month=7, year=2026, auth_user={"id": "u1"})
-        )
+        rows = data_routes.get_invoices(month=7, year=2026, auth_user={"id": "u1"})
 
     by_number = {r["invoice_number"]: r for r in rows}
     assert by_number["898561"]["item_count"] == 10

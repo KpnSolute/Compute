@@ -92,7 +92,7 @@ def _tenant(auth_user: dict, requested_slug: str) -> dict:
 
 
 @router.get("/workspaces/resolve/{workspace_slug}")
-async def resolve_workspace_entry(workspace_slug: str):
+def resolve_workspace_entry(workspace_slug: str):
     """Resolve a public tenant entry without exposing membership or credentials.
 
     The frontend uses this before showing a tenant-local sign-in action. A
@@ -120,12 +120,12 @@ async def resolve_workspace_entry(workspace_slug: str):
 
 
 @router.get("/workspaces")
-async def list_workspaces(auth_user: dict = Depends(_get_auth_user)):
+def list_workspaces(auth_user: dict = Depends(_get_auth_user)):
     return {"workspaces": list_user_tenants(supabase_admin, str(auth_user["id"]))}
 
 
 @router.post("/workspaces", status_code=201)
-async def create_workspace(
+def create_workspace(
     body: WorkspaceCreate,
     idempotency_key: str = Header("", alias="Idempotency-Key"),
     auth_user: dict = Depends(_require_admin_or_manager),
@@ -166,9 +166,7 @@ async def create_workspace(
 
 
 @router.get("/workspaces/{workspace_slug}/summary")
-async def workspace_summary(
-    workspace_slug: str, auth_user: dict = Depends(_get_auth_user)
-):
+def workspace_summary(workspace_slug: str, auth_user: dict = Depends(_get_auth_user)):
     tenant = _tenant(auth_user, workspace_slug)
     projects = (
         supabase_service.table("workspace_projects")
@@ -206,7 +204,7 @@ async def workspace_summary(
 
 
 @router.get("/workspaces/{workspace_slug}/sites")
-async def list_sites(workspace_slug: str, auth_user: dict = Depends(_get_auth_user)):
+def list_sites(workspace_slug: str, auth_user: dict = Depends(_get_auth_user)):
     _tenant(auth_user, workspace_slug)
     rows = (
         supabase_service.table("workspace_sites")
@@ -220,7 +218,7 @@ async def list_sites(workspace_slug: str, auth_user: dict = Depends(_get_auth_us
 
 
 @router.post("/workspaces/{workspace_slug}/sites", status_code=201)
-async def create_site(
+def create_site(
     workspace_slug: str,
     body: SiteCreate,
     auth_user: dict = Depends(_require_admin_or_manager),
@@ -273,7 +271,7 @@ async def create_site(
 
 
 @router.get("/workspaces/{workspace_slug}/projects")
-async def list_projects(workspace_slug: str, auth_user: dict = Depends(_get_auth_user)):
+def list_projects(workspace_slug: str, auth_user: dict = Depends(_get_auth_user)):
     _tenant(auth_user, workspace_slug)
     rows = (
         supabase_service.table("workspace_projects")
@@ -286,7 +284,7 @@ async def list_projects(workspace_slug: str, auth_user: dict = Depends(_get_auth
 
 
 @router.post("/workspaces/{workspace_slug}/projects", status_code=201)
-async def create_project(
+def create_project(
     workspace_slug: str,
     body: ProjectCreate,
     idempotency_key: str = Header("", alias="Idempotency-Key"),

@@ -44,6 +44,14 @@ class _FakeQuery:
         self._filters: dict = {}
         self._op = "select"
         self._payload = None
+        self._range = None
+
+    def order(self, *_a, **_k):
+        return self
+
+    def range(self, start, end):
+        self._range = (start, end)
+        return self
 
     def select(self, *_a, **_k):
         self._op = "select"
@@ -100,6 +108,9 @@ class _FakeQuery:
 
         if self._op == "select":
             matched = [r for r in rows if _matches(r)]
+            if self._range is not None:
+                start, end = self._range
+                matched = matched[start : end + 1]
             return _Result(matched)
 
         if self._op == "update":
@@ -816,6 +827,10 @@ def test_inventory_save_unresolved_sku_blocks_whole_batch_before_write():
 
     with (
         patch("backend.staging.dispatch.supabase_service", sup),
+        patch(
+            "backend.staging.dispatch.prepare_items_for_batch",
+            return_value={"DRY-001": {"id": "item-1", "sku": "DRY-001"}},
+        ),
         patch(
             "backend.staging.dispatch.resolve_and_write_item",
             side_effect=_fake_resolve,

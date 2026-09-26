@@ -284,7 +284,7 @@ def _auto_actual(auto_source: str, db_month: int, year: int) -> float:
 
 
 @router.get("/budget", response_model=Optional[CostBudgetResponse])
-async def get_budget(
+def get_budget(
     month: int = Query(..., ge=1, le=12),
     year: int = Query(...),
     auth_user: dict = Depends(_get_auth_user),
@@ -295,7 +295,7 @@ async def get_budget(
 
 
 @router.post("/budget", response_model=CostBudgetResponse, status_code=201)
-async def save_budget(
+def save_budget(
     body: CostBudgetIn,
     auth_user: dict = Depends(_require_admin_or_manager),
 ):
@@ -329,7 +329,7 @@ async def save_budget(
 
 
 @router.get("/summary")
-async def get_summary(
+def get_summary(
     month: int = Query(..., ge=1, le=12),
     year: int = Query(...),
     auth_user: dict = Depends(_get_auth_user),
@@ -375,7 +375,7 @@ async def get_summary(
 
 
 @router.get("/trend")
-async def get_trend(
+def get_trend(
     month: int = Query(..., ge=1, le=12),
     year: int = Query(...),
     months: int = Query(_DEFAULT_TREND_MONTHS, ge=1, le=24),
@@ -403,7 +403,7 @@ async def get_trend(
 
 
 @router.get("/averages")
-async def get_averages(
+def get_averages(
     months: int = Query(_DEFAULT_TREND_MONTHS, ge=1, le=24),
     auth_user: dict = Depends(_get_auth_user),
 ):
@@ -545,7 +545,7 @@ def _line_items_for_period(month: int, year: int) -> list[dict]:
 
 
 @router.get("/line-items")
-async def get_line_items(
+def get_line_items(
     month: int = Query(..., ge=1, le=12),
     year: int = Query(...),
     auth_user: dict = Depends(_get_auth_user),
@@ -554,7 +554,7 @@ async def get_line_items(
 
 
 @router.post("/line-items", response_model=BudgetLineItemResponse, status_code=201)
-async def create_line_item(
+def create_line_item(
     body: BudgetLineItemIn,
     month: int = Query(..., ge=1, le=12),
     year: int = Query(...),
@@ -582,7 +582,7 @@ async def create_line_item(
 
 
 @router.patch("/line-items/{item_id}", response_model=BudgetLineItemResponse)
-async def update_line_item(
+def update_line_item(
     item_id: str,
     body: BudgetLineItemIn,
     auth_user: dict = Depends(_require_admin_or_manager),
@@ -612,7 +612,7 @@ async def update_line_item(
 
 
 @router.delete("/line-items/{item_id}", status_code=204)
-async def delete_line_item(
+def delete_line_item(
     item_id: str,
     auth_user: dict = Depends(_require_admin_or_manager),
 ):
@@ -624,7 +624,7 @@ async def delete_line_item(
 
 
 @router.put("/line-items/{item_id}/actual")
-async def set_line_item_actual(
+def set_line_item_actual(
     item_id: str,
     body: LineItemActualIn,
     month: int = Query(..., ge=1, le=12),

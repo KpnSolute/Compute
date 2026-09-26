@@ -168,12 +168,12 @@ def _next_document_version(project_id: str, logical_name: str) -> int:
 
 
 @router.get("/workspaces")
-async def list_workspaces(auth_user: dict = Depends(_get_auth_user)):
+def list_workspaces(auth_user: dict = Depends(_get_auth_user)):
     return {"workspaces": list_user_tenants(supabase_admin, str(auth_user["id"]))}
 
 
 @router.post("/workspaces", status_code=201)
-async def create_workspace(
+def create_workspace(
     body: WorkspaceCreate,
     idempotency_key: str = Header("", alias="Idempotency-Key"),
     auth_user: dict = Depends(_require_admin_or_manager),
@@ -217,7 +217,7 @@ async def create_workspace(
 
 
 @router.get("/workspaces/{workspace_slug}/projects")
-async def list_projects(workspace_slug: str, auth_user: dict = Depends(_get_auth_user)):
+def list_projects(workspace_slug: str, auth_user: dict = Depends(_get_auth_user)):
     _require_path_workspace(workspace_slug, auth_user)
     rows = (
         supabase_service.table("workspace_projects")
@@ -229,7 +229,7 @@ async def list_projects(workspace_slug: str, auth_user: dict = Depends(_get_auth
 
 
 @router.post("/workspaces/{workspace_slug}/projects", status_code=201)
-async def create_project(
+def create_project(
     workspace_slug: str,
     body: ProjectCreate,
     idempotency_key: str = Header("", alias="Idempotency-Key"),
@@ -291,7 +291,7 @@ async def create_project(
 
 
 @router.get("/projects/{project_id}")
-async def get_project(project_id: str, auth_user: dict = Depends(_get_auth_user)):
+def get_project(project_id: str, auth_user: dict = Depends(_get_auth_user)):
     _tenant(auth_user)
     project = _project(project_id)
     tree = (
@@ -305,7 +305,7 @@ async def get_project(project_id: str, auth_user: dict = Depends(_get_auth_user)
 
 
 @router.post("/projects/{project_id}/documents:prepare-upload", status_code=201)
-async def prepare_document_upload(
+def prepare_document_upload(
     project_id: str,
     body: ArtifactPrepare,
     auth_user: dict = Depends(_require_admin_or_manager),
@@ -380,7 +380,7 @@ async def prepare_document_upload(
 
 
 @router.post("/projects/{project_id}/documents:finalize", status_code=201)
-async def finalize_document_upload(
+def finalize_document_upload(
     project_id: str,
     body: ArtifactFinalize,
     auth_user: dict = Depends(_require_admin_or_manager),
@@ -456,7 +456,7 @@ async def finalize_document_upload(
 
 
 @router.get("/projects/{project_id}/documents")
-async def list_documents(project_id: str, auth_user: dict = Depends(_get_auth_user)):
+def list_documents(project_id: str, auth_user: dict = Depends(_get_auth_user)):
     _tenant(auth_user)
     project = _project(project_id)
     documents = (
@@ -477,7 +477,7 @@ async def list_documents(project_id: str, auth_user: dict = Depends(_get_auth_us
 
 
 @router.post("/projects/{project_id}/generation-runs", status_code=201)
-async def create_generation_run(
+def create_generation_run(
     project_id: str,
     body: GenerationCreate,
     idempotency_key: str = Header("", alias="Idempotency-Key"),
@@ -637,7 +637,7 @@ async def create_generation_run(
 
 
 @router.get("/generation-runs/{run_id}")
-async def get_generation_run(run_id: str, auth_user: dict = Depends(_get_auth_user)):
+def get_generation_run(run_id: str, auth_user: dict = Depends(_get_auth_user)):
     _tenant(auth_user)
     rows = (
         supabase_service.table("project_generation_runs")
@@ -659,7 +659,7 @@ async def get_generation_run(run_id: str, auth_user: dict = Depends(_get_auth_us
 
 
 @router.post("/blueprints/{blueprint_id}:review")
-async def review_blueprint(
+def review_blueprint(
     blueprint_id: str,
     body: BlueprintReview,
     auth_user: dict = Depends(_require_admin_or_manager),
@@ -701,7 +701,7 @@ async def review_blueprint(
 
 
 @router.post("/projects/{project_id}:export")
-async def export_project(
+def export_project(
     project_id: str,
     idempotency_key: str = Header("", alias="Idempotency-Key"),
     auth_user: dict = Depends(_require_admin_or_manager),

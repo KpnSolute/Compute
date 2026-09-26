@@ -28,6 +28,7 @@ from urllib.error import HTTPError
 
 from fastapi import APIRouter, HTTPException, Depends, File, UploadFile
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from starlette.concurrency import run_in_threadpool
 from backend.routes import (
     SUPABASE_SERVICE_KEY,
     SUPABASE_URL,
@@ -460,12 +461,14 @@ def _enforce_user_update_scope(
 
 async def _get_user_by_id(user_id: str) -> dict | None:
     try:
-        result = (
-            supabase_service.table("user_profiles")
-            .select("*")
-            .eq("id", user_id)
-            .single()
-            .execute()
+        result = await run_in_threadpool(
+            lambda: (
+                supabase_service.table("user_profiles")
+                .select("*")
+                .eq("id", user_id)
+                .single()
+                .execute()
+            )
         )
         return result.data if result.data else None
     except Exception:
@@ -481,7 +484,7 @@ async def _user_exists(username: str, exclude_id: str | None = None) -> bool:
         )
         if exclude_id:
             query = query.neq("id", exclude_id)
-        result = query.limit(1).execute()
+        result = await run_in_threadpool(lambda: query.limit(1).execute())
         return bool(result.data)
     except Exception:
         return False
@@ -620,13 +623,13 @@ async def _require_sudo(user: dict = Depends(_get_auth_user)) -> dict:
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_my_profile(current_user: dict = Depends(_require_any_auth)):
+def get_my_profile(current_user: dict = Depends(_require_any_auth)):
     """Return the calling user's full profile."""
     return UserResponse(**current_user)
 
 
 @router.put("/me", response_model=UserResponse)
-async def update_my_profile(
+def update_my_profile(
     req: UserSelfUpdateRequest, current_user: dict = Depends(_require_any_auth)
 ):
     """Self-service profile update — staff can only change contact/photo fields."""
@@ -654,7 +657,7 @@ async def update_my_profile(
 
 
 @router.put("/me/password")
-async def update_my_password(
+def update_my_password(
     req: PasswordUpdateRequest, current_user: dict = Depends(_require_manager)
 ):
     """Allow manager/admin/sudo users to change their own Supabase Auth password."""
@@ -675,7 +678,7 @@ async def update_my_password(
 
 
 @router.put("/me/pin")
-async def update_my_pin(
+def update_my_pin(
     req: PinUpdateRequest, current_user: dict = Depends(_require_any_auth)
 ):
     """Allow a user to change their own PIN (staff clear the default-PIN banner here)."""
@@ -730,32 +733,36 @@ async def upload_my_avatar(
     try:
         import httpx
 
-        resp = httpx.put(
-            upload_url,
-            headers={
-                "apikey": SUPABASE_SERVICE_KEY,
-                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-                "Content-Type": content_type,
-                "x-upsert": "true",
-            },
-            content=data,
-            timeout=20,
+        resp = await run_in_threadpool(
+            lambda: httpx.put(
+                upload_url,
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    "Content-Type": content_type,
+                    "x-upsert": "true",
+                },
+                content=data,
+                timeout=20,
+            )
         )
         if resp.status_code not in (200, 201):
             raise HTTPException(
                 status_code=502, detail=f"Avatar upload failed: {resp.text}"
             )
 
-        updated = (
-            supabase_service.table("user_profiles")
-            .update(
-                {
-                    "avatar_url": public_url,
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                }
+        updated = await run_in_threadpool(
+            lambda: (
+                supabase_service.table("user_profiles")
+                .update(
+                    {
+                        "avatar_url": public_url,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+                .eq("id", current_user["id"])
+                .execute()
             )
-            .eq("id", current_user["id"])
-            .execute()
         )
         user = updated.data[0] if updated.data else None
         if not user:
@@ -768,7 +775,7 @@ async def upload_my_avatar(
 
 
 @router.get("/me/preferences")
-async def get_user_preferences(current_user: dict = Depends(_require_any_auth)):
+def get_user_preferences(current_user: dict = Depends(_require_any_auth)):
     """Return the calling user's saved preferences from app_settings."""
     key = f"user_prefs_{current_user['id']}"
     try:
@@ -788,7 +795,7 @@ async def get_user_preferences(current_user: dict = Depends(_require_any_auth)):
 
 
 @router.put("/me/preferences")
-async def update_user_preferences(
+def update_user_preferences(
     req: UserPrefsRequest, current_user: dict = Depends(_require_any_auth)
 ):
     """Upsert the calling user's preferences into app_settings."""
@@ -833,7 +840,7 @@ async def update_user_preferences(
 
 
 @router.get("/role-scopes")
-async def get_role_scopes(current_user: dict = Depends(_get_auth_user)):
+def get_role_scopes(current_user: dict = Depends(_get_auth_user)):
     """Return role/group permission scopes. Any authenticated user can view (the
     frontend needs its own role's scopes to build the nav); sudo manages them."""
     _ = current_user
@@ -895,7 +902,7 @@ def _merge_membership(user: dict, membership: dict | None) -> dict:
 
 
 @router.put("/role-scopes")
-async def update_role_scopes(
+def update_role_scopes(
     req: RoleScopesRequest, current_user: dict = Depends(_require_sudo)
 ):
     """Update role/group permission scopes. Requires sudo."""
@@ -906,9 +913,7 @@ async def update_role_scopes(
 
 
 @router.get("", response_model=UsersListResponse)
-async def list_users(
-    active_only: bool = False, admin_user: dict = Depends(_require_manager)
-):
+def list_users(active_only: bool = False, admin_user: dict = Depends(_require_manager)):
     """List all users. Requires manager or higher role."""
     try:
         query = supabase_service.table("user_profiles").select("*")
@@ -946,12 +951,14 @@ async def create_user(
         raise HTTPException(status_code=400, detail="Username already exists")
 
     try:
-        email_check = (
-            supabase_service.table("user_profiles")
-            .select("id")
-            .eq("email", auth_email)
-            .limit(1)
-            .execute()
+        email_check = await run_in_threadpool(
+            lambda: (
+                supabase_service.table("user_profiles")
+                .select("id")
+                .eq("email", auth_email)
+                .limit(1)
+                .execute()
+            )
         )
         if email_check.data:
             raise HTTPException(status_code=400, detail="Email already registered")
@@ -970,40 +977,44 @@ async def create_user(
             password = req.password or secrets.token_urlsafe(18)
         else:
             password = req.password or DEFAULT_MANAGER_PASSWORD
-        auth_user_id = _create_auth_user(
-            auth_email,
-            password,
-            {
-                "username": username,
-                "display_name": req.display_name,
-                "last_name": req.last_name,
-                "role": req.role,
-            },
-        )
-        result = (
-            supabase_service.table("user_profiles")
-            .insert(
+        auth_user_id = await run_in_threadpool(
+            lambda: _create_auth_user(
+                auth_email,
+                password,
                 {
-                    "id": auth_user_id,
                     "username": username,
-                    "email": auth_email,
                     "display_name": req.display_name,
                     "last_name": req.last_name,
                     "role": req.role,
-                    # Staff remain unable to sign in until their tenant-local
-                    # credential has been written successfully below.
-                    "active": req.role != "staff",
-                    "must_change_password": req.role != "staff"
-                    and password == DEFAULT_MANAGER_PASSWORD,
-                    "phone": req.phone,
-                    "job_title": req.job_title,
-                    "bio": req.bio,
-                    "avatar_url": req.avatar_url,
-                    "created_at": now,
-                    "updated_at": now,
-                }
+                },
             )
-            .execute()
+        )
+        result = await run_in_threadpool(
+            lambda: (
+                supabase_service.table("user_profiles")
+                .insert(
+                    {
+                        "id": auth_user_id,
+                        "username": username,
+                        "email": auth_email,
+                        "display_name": req.display_name,
+                        "last_name": req.last_name,
+                        "role": req.role,
+                        # Staff remain unable to sign in until their tenant-local
+                        # credential has been written successfully below.
+                        "active": req.role != "staff",
+                        "must_change_password": req.role != "staff"
+                        and password == DEFAULT_MANAGER_PASSWORD,
+                        "phone": req.phone,
+                        "job_title": req.job_title,
+                        "bio": req.bio,
+                        "avatar_url": req.avatar_url,
+                        "created_at": now,
+                        "updated_at": now,
+                    }
+                )
+                .execute()
+            )
         )
         user = result.data[0] if result.data else None
         if not user:
@@ -1019,17 +1030,21 @@ async def create_user(
                     status_code=500, detail="Workspace context was lost"
                 )
             membership = (
-                supabase_admin.table("tenant_memberships")
-                .insert(
-                    {
-                        "tenant_id": tenant_id,
-                        "user_id": auth_user_id,
-                        "role": req.role,
-                        "status": "active",
-                        "is_default": True,
-                    }
+                await run_in_threadpool(
+                    lambda: (
+                        supabase_admin.table("tenant_memberships")
+                        .insert(
+                            {
+                                "tenant_id": tenant_id,
+                                "user_id": auth_user_id,
+                                "role": req.role,
+                                "status": "active",
+                                "is_default": True,
+                            }
+                        )
+                        .execute()
+                    )
                 )
-                .execute()
             ).data[0]
             user = _merge_membership(user, membership)
 
@@ -1039,23 +1054,27 @@ async def create_user(
         # the tenant_memberships insert above.
         if req.role == "staff":
             tenant_id = _selected_tenant_id()
-            set_staff_pin(
-                supabase_admin,
-                user_id=auth_user_id,
-                tenant_id=tenant_id,
-                pin=req.pin or DEFAULT_STAFF_PIN,
-                actor_id=admin_user["id"],
-            )
-            activated = (
-                supabase_service.table("user_profiles")
-                .update(
-                    {
-                        "active": True,
-                        "updated_at": datetime.now(timezone.utc).isoformat(),
-                    }
+            await run_in_threadpool(
+                lambda: set_staff_pin(
+                    supabase_admin,
+                    user_id=auth_user_id,
+                    tenant_id=tenant_id,
+                    pin=req.pin or DEFAULT_STAFF_PIN,
+                    actor_id=admin_user["id"],
                 )
-                .eq("id", auth_user_id)
-                .execute()
+            )
+            activated = await run_in_threadpool(
+                lambda: (
+                    supabase_service.table("user_profiles")
+                    .update(
+                        {
+                            "active": True,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+                    .eq("id", auth_user_id)
+                    .execute()
+                )
             )
             if not activated.data:
                 raise HTTPException(
@@ -1080,7 +1099,7 @@ async def create_user(
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(user_id: str, admin_user: dict = Depends(_require_manager)):
     """Get a specific user's profile. Requires manager or higher role."""
-    membership = _require_workspace_member(user_id)
+    membership = await run_in_threadpool(_require_workspace_member, user_id)
     user = await _get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1092,7 +1111,7 @@ async def update_user(
     user_id: str, req: UserUpdateRequest, admin_user: dict = Depends(_require_manager)
 ):
     """Update a user's profile. Managers can update staff; sudo can update any user."""
-    membership = _require_workspace_member(user_id)
+    membership = await run_in_threadpool(lambda: _require_workspace_member(user_id))
     user = await _get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1120,9 +1139,20 @@ async def update_user(
         if tenancy_mode() == "legacy":
             update_data["role"] = req.role
         else:
-            supabase_admin.table("tenant_memberships").update(
-                {"role": req.role, "updated_at": datetime.now(timezone.utc).isoformat()}
-            ).eq("tenant_id", _selected_tenant_id()).eq("user_id", user_id).execute()
+            await run_in_threadpool(
+                lambda: (
+                    supabase_admin.table("tenant_memberships")
+                    .update(
+                        {
+                            "role": req.role,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+                    .eq("tenant_id", _selected_tenant_id())
+                    .eq("user_id", user_id)
+                    .execute()
+                )
+            )
             user["role"] = req.role
     if req.pin is not None:
         if req.pin and (not req.pin.isdigit() or len(req.pin) < 4):
@@ -1130,31 +1160,43 @@ async def update_user(
         # PIN is managed through the credential store, not a plaintext column.
         tenant_id = _selected_tenant_id()
         if req.pin:
-            set_staff_pin(
-                supabase_admin,
-                user_id=user_id,
-                tenant_id=tenant_id,
-                pin=req.pin,
-                actor_id=admin_user["id"],
+            await run_in_threadpool(
+                lambda: set_staff_pin(
+                    supabase_admin,
+                    user_id=user_id,
+                    tenant_id=tenant_id,
+                    pin=req.pin,
+                    actor_id=admin_user["id"],
+                )
             )
         else:
-            clear_staff_pin(
-                supabase_admin,
-                user_id=user_id,
-                tenant_id=tenant_id,
-                actor_id=admin_user["id"],
+            await run_in_threadpool(
+                lambda: clear_staff_pin(
+                    supabase_admin,
+                    user_id=user_id,
+                    tenant_id=tenant_id,
+                    actor_id=admin_user["id"],
+                )
             )
         pin_changed = True
     if req.active is not None:
         if tenancy_mode() == "legacy":
             update_data["active"] = req.active
         else:
-            supabase_admin.table("tenant_memberships").update(
-                {
-                    "status": "active" if req.active else "suspended",
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                }
-            ).eq("tenant_id", _selected_tenant_id()).eq("user_id", user_id).execute()
+            await run_in_threadpool(
+                lambda: (
+                    supabase_admin.table("tenant_memberships")
+                    .update(
+                        {
+                            "status": "active" if req.active else "suspended",
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+                    .eq("tenant_id", _selected_tenant_id())
+                    .eq("user_id", user_id)
+                    .execute()
+                )
+            )
             user["active"] = req.active
     if req.phone is not None:
         update_data["phone"] = req.phone
@@ -1184,7 +1226,11 @@ async def update_user(
 
     if not update_data and not req.new_password:
         if pin_changed:
-            _log_credential_event(admin_user.get("id"), user_id, "pin_update")
+            await run_in_threadpool(
+                lambda: _log_credential_event(
+                    admin_user.get("id"), user_id, "pin_update"
+                )
+            )
         return UserResponse(**user)
 
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -1206,36 +1252,49 @@ async def update_user(
             "last_name": update_data.get("last_name", user.get("last_name")),
             "role": update_data.get("role", user.get("role")),
         }
-        _patch_auth_user(user_id, auth_payload)
+        await run_in_threadpool(lambda: _patch_auth_user(user_id, auth_payload))
 
     try:
-        result = (
-            supabase_service.table("user_profiles")
-            .update(update_data)
-            .eq("id", user_id)
-            .execute()
+        result = await run_in_threadpool(
+            lambda: (
+                supabase_service.table("user_profiles")
+                .update(update_data)
+                .eq("id", user_id)
+                .execute()
+            )
         )
         updated_user = result.data[0] if result.data else user
         if not updated_user:
             raise HTTPException(status_code=500, detail="Failed to update user")
         if req.new_password:
-            _log_credential_event(
-                admin_user.get("id"),
-                user_id,
-                "password_reset",
-                {"self_service": admin_user.get("id") == user_id},
+            await run_in_threadpool(
+                lambda: _log_credential_event(
+                    admin_user.get("id"),
+                    user_id,
+                    "password_reset",
+                    {"self_service": admin_user.get("id") == user_id},
+                )
             )
         if pin_changed:
-            _log_credential_event(admin_user.get("id"), user_id, "pin_update")
+            await run_in_threadpool(
+                lambda: _log_credential_event(
+                    admin_user.get("id"), user_id, "pin_update"
+                )
+            )
         if req.new_username:
-            _log_credential_event(
-                admin_user.get("id"),
-                user_id,
-                "username_update",
-                {"username": update_data.get("username")},
+            await run_in_threadpool(
+                lambda: _log_credential_event(
+                    admin_user.get("id"),
+                    user_id,
+                    "username_update",
+                    {"username": update_data.get("username")},
+                )
             )
         return UserResponse(
-            **_merge_membership(updated_user, _workspace_membership(user_id))
+            **_merge_membership(
+                updated_user,
+                await run_in_threadpool(lambda: _workspace_membership(user_id)),
+            )
         )
 
     except Exception as e:
@@ -1249,7 +1308,7 @@ async def get_user_credentials(
     user_id: str, admin_user: dict = Depends(_require_manager)
 ):
     """Return credential recovery metadata. Staff PIN is visible; passwords are reset-only."""
-    membership = _require_workspace_member(user_id)
+    membership = await run_in_threadpool(lambda: _require_workspace_member(user_id))
     user = await _get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1262,20 +1321,24 @@ async def get_user_credentials(
     try:
         import httpx
 
-        resp = httpx.get(
-            f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}",
-            headers={
-                "apikey": SUPABASE_SERVICE_KEY,
-                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-            },
-            timeout=10,
+        resp = await run_in_threadpool(
+            lambda: httpx.get(
+                f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}",
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                },
+                timeout=10,
+            )
         )
         if resp.status_code != 200:
             raise HTTPException(
                 status_code=502, detail="Could not retrieve user from auth service"
             )
         data = resp.json()
-        _log_credential_event(admin_user.get("id"), user_id, "view")
+        await run_in_threadpool(
+            lambda: _log_credential_event(admin_user.get("id"), user_id, "view")
+        )
         # Supabase stores only password hashes. The password is viewable exactly while
         # the account is still on the provisioning default; after that it is reset-only.
         on_default_password = bool(user.get("must_change_password"))
@@ -1312,7 +1375,7 @@ async def get_user_password(user_id: str, admin_user: dict = Depends(_require_ma
 @router.delete("/{user_id}", status_code=204)
 async def disable_user(user_id: str, admin_user: dict = Depends(_require_sudo)):
     """Disable (soft-delete) a user account. Requires sudo role."""
-    _require_workspace_member(user_id)
+    await run_in_threadpool(lambda: _require_workspace_member(user_id))
     user = await _get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1322,16 +1385,34 @@ async def disable_user(user_id: str, admin_user: dict = Depends(_require_sudo)):
 
     try:
         if tenancy_mode() == "legacy":
-            supabase_service.table("user_profiles").update(
-                {"active": False, "updated_at": datetime.now(timezone.utc).isoformat()}
-            ).eq("id", user_id).execute()
+            await run_in_threadpool(
+                lambda: (
+                    supabase_service.table("user_profiles")
+                    .update(
+                        {
+                            "active": False,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+                    .eq("id", user_id)
+                    .execute()
+                )
+            )
         else:
-            supabase_admin.table("tenant_memberships").update(
-                {
-                    "status": "removed",
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                }
-            ).eq("tenant_id", _selected_tenant_id()).eq("user_id", user_id).execute()
+            await run_in_threadpool(
+                lambda: (
+                    supabase_admin.table("tenant_memberships")
+                    .update(
+                        {
+                            "status": "removed",
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+                    .eq("tenant_id", _selected_tenant_id())
+                    .eq("user_id", user_id)
+                    .execute()
+                )
+            )
         return None
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")

@@ -1,12 +1,16 @@
+import asyncio
 import datetime
 import hashlib
 import logging
 import hmac
 import os
 import secrets
+from functools import wraps
 from urllib.parse import urlsplit
+from inspect import isawaitable
 
 from fastapi import APIRouter, Depends, HTTPException, Header, Response
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 from backend.routes import (
     jwt_validator,
@@ -297,6 +301,12 @@ async def start_lunchvoice_sso(
     response: Response,
     current_user: dict = Depends(_get_auth_user),
 ) -> LunchvoiceSsoStartResponse:
+    return await run_in_threadpool(_start_lunchvoice_sso, response, current_user)
+
+
+def _start_lunchvoice_sso(
+    response: Response, current_user: dict
+) -> LunchvoiceSsoStartResponse:
     """Create a 60-second, one-time code for a LionCafe-authorized MJCC account."""
     response.headers["Cache-Control"] = "no-store"
     if not _has_lioncafe_scope(str(current_user.get("role") or "")):
@@ -339,6 +349,14 @@ async def exchange_lunchvoice_sso(
     response: Response,
     x_lunchvoice_sso_secret: str = Header("", alias="X-Lunchvoice-Sso-Secret"),
 ) -> LunchvoiceSsoIdentity:
+    return await run_in_threadpool(
+        _exchange_lunchvoice_sso, req, response, x_lunchvoice_sso_secret
+    )
+
+
+def _exchange_lunchvoice_sso(
+    req: LunchvoiceSsoExchangeRequest, response: Response, x_lunchvoice_sso_secret: str
+) -> LunchvoiceSsoIdentity:
     """Atomically consume a handoff; this endpoint is only for Lunchvoice's server."""
     response.headers["Cache-Control"] = "no-store"
     if not secrets.compare_digest(x_lunchvoice_sso_secret, _sso_secret()):
@@ -370,7 +388,7 @@ async def exchange_lunchvoice_sso(
         raise HTTPException(status_code=401, detail="Invalid or expired SSO code")
 
     handoff = consumed.data[0]
-    user = await _get_user_profile(str(handoff["user_id"]))
+    user = _resolve_helper_result(_get_user_profile(str(handoff["user_id"])))
     if (
         not user
         or not user.get("active")
@@ -412,6 +430,10 @@ async def start_sso(
     response: Response,
     current_user: dict = Depends(_get_auth_user),
 ) -> SsoStartResponse:
+    return await run_in_threadpool(_start_sso, app, response, current_user)
+
+
+def _start_sso(app: str, response: Response, current_user: dict) -> SsoStartResponse:
     """Create a 60-second, one-time code for an app-authorized MJCC account.
 
     Generic, app-scoped counterpart to /lunchvoice-sso/start. `app` must be in
@@ -460,6 +482,12 @@ async def exchange_sso(
     response: Response,
     x_sso_secret: str = Header("", alias="X-Sso-Secret"),
 ) -> SsoIdentity:
+    return await run_in_threadpool(_exchange_sso, app, req, response, x_sso_secret)
+
+
+def _exchange_sso(
+    app: str, req: SsoExchangeRequest, response: Response, x_sso_secret: str
+) -> SsoIdentity:
     """Atomically consume a handoff; this endpoint is only for the target app's server."""
     response.headers["Cache-Control"] = "no-store"
     config = _sso_app_config(app)
@@ -493,7 +521,7 @@ async def exchange_sso(
         raise HTTPException(status_code=401, detail="Invalid or expired SSO code")
 
     handoff = consumed.data[0]
-    user = await _get_user_profile(str(handoff["user_id"]))
+    user = _resolve_helper_result(_get_user_profile(str(handoff["user_id"])))
     if (
         not user
         or not user.get("active")
@@ -531,6 +559,10 @@ async def exchange_sso(
 
 
 async def _get_user_profile(user_id: str) -> dict | None:
+    return await run_in_threadpool(_get_user_profile_sync, user_id)
+
+
+def _get_user_profile_sync(user_id: str) -> dict | None:
     """Fetch user profile from Supabase by id."""
     try:
         result = (
@@ -555,6 +587,12 @@ class StaffUsernameLookupError(RuntimeError):
 
 
 async def _get_user_by_username(
+    username: str, tenant_id: str | None = None
+) -> dict | None:
+    return await run_in_threadpool(_get_user_by_username_sync, username, tenant_id)
+
+
+def _get_user_by_username_sync(
     username: str, tenant_id: str | None = None
 ) -> dict | None:
     """Fetch user profile by username, tenant-first.
@@ -624,6 +662,17 @@ async def _get_user_by_username(
     return rows[0] if len(rows) == 1 else None
 
 
+def _resolve_helper_result(result):
+    """Resolve legacy async helper patches inside the workflow's worker thread."""
+    if isawaitable(result):
+
+        async def resolve():
+            return await result
+
+        return asyncio.run(resolve())
+    return result
+
+
 def _record_throttle_failure(tenant_id: str | None, username: str) -> None:
     """Record a failed login attempt.  If the throttle store is unreachable,
     fail closed with 503 instead of silently swallowing the error."""
@@ -640,8 +689,7 @@ def _record_throttle_failure(tenant_id: str | None, username: str) -> None:
         ) from exc
 
 
-@router.post("/login", response_model=LoginResponse)
-async def login(
+def _login(
     req: LoginRequest,
     x_kpn_workspace: str = Header("", alias="X-Kpn-Workspace"),
     x_kpn_tenant_id: str = Header("", alias="X-Kpn-Tenant-Id"),
@@ -680,7 +728,7 @@ async def login(
             raise HTTPException(status_code=401, detail="Token missing user ID")
 
         # Fetch user profile to get role and other metadata
-        user = await _get_user_profile(user_id)
+        user = _resolve_helper_result(_get_user_profile(user_id))
         if not user:
             raise HTTPException(
                 status_code=401, detail="User profile not found in database"
@@ -783,7 +831,9 @@ async def login(
         INVALID_CREDENTIALS_MSG = "Invalid credentials"
 
         try:
-            user = await _get_user_by_username(login_username, resolved_tenant_id)
+            user = _resolve_helper_result(
+                _get_user_by_username(login_username, resolved_tenant_id)
+            )
             if not user:
                 _record_throttle_failure(resolved_tenant_id, login_username)
                 raise HTTPException(status_code=401, detail=INVALID_CREDENTIALS_MSG)
@@ -892,6 +942,16 @@ async def login(
         )
 
 
+@router.post("/login", response_model=LoginResponse)
+@wraps(_login, assigned=("__doc__", "__annotations__"), updated=())
+async def login(
+    req: LoginRequest,
+    x_kpn_workspace: str = Header("", alias="X-Kpn-Workspace"),
+    x_kpn_tenant_id: str = Header("", alias="X-Kpn-Tenant-Id"),
+):
+    return await run_in_threadpool(_login, req, x_kpn_workspace, x_kpn_tenant_id)
+
+
 @router.post("/logout")
 async def logout(authorization: str = Header("")):
     """
@@ -936,6 +996,10 @@ async def session_event(
     authorization: str = Header(""),
     x_kpn_workspace: str = Header("", alias="X-Kpn-Workspace"),
 ):
+    return await run_in_threadpool(_session_event, body, authorization, x_kpn_workspace)
+
+
+def _session_event(body: SessionEventBody, authorization: str, x_kpn_workspace: str):
     """Record why a session ended (or recovered). Unauthenticated by design.
 
     A session that has already been torn down has no usable token, so requiring

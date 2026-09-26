@@ -5,6 +5,57 @@ Given staged entries (batch), compute before/after per row against live DB.
 
 from backend.routes import supabase_service
 from backend import inventory_formulas as fi
+from contextvars import ContextVar
+
+_batch_inventory = ContextVar("diff_batch_inventory", default=None)
+
+
+def _inventory_snapshot(entries):
+    skus = sorted(
+        {
+            item.get("sku", "").strip()
+            for entry in entries
+            if entry.get("operation") in ("inventory_save", "inventory_week_update")
+            for item in (entry.get("full_payload") or {}).get("items", [])
+        }
+    )
+    catalog = {}
+    for start in range(0, len(skus), 100):
+        rows = (
+            supabase_service.table("inventory_items")
+            .select(
+                "id,sku,description,unit_price,par_level,unit,inventory_categories(name)"
+            )
+            .in_("sku", skus[start : start + 100])
+            .execute()
+            .data
+            or []
+        )
+        catalog.update({row["sku"]: row for row in rows})
+    periods = {
+        (fp.get("month"), fp.get("year"))
+        for entry in entries
+        if entry.get("operation") in ("inventory_save", "inventory_week_update")
+        for fp in [entry.get("full_payload") or {}]
+    }
+    monthly = {}
+    for month, year in periods:
+        if month is None or year is None:
+            continue
+        ids = [row["id"] for row in catalog.values()]
+        for start in range(0, len(ids), 100):
+            rows = (
+                supabase_service.table("monthly_inventory")
+                .select("*")
+                .eq("month", month - 1)
+                .eq("year", year)
+                .in_("item_id", ids[start : start + 100])
+                .execute()
+                .data
+                or []
+            )
+            monthly.update({(row["item_id"], month, year): row for row in rows})
+    return catalog, monthly
 
 
 # Payload weekly key → monthly_inventory column name.
@@ -28,16 +79,21 @@ def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dic
     inventory_items.on_hand column. category is included in change detection (P1.3).
     """
     sku = item.get("sku", "")
+    snapshot = _batch_inventory.get()
     r = (
-        supabase_service.table("inventory_items")
-        .select(
-            "id,sku,description,unit_price,par_level,unit,inventory_categories(name)"
+        (
+            supabase_service.table("inventory_items")
+            .select(
+                "id,sku,description,unit_price,par_level,unit,inventory_categories(name)"
+            )
+            .eq("sku", sku)
+            .limit(1)
+            .execute()
         )
-        .eq("sku", sku)
-        .limit(1)
-        .execute()
+        if snapshot is None
+        else None
     )
-    live = r.data[0] if r.data else None
+    live = (r.data[0] if r.data else None) if snapshot is None else snapshot[0].get(sku)
 
     after = {
         "sku": sku,
@@ -88,18 +144,25 @@ def _diff_inventory_item(item: dict, month: int = None, year: int = None) -> dic
     if month is not None and year is not None:
         db_month = month - 1  # convert 1-indexed API month → 0-indexed DB month
         mi_r = (
-            supabase_service.table("monthly_inventory")
-            .select(
-                "opening_oh,opening_unit_cost,opening_value,received_value,pulled_value,ending_value,"
-                "w1_received,w2_received,w3_received,w1_pulled,w2_pulled,w3_pulled"
+            (
+                supabase_service.table("monthly_inventory")
+                .select(
+                    "opening_oh,opening_unit_cost,opening_value,received_value,pulled_value,ending_value,"
+                    "w1_received,w2_received,w3_received,w1_pulled,w2_pulled,w3_pulled"
+                )
+                .eq("item_id", live["id"])
+                .eq("month", db_month)
+                .eq("year", year)
+                .limit(1)
+                .execute()
             )
-            .eq("item_id", live["id"])
-            .eq("month", db_month)
-            .eq("year", year)
-            .limit(1)
-            .execute()
+            if snapshot is None
+            else None
         )
-        if mi_r.data:
+        if snapshot is not None:
+            live_monthly = snapshot[1].get((live["id"], month, year), {})
+            live_on_hand = int(live_monthly.get("opening_oh") or 0)
+        elif mi_r.data:
             live_monthly = mi_r.data[0]
             live_on_hand = int(live_monthly.get("opening_oh") or 0)
 
@@ -212,6 +275,7 @@ def _diff_inventory_week(payload: dict) -> dict:
     db_month = (month - 1) if month else None
     items = payload.get("items", [])
     svc = supabase_service
+    snapshot = _batch_inventory.get()
     rows = []
     batch_cost_delta: float = 0.0
     for it in items:
@@ -221,13 +285,21 @@ def _diff_inventory_week(payload: dict) -> dict:
             qty = it.get("onHand", 0)
 
         live_r = (
-            svc.table("inventory_items")
-            .select("id,unit_price")
-            .eq("sku", sku)
-            .limit(1)
-            .execute()
+            (
+                svc.table("inventory_items")
+                .select("id,unit_price")
+                .eq("sku", sku)
+                .limit(1)
+                .execute()
+            )
+            if snapshot is None
+            else None
         )
-        item_row = live_r.data[0] if live_r.data else None
+        item_row = (
+            (live_r.data[0] if live_r.data else None)
+            if snapshot is None
+            else snapshot[0].get(sku)
+        )
         status = "update" if item_row else "new"
 
         # Accumulate batch cost: qty delivered × unit_price (tax-excluded raw item cost)
@@ -240,15 +312,23 @@ def _diff_inventory_week(payload: dict) -> dict:
         if item_row and db_month is not None and year is not None:
             try:
                 mi_r = (
-                    svc.table("monthly_inventory")
-                    .select(col)
-                    .eq("item_id", item_row["id"])
-                    .eq("month", db_month)
-                    .eq("year", year)
-                    .limit(1)
-                    .execute()
+                    (
+                        svc.table("monthly_inventory")
+                        .select(col)
+                        .eq("item_id", item_row["id"])
+                        .eq("month", db_month)
+                        .eq("year", year)
+                        .limit(1)
+                        .execute()
+                    )
+                    if snapshot is None
+                    else None
                 )
-                if mi_r.data:
+                if snapshot is not None:
+                    current_val = (
+                        snapshot[1].get((item_row["id"], month, year), {}).get(col)
+                    )
+                elif mi_r.data:
                     current_val = mi_r.data[0].get(col)
             except Exception:
                 pass
@@ -491,4 +571,8 @@ def diff_staging_entry(entry: dict) -> dict:
 
 def diff_batch(batch_entries: list[dict]) -> list[dict]:
     """Compute row-level diffs for all entries in a batch."""
-    return [diff_staging_entry(e) for e in batch_entries]
+    token = _batch_inventory.set(_inventory_snapshot(batch_entries))
+    try:
+        return [diff_staging_entry(e) for e in batch_entries]
+    finally:
+        _batch_inventory.reset(token)

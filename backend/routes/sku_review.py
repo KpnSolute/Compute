@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from backend.routes import supabase_service
 from backend.routes._deps import _require_manager
 from backend.routes.sourcectrl import _apply_entries
+from backend.concurrency import serialized_inventory_write
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,8 @@ class ResolveBody(BaseModel):
 
 
 @router.get("")
-async def list_sku_review(
+@serialized_inventory_write
+def list_sku_review(
     status: str = Query("pending"),
     limit: int = Query(100, ge=1, le=500),
     auth_user: dict = Depends(_require_manager),
@@ -89,7 +91,8 @@ def _insert_staging(
 
 
 @router.post("/{row_id}/resolve")
-async def resolve_sku(
+@serialized_inventory_write
+def resolve_sku(
     row_id: str,
     body: ResolveBody,
     auth_user: dict = Depends(_require_manager),

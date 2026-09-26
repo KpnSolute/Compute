@@ -294,7 +294,7 @@ def legacy_day_menu(day: str) -> dict[str, list[str]]:
 
 
 @router.get("/cycle/overview")
-async def cycle_overview(auth_user: dict = Depends(_get_auth_user)):
+def cycle_overview(auth_user: dict = Depends(_get_auth_user)):
     anchor = _get_anchor_date()
     today = business_now().date()
     today_cycle_day = _cycle_day_for_date(today, anchor)
@@ -325,14 +325,14 @@ async def cycle_overview(auth_user: dict = Depends(_get_auth_user)):
 
 
 @router.get("/cycle/day/{n}")
-async def cycle_day(n: int, auth_user: dict = Depends(_get_auth_user)):
+def cycle_day(n: int, auth_user: dict = Depends(_get_auth_user)):
     if not 1 <= n <= CYCLE_LENGTH:
         raise HTTPException(status_code=400, detail="cycle_day must be 1-28")
     return _build_day_payload(n)
 
 
 @router.get("/today")
-async def menu_today(auth_user: dict = Depends(_get_auth_user)):
+def menu_today(auth_user: dict = Depends(_get_auth_user)):
     today = business_now().date()
     cycle_day_num = _cycle_day_for_date(today)
     payload = _build_day_payload(cycle_day_num)
@@ -346,7 +346,7 @@ async def menu_today(auth_user: dict = Depends(_get_auth_user)):
 
 
 @router.put("/slot/{record_id}")
-async def update_slot(
+def update_slot(
     record_id: str,
     body: SlotUpdate,
     background_tasks: BackgroundTasks,
@@ -391,7 +391,7 @@ async def update_slot(
 
 
 @router.post("/cycle/day/{n}/slots")
-async def create_slot(
+def create_slot(
     n: int,
     body: SlotCreate,
     background_tasks: BackgroundTasks,
@@ -446,7 +446,7 @@ async def create_slot(
 
 
 @router.get("/items")
-async def list_items(q: str = "", auth_user: dict = Depends(_get_auth_user)):
+def list_items(q: str = "", auth_user: dict = Depends(_get_auth_user)):
     query = (
         supabase_service.table("menu_items").select("id,name,active").eq("active", True)
     )
@@ -457,12 +457,12 @@ async def list_items(q: str = "", auth_user: dict = Depends(_get_auth_user)):
 
 
 @router.get("/settings")
-async def get_settings(auth_user: dict = Depends(_get_auth_user)):
+def get_settings(auth_user: dict = Depends(_get_auth_user)):
     return {"anchor_date": _get_anchor_date().isoformat()}
 
 
 @router.put("/settings")
-async def update_settings(
+def update_settings(
     body: SettingsUpdate,
     background_tasks: BackgroundTasks,
     auth_user: dict = Depends(_require_manager),
@@ -486,7 +486,7 @@ async def update_settings(
 
 
 @router.post("/events/publish-cycle", status_code=202)
-async def publish_cycle_event(
+def publish_cycle_event(
     background_tasks: BackgroundTasks,
     auth_user: dict = Depends(_require_manager),
 ):
@@ -502,7 +502,7 @@ async def publish_cycle_event(
 
 
 @router.get("/suggestions")
-async def list_suggestions(status: str = "", auth_user: dict = Depends(_get_auth_user)):
+def list_suggestions(status: str = "", auth_user: dict = Depends(_get_auth_user)):
     query = supabase_service.table("menu_suggestions").select("*")
     if status:
         query = query.eq("status", status)
@@ -511,7 +511,7 @@ async def list_suggestions(status: str = "", auth_user: dict = Depends(_get_auth
 
 
 @router.put("/suggestions/{suggestion_id}")
-async def update_suggestion(
+def update_suggestion(
     suggestion_id: str,
     body: SuggestionStatusUpdate,
     auth_user: dict = Depends(_require_manager),
@@ -539,7 +539,7 @@ async def update_suggestion(
 
 
 @router.get("/{day}")
-async def get_menu_legacy(day: str, auth_user: dict = Depends(_get_auth_user)):
+def get_menu_legacy(day: str, auth_user: dict = Depends(_get_auth_user)):
     if day not in LEGACY_DAY_INDEX:
         raise HTTPException(status_code=400, detail=f"Invalid day: {day}")
 
@@ -554,5 +554,5 @@ async def get_menu_legacy(day: str, auth_user: dict = Depends(_get_auth_user)):
 
 
 @router.post("/{day}")
-async def update_menu_legacy(day: str, auth_user: dict = Depends(_get_auth_user)):
+def update_menu_legacy(day: str, auth_user: dict = Depends(_get_auth_user)):
     raise HTTPException(status_code=410, detail="Use PUT /api/menu/slot/{record_id}")
