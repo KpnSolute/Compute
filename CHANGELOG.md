@@ -1,5 +1,62 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.41] — 2026-10-05 — invoice parser: blank PO no longer turns the invoice number into "Page"
+
+**Claude:** October week 1 (invoice 2102782, `Octwk1.pdf`) was stored with
+invoice number "Page". Cause: the US Foods header row regex required a
+PURCHASE ORDER # value, and this invoice's PO column is blank, so the header
+never matched. The generic fallbacks then read "Page" (from "Page 1 of 13")
+as the invoice number and "BOX" (the remit-to "P.O. BOX 281838") as the PO.
+September's invoices all had a PO, which is why they parsed correctly.
+
+**Change:** `backend/ai/invoice_parser.py` — the header regex treats the PO as
+optional; a matched header with a blank PO clears any guessed PO; the generic
+invoice-number and PO fallbacks require a digit. While making this change, a
+stray control character slipped into both fallback patterns and made them
+unmatchable; the new fallback test caught it before commit.
+
+**Verified locally:** the real September and October PDFs now give 1038699 /
+1332743 / 1770890 / 2102782 with POs 6759 / 006901 / 007362 / none. Three new
+regression tests (blank-PO header, header with PO, fallback rejecting "Page"
+and "BOX"); full release gate below. Live data for invoice 2102782 was already
+corrected on 2026-10-05 (see the October repair note).
+
+**Push:** Claude → `main` — 2026-10-05; CI and Render state recorded after verification.
+
+## 2026-10-05 — v0.3.40 publication verified
+
+**Claude:** `main` fast-forwarded to `efe8707`. GitHub CI run `37396813063`
+passed and published tag/release `v0.3.40` (2026-10-06 01:00 UTC). Render
+backend and frontend both live on `efe8707`; backend restarted 00:59:53 UTC.
+`/health/ready` operational on all seven components. `/api/price-review`,
+`/api/price-review/drift` and `/api/price-review/{id}/resolve` answer 401
+without sign-in (an unknown route answers 404), so the new routes are served.
+Post-restart logs: no tracebacks, no 500s; only the routine `HEAD /` 405.
+
+**Remaining:** Price Review screen not yet viewed in production (needs an
+operator sign-in). October: 109 drifted prices (7 over 25%) to settle in Price
+Review before October can be published. Parser records October invoice numbers
+as "Page". GitHub archive credential still rejected (from v0.3.39). This
+post-deploy record is a local append after publication.
+
+**Push:** Claude → `efe8707` — 2026-10-05; CI passed; both Render services live.
+
+**October repair (2026-10-05, owner request, MJCCv1):** verified against
+`Octwk1.pdf` first. Invoice 2102782 (dated 09/28/2026) reconciles to its printed
+Product Total ($21,205.29, 200 lines) once its Hazard Materials Summary recap of
+the degreaser line is excluded; the October ledger matches it on every line,
+quantity and price. Corrected the invoice number the parser stored as "Page"
+on 200 ledger rows, the invoice record and the import batch (merged Source
+Control history left as recorded). Applied October's invoice price to 108
+items in one rehearsed transaction and logged each change; October stays open.
+Held Kitchen Bouquet (1002211) for review: counted per 32 oz bottle ($7.49 in
+August) but invoiced as 1 case of 12 ($88.66), received as +1 instead of +12.
+**Verified:** October drift 0 apart from that one pending review; October
+received value reconciles to the invoice on 199 of 200 items, and the $81.17
+difference is that held item. Backup: `app_private.price_repair_20261005_oct_backup`.
+**Remaining:** Kitchen Bouquet decision (blocks publishing October); the parser
+code still reads "Page" as the invoice number on new uploads.
+
 ## [v0.3.40] — 2026-10-05 — observed-price protocol: inventory carries the latest invoice price
 
 **Claude:** The September audit reported every reviewed item priced differently

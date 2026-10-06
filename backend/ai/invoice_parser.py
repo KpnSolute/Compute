@@ -183,7 +183,11 @@ USFOODS_ACCOUNT_HEADER_RE = re.compile(
     r"ACCOUNT\s+NUMBER\s+INVOICE\s+NUMBER\s+INVOICE\s+DATE\s+CUSTOMER\s+NUMBER\s+"
     r"PURCHASE\s+ORDER\s+#\s+SALES\s+LOCATION\s+SALES\s+REP\s+DATE\s+ORDERED\s*\n"
     r"\s*([A-Z0-9-]+)\s+([A-Z0-9-]+)\s+(\d{1,2}/\d{1,2}/\d{2,4})\s+"
-    r"([A-Z0-9-]+)\s+([A-Z0-9-]+)\s+([A-Z0-9-]+)\s+([A-Z0-9-]+)\s+"
+    # PURCHASE ORDER # is often blank (Octwk1, invoice 2102782). Requiring it
+    # made the whole header miss, and the generic fallbacks then read "Page"
+    # (from "Page 1 of 13") as the invoice number and "BOX" (the remit-to
+    # P.O. BOX) as the PO. Group 5 is None when the PO column is empty.
+    r"([A-Z0-9-]+)\s+(?:([A-Z0-9-]+)\s+)?([A-Z0-9-]+)\s+([A-Z0-9-]+)\s+"
     r"(\d{1,2}/\d{1,2}/\d{2,4})",
     re.IGNORECASE,
 )
@@ -224,7 +228,10 @@ META_PATTERNS: list[tuple[str, re.Pattern]] = [
     (
         "invoice_number",
         re.compile(
-            r"INVOICE\s*(?:#|NO\.?|NUMBER)?\s*[:\s]\s*([A-Z0-9\-]+)", re.IGNORECASE
+            # An invoice number always contains a digit; this keeps the
+            # "INVOICE / Page 1 of N" page banner from being read as one.
+            r"INVOICE\s*(?:#|NO\.?|NUMBER)?\s*[:\s]\s*([A-Z0-9\-]*\d[A-Z0-9\-]*)",
+            re.IGNORECASE,
         ),
     ),
     (
@@ -251,7 +258,9 @@ META_PATTERNS: list[tuple[str, re.Pattern]] = [
     (
         "po_number",
         re.compile(
-            r"P\.?O\.?\s*(?:#|NO\.?|NUMBER)?\s*[:\s]\s*([A-Z0-9\-]+)", re.IGNORECASE
+            # Digit required: "P.O. BOX 281838" in a remit-to address is not a PO.
+            r"P\.?O\.?\s*(?:#|NO\.?|NUMBER)?\s*[:\s]\s*([A-Z0-9\-]*\d[A-Z0-9\-]*)",
+            re.IGNORECASE,
         ),
     ),
     (
@@ -814,12 +823,17 @@ def _extract_meta(pages: list[str]) -> dict[str, str]:
                 "invoice_number": _clean(account_m.group(2)),
                 "invoice_date": _clean(account_m.group(3)),
                 "customer_number": _clean(account_m.group(4)),
-                "po_number": _clean(account_m.group(5)),
                 "sales_location": _clean(account_m.group(6)),
                 "sales_rep": _clean(account_m.group(7)),
                 "date_ordered": _clean(account_m.group(8)),
             }
         )
+        # The header row is authoritative: a blank PO column means no PO, so
+        # drop anything the generic fallback guessed from elsewhere on the page.
+        if account_m.group(5):
+            meta["po_number"] = _clean(account_m.group(5))
+        else:
+            meta.pop("po_number", None)
     order_m = USFOODS_ORDER_HEADER_RE.search(combined)
     if order_m:
         meta.update(

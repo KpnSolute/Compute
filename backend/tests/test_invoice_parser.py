@@ -473,3 +473,60 @@ Page 12 of 13
     assert recon["stated_piece_count"] == 457
     assert recon["product_total"] == 22510.57
     assert recon["quantity_controls_present"] is True
+
+
+# Header shapes copied from the native text of real US Foods invoices.
+_OCTWK1_HEADER = """INVOICE
+Page 1 of 13
+ACCOUNT NUMBER INVOICE NUMBER INVOICE DATE CUSTOMER NUMBER PURCHASE ORDER # SALES LOCATION SALES REP DATE ORDERED
+41736679 2102782 09/28/2026 1273721 3135 492 09/27/2026
+FREIGHT TERMS ORDER NUMBER PAYMENT TERMS ROUTE NUMBER SPECIAL INSTRUCTIONS
+640980 NET 30 DAYS 1133
+BILL TO SHIP TO REMIT TO
+ADAMS & ASSOCIATES MIAMI JOB CORP CAFETERIA US Foods, Inc.
+6151 LAKESIDE DR 3050 NW 183RD ST P.O. BOX 281838
+"""
+
+_SEPWK1_HEADER = """INVOICE
+Page 1 of 11
+ACCOUNT NUMBER INVOICE NUMBER INVOICE DATE CUSTOMER NUMBER PURCHASE ORDER # SALES LOCATION SALES REP DATE ORDERED
+41736679 1038699 08/31/2026 1273721 6759 3135 492 08/28/2026
+FREIGHT TERMS ORDER NUMBER PAYMENT TERMS ROUTE NUMBER SPECIAL INSTRUCTIONS
+592432 NET 30 DAYS 1133
+"""
+
+
+def test_usfoods_header_with_blank_po_keeps_the_real_invoice_number():
+    # Octwk1.pdf has no PO number. Requiring one made the header miss, and the
+    # fallbacks stored invoice 2102782 as "Page" and the PO as "BOX".
+    meta = parse_invoice_text_pages([_OCTWK1_HEADER])["meta"]
+    assert meta["invoice_number"] == "2102782"
+    assert meta["invoice_date"] == "09/28/2026"
+    assert meta["customer_number"] == "1273721"
+    assert meta["sales_location"] == "3135"
+    assert meta["sales_rep"] == "492"
+    assert meta["date_ordered"] == "09/27/2026"
+    assert "po_number" not in meta
+
+
+def test_usfoods_header_with_po_is_unchanged():
+    meta = parse_invoice_text_pages([_SEPWK1_HEADER])["meta"]
+    assert meta["invoice_number"] == "1038699"
+    assert meta["po_number"] == "6759"
+    assert meta["sales_location"] == "3135"
+    assert meta["sales_rep"] == "492"
+
+
+def test_fallback_never_reads_page_banner_or_po_box_as_numbers():
+    # No recognisable US Foods header: only the generic fallbacks run.
+    page = (
+        "INVOICE\nPage 1 of 3\nREMIT TO P.O. BOX 281838\nINVOICE #: 55017\nPO: 7731\n"
+    )
+    meta = parse_invoice_text_pages([page])["meta"]
+    assert meta["invoice_number"] == "55017"
+    assert meta["po_number"] == "7731"
+    bare = parse_invoice_text_pages(["INVOICE\nPage 1 of 3\nREMIT TO P.O. BOX\n"])[
+        "meta"
+    ]
+    assert bare.get("invoice_number") not in ("Page", "PAGE")
+    assert bare.get("po_number") != "BOX"
