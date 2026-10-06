@@ -52,8 +52,9 @@ class Query:
         self.operation, self.values = "insert", values
         return self
 
-    def upsert(self, values, **_kwargs):
+    def upsert(self, values, **kwargs):
         self.operation, self.values = "upsert", values
+        self.ignore_duplicates = kwargs.get("ignore_duplicates", False)
         return self
 
     def update(self, values):
@@ -95,16 +96,22 @@ class Query:
             self.client.writes.append((self.table, self.operation, deepcopy(values)))
             for value in values:
                 value = deepcopy(value)
-                keys = (
-                    ("item_id", "month", "year")
-                    if self.table == "monthly_inventory"
-                    else ("id",)
-                )
+                keys = {
+                    "monthly_inventory": ("item_id", "month", "year"),
+                    "price_review_queue": (
+                        "item_id",
+                        "month",
+                        "year",
+                        "staging_entry_id",
+                    ),
+                }.get(self.table, ("id",))
                 existing = next(
                     (r for r in rows if all(r.get(k) == value.get(k) for k in keys)),
                     None,
                 )
                 if self.operation == "upsert" and existing is not None:
+                    if getattr(self, "ignore_duplicates", False):
+                        continue
                     existing.update(value)
                 else:
                     value.setdefault("id", f"new-{len(rows)}")
@@ -152,6 +159,7 @@ class Client:
                 for i in range(count)
             ],
             "inventory_transactions": [],
+            "price_review_queue": [],
         }
 
     def table(self, name):
@@ -187,6 +195,19 @@ class Client:
                                 for r in ledger
                                 if r["week_number"] == week and r["txn_type"] in types
                             )
+            elif name == "apply_observed_prices":
+                changed = 0
+                for price in params["p_prices"]:
+                    for row in self.rows["monthly_inventory"]:
+                        if (
+                            row["item_id"] == price["item_id"]
+                            and row["month"] == params["p_month"]
+                            and row["year"] == params["p_year"]
+                            and row.get("unit_price") != price["unit_price"]
+                        ):
+                            row["unit_price"] = price["unit_price"]
+                            changed += 1
+                return SimpleNamespace(data=changed)
             elif name == "settle_inventory_values_batch":
                 for update in params["p_updates"]:
                     row = next(
@@ -244,7 +265,7 @@ def test_300_week_items_have_bounded_reads_and_writes(monkeypatch, direction):
     assert counts["recompute_week_totals_batch", "rpc"] == 3
     assert counts["settle_inventory_values_batch", "rpc"] == 3
     assert counts["monthly_inventory", "update"] == 0
-    assert counts["monthly_inventory", "select"] == (7 if direction == "issued" else 4)
+    assert counts["monthly_inventory", "select"] == 7
     assert counts["inventory_transactions", "select"] == (
         3 if direction == "issued" else 0
     )
@@ -262,13 +283,24 @@ def test_300_week_items_have_bounded_reads_and_writes(monkeypatch, direction):
     for i, item in enumerate(client.rows["inventory_items"]):
         assert item["category_id"] == "manager-category"
         assert item["par_level"] == 7 and item["unit"] == "CS"
-        assert item["unit_price"] == (i + 1 if direction == "issued" else 999)
+        # Received: 999 against 1..300 is past the review threshold, so the
+        # price is held and must not reach the catalog.
+        assert item["unit_price"] == i + 1
     for i, movement in enumerate(client.rows["inventory_transactions"]):
         assert movement["unit_price"] == (i + 1 if direction == "issued" else 999)
     for row in client.rows["monthly_inventory"]:
         assert row["unit_price"] == int(row["item_id"]) + 1
         expected = fi.resolve_row_financials(row)
         assert row["ending_value"] == expected["ending_value"]
+    queue = client.rows["price_review_queue"]
+    if direction == "received":
+        assert counts["price_review_queue", "upsert"] == 3
+        assert result["prices_held"] == 300 and result["prices_applied"] == 0
+        assert len(queue) == 300
+        assert {row["status"] for row in queue} == {"pending"}
+        assert {row["observed_price"] for row in queue} == {999}
+    else:
+        assert queue == [] and "prices_held" not in result
 
 
 def test_replayed_pull_subtracts_only_replaced_period_ledger(monkeypatch):

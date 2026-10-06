@@ -1,5 +1,89 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.40] — 2026-10-05 — observed-price protocol: inventory carries the latest invoice price
+
+**Claude:** The September audit reported every reviewed item priced differently
+on inventory than on its invoice (10 oz hot cup $62.52 vs $63.11, iceberg
+lettuce $74.41 vs $47.20, mild cheddar shred $51.63 vs $48.59, heavy cream
+$47.05 vs $45.88). Re-read the three source invoices with an independent
+coordinate-based parser: all 232 lines validate (quantity x unit price =
+extended) and each reconciles to its printed Product Total to the cent —
+1038699 (dated 08/31/2026) $18,039.65, 1332743 $3,306.56, 1770890 $3,585.79.
+The invoices and the parse were correct; three of the four inventory prices
+match **no** September invoice price at all.
+
+**Root cause:** received invoices updated the catalog price, but
+`recompute_week_totals_batch` keeps an existing monthly price
+(`CASE WHEN current_row.unit_price IS NULL OR = 0`). September rows were
+seeded before their first invoice, so no September invoice could change them.
+`test_week_batch_performance` asserted that frozen price for received
+invoices — the test encoded the bug; its expectations are updated here.
+
+**Owner decision (2026-10-05):** inventory carries the **latest received
+invoice price** per item and month; repair **September only**.
+
+**Change (local, branch `fix/observed-price-protocol`):**
+- `backend/pricing.py` (new): the rule. Moves of 25% or less apply on commit;
+  larger moves are held for a manager.
+- `supabase/migrations/20261005200000_observed_price_protocol.sql` (new,
+  additive): `price_review_queue` (queue and price-change log, tenant
+  trigger/RLS), `apply_observed_prices` RPC (one statement; the existing
+  value-standard row trigger re-settles values), `inventory_price_drift` view.
+  No new `recompute_week_totals*` overload.
+- `backend/staging/dispatch.py`: received commits plan, apply and log prices;
+  held prices reach neither the period nor the catalog.
+- `backend/routes/price_review.py` (new) + `main.py`: list, drift, and
+  apply/keep endpoints (manager+, published periods read-only).
+- `backend/routes/inventory.py`: publishing a week is blocked while its period
+  has pending price reviews or unresolved drift.
+- `backend/tenancy.py`: registers the new table, view and RPC (required
+  scoping only — no new tenancy work; freeze unchanged).
+- Frontend: `PriceReview.tsx` (new) opened from Source Control (panel and page
+  tab, manager+); `api.ts` client + types.
+- AGENTS.md §4A: price rule rewritten; Opening/Ending Value bullets corrected
+  to match the `monthly_inventory_value_standard` trigger (opening stock keeps
+  its carried cost; ending value is the dollar identity).
+- VERSION, `frontend/package.json`, `package-lock.json` → 0.3.40.
+
+**Verified locally:** Ruff clean; backend **542 passed, 15 skipped** (34 new:
+pricing rule, commit path including the four September items, replay
+idempotency, routes, publish gate). The route tests caught and fixed a
+route-order bug (`/drift/resolve` was being matched as a row id). Frontend
+`tsc --noEmit` clean, production build passes, new component lint-clean.
+
+**Not yet done:** migration not applied to MJCCv1; September repair not run
+(needs database access — this session's `SUPABASE_ACCESS_TOKEN` is the Scena
+account's); UI not browser-verified (endpoints not deployed). Unverified
+against live data: whether invoice 1038699 (dated 08/31) was posted to
+September W1, and why lettuce shows $74.41 (matches no September invoice —
+possible wrong item mapping). Deploy order: migration **before** backend.
+Hazard noted, not changed: `backend/migrations/052` recreates the unscoped
+3-argument `recompute_week_totals` overload that broke commits in August.
+
+**Push:** pending — local only, uncommitted; needs an approved identifier.
+
+## 2026-09-26 — v0.3.39 publication verified
+
+**Codex:** release `3c1e711c95ced815bac80116daf63972f76d8159` is on origin/main.
+GitHub CI run `36278028398` completed successfully and published tag/release
+`v0.3.39`. Render backend deployment `dep-das4smvf3r2c73akuvmg` and frontend
+deployment `dep-das4smvf3r2c73akv070` are live on that exact commit. Production
+system info reports `3c1e711c95ce`; readiness is operational. Health/live and
+MJCC returned 200 in 0.181 s and 0.286 s in single external checks. The signed-in
+MJCC interface displays 392 September inventory rows; authenticated inventory,
+staging and commit reads returned 200 in Render logs. No error-level app entries
+were returned by the post-startup error query.
+
+**Remaining:** archive queue polling is executing but GitHub rejects the
+configured archive credential with `401 Bad credentials`. Queue rows retain
+errors and reach the three-attempt failure limit; a valid credential and retry
+recovery are still needed. No production inventory commit was performed during
+this publication; the under-30-second commit acceptance remains unverified.
+Health-path configuration is unchanged following the prior automatic-review
+rejection. This post-deploy record is a local append after publication.
+
+**Push:** Codex → `3c1e711` — 2026-09-26; CI passed; both Render services live.
+
 ## [v0.3.39] — 2026-09-26
 
 **Codex:** KPNCOMPUTE-ASYNC-PIPELINE-V0339-2026-09-26, user-authorized publication.

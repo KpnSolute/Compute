@@ -5,6 +5,7 @@ import { type User, ROLE_LEVEL, ROLE_LABEL } from "../lib/constants";
 import { api, type Commit, type SourceTransaction, type StagingEntry } from "../lib/api";
 import { useEscapeClose } from "../lib/useEscapeClose";
 import { StatusPill } from "./ui/StatusPill";
+import { PriceReviewModal } from "./PriceReview";
 import { matchesInventoryQuery, parseInventoryQuery } from "../lib/inventorySearch";
 import { displayDiffValue, groupCommitChanges, type LogicalCommitChange } from "../lib/sourceControlDiff";
 import { periodKey, prPeriod, type PrPeriod } from "../lib/prPeriod";
@@ -562,6 +563,7 @@ function SCChangesView({
     const pageMode = externalTab !== undefined;
     const lvl = ROLE_LEVEL[user.role] || 0;
     const canReview = lvl >= 20; // assistant, manager, admin, sudo
+    const canManagePrices = lvl >= ROLE_LEVEL.manager; // price decisions are manager+
     const canCommit = lvl >= 20;
     const isSelfExempt = lvl >= ROLE_LEVEL.admin; // admin/sudo may commit their own changes
 
@@ -602,6 +604,7 @@ function SCChangesView({
 
     // SKU Review state
     const [showSKUReview, setShowSKUReview] = useState(false);
+    const [showPriceReview, setShowPriceReview] = useState(false);
     const [skuRows, setSkuRows] = useState<any[]>([]);
     const [skuLoading, setSkuLoading] = useState(false);
     const [skuExpandedId, setSkuExpandedId] = useState<string | null>(null);
@@ -717,11 +720,13 @@ function SCChangesView({
     useEffect(() => {
         if (!externalTab || externalTab === 'changes') {
             setShowHistory(false); setShowAI(false); setShowPRs(false); setShowSKUReview(false);
+            setShowPriceReview(false);
             return;
         }
         setShowHistory(externalTab === 'history');
         setShowAI(externalTab === 'ai');
         setShowSKUReview(externalTab === 'sku');
+        setShowPriceReview(externalTab === 'price');
         setShowPRs(externalTab === 'prs');
         if (externalTab === 'prs') loadPRs();
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -735,6 +740,7 @@ function SCChangesView({
         : externalTab === 'ai' ? showAI
             : externalTab === 'prs' ? showPRs
                 : externalTab === 'sku' ? showSKUReview
+                    : externalTab === 'price' ? showPriceReview
                     : false;
     const lastOverlay = useRef<{ tab?: string; open: boolean }>({ open: false });
     useEffect(() => {
@@ -1446,6 +1452,11 @@ function SCChangesView({
                         {I.archive({ style: { width: 13, height: 13 } })} SKU Review
                     </button>
                 )}
+                {canManagePrices && (
+                    <button className="sc-nav-btn" title="Price Review — inventory prices against the latest invoices" onClick={() => setShowPriceReview(true)}>
+                        {I.dollar({ style: { width: 13, height: 13 } })} Price Review
+                    </button>
+                )}
             </div>
             )}
 
@@ -1639,6 +1650,7 @@ function SCChangesView({
             {renderAI()}
             {renderPRs()}
             {renderSKUReview()}
+            <PriceReviewModal open={showPriceReview && canManagePrices} onClose={() => setShowPriceReview(false)} />
         </div>
     );
 }
@@ -1736,7 +1748,7 @@ export function SourceControlPanel({
 }
 
 // ── Full page view ───────────────────────────────────────────────────────────
-type SCPageTab = 'changes' | 'history' | 'prs' | 'ai' | 'sku';
+type SCPageTab = 'changes' | 'history' | 'prs' | 'ai' | 'sku' | 'price';
 
 export function SourceControlPage({
     user, openPrId, onConsumePrId,
@@ -1795,6 +1807,11 @@ export function SourceControlPage({
                 {canReview && (
                     <button aria-pressed={tab === 'sku'} className={"tab-btn" + (tab === 'sku' ? " active" : "")} onClick={() => setTab('sku')}>
                         {I.archive()} SKU Review
+                    </button>
+                )}
+                {lvl >= ROLE_LEVEL.manager && (
+                    <button aria-pressed={tab === 'price'} className={"tab-btn" + (tab === 'price' ? " active" : "")} onClick={() => setTab('price')}>
+                        {I.dollar()} Price Review
                     </button>
                 )}
             </div>

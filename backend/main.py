@@ -77,6 +77,7 @@ from backend.routes.data_entry import router as data_entry_router
 from backend.routes.file_archive import router as file_archive_router
 from backend.routes.agent import router as agent_router
 from backend.routes.sku_review import router as sku_review_router
+from backend.routes.price_review import router as price_review_router
 from backend.routes.cost import router as cost_router
 from backend.routes.snack_bar import router as snack_bar_router
 from backend.routes.changelog import router as changelog_router
@@ -321,6 +322,7 @@ app.include_router(data_entry_router)
 app.include_router(file_archive_router)
 app.include_router(agent_router)
 app.include_router(sku_review_router)
+app.include_router(price_review_router)
 app.include_router(cost_router)
 app.include_router(snack_bar_router)
 app.include_router(changelog_router)

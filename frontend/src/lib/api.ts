@@ -1909,4 +1909,77 @@ export const api = {
     });
   },
 
+  // Price Review (manager+) — observed-price protocol. Months are 1-indexed.
+  async getPriceReview(params: { status?: string; month?: number; year?: number } = {}): Promise<PriceReviewRow[]> {
+    const p = new URLSearchParams({ status: params.status ?? 'pending' });
+    if (params.month != null) p.set('month', String(params.month));
+    if (params.year != null) p.set('year', String(params.year));
+    return req(`/api/price-review?${p.toString()}`);
+  },
+
+  async getPriceDrift(month: number, year: number): Promise<PriceDriftResponse> {
+    const p = new URLSearchParams({ month: String(month), year: String(year) });
+    return req(`/api/price-review/drift?${p.toString()}`);
+  },
+
+  async resolvePriceReview(rowId: string, body: PriceDecision): Promise<PriceReviewRow> {
+    return req(`/api/price-review/${encodeURIComponent(rowId)}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  async resolvePriceDrift(body: PriceDecision & { item_id: string; month: number; year: number }): Promise<PriceReviewRow> {
+    return req('/api/price-review/drift/resolve', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
 };
+
+// ── Price Review (observed-price protocol) ──────────────────────────────────
+export interface PriceDecision {
+  action: 'apply' | 'keep';
+  price?: number;
+  note?: string;
+}
+
+export interface PriceReviewRow {
+  id: string;
+  item_id: string;
+  sku: string | null;
+  description: string | null;
+  month: number;
+  year: number;
+  week: number | null;
+  invoice_number: string | null;
+  previous_price: number | null;
+  observed_price: number;
+  applied_price: number | null;
+  change_pct: number | null;
+  status: 'auto_applied' | 'pending' | 'applied' | 'kept' | 'dismissed';
+  reason: string | null;
+  created_at: string;
+}
+
+export interface PriceDriftRow {
+  item_id: string;
+  sku: string | null;
+  description: string | null;
+  month: number;
+  year: number;
+  inventory_price: number | null;
+  observed_price: number;
+  invoice_number: string | null;
+  week_number: number | null;
+  change_pct: number | null;
+  review_pending: boolean;
+}
+
+export interface PriceDriftResponse {
+  month: number;
+  year: number;
+  summary: { pending_reviews: number; unresolved_drift: number };
+  rows: PriceDriftRow[];
+}

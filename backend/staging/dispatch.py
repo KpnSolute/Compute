@@ -9,6 +9,7 @@ from backend.inventory_identity import (
     flush_item_updates,
 )
 from backend import inventory_formulas as fi
+from backend import pricing
 
 log = logging.getLogger("mjcc.dispatch")
 
@@ -864,6 +865,114 @@ def dispatch_item_delete(payload: dict) -> dict:
     return {"applied": 1, "sku": sku, "mode": "soft"}
 
 
+def _plan_observed_prices(
+    sup, db_month: int, year: int, resolved_items: list, prior_catalog: dict
+) -> dict:
+    """Decide, per item, whether this invoice's price applies or waits for review.
+
+    The comparison base is the item's current price for this period; an item
+    with no monthly row yet is compared with its catalog price as it stood
+    before this invoice was resolved. See backend/pricing.py for the rule.
+    """
+    observed: dict[str, tuple[float, dict, str]] = {}
+    for item, item_id, sku in resolved_items:
+        price = pricing.as_price(_non_negative(item.get("price"), "price", sku))
+        if price > 0:
+            observed[item_id] = (price, item, sku)  # a repeated SKU: last line wins
+    current: dict[str, object] = {}
+    ids = sorted(observed)
+    for start in range(0, len(ids), 100):
+        rows = (
+            sup.table("monthly_inventory")
+            .select("item_id,unit_price")
+            .eq("month", db_month)
+            .eq("year", year)
+            .in_("item_id", ids[start : start + 100])
+            .execute()
+        )
+        current.update({r["item_id"]: r.get("unit_price") for r in rows.data or []})
+    apply: dict[str, float] = {}
+    held: set[str] = set()
+    events: list[dict] = []
+    for item_id, (price, item, sku) in observed.items():
+        period_price = current.get(item_id)
+        previous = (
+            period_price
+            if pricing.as_price(period_price) > 0
+            else prior_catalog.get(item_id)
+        )
+        decision, change = pricing.decide_price(previous, price)
+        if decision == pricing.APPLY:
+            apply[item_id] = price
+        elif decision == pricing.HOLD:
+            held.add(item_id)
+        if decision in (pricing.APPLY, pricing.HOLD) and pricing.as_price(previous) > 0:
+            events.append(
+                {
+                    "item_id": item_id,
+                    "sku": sku,
+                    "description": item.get("desc"),
+                    "staging_entry_id": item.get("_staging_entry_id"),
+                    "previous_price": round(pricing.as_price(previous), 4),
+                    "observed_price": round(price, 4),
+                    "applied_price": round(price, 4)
+                    if decision == pricing.APPLY
+                    else None,
+                    "change_pct": round(change, 4) if change is not None else None,
+                    "status": "auto_applied"
+                    if decision == pricing.APPLY
+                    else "pending",
+                    "reason": None
+                    if decision == pricing.APPLY
+                    else (
+                        f"Price moved {change:+.0%} against the current period price; "
+                        f"over the {pricing.PRICE_REVIEW_THRESHOLD:.0%} review threshold."
+                    ),
+                }
+            )
+    return {"apply": apply, "held": held, "events": events}
+
+
+def _apply_observed_prices(sup, db_month: int, year: int, prices: dict) -> int:
+    """Set the period price for each item in one statement per 100 items.
+
+    The monthly_inventory row trigger re-settles the value columns from the
+    new price, so no separate value write is needed here.
+    """
+    applied = 0
+    ids = sorted(prices)
+    for start in range(0, len(ids), 100):
+        result = sup.rpc(
+            "apply_observed_prices",
+            {
+                "p_month": db_month,
+                "p_year": year,
+                "p_prices": [
+                    {"item_id": iid, "unit_price": prices[iid]}
+                    for iid in ids[start : start + 100]
+                ],
+            },
+        ).execute()
+        if isinstance(result.data, int):
+            applied += result.data
+    return applied
+
+
+def _record_price_events(sup, events: list[dict], **context) -> None:
+    """Log applied changes and queue held ones; idempotent across retries.
+
+    One row per (item, period, staging entry): a replayed commit hits the same
+    rows and DO NOTHING keeps any decision a manager has already made.
+    """
+    rows = [{**context, **event} for event in events]
+    for start in range(0, len(rows), 100):
+        sup.table("price_review_queue").upsert(
+            rows[start : start + 100],
+            on_conflict="item_id,month,year,staging_entry_id",
+            ignore_duplicates=True,
+        ).execute()
+
+
 def dispatch_inventory_week(payload: dict) -> dict:
     """Weekly invoice/pull posting — LEDGER MODEL (Phase 1).
 
@@ -938,6 +1047,13 @@ def dispatch_inventory_week(payload: dict) -> dict:
         force_review_category=review_new,
         direction=direction,
     )
+    # Catalog prices as they stood before this invoice: the resolver below
+    # overwrites them in place, and the price rule compares against them.
+    prior_catalog = {
+        row["id"]: row.get("unit_price")
+        for row in existing_items.values()
+        if row.get("id") and not row.get("_batch_created")
+    }
     pending_item_updates = {}
     resolved_items = []
     for item in items:
@@ -977,6 +1093,11 @@ def dispatch_inventory_week(payload: dict) -> dict:
         return _unresolved_items_rejected(
             dropped, month=month, year=year, week=week, direction=direction
         )
+    price_plan = (
+        _plan_observed_prices(sup, db_month, year, resolved_items, prior_catalog)
+        if direction == "received"
+        else {"apply": {}, "held": set(), "events": []}
+    )
     catalog_prices = {
         row["id"]: row.get("unit_price") for row in existing_items.values()
     }
@@ -1107,6 +1228,9 @@ def dispatch_inventory_week(payload: dict) -> dict:
     # (a retried commit), then insert. The unique index on staging_entry_id is the
     # backstop. Then recompute the derived weekly columns from the full ledger so
     # repeat invoices in the same week ACCUMULATE.
+    # A held price waits for a manager: it must not reach the catalog either.
+    for item_id in price_plan["held"]:
+        (pending_item_updates.get(item_id) or {}).pop("unit_price", None)
     flush_item_updates(sup, pending_item_updates)
     replay_ids = sorted(staging_ids)
     for start in range(0, len(replay_ids), 100):
@@ -1127,6 +1251,17 @@ def dispatch_inventory_week(payload: dict) -> dict:
         ).execute()
     # Reconcile every touched row with the canonical financial calculation;
     # recomputation and sparse posting can otherwise leave stale opening values.
+    prices_applied = _apply_observed_prices(sup, db_month, year, price_plan["apply"])
+    _record_price_events(
+        sup,
+        price_plan["events"],
+        month=db_month,
+        year=year,
+        week=week,
+        invoice_number=invoice_number,
+        source_file=source_file,
+        created_by=created_by,
+    )
     settled = _enforce_value_invariants(sup, db_month, year, affected_items)
 
     result = {
@@ -1138,6 +1273,9 @@ def dispatch_inventory_week(payload: dict) -> dict:
         "direction": direction,
         "ledger": True,
     }
+    if direction == "received":
+        result["prices_applied"] = prices_applied
+        result["prices_held"] = len(price_plan["held"])
     if settled:
         result["value_rows_settled"] = settled
     try:

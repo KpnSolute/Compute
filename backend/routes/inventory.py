@@ -30,6 +30,7 @@ from backend.inventory_identity import (
 )
 from backend import inventory_formulas as fi
 from backend.periods import business_now, weeks_in_month
+from backend.routes.price_review import open_price_issues
 from backend.concurrency import inventory_snapshot_read, serialized_inventory_write
 
 logger = logging.getLogger(__name__)
@@ -1629,6 +1630,20 @@ def set_week_status(
     if body.week not in (1, 2, 3):
         raise HTTPException(status_code=422, detail="week must be 1-3.")
     db_month = body.month - 1
+    if body.status == "published":
+        # Observed-price protocol: a period can't be published while its
+        # inventory prices disagree with its own invoices (AGENTS.md §4A).
+        issues = open_price_issues(db_month, body.year)
+        if issues["pending_reviews"] or issues["unresolved_drift"]:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Resolve prices before publishing {body.month}/{body.year}: "
+                    f"{issues['pending_reviews']} price review(s) pending, "
+                    f"{issues['unresolved_drift']} item(s) priced differently from "
+                    "their latest invoice. See Data Entry > Price Review."
+                ),
+            )
     try:
         supabase_service.rpc(
             "set_week_status",

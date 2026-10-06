@@ -78,6 +78,7 @@ TENANT_TABLES = {
     "monthly_inventory",
     "monthly_snapshots",
     "opening_checklist_items",
+    "price_review_queue",
     "pull_requests",
     "generation_run_sources",
     "project_artifacts",
@@ -106,6 +107,7 @@ TENANT_TABLES = {
 TENANT_VIEWS = {
     "category_spending",
     "dashboard_summary",
+    "inventory_price_drift",
     "invoice_spending_summary",
     "item_price_history",
     "live_inventory",
@@ -113,6 +115,7 @@ TENANT_VIEWS = {
 }
 TENANT_RPCS = {
     "admin_merge_items",
+    "apply_observed_prices",
     "audit_inventory_period",
     "link_invoice_items_by_id",
     "perform_rollover",

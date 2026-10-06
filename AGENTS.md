@@ -132,18 +132,19 @@ This is the **authoritative schema**. 38 tables, RLS enabled on all. Key tables 
 
 These rules are mandatory for all inventory formulas, API responses, dashboards, reports, imports, AI tools, database functions, and tests:
 
-- Monthly valuation price is `monthly_inventory.unit_price` for the period. If absent, use catalog price only as an explicit fallback; never mix invoice line prices into inventory valuation.
+- **Observed-price rule (owner decision 2026-10-05).** The monthly valuation price, `monthly_inventory.unit_price`, is the **latest received invoice price** for the item in that period: highest week, then latest transaction date. A received-invoice commit applies it automatically when it moves 25% or less from the current period price; larger moves are held in `price_review_queue` for a manager (Source Control → Price Review) and change neither the period nor the catalog price until decided. The catalog price (`inventory_items.unit_price`) follows the same accepted price. Rules live in `backend/pricing.py`; the commit path is `dispatch_inventory_week`; prices are written only through the `apply_observed_prices` RPC. This replaces the earlier rule that froze the monthly price and never took invoice prices — that rule left September 2026 valued at August-era prices.
+- **Price drift** is any monthly price that differs from its period's latest invoice price (`inventory_price_drift` view). A week cannot be published while its period has pending price reviews or unresolved drift (`/api/inventory/week-status`).
 - `Total Received = w1_received + w2_received + w3_received`.
 - `Total Pulled = w1_pulled + w2_pulled + w3_pulled`.
 - `Ending Quantity = MAX(0, opening_oh + Total Received - Total Pulled)`. Over-pulls remain an audit signal, but displayed stock cannot be negative.
-- `Opening Value = opening_oh × monthly unit price`.
+- `Opening Value = opening_oh × opening unit cost` — the cost carried from the prior close (`opening_unit_cost`), falling back to the monthly unit price only when no carried cost exists. A mid-month price change does not revalue opening stock.
 - `Received Value = Total Received × monthly unit price`.
 - `Pulled Value = Total Pulled × monthly unit price`.
-- `Ending Value = Ending Quantity × monthly unit price`.
+- `Ending Value = Opening Value + Received Value - Pulled Value`, and `0` when Ending Quantity is `0`.
 - Monthly totals are sums of row-level quantities and values. The dollar control identity must hold: `Opening Value + Received Value - Pulled Value = Ending Value`.
 - Monetary results are rounded to cents at row-calculation boundaries; totals sum rounded row values. Quantities are never inferred from dollars.
 - Invoice goods totals and invoice `net_total` are separate reconciliation/payables metrics. They must not replace inventory received value or be silently presented as inventory value.
-- Imported/stored `opening_value`, `received_value`, `pulled_value`, and `ending_value` are audit inputs only. Writers and readers recompute them from quantities and the monthly unit price.
+- Imported/stored `opening_value`, `received_value`, `pulled_value`, and `ending_value` are audit inputs only. Writers and readers recompute them from quantities, the opening unit cost, and the monthly unit price; the `monthly_inventory_value_standard` row trigger does this on every price or quantity write.
 
 ### 4B. TENANCY MODEL (added 2026-09-11 — this section did not exist before; verify against live code before trusting old habits)
 
