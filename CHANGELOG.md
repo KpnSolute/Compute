@@ -51,16 +51,37 @@ idempotency, routes, publish gate). The route tests caught and fixed a
 route-order bug (`/drift/resolve` was being matched as a row id). Frontend
 `tsc --noEmit` clean, production build passes, new component lint-clean.
 
-**Not yet done:** migration not applied to MJCCv1; September repair not run
-(needs database access — this session's `SUPABASE_ACCESS_TOKEN` is the Scena
-account's); UI not browser-verified (endpoints not deployed). Unverified
-against live data: whether invoice 1038699 (dated 08/31) was posted to
-September W1, and why lettuce shows $74.41 (matches no September invoice —
-possible wrong item mapping). Deploy order: migration **before** backend.
-Hazard noted, not changed: `backend/migrations/052` recreates the unscoped
-3-argument `recompute_week_totals` overload that broke commits in August.
+**Live database (2026-10-05, owner-approved, MJCCv1):** applied migration
+`20261005200000_observed_price_protocol` (recorded in schema history). Read-only
+dry run first: all three invoices were posted to September W1/W2/W3 and their
+ledger goods equal the PDFs; 103 September items carried stale prices (98 moves
+within 25%, 5 larger: green pepper, iceberg lettuce, cantaloupe, chicken wing,
+honeydew). Lettuce's $74.41 had been frozen since July — the same bug, not a
+wrong item mapping. With owner approval: reopened September (published
+2026-10-01 by Othniel), applied the latest September invoice price to all 103
+items in one transaction, logged every change in `price_review_queue`, carried
+the corrected close into October's opening cost (34 stocked items), and
+re-published September (Jeremiah). The transaction was rehearsed first with a
+deliberate abort. The first real attempt rolled back cleanly on an ambiguous
+column in its own verification step; nothing was written. Backup of every
+touched row: `app_private.price_repair_20261005_backup` (798 rows).
 
-**Push:** pending — local only, uncommitted; needs an approved identifier.
+**Verified live:** audited items now $63.11 (hot cup) / $47.20 (lettuce) /
+$48.59 (cheddar) / $45.88 (cream); September drift 0; September received value
+-$732.39 and pulled value -$773.93, matching the dry-run forecast; September
+close equals October opening on all 392 items ($8,192.71); all 93 repaired US
+Foods prices match the invoices (catch-weight lines on a per-case basis); the
+other 10 come from a non-US Foods September invoice in the ledger.
+
+**Not yet done:** October has 109 drifted prices (7 over 25%, one +1,084% move)
+for Price Review after deploy; October cannot be published until they are
+settled. October receipts carry invoice number "Page" (the parser read
+"Page 1 of 11") — parser fix pending. Price Review UI not browser-verified until
+deploy. Hazard noted, not changed: `backend/migrations/052` recreates the
+unscoped 3-argument `recompute_week_totals` overload that broke commits in
+August.
+
+**Push:** Claude → `main` (fast-forward from `fix/observed-price-protocol`) — 2026-10-05; CI and Render state recorded after verification.
 
 ## 2026-09-26 — v0.3.39 publication verified
 
