@@ -1,0 +1,2447 @@
+{
+  "actions": {
+    "close_period": {
+      "effect": [
+        {
+          "emit": "period.decided"
+        }
+      ],
+      "entity": "period"
+    },
+    "manage_events": {
+      "effect": [
+        {
+          "emit": "events.managed"
+        }
+      ],
+      "entity": "outbox_event"
+    },
+    "mark_notification_failed": {
+      "effect": [
+        {
+          "transition": "failed"
+        },
+        {
+          "emit": "notification.failed"
+        }
+      ],
+      "entity": "notification",
+      "requires_state": [
+        "pending"
+      ]
+    },
+    "mark_notification_read": {
+      "effect": [
+        {
+          "transition": "read"
+        },
+        {
+          "emit": "notification.read"
+        }
+      ],
+      "entity": "notification",
+      "requires_state": [
+        "sent"
+      ]
+    },
+    "mark_notification_sent": {
+      "effect": [
+        {
+          "transition": "sent"
+        },
+        {
+          "emit": "notification.sent"
+        }
+      ],
+      "entity": "notification",
+      "requires_state": [
+        "pending"
+      ]
+    },
+    "merge_changeset": {
+      "effect": [
+        {
+          "emit": "changeset.decided"
+        }
+      ],
+      "entity": "changeset"
+    }
+  },
+  "entities": {
+    "app_setting": {
+      "fields": {
+        "setting_key": {
+          "indexed": true,
+          "max_length": 80,
+          "required": true,
+          "type": "string",
+          "unique": true
+        },
+        "setting_value": {
+          "required": true,
+          "type": "json"
+        }
+      },
+      "sort_keys": [
+        "setting_key"
+      ]
+    },
+    "audit_event": {
+      "fields": {
+        "actor": {
+          "indexed": true,
+          "max_length": 120,
+          "required": true,
+          "type": "string"
+        },
+        "after": {
+          "type": "json"
+        },
+        "at": {
+          "indexed": true,
+          "required": true,
+          "type": "integer"
+        },
+        "before": {
+          "type": "json"
+        },
+        "entity": {
+          "indexed": true,
+          "max_length": 64,
+          "required": true,
+          "type": "string"
+        },
+        "from_version": {
+          "type": "integer"
+        },
+        "operation": {
+          "indexed": true,
+          "required": true,
+          "type": "enum",
+          "values": [
+            "create",
+            "update",
+            "delete"
+          ]
+        },
+        "record_id": {
+          "indexed": true,
+          "max_length": 64,
+          "required": true,
+          "type": "string"
+        },
+        "request_id": {
+          "max_length": 64,
+          "type": "string"
+        },
+        "to_version": {
+          "type": "integer"
+        }
+      },
+      "sort_keys": [
+        "at",
+        "entity",
+        "record_id"
+      ]
+    },
+    "budget_line_actual": {
+      "fields": {
+        "actual_amount": {
+          "default": 0,
+          "precision": 12,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "actual_key": {
+          "computed": "concat(line_item, '|', period)",
+          "indexed": true,
+          "max_length": 100,
+          "type": "string",
+          "unique": true
+        },
+        "line_item": {
+          "indexed": true,
+          "ref": "budget_line_item",
+          "required": true,
+          "type": "ref"
+        },
+        "period": {
+          "indexed": true,
+          "ref": "period",
+          "required": true,
+          "type": "ref"
+        },
+        "updated_by": {
+          "max_length": 120,
+          "type": "string"
+        }
+      },
+      "locked_when": "ref(period).status == 'closed'"
+    },
+    "budget_line_item": {
+      "fields": {
+        "active": {
+          "default": true,
+          "type": "boolean"
+        },
+        "annual_budget": {
+          "default": 0,
+          "precision": 12,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "auto_source": {
+          "type": "enum",
+          "values": [
+            "pulled",
+            "received",
+            "renewable",
+            "snack_bar_revenue"
+          ]
+        },
+        "description": {
+          "max_length": 240,
+          "required": true,
+          "type": "string"
+        },
+        "fy_start_year": {
+          "indexed": true,
+          "required": true,
+          "type": "integer"
+        },
+        "line_type": {
+          "default": "cost",
+          "indexed": true,
+          "type": "enum",
+          "values": [
+            "cost",
+            "revenue"
+          ]
+        },
+        "sort_order": {
+          "default": 0,
+          "indexed": true,
+          "type": "integer"
+        },
+        "task_id": {
+          "max_length": 60,
+          "type": "string"
+        }
+      },
+      "sort_keys": [
+        "sort_order"
+      ]
+    },
+    "cafeteria_event": {
+      "fields": {
+        "category": {
+          "default": "other",
+          "indexed": true,
+          "max_length": 40,
+          "type": "string"
+        },
+        "description": {
+          "type": "text"
+        },
+        "event_date": {
+          "indexed": true,
+          "required": true,
+          "type": "date"
+        },
+        "status": {
+          "indexed": true,
+          "type": "enum",
+          "values": [
+            "planned",
+            "confirmed",
+            "completed",
+            "cancelled"
+          ]
+        },
+        "suggested_menu": {
+          "type": "text"
+        },
+        "theme": {
+          "max_length": 120,
+          "type": "string"
+        },
+        "title": {
+          "max_length": 200,
+          "required": true,
+          "searchable": true,
+          "type": "string"
+        }
+      },
+      "sort_keys": [
+        "event_date"
+      ],
+      "state": {
+        "field": "status",
+        "initial": "planned",
+        "states": {
+          "cancelled": {
+            "code": 610
+          },
+          "completed": {
+            "code": 600
+          },
+          "confirmed": {
+            "code": 200,
+            "to": [
+              "completed",
+              "cancelled"
+            ]
+          },
+          "planned": {
+            "code": 100,
+            "to": [
+              "confirmed",
+              "cancelled"
+            ]
+          }
+        }
+      }
+    },
+    "changeset": {
+      "fields": {
+        "conflict": {
+          "type": "json"
+        },
+        "decided_by": {
+          "max_length": 120,
+          "type": "string"
+        },
+        "status": {
+          "indexed": true,
+          "type": "enum",
+          "values": [
+            "proposed",
+            "merged",
+            "rejected",
+            "withdrawn",
+            "conflicted",
+            "reverted"
+          ]
+        },
+        "submitted_by": {
+          "indexed": true,
+          "max_length": 120,
+          "required": true,
+          "type": "string"
+        },
+        "title": {
+          "indexed": true,
+          "max_length": 200,
+          "required": true,
+          "type": "string"
+        }
+      },
+      "sort_keys": [
+        "title",
+        "status"
+      ]
+    },
+    "changeset_op": {
+      "fields": {
+        "before": {
+          "type": "json"
+        },
+        "changeset": {
+          "indexed": true,
+          "ref": "changeset",
+          "required": true,
+          "type": "ref"
+        },
+        "data": {
+          "type": "json"
+        },
+        "entity": {
+          "max_length": 64,
+          "required": true,
+          "type": "string"
+        },
+        "expected_version": {
+          "type": "integer"
+        },
+        "operation": {
+          "required": true,
+          "type": "enum",
+          "values": [
+            "create",
+            "update",
+            "delete"
+          ]
+        },
+        "record_id": {
+          "max_length": 64,
+          "type": "string"
+        },
+        "result_version": {
+          "type": "integer"
+        },
+        "seq": {
+          "indexed": true,
+          "required": true,
+          "type": "integer"
+        }
+      },
+      "sort_keys": [
+        "seq"
+      ]
+    },
+    "cost_budget": {
+      "fields": {
+        "gov_allotment": {
+          "precision": 12,
+          "required": true,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "notes": {
+          "type": "text"
+        },
+        "period": {
+          "indexed": true,
+          "ref": "period",
+          "required": true,
+          "type": "ref",
+          "unique": true
+        },
+        "planned_pull_amount": {
+          "precision": 12,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "planned_reviewable_amount": {
+          "precision": 12,
+          "scale": 2,
+          "type": "decimal"
+        }
+      },
+      "locked_when": "ref(period).status == 'closed'"
+    },
+    "daily_operations_log": {
+      "fields": {
+        "business_date": {
+          "indexed": true,
+          "type": "date"
+        },
+        "created_by": {
+          "max_length": 120,
+          "type": "string"
+        },
+        "data": {
+          "type": "json"
+        },
+        "description": {
+          "type": "text"
+        },
+        "entry_type": {
+          "indexed": true,
+          "max_length": 60,
+          "required": true,
+          "type": "string"
+        },
+        "severity": {
+          "default": "info",
+          "indexed": true,
+          "type": "enum",
+          "values": [
+            "info",
+            "warning",
+            "critical"
+          ]
+        },
+        "title": {
+          "max_length": 200,
+          "required": true,
+          "type": "string"
+        }
+      },
+      "sort_keys": [
+        "business_date",
+        "entry_type"
+      ]
+    },
+    "document": {
+      "fields": {
+        "file": {
+          "type": "file"
+        },
+        "kind": {
+          "indexed": true,
+          "max_length": 60,
+          "type": "string"
+        },
+        "period": {
+          "indexed": true,
+          "ref": "period",
+          "type": "ref"
+        },
+        "source": {
+          "max_length": 60,
+          "type": "string"
+        },
+        "title": {
+          "indexed": true,
+          "max_length": 200,
+          "required": true,
+          "searchable": true,
+          "type": "string"
+        }
+      },
+      "sort_keys": [
+        "title"
+      ]
+    },
+    "haccp_log": {
+      "fields": {
+        "checked_by": {
+          "max_length": 120,
+          "required": true,
+          "type": "string"
+        },
+        "location": {
+          "indexed": true,
+          "max_length": 120,
+          "required": true,
+          "type": "string"
+        },
+        "logged_at": {
+          "indexed": true,
+          "required": true,
+          "type": "datetime"
+        },
+        "notes": {
+          "type": "text"
+        },
+        "temperature": {
+          "precision": 6,
+          "required": true,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "unit": {
+          "default": "F",
+          "type": "enum",
+          "values": [
+            "F",
+            "C"
+          ]
+        }
+      },
+      "sort_keys": [
+        "logged_at",
+        "location"
+      ]
+    },
+    "import_batch": {
+      "fields": {
+        "error": {
+          "type": "text"
+        },
+        "filename": {
+          "max_length": 240,
+          "required": true,
+          "type": "string"
+        },
+        "items_imported": {
+          "default": 0,
+          "type": "integer"
+        },
+        "items_skipped": {
+          "default": 0,
+          "type": "integer"
+        },
+        "period": {
+          "indexed": true,
+          "ref": "period",
+          "type": "ref"
+        },
+        "source": {
+          "max_length": 60,
+          "required": true,
+          "type": "string"
+        },
+        "status": {
+          "indexed": true,
+          "type": "enum",
+          "values": [
+            "pending",
+            "done",
+            "failed"
+          ]
+        }
+      },
+      "sort_keys": [
+        "status"
+      ]
+    },
+    "incident_log": {
+      "fields": {
+        "description": {
+          "required": true,
+          "type": "text"
+        },
+        "incident_type": {
+          "indexed": true,
+          "max_length": 80,
+          "required": true,
+          "type": "string"
+        },
+        "notes": {
+          "type": "text"
+        },
+        "reported_at": {
+          "indexed": true,
+          "type": "datetime"
+        },
+        "reported_by": {
+          "max_length": 120,
+          "required": true,
+          "type": "string"
+        },
+        "resolved_at": {
+          "type": "datetime"
+        },
+        "resolved_by": {
+          "max_length": 120,
+          "type": "string"
+        },
+        "status": {
+          "indexed": true,
+          "type": "enum",
+          "values": [
+            "open",
+            "resolved"
+          ]
+        }
+      },
+      "sort_keys": [
+        "reported_at"
+      ],
+      "state": {
+        "field": "status",
+        "initial": "open",
+        "states": {
+          "open": {
+            "code": 100,
+            "to": [
+              "resolved"
+            ]
+          },
+          "resolved": {
+            "code": 600
+          }
+        }
+      }
+    },
+    "inventory_category": {
+      "fields": {
+        "color": {
+          "default": "#888888",
+          "max_length": 16,
+          "type": "string"
+        },
+        "icon": {
+          "max_length": 40,
+          "type": "string"
+        },
+        "name": {
+          "indexed": true,
+          "max_length": 80,
+          "required": true,
+          "type": "string",
+          "unique": true
+        },
+        "sort_order": {
+          "default": 0,
+          "indexed": true,
+          "type": "integer"
+        }
+      },
+      "sort_keys": [
+        "name",
+        "sort_order"
+      ]
+    },
+    "inventory_line": {
+      "fields": {
+        "ending_qty": {
+          "computed": "max(0, opening_oh + received - pulled)",
+          "precision": 14,
+          "scale": 3,
+          "type": "decimal"
+        },
+        "ending_value": {
+          "computed": "round(ending_qty * price, 2)",
+          "precision": 16,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "item": {
+          "indexed": true,
+          "ref": "item",
+          "required": true,
+          "type": "ref"
+        },
+        "line_key": {
+          "computed": "concat(item, '|', period)",
+          "indexed": true,
+          "max_length": 100,
+          "type": "string",
+          "unique": true
+        },
+        "opening_oh": {
+          "default": 0,
+          "precision": 14,
+          "scale": 3,
+          "type": "decimal"
+        },
+        "opening_value": {
+          "computed": "round(max(0, opening_oh) * price, 2)",
+          "precision": 16,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "period": {
+          "indexed": true,
+          "ref": "period",
+          "required": true,
+          "type": "ref"
+        },
+        "price": {
+          "computed": "round(max(0, when(unit_price > 0, unit_price, coalesce(ref(item).unit_price, 0))), 6)",
+          "precision": 12,
+          "scale": 6,
+          "type": "decimal"
+        },
+        "pulled": {
+          "computed": "sum(children(inventory_movement, line).pulled)",
+          "precision": 14,
+          "scale": 3,
+          "type": "decimal"
+        },
+        "pulled_value": {
+          "computed": "round(max(0, pulled) * price, 2)",
+          "precision": 16,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "received": {
+          "computed": "sum(children(inventory_movement, line).received)",
+          "precision": 14,
+          "scale": 3,
+          "type": "decimal"
+        },
+        "received_value": {
+          "computed": "round(max(0, received) * price, 2)",
+          "precision": 16,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "reorder": {
+          "computed": "ending_qty < coalesce(ref(item).par_level, 0)",
+          "type": "boolean"
+        },
+        "unit_price": {
+          "default": 0,
+          "precision": 12,
+          "scale": 6,
+          "type": "decimal"
+        }
+      },
+      "governed": true,
+      "invariants": [
+        {
+          "expr": "opening_oh >= 0",
+          "message_code": "inventory.negative_opening",
+          "name": "opening_not_negative"
+        },
+        {
+          "expr": "opening_oh + received - pulled >= 0",
+          "message_code": "inventory.over_pull",
+          "name": "no_over_pull"
+        }
+      ],
+      "locked_when": "ref(period).status == 'closed'",
+      "sort_keys": [
+        "line_key"
+      ]
+    },
+    "inventory_movement": {
+      "fields": {
+        "invoice_number": {
+          "indexed": true,
+          "max_length": 60,
+          "type": "string"
+        },
+        "item_sku": {
+          "indexed": true,
+          "max_length": 60,
+          "type": "string"
+        },
+        "line": {
+          "indexed": true,
+          "ref": "inventory_line",
+          "required": true,
+          "type": "ref"
+        },
+        "period": {
+          "indexed": true,
+          "ref": "period",
+          "required": true,
+          "type": "ref"
+        },
+        "pulled": {
+          "default": 0,
+          "precision": 14,
+          "scale": 3,
+          "type": "decimal"
+        },
+        "reason": {
+          "max_length": 200,
+          "type": "string"
+        },
+        "received": {
+          "default": 0,
+          "precision": 14,
+          "scale": 3,
+          "type": "decimal"
+        },
+        "source": {
+          "default": "manual",
+          "indexed": true,
+          "type": "enum",
+          "values": [
+            "manual",
+            "invoice",
+            "import",
+            "rollover",
+            "adjustment"
+          ]
+        },
+        "source_hash": {
+          "indexed": true,
+          "max_length": 80,
+          "type": "string",
+          "unique": true
+        },
+        "txn_date": {
+          "indexed": true,
+          "type": "date"
+        },
+        "unit_price": {
+          "default": 0,
+          "precision": 12,
+          "scale": 6,
+          "type": "decimal"
+        },
+        "week": {
+          "indexed": true,
+          "ref": "period_week",
+          "required": true,
+          "type": "ref"
+        }
+      },
+      "governed": true,
+      "invariants": [
+        {
+          "expr": "received >= 0",
+          "message_code": "movement.negative_received",
+          "name": "received_not_negative"
+        },
+        {
+          "expr": "pulled >= 0",
+          "message_code": "movement.negative_pulled",
+          "name": "pulled_not_negative"
+        }
+      ],
+      "locked_when": "ref(period).status == 'closed' or ref(week).status != 'open'",
+      "sort_keys": [
+        "txn_date"
+      ]
+    },
+    "invoice": {
+      "fields": {
+        "account_number": {
+          "max_length": 60,
+          "type": "string"
+        },
+        "applied_by": {
+          "max_length": 120,
+          "type": "string"
+        },
+        "discount": {
+          "default": 0,
+          "precision": 12,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "document": {
+          "type": "file"
+        },
+        "driver": {
+          "max_length": 80,
+          "type": "string"
+        },
+        "due_date": {
+          "type": "date"
+        },
+        "fuel_surcharge": {
+          "default": 0,
+          "precision": 12,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "invoice_date": {
+          "indexed": true,
+          "type": "date"
+        },
+        "invoice_number": {
+          "indexed": true,
+          "max_length": 60,
+          "required": true,
+          "searchable": true,
+          "type": "string"
+        },
+        "net_total": {
+          "computed": "round(subtotal - vizient_discount + fuel_surcharge + tax, 2)",
+          "precision": 14,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "order_date": {
+          "type": "date"
+        },
+        "order_number": {
+          "max_length": 60,
+          "type": "string"
+        },
+        "payment_terms": {
+          "default": "NET 30 DAYS",
+          "max_length": 60,
+          "type": "string"
+        },
+        "period": {
+          "indexed": true,
+          "ref": "period",
+          "type": "ref"
+        },
+        "po_number": {
+          "max_length": 60,
+          "type": "string"
+        },
+        "route": {
+          "max_length": 40,
+          "type": "string"
+        },
+        "shipped_date": {
+          "type": "date"
+        },
+        "status": {
+          "default": "received",
+          "indexed": true,
+          "type": "enum",
+          "values": [
+            "received",
+            "reconciled",
+            "disputed"
+          ]
+        },
+        "stop": {
+          "max_length": 40,
+          "type": "string"
+        },
+        "subtotal": {
+          "computed": "sum(children(invoice_item, invoice).extended_price)",
+          "precision": 14,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "tax": {
+          "default": 0,
+          "precision": 12,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "vendor": {
+          "indexed": true,
+          "ref": "vendor",
+          "type": "ref"
+        },
+        "vizient_discount": {
+          "default": 0,
+          "precision": 12,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "week_number": {
+          "indexed": true,
+          "type": "integer"
+        }
+      },
+      "governed": true,
+      "invariants": [
+        {
+          "expr": "is_null(week_number) or (week_number >= 1 and week_number <= 3)",
+          "message_code": "invoice.week_range",
+          "name": "week_in_range"
+        }
+      ],
+      "locked_when": "ref(period).status == 'closed'",
+      "sort_keys": [
+        "invoice_number",
+        "invoice_date"
+      ]
+    },
+    "invoice_item": {
+      "fields": {
+        "category": {
+          "default": "Uncategorized",
+          "max_length": 80,
+          "type": "string"
+        },
+        "description": {
+          "max_length": 240,
+          "required": true,
+          "type": "string"
+        },
+        "extended_price": {
+          "default": 0,
+          "precision": 14,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "invoice": {
+          "indexed": true,
+          "ref": "invoice",
+          "required": true,
+          "type": "ref"
+        },
+        "item": {
+          "indexed": true,
+          "ref": "item",
+          "type": "ref"
+        },
+        "label": {
+          "max_length": 80,
+          "type": "string"
+        },
+        "lot_numbers": {
+          "type": "json"
+        },
+        "notes": {
+          "type": "text"
+        },
+        "pack_size": {
+          "max_length": 60,
+          "type": "string"
+        },
+        "pricing_unit": {
+          "max_length": 16,
+          "type": "string"
+        },
+        "quantity_adjusted": {
+          "precision": 14,
+          "scale": 3,
+          "type": "decimal"
+        },
+        "quantity_ordered": {
+          "precision": 14,
+          "scale": 3,
+          "type": "decimal"
+        },
+        "quantity_shipped": {
+          "precision": 14,
+          "scale": 3,
+          "type": "decimal"
+        },
+        "sku": {
+          "indexed": true,
+          "max_length": 60,
+          "type": "string"
+        },
+        "unit": {
+          "max_length": 16,
+          "type": "string"
+        },
+        "unit_price": {
+          "default": 0,
+          "precision": 12,
+          "scale": 6,
+          "type": "decimal"
+        },
+        "weight": {
+          "precision": 14,
+          "scale": 3,
+          "type": "decimal"
+        }
+      },
+      "governed": true,
+      "sort_keys": [
+        "sku"
+      ]
+    },
+    "item": {
+      "fields": {
+        "active": {
+          "default": true,
+          "indexed": true,
+          "type": "boolean"
+        },
+        "barcode_id": {
+          "indexed": true,
+          "max_length": 60,
+          "type": "string",
+          "unique": true
+        },
+        "category": {
+          "indexed": true,
+          "ref": "inventory_category",
+          "type": "ref"
+        },
+        "description": {
+          "indexed": true,
+          "max_length": 240,
+          "required": true,
+          "searchable": true,
+          "type": "string"
+        },
+        "needs_attention": {
+          "default": false,
+          "indexed": true,
+          "type": "boolean"
+        },
+        "par_level": {
+          "default": 0,
+          "type": "integer"
+        },
+        "sku": {
+          "indexed": true,
+          "max_length": 60,
+          "required": true,
+          "searchable": true,
+          "type": "string",
+          "unique": true
+        },
+        "suggested_category": {
+          "max_length": 80,
+          "type": "string"
+        },
+        "unit": {
+          "default": "CS",
+          "max_length": 16,
+          "type": "string"
+        },
+        "unit_price": {
+          "default": 0,
+          "precision": 12,
+          "scale": 6,
+          "type": "decimal"
+        },
+        "vendor": {
+          "indexed": true,
+          "ref": "vendor",
+          "type": "ref"
+        }
+      },
+      "governed": true,
+      "invariants": [
+        {
+          "expr": "unit_price >= 0",
+          "message_code": "item.negative_price",
+          "name": "price_not_negative"
+        }
+      ],
+      "sort_keys": [
+        "sku",
+        "description"
+      ]
+    },
+    "item_barcode": {
+      "fields": {
+        "barcode": {
+          "indexed": true,
+          "max_length": 60,
+          "required": true,
+          "type": "string",
+          "unique": true
+        },
+        "is_primary": {
+          "default": true,
+          "type": "boolean"
+        },
+        "item": {
+          "indexed": true,
+          "ref": "item",
+          "required": true,
+          "type": "ref"
+        },
+        "symbology": {
+          "default": "CODE128",
+          "max_length": 20,
+          "type": "string"
+        }
+      },
+      "sort_keys": [
+        "barcode"
+      ]
+    },
+    "meal_period": {
+      "fields": {
+        "close_hour": {
+          "precision": 5,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "label": {
+          "max_length": 80,
+          "required": true,
+          "type": "string"
+        },
+        "meal": {
+          "indexed": true,
+          "max_length": 40,
+          "required": true,
+          "type": "string",
+          "unique": true
+        },
+        "open_hour": {
+          "precision": 5,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "rate": {
+          "default": 0,
+          "precision": 8,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "sort_order": {
+          "default": 0,
+          "indexed": true,
+          "type": "integer"
+        }
+      },
+      "sort_keys": [
+        "sort_order"
+      ]
+    },
+    "menu_cycle_day": {
+      "fields": {
+        "active": {
+          "default": true,
+          "type": "boolean"
+        },
+        "cycle_day": {
+          "indexed": true,
+          "required": true,
+          "type": "integer",
+          "unique": true
+        },
+        "cycle_week": {
+          "indexed": true,
+          "required": true,
+          "type": "integer"
+        },
+        "day_of_week": {
+          "required": true,
+          "type": "enum",
+          "values": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday"
+          ]
+        },
+        "evening_service": {
+          "max_length": 120,
+          "type": "string"
+        },
+        "midday_service": {
+          "max_length": 120,
+          "type": "string"
+        },
+        "morning_service": {
+          "max_length": 120,
+          "type": "string"
+        },
+        "zone": {
+          "default": 1,
+          "type": "integer"
+        }
+      },
+      "invariants": [
+        {
+          "expr": "cycle_day >= 1 and cycle_day <= 28",
+          "message_code": "menu.cycle_day_range",
+          "name": "cycle_day_range"
+        }
+      ],
+      "sort_keys": [
+        "cycle_day"
+      ]
+    },
+    "menu_cycle_slot": {
+      "fields": {
+        "active": {
+          "default": true,
+          "type": "boolean"
+        },
+        "cycle_day": {
+          "indexed": true,
+          "ref": "menu_cycle_day",
+          "required": true,
+          "type": "ref"
+        },
+        "item": {
+          "indexed": true,
+          "ref": "menu_item",
+          "required": true,
+          "type": "ref"
+        },
+        "meal_group": {
+          "max_length": 60,
+          "required": true,
+          "type": "string"
+        },
+        "meal_period": {
+          "indexed": true,
+          "max_length": 60,
+          "required": true,
+          "type": "string"
+        },
+        "service_order": {
+          "default": 1,
+          "indexed": true,
+          "type": "integer"
+        },
+        "slot_name": {
+          "max_length": 120,
+          "required": true,
+          "type": "string"
+        },
+        "slot_order": {
+          "default": 1,
+          "indexed": true,
+          "type": "integer"
+        },
+        "updated_by": {
+          "max_length": 120,
+          "type": "string"
+        }
+      },
+      "sort_keys": [
+        "service_order",
+        "slot_order"
+      ]
+    },
+    "menu_item": {
+      "fields": {
+        "active": {
+          "default": true,
+          "type": "boolean"
+        },
+        "item_key": {
+          "indexed": true,
+          "max_length": 120,
+          "required": true,
+          "type": "string",
+          "unique": true
+        },
+        "name": {
+          "indexed": true,
+          "max_length": 160,
+          "required": true,
+          "searchable": true,
+          "type": "string"
+        }
+      },
+      "sort_keys": [
+        "name"
+      ]
+    },
+    "menu_suggestion": {
+      "fields": {
+        "cycle_day": {
+          "type": "integer"
+        },
+        "meal_period": {
+          "max_length": 60,
+          "type": "string"
+        },
+        "notes": {
+          "type": "text"
+        },
+        "slot_name": {
+          "max_length": 120,
+          "type": "string"
+        },
+        "source": {
+          "default": "lunchvoice",
+          "max_length": 60,
+          "type": "string"
+        },
+        "status": {
+          "indexed": true,
+          "type": "enum",
+          "values": [
+            "new",
+            "reviewed",
+            "adopted",
+            "dismissed"
+          ]
+        },
+        "submitted_by": {
+          "max_length": 120,
+          "pii": true,
+          "type": "string"
+        },
+        "suggested_item": {
+          "max_length": 200,
+          "required": true,
+          "type": "string"
+        }
+      },
+      "sort_keys": [
+        "status"
+      ],
+      "state": {
+        "field": "status",
+        "initial": "new",
+        "states": {
+          "adopted": {
+            "code": 600
+          },
+          "dismissed": {
+            "code": 610
+          },
+          "new": {
+            "code": 100,
+            "to": [
+              "reviewed",
+              "dismissed"
+            ]
+          },
+          "reviewed": {
+            "code": 200,
+            "to": [
+              "adopted",
+              "dismissed"
+            ]
+          }
+        }
+      }
+    },
+    "notification": {
+      "fields": {
+        "body": {
+          "required": true,
+          "type": "text"
+        },
+        "channel": {
+          "default": "in_app",
+          "indexed": true,
+          "type": "enum",
+          "values": [
+            "in_app",
+            "email",
+            "sms"
+          ]
+        },
+        "recipient": {
+          "indexed": true,
+          "max_length": 120,
+          "pii": true,
+          "required": true,
+          "type": "string"
+        },
+        "related_entity": {
+          "max_length": 64,
+          "type": "string"
+        },
+        "related_id": {
+          "max_length": 64,
+          "type": "string"
+        },
+        "status": {
+          "indexed": true,
+          "type": "enum",
+          "values": [
+            "pending",
+            "sent",
+            "read",
+            "failed"
+          ]
+        },
+        "subject": {
+          "max_length": 200,
+          "type": "string"
+        }
+      },
+      "sort_keys": [
+        "recipient",
+        "status"
+      ],
+      "state": {
+        "field": "status",
+        "initial": "pending",
+        "states": {
+          "failed": {
+            "code": 400,
+            "to": [
+              "pending"
+            ]
+          },
+          "pending": {
+            "code": 100,
+            "to": [
+              "sent",
+              "failed"
+            ]
+          },
+          "read": {
+            "code": 610
+          },
+          "sent": {
+            "code": 200,
+            "to": [
+              "read"
+            ]
+          }
+        }
+      }
+    },
+    "opening_checklist_item": {
+      "fields": {
+        "is_active": {
+          "default": true,
+          "type": "boolean"
+        },
+        "sort_order": {
+          "default": 0,
+          "indexed": true,
+          "type": "integer"
+        },
+        "task": {
+          "max_length": 240,
+          "required": true,
+          "type": "string"
+        }
+      },
+      "sort_keys": [
+        "sort_order"
+      ]
+    },
+    "outbox_event": {
+      "fields": {
+        "at": {
+          "indexed": true,
+          "required": true,
+          "type": "integer"
+        },
+        "attempts": {
+          "default": 0,
+          "type": "integer"
+        },
+        "data": {
+          "type": "json"
+        },
+        "delivered_at": {
+          "type": "integer"
+        },
+        "event_version": {
+          "default": 1,
+          "type": "integer"
+        },
+        "last_error": {
+          "max_length": 500,
+          "type": "string"
+        },
+        "name": {
+          "indexed": true,
+          "max_length": 120,
+          "required": true,
+          "type": "string"
+        },
+        "not_before": {
+          "default": 0,
+          "type": "integer"
+        },
+        "seq": {
+          "indexed": true,
+          "required": true,
+          "type": "integer"
+        },
+        "status": {
+          "default": "pending",
+          "indexed": true,
+          "type": "enum",
+          "values": [
+            "pending",
+            "in_flight",
+            "delivered",
+            "dead_lettered"
+          ]
+        },
+        "subject": {
+          "max_length": 120,
+          "type": "string"
+        }
+      },
+      "sort_keys": [
+        "seq",
+        "at",
+        "status"
+      ]
+    },
+    "period": {
+      "fields": {
+        "closed_at": {
+          "type": "integer"
+        },
+        "closed_by": {
+          "max_length": 120,
+          "type": "string"
+        },
+        "ends_on": {
+          "required": true,
+          "type": "date"
+        },
+        "label": {
+          "indexed": true,
+          "max_length": 80,
+          "required": true,
+          "type": "string",
+          "unique": true
+        },
+        "snapshot": {
+          "type": "json"
+        },
+        "starts_on": {
+          "indexed": true,
+          "required": true,
+          "type": "date"
+        },
+        "status": {
+          "default": "open",
+          "indexed": true,
+          "type": "enum",
+          "values": [
+            "open",
+            "closed"
+          ]
+        }
+      },
+      "sort_keys": [
+        "label",
+        "starts_on",
+        "status"
+      ]
+    },
+    "period_week": {
+      "fields": {
+        "locked_at": {
+          "type": "datetime"
+        },
+        "locked_by": {
+          "max_length": 120,
+          "type": "string"
+        },
+        "period": {
+          "indexed": true,
+          "ref": "period",
+          "required": true,
+          "type": "ref"
+        },
+        "status": {
+          "indexed": true,
+          "type": "enum",
+          "values": [
+            "open",
+            "locked",
+            "published"
+          ]
+        },
+        "week_number": {
+          "indexed": true,
+          "required": true,
+          "type": "integer"
+        }
+      },
+      "invariants": [
+        {
+          "expr": "week_number >= 1 and week_number <= 3",
+          "message_code": "period_week.out_of_range",
+          "name": "three_operational_weeks"
+        }
+      ],
+      "locked_when": "ref(period).status == 'closed'",
+      "sort_keys": [
+        "week_number",
+        "status"
+      ],
+      "state": {
+        "field": "status",
+        "initial": "open",
+        "states": {
+          "locked": {
+            "code": 200,
+            "to": [
+              "open",
+              "published"
+            ]
+          },
+          "open": {
+            "code": 100,
+            "to": [
+              "locked"
+            ]
+          },
+          "published": {
+            "code": 600
+          }
+        }
+      }
+    },
+    "servsafe_certification": {
+      "fields": {
+        "certification": {
+          "max_length": 120,
+          "required": true,
+          "type": "string"
+        },
+        "expiry_date": {
+          "indexed": true,
+          "type": "date"
+        },
+        "is_proctor": {
+          "default": false,
+          "type": "boolean"
+        },
+        "staff_member": {
+          "indexed": true,
+          "ref": "staff_member",
+          "type": "ref"
+        },
+        "staff_name": {
+          "max_length": 160,
+          "pii": true,
+          "required": true,
+          "type": "string"
+        }
+      },
+      "sort_keys": [
+        "expiry_date"
+      ]
+    },
+    "sku_review": {
+      "fields": {
+        "parsed_description": {
+          "max_length": 240,
+          "type": "string"
+        },
+        "parsed_sku": {
+          "indexed": true,
+          "max_length": 60,
+          "required": true,
+          "type": "string"
+        },
+        "quantity": {
+          "precision": 14,
+          "scale": 3,
+          "type": "decimal"
+        },
+        "resolution": {
+          "max_length": 200,
+          "type": "string"
+        },
+        "resolved_at": {
+          "type": "datetime"
+        },
+        "resolved_by": {
+          "max_length": 120,
+          "type": "string"
+        },
+        "resolved_item": {
+          "indexed": true,
+          "ref": "item",
+          "type": "ref"
+        },
+        "source_ref": {
+          "max_length": 200,
+          "type": "string"
+        },
+        "status": {
+          "indexed": true,
+          "type": "enum",
+          "values": [
+            "pending",
+            "resolved",
+            "dismissed"
+          ]
+        },
+        "suggested_item": {
+          "indexed": true,
+          "ref": "item",
+          "type": "ref"
+        },
+        "unit_price": {
+          "precision": 12,
+          "scale": 6,
+          "type": "decimal"
+        },
+        "vendor": {
+          "indexed": true,
+          "ref": "vendor",
+          "type": "ref"
+        }
+      },
+      "sort_keys": [
+        "parsed_sku",
+        "status"
+      ],
+      "state": {
+        "field": "status",
+        "initial": "pending",
+        "states": {
+          "dismissed": {
+            "code": 610
+          },
+          "pending": {
+            "code": 100,
+            "to": [
+              "resolved",
+              "dismissed"
+            ]
+          },
+          "resolved": {
+            "code": 600
+          }
+        }
+      }
+    },
+    "snack_bar_product": {
+      "fields": {
+        "active": {
+          "default": true,
+          "type": "boolean"
+        },
+        "name": {
+          "indexed": true,
+          "max_length": 120,
+          "required": true,
+          "type": "string"
+        },
+        "price": {
+          "default": 0,
+          "precision": 10,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "stock_qty": {
+          "default": 0,
+          "type": "integer"
+        }
+      },
+      "invariants": [
+        {
+          "expr": "stock_qty >= 0",
+          "message_code": "snack.negative_stock",
+          "name": "stock_not_negative"
+        }
+      ],
+      "sort_keys": [
+        "name"
+      ]
+    },
+    "snack_bar_rate": {
+      "fields": {
+        "discount_pct": {
+          "default": 0,
+          "precision": 5,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "entity_type": {
+          "required": true,
+          "type": "enum",
+          "unique": true,
+          "values": [
+            "student",
+            "staff"
+          ]
+        },
+        "tax_pct": {
+          "default": 0,
+          "precision": 5,
+          "scale": 2,
+          "type": "decimal"
+        }
+      }
+    },
+    "snack_bar_sale": {
+      "fields": {
+        "business_date": {
+          "indexed": true,
+          "required": true,
+          "type": "date",
+          "unique": true
+        },
+        "closing_cash": {
+          "default": 0,
+          "precision": 12,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "opening_cash": {
+          "default": 0,
+          "precision": 12,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "recorded_by": {
+          "max_length": 120,
+          "type": "string"
+        },
+        "register_sales": {
+          "default": 0,
+          "precision": 12,
+          "scale": 2,
+          "type": "decimal"
+        }
+      },
+      "sort_keys": [
+        "business_date"
+      ]
+    },
+    "snack_bar_transaction": {
+      "fields": {
+        "business_date": {
+          "indexed": true,
+          "required": true,
+          "type": "date"
+        },
+        "discount_amount": {
+          "default": 0,
+          "precision": 10,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "entity_name": {
+          "max_length": 160,
+          "pii": true,
+          "required": true,
+          "type": "string"
+        },
+        "entity_type": {
+          "indexed": true,
+          "required": true,
+          "type": "enum",
+          "values": [
+            "student",
+            "staff"
+          ]
+        },
+        "recorded_by": {
+          "max_length": 120,
+          "type": "string"
+        },
+        "subtotal": {
+          "computed": "sum(children(snack_bar_transaction_item, transaction).line_total)",
+          "precision": 10,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "tax_amount": {
+          "default": 0,
+          "precision": 10,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "total_amount": {
+          "computed": "round(subtotal - discount_amount + tax_amount, 2)",
+          "precision": 10,
+          "scale": 2,
+          "type": "decimal"
+        }
+      },
+      "sort_keys": [
+        "business_date"
+      ]
+    },
+    "snack_bar_transaction_item": {
+      "fields": {
+        "line_total": {
+          "computed": "round(unit_price * qty, 2)",
+          "precision": 10,
+          "scale": 2,
+          "type": "decimal"
+        },
+        "product": {
+          "indexed": true,
+          "ref": "snack_bar_product",
+          "type": "ref"
+        },
+        "product_name": {
+          "max_length": 120,
+          "required": true,
+          "type": "string"
+        },
+        "qty": {
+          "required": true,
+          "type": "integer"
+        },
+        "transaction": {
+          "indexed": true,
+          "ref": "snack_bar_transaction",
+          "required": true,
+          "type": "ref"
+        },
+        "unit_price": {
+          "precision": 10,
+          "required": true,
+          "scale": 2,
+          "type": "decimal"
+        }
+      },
+      "invariants": [
+        {
+          "expr": "qty > 0",
+          "message_code": "snack.qty",
+          "name": "positive_qty"
+        }
+      ]
+    },
+    "staff_member": {
+      "fields": {
+        "active": {
+          "default": true,
+          "indexed": true,
+          "type": "boolean"
+        },
+        "avatar": {
+          "type": "file"
+        },
+        "bio": {
+          "pii": true,
+          "type": "text"
+        },
+        "display_name": {
+          "max_length": 120,
+          "pii": true,
+          "type": "string"
+        },
+        "email": {
+          "max_length": 254,
+          "pii": true,
+          "type": "string"
+        },
+        "job_title": {
+          "max_length": 120,
+          "type": "string"
+        },
+        "last_login": {
+          "type": "datetime"
+        },
+        "last_name": {
+          "max_length": 120,
+          "pii": true,
+          "type": "string"
+        },
+        "phone": {
+          "max_length": 40,
+          "pii": true,
+          "type": "string"
+        },
+        "role": {
+          "indexed": true,
+          "required": true,
+          "type": "enum",
+          "values": [
+            "staff",
+            "assistant",
+            "manager",
+            "admin",
+            "sudo"
+          ]
+        },
+        "username": {
+          "indexed": true,
+          "max_length": 80,
+          "required": true,
+          "type": "string",
+          "unique": true
+        }
+      },
+      "sort_keys": [
+        "username"
+      ]
+    },
+    "vendor": {
+      "fields": {
+        "account_number": {
+          "max_length": 60,
+          "type": "string"
+        },
+        "address": {
+          "max_length": 200,
+          "type": "string"
+        },
+        "city": {
+          "max_length": 80,
+          "type": "string"
+        },
+        "email": {
+          "max_length": 254,
+          "type": "string"
+        },
+        "name": {
+          "indexed": true,
+          "max_length": 160,
+          "required": true,
+          "searchable": true,
+          "type": "string"
+        },
+        "phone": {
+          "max_length": 40,
+          "type": "string"
+        },
+        "state": {
+          "max_length": 40,
+          "type": "string"
+        },
+        "vendor_code": {
+          "indexed": true,
+          "max_length": 40,
+          "type": "string"
+        },
+        "zip": {
+          "max_length": 20,
+          "type": "string"
+        }
+      },
+      "sort_keys": [
+        "name"
+      ]
+    }
+  },
+  "manifest_version": 1,
+  "projections": {
+    "public_meal_periods": {
+      "entity": "meal_period",
+      "fields": [
+        "meal",
+        "label",
+        "open_hour",
+        "close_hour",
+        "sort_order"
+      ]
+    },
+    "public_menu": {
+      "entity": "menu_cycle_slot",
+      "fields": [
+        "cycle_day",
+        "meal_group",
+        "meal_period",
+        "service_order",
+        "slot_order",
+        "slot_name",
+        "item"
+      ],
+      "filter": "active == true"
+    },
+    "public_menu_items": {
+      "entity": "menu_item",
+      "fields": [
+        "name",
+        "item_key"
+      ],
+      "filter": "active == true"
+    }
+  },
+  "reports": {
+    "haccp_by_location": {
+      "entity": "haccp_log",
+      "group_by": [
+        "location"
+      ],
+      "measures": [
+        {
+          "as": "checks",
+          "fn": "count"
+        },
+        {
+          "as": "coldest",
+          "field": "temperature",
+          "fn": "min"
+        },
+        {
+          "as": "warmest",
+          "field": "temperature",
+          "fn": "max"
+        }
+      ],
+      "title": "HACCP checks by location"
+    },
+    "invoice_spending": {
+      "entity": "invoice",
+      "group_by": [
+        "period",
+        "week_number"
+      ],
+      "measures": [
+        {
+          "as": "invoices",
+          "fn": "count"
+        },
+        {
+          "as": "gross_received",
+          "field": "subtotal",
+          "fn": "sum"
+        },
+        {
+          "as": "vizient_discount",
+          "field": "vizient_discount",
+          "fn": "sum"
+        },
+        {
+          "as": "fuel_surcharge",
+          "field": "fuel_surcharge",
+          "fn": "sum"
+        },
+        {
+          "as": "net_received",
+          "field": "net_total",
+          "fn": "sum"
+        }
+      ],
+      "title": "Purchasing by period and week"
+    },
+    "menu_feedback": {
+      "entity": "menu_suggestion",
+      "group_by": [
+        "status"
+      ],
+      "measures": [
+        {
+          "as": "suggestions",
+          "fn": "count"
+        }
+      ],
+      "title": "Menu suggestions"
+    },
+    "snack_bar_daily": {
+      "entity": "snack_bar_transaction",
+      "group_by": [
+        "business_date",
+        "entity_type"
+      ],
+      "measures": [
+        {
+          "as": "transactions",
+          "fn": "count"
+        },
+        {
+          "as": "revenue",
+          "field": "total_amount",
+          "fn": "sum"
+        }
+      ],
+      "title": "Snack bar sales by day"
+    },
+    "stock_by_category": {
+      "entity": "inventory_line",
+      "group_by": [
+        "period"
+      ],
+      "measures": [
+        {
+          "as": "items",
+          "fn": "count"
+        },
+        {
+          "as": "opening_value",
+          "field": "opening_value",
+          "fn": "sum"
+        },
+        {
+          "as": "received_value",
+          "field": "received_value",
+          "fn": "sum"
+        },
+        {
+          "as": "pulled_value",
+          "field": "pulled_value",
+          "fn": "sum"
+        },
+        {
+          "as": "ending_value",
+          "field": "ending_value",
+          "fn": "sum"
+        }
+      ],
+      "title": "Inventory value"
+    }
+  },
+  "roles": {
+    "admin": {
+      "actions": [
+        "merge_changeset",
+        "close_period",
+        "manage_events",
+        "mark_notification_sent",
+        "mark_notification_failed",
+        "mark_notification_read"
+      ],
+      "read": [
+        "*"
+      ],
+      "write": [
+        "*"
+      ]
+    },
+    "assistant": {
+      "actions": [
+        "manage_events"
+      ],
+      "read": [
+        "*"
+      ],
+      "write": [
+        "haccp_log",
+        "incident_log",
+        "daily_operations_log",
+        "snack_bar_transaction",
+        "snack_bar_transaction_item",
+        "snack_bar_sale",
+        "inventory_movement",
+        "inventory_line",
+        "invoice",
+        "invoice_item",
+        "sku_review",
+        "menu_suggestion",
+        "import_batch",
+        "document",
+        "item"
+      ]
+    },
+    "manager": {
+      "actions": [
+        "merge_changeset",
+        "close_period",
+        "manage_events",
+        "mark_notification_sent",
+        "mark_notification_failed",
+        "mark_notification_read"
+      ],
+      "read": [
+        "*"
+      ],
+      "write": [
+        "budget_line_actual",
+        "budget_line_item",
+        "cafeteria_event",
+        "cost_budget",
+        "daily_operations_log",
+        "document",
+        "haccp_log",
+        "import_batch",
+        "incident_log",
+        "inventory_category",
+        "inventory_line",
+        "inventory_movement",
+        "invoice",
+        "invoice_item",
+        "item",
+        "item_barcode",
+        "meal_period",
+        "menu_cycle_day",
+        "menu_cycle_slot",
+        "menu_item",
+        "menu_suggestion",
+        "opening_checklist_item",
+        "period_week",
+        "servsafe_certification",
+        "sku_review",
+        "snack_bar_product",
+        "snack_bar_rate",
+        "snack_bar_sale",
+        "snack_bar_transaction",
+        "snack_bar_transaction_item",
+        "vendor",
+        "period"
+      ]
+    },
+    "staff": {
+      "actions": [],
+      "read": [
+        "item",
+        "inventory_category",
+        "vendor",
+        "item_barcode",
+        "inventory_line",
+        "period",
+        "period_week",
+        "menu_item",
+        "menu_cycle_day",
+        "menu_cycle_slot",
+        "meal_period",
+        "cafeteria_event",
+        "opening_checklist_item",
+        "snack_bar_product",
+        "snack_bar_rate",
+        "haccp_log",
+        "incident_log",
+        "daily_operations_log",
+        "snack_bar_transaction",
+        "snack_bar_transaction_item",
+        "snack_bar_sale",
+        "servsafe_certification"
+      ],
+      "write": [
+        "haccp_log",
+        "incident_log",
+        "daily_operations_log",
+        "snack_bar_transaction",
+        "snack_bar_transaction_item",
+        "snack_bar_sale"
+      ]
+    },
+    "sudo": {
+      "actions": [
+        "merge_changeset",
+        "close_period",
+        "manage_events",
+        "mark_notification_sent",
+        "mark_notification_failed",
+        "mark_notification_read"
+      ],
+      "read": [
+        "*"
+      ],
+      "write": [
+        "*"
+      ]
+    }
+  },
+  "runtime": {
+    "network": {
+      "public_projections": true
+    },
+    "storage": {
+      "files": true,
+      "max_file_mb": 25,
+      "relational": true
+    }
+  },
+  "template": {
+    "name": "mjcc",
+    "title": "Miami Job Corps Cafeteria",
+    "version": "0.1.0"
+  }
+}

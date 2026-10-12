@@ -1,5 +1,53 @@
 # CHANGELOG — MJCC Development Forum
 
+## 2026-10-12 — CEngine: first MJCC manifest (separate branch, nothing wired to production)
+
+**Claude:** Added `cengine/mjcc.template.json` (the MJCC template: entities, roles,
+public projections, reports) and `cengine/mjcc.manifest.json` (the same template composed with
+CEngine's `audit`, `changesets`, `period`, `events` and `notifications` tools). Authority:
+Othniel's plan of 2026-10-10 (MJCC is rebuilt on CEngine on a separate Compute branch against a
+template-scoped schema; Loom ADR-0008) and his 2026-10-12 choice of local Postgres. No backend,
+frontend or production-database file is touched, and nothing here is deployed or live-verified.
+
+**What it covers (33 entities):** categories, vendors, items (governed), barcodes, SKU review;
+periods and W1-W3 weeks (`period_week`); `inventory_line` (the monthly fact, replacing
+`monthly_inventory`) with `inventory_movement` (the ledger, replacing `inventory_transactions`);
+invoices and invoice items; HACCP, incident, daily-operations, opening-checklist, ServSafe;
+cafeteria events; menu items, 28-day cycle days and slots, suggestions, meal periods; snack bar
+products, rates, daily sales, transactions; cost budgets, line items, actuals; staff members
+(no PIN or password is stored: sign-in is a token adapter), app settings, documents, import
+batches. Five reports (inventory value, purchasing by week, snack bar daily, HACCP, menu
+feedback) and three public projections (menu slots, meal periods, menu items).
+
+**Valuation follows migration 049 (the live rule):** quantities x price rounded half-up to the
+cent per component; `ending_qty = max(0, opening_oh + received - pulled)`; `ending_value =
+round(ending_qty * price, 2)`; `price = round(max(0, unit_price or the item's price), 6)`; the
+over-pull trigger is the invariant `opening_oh + received - pulled >= 0`; closed periods are
+frozen through `locked_when`.
+
+**Verified (CEngine at main, local Postgres only, scratch database dropped afterwards):** the
+composed manifest passes `ce-manifest` validation; `ce-serve install` creates the schema; a
+smoke run (period, week, item, line with opening 4 at $21.50, movements +10 and -3) gave
+received 10, pulled 3, ending 11, opening 86.00, received 215.00, pulled 64.50, ending 236.50;
+an over-pull answered 422 `inventory.over_pull`; closing the period then froze movements
+(409 `entity_locked`); the `stock_by_category` report returned the same totals.
+
+**Not yet done / known gaps (do not call MJCC done):** month rollover (next opening = prior
+ending) is a per-item fan-out the engine has no single action for, so it runs as chunked
+batches; no composite unique keys on `period_week` (period, week) or `menu_cycle_slot`; the
+`role_permissions` and `permission_scopes` fine-grained grants are collapsed into five role
+grants; AI keys, agent chat, GitHub sync, tenancy and provisioning tables are intentionally not
+modelled (Infajn/Platform own them); a historical data import, the parity check (replay reads on
+old and new and close a month on both), the generated client in the UI, and the live cutover are
+all still to do. Cutover and any change to Supabase project `mgvyylvmkxhhataavqjz` need
+Othniel's explicit go.
+
+**Rebuild:** edit `cengine/mjcc.template.json`, then compose with `ce_tools::compose(template,
+["audit","changesets","period","events","notifications"])` from KpnSolute/CEngine and check the
+result with `ce_manifest::validate`; commit both files.
+
+**Push:** pending — branch `claude/project-thread-p67bis`, not merged.
+
 ## [v0.3.41] — 2026-10-05 — invoice parser: blank PO no longer turns the invoice number into "Page"
 
 **Claude:** October week 1 (invoice 2102782, `Octwk1.pdf`) was stored with
