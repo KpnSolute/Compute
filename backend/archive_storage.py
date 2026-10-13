@@ -184,6 +184,7 @@ def archive_file_bytes(
     year: int | None = None,
     week: int | None = None,
     metadata: dict | None = None,
+    client_options: dict | None = None,
 ) -> dict:
     if not content:
         raise ValueError("Cannot archive an empty file")
@@ -197,7 +198,7 @@ def archive_file_bytes(
     digest = hashlib.sha256(content).hexdigest()
     settings = _settings()
     key = build_object_key(category, filename)
-    client = _client()
+    client = _client(**(client_options or {}))
     client.put_object(
         Bucket=settings["bucket"],
         Key=key,

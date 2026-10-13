@@ -1,5 +1,57 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.42] — 2026-10-13 — Data Entry no longer requires the home archive
+
+**Codex:** Owner explicitly requested independence from the home archive after
+the live outage was verified. Data Entry now defaults to `best_effort` archiving,
+independent of legacy `MJCC_ARCHIVE_REQUIRED` values. A missing or unavailable
+archive no longer discards a valid parsed upload. Normal role, period,
+reconciliation, source-hash, duplicate and staging-review gates still apply.
+
+**Original-file retention:** successful staging reports `archive_status` and
+`archive_file_id`. When the original was not saved, an explicit warning tells
+the user to keep their copy. The UI displays that warning next to the staged
+results. There is no durable retry queue for original bytes and no cloud file
+store added by this change. File Vault's direct-upload requirements remain
+unchanged. `DATA_ENTRY_ARCHIVE_POLICY=required` retains strict original-file
+retention; `disabled` avoids archive calls entirely.
+
+**Scope/governance:** this changes the Data Entry archive dependency under the
+owner's direct instruction in this session. It does not rebuild or overwrite
+Garage, alter tenancy/inventory formulas, or import the private invoice PDFs
+into git. The shared governance ledger referenced in AGENTS.md is absent from
+this fresh checkout's environment.
+
+**Validation:** full `scripts/verify_release.py` passed: backend lint/format,
+570 backend tests passed / 15 skipped, 51 inventory formula checks passed,
+frontend lint (0 errors; existing warnings), TypeScript and production build.
+**Push/deploy:** pending; live verification requires the new backend deployment.
+
+## [v0.3.42] — 2026-10-13 — Live archive outage independently verified
+
+**Codex:** Verified the source checkout is `C:\Projects\Compute`, with origin
+`https://github.com/KpnSolute/Compute.git`. The archive diagnostic commit
+`20366c7` is local on `fix/archive-outage-failfast`; GitHub main remains
+`5c7c3ab`. Production `/health/ready` responds but has no File Archive component.
+
+**Live failure:** `https://archive.kpnsolute.com` returns HTTP 530 with
+Cloudflare error 1033 (no healthy tunnel connector). The previously documented
+LAN archive address `192.168.1.96:3900` is unreachable. SSH to Proxmox succeeds,
+but `pct list` and cluster VM resources are empty. No Garage/cloudflared runtime
+was found in the checked service/config locations. Retained blob data and
+metadata directories exist at `/mnt/pve/drive2/mjcc-blob`; they were not changed.
+This establishes a current infrastructure outage, not the precise historical
+exception from Othniel's upload. Restoring the existing archive runtime and
+connector configuration is required before claiming uploads are fixed.
+
+**Verified:** backend release gate passed: Ruff lint and format clean,
+558 backend tests passed / 15 skipped, and 51 weekly inventory formula checks
+passed. Focused archive/upload tests: 35 passed. Frontend lint passed with
+0 errors / 688 existing warnings; TypeScript and Vite production build passed.
+Render authentication and the
+original archive connector configuration are unavailable in this session.
+No production inventory writes, infrastructure changes, push, or deployment.
+
 ## [v0.3.42] — 2026-10-13 — Data Entry: archive outage now fails fast with a reason (Othniel's Week 3 upload)
 
 **Claude:** Othniel's October 2026 Week 3 received-invoice upload (US Foods

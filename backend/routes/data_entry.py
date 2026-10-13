@@ -11,6 +11,7 @@ import asyncio
 import concurrent.futures
 import contextvars
 import json
+import os
 import logging
 import time
 import uuid
@@ -41,7 +42,6 @@ from backend.ai import parser as file_parser
 from backend.archive_storage import (
     archive_file_bytes,
     archive_is_configured,
-    archive_is_required,
     check_archive,
     classify_archive_error,
     delete_archive_object,
@@ -346,6 +346,16 @@ _ARCHIVE_PREFLIGHT_BLOCKERS = {
     "not_configured",
     "insecure_endpoint",
 }
+
+
+def data_entry_archive_policy() -> str:
+    """Data Entry can run independently of File Vault's mandatory storage policy."""
+    policy = os.getenv("DATA_ENTRY_ARCHIVE_POLICY", "best_effort").strip().lower()
+    if policy not in {"best_effort", "required", "disabled"}:
+        raise HTTPException(
+            status_code=503, detail="Invalid Data Entry archive policy configuration."
+        )
+    return policy
 
 
 def _archive_failure_detail(reason: str, parsed: bool = True) -> str:
@@ -1402,6 +1412,8 @@ async def upload_file(
             "document",
         )
     )
+    archive_policy = data_entry_archive_policy()
+    archive_probe = {"ok": False, "reason": "not_configured"}
     ai_config = await run_in_threadpool(ctx.get_ai_config)
     tools_cfg = await run_in_threadpool(ctx.get_ai_tools_config)
 
@@ -1424,9 +1436,16 @@ async def upload_file(
     def _post_parse(ops, invoice_meta):
         """Validate and persist in one worker, retaining request context and order."""
         archived_row: dict | None = None
-        if archive_is_configured() or archive_is_required():
+        if archive_policy == "required" or (
+            archive_policy == "best_effort" and archive_probe["ok"]
+        ):
             try:
                 archived_row = archive_file_bytes(
+                    client_options=(
+                        {"connect_timeout": 3, "read_timeout": 8, "attempts": 0}
+                        if archive_policy == "best_effort"
+                        else None
+                    ),
                     content=content,
                     filename=fname,
                     content_type=file.content_type,
@@ -1448,7 +1467,7 @@ async def upload_file(
                     fname,
                     reason,
                 )
-                if archive_is_required():
+                if archive_policy == "required":
                     yield _err(503, _archive_failure_detail(reason))
                     return
 
@@ -1844,7 +1863,14 @@ async def upload_file(
             "staging_ids": [s["entry_id"] for s in staged],
             "pr_id": pr.get("pr_id") if pr else None,
             "pr_number": pr.get("pr_number") if pr else None,
+            "archive_status": "saved" if archived_row else "not_saved",
+            "archive_file_id": archived_row.get("id") if archived_row else None,
         }
+        if not archived_row:
+            resp["archive_warning"] = (
+                "The original file was not saved to File Vault. Keep your copy; "
+                "the parsed entries are staged for review."
+            )
         if invoice_id:
             resp["invoice_id"] = invoice_id
         if reconciliation:
@@ -1857,14 +1883,22 @@ async def upload_file(
         yield b"data: " + json.dumps(resp).encode() + b"\n\n"
 
     async def _sse():
+        nonlocal archive_probe
         loop = asyncio.get_event_loop()
         # Fail fast when the archive is known to be down: a scanned invoice
         # parse takes minutes and its result would be discarded at the archive
         # step. Only unambiguous outages block here; anything else (e.g. a key
         # that cannot HEAD the bucket) still gets the real write attempt.
-        if archive_is_required():
-            probe = await run_in_threadpool(check_archive)
-            if not probe["ok"] and probe["reason"] in _ARCHIVE_PREFLIGHT_BLOCKERS:
+        if archive_policy == "required" or (
+            archive_policy == "best_effort" and archive_is_configured()
+        ):
+            archive_probe = await run_in_threadpool(check_archive)
+            probe = archive_probe
+            if (
+                archive_policy == "required"
+                and not probe["ok"]
+                and probe["reason"] in _ARCHIVE_PREFLIGHT_BLOCKERS
+            ):
                 log.error(
                     "[DATA-ENTRY] Archive preflight failed | file=%s reason=%s",
                     fname,
