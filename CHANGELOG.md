@@ -1,5 +1,103 @@
 # CHANGELOG — MJCC Development Forum
 
+## [v0.3.42] — 2026-10-13 — Data Entry no longer requires the home archive
+
+**Codex:** Owner explicitly requested independence from the home archive after
+the live outage was verified. Data Entry now defaults to `best_effort` archiving,
+independent of legacy `MJCC_ARCHIVE_REQUIRED` values. A missing or unavailable
+archive no longer discards a valid parsed upload. Normal role, period,
+reconciliation, source-hash, duplicate and staging-review gates still apply.
+
+**Original-file retention:** successful staging reports `archive_status` and
+`archive_file_id`. When the original was not saved, an explicit warning tells
+the user to keep their copy. The UI displays that warning next to the staged
+results. There is no durable retry queue for original bytes and no cloud file
+store added by this change. File Vault's direct-upload requirements remain
+unchanged. `DATA_ENTRY_ARCHIVE_POLICY=required` retains strict original-file
+retention; `disabled` avoids archive calls entirely.
+
+**Scope/governance:** this changes the Data Entry archive dependency under the
+owner's direct instruction in this session. It does not rebuild or overwrite
+Garage, alter tenancy/inventory formulas, or import the private invoice PDFs
+into git. The shared governance ledger referenced in AGENTS.md is absent from
+this fresh checkout's environment.
+
+**Validation:** full `scripts/verify_release.py` passed: backend lint/format,
+570 backend tests passed / 15 skipped, 51 inventory formula checks passed,
+frontend lint (0 errors; existing warnings), TypeScript and production build.
+**Push/deploy:** pending; live verification requires the new backend deployment.
+
+## [v0.3.42] — 2026-10-13 — Live archive outage independently verified
+
+**Codex:** Verified the source checkout is `C:\Projects\Compute`, with origin
+`https://github.com/KpnSolute/Compute.git`. The archive diagnostic commit
+`20366c7` is local on `fix/archive-outage-failfast`; GitHub main remains
+`5c7c3ab`. Production `/health/ready` responds but has no File Archive component.
+
+**Live failure:** `https://archive.kpnsolute.com` returns HTTP 530 with
+Cloudflare error 1033 (no healthy tunnel connector). The previously documented
+LAN archive address `192.168.1.96:3900` is unreachable. SSH to Proxmox succeeds,
+but `pct list` and cluster VM resources are empty. No Garage/cloudflared runtime
+was found in the checked service/config locations. Retained blob data and
+metadata directories exist at `/mnt/pve/drive2/mjcc-blob`; they were not changed.
+This establishes a current infrastructure outage, not the precise historical
+exception from Othniel's upload. Restoring the existing archive runtime and
+connector configuration is required before claiming uploads are fixed.
+
+**Verified:** backend release gate passed: Ruff lint and format clean,
+558 backend tests passed / 15 skipped, and 51 weekly inventory formula checks
+passed. Focused archive/upload tests: 35 passed. Frontend lint passed with
+0 errors / 688 existing warnings; TypeScript and Vite production build passed.
+Render authentication and the
+original archive connector configuration are unavailable in this session.
+No production inventory writes, infrastructure changes, push, or deployment.
+
+## [v0.3.42] — 2026-10-13 — Data Entry: archive outage now fails fast with a reason (Othniel's Week 3 upload)
+
+**Claude:** Othniel's October 2026 Week 3 received-invoice upload (US Foods
+2650716, Multi Flow) stopped with "The original file could not be archived;
+parsing was stopped safely." That message is the fail-closed path in
+`data_entry._post_parse`: archiving is required (the Garage `MJCC_ARCHIVE_*`
+vars are set) and `archive_file_bytes` raised, so nothing was staged and no
+inventory changed.
+
+**What was and was not established:** the PDF is not the cause. The repo's own
+parser reads the US Foods PDF cleanly: invoice 2650716, 69 unique items, 106
+pieces, reconciled to the printed recap and product total ($4,444.96; the
+Hazard Materials recap is not double counted). The Multi Flow file is a scan and
+needs the production OCR/vision path; not run locally. The *specific* archive
+failure on 2026-10-13 could NOT be confirmed: Render CLI is not logged in on this
+machine, the Render dashboard session in Chrome is signed out, and the Supabase
+MCP did not connect. The route logged the exception but returned no reason.
+Candidates, in likelihood order: Garage/tunnel unreachable (Garage lives on the
+home Proxmox box behind an HTTPS tunnel), rejected S3 key, missing bucket, or
+the `archived_files` metadata insert failing.
+
+**Change:** (1) `archive_storage`: bounded boto timeouts/retries (5s connect,
+2 attempts; botocore defaults could hang minutes on a dead tunnel),
+`classify_archive_error` (non-sensitive reason codes) and `check_archive` probe.
+(2) `data_entry`: when archiving is required, probe first and refuse BEFORE the
+minutes-long parse if storage is unreachable/unconfigured/insecure; ambiguous
+probe failures (e.g. a key that cannot HEAD but can PUT) still attempt the real
+write. The 503 text now ends with `[archive:<reason>]` so the cause is visible to
+operators. Still fail-closed: no original, no staging. (3) `/health/ready` gains a
+"File Archive" component (degraded, never outage, so it cannot trigger restarts).
+
+**Duplicate/inventory safety:** unchanged. Failure occurs before any staging or
+invoice write, so a failed attempt leaves nothing to duplicate; the existing
+supersede-stale-pending and source-hash logic still governs the retry.
+
+**Verified:** `pytest backend/tests` 558 passed / 15 skipped; new tests cover
+preflight skip-parse, ambiguous-failure fallthrough, error classification, probe.
+ruff check clean on touched files. Frontend untouched.
+
+**Remaining (needs production access):** read the live archive failure reason
+(`/health/ready` "File Archive" after deploy, or `render logs --text
+"Original-file archive"`), restore Garage/tunnel/credentials as indicated, then
+Othniel re-uploads both Week 3 PDFs. Check no Week 3 staging/invoice rows exist
+first (`/api/inventory/week-status`).
+
+**Push:** pending — committed on branch `fix/archive-outage-failfast`, not pushed or deployed.
 ## [v0.3.41] — 2026-10-05 — invoice parser: blank PO no longer turns the invoice number into "Page"
 
 **Claude:** October week 1 (invoice 2102782, `Octwk1.pdf`) was stored with

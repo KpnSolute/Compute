@@ -10,6 +10,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException, UploadFile
+from botocore.exceptions import EndpointConnectionError
+from postgrest.exceptions import APIError
 
 from backend.routes import data_entry as de
 from backend.routes import file_archive as fa
@@ -30,7 +32,8 @@ def prepared(monkeypatch):
     monkeypatch.setattr(de.ctx, "get_ai_config", lambda: {"provider": "test"})
     monkeypatch.setattr(de.ctx, "get_ai_tools_config", lambda: {})
     monkeypatch.setattr(de, "archive_is_configured", lambda: False)
-    monkeypatch.setattr(de, "archive_is_required", lambda: False)
+    monkeypatch.delenv("DATA_ENTRY_ARCHIVE_POLICY", raising=False)
+    monkeypatch.setattr(de, "check_archive", lambda: {"ok": True, "reason": "ok"})
     monkeypatch.setattr(
         de,
         "_extract_ops",
@@ -308,19 +311,62 @@ def test_post_parse_role_error_is_unchanged(monkeypatch, prepared):
 def test_required_archive_error_stops_staging(monkeypatch, prepared):
     stage = MagicMock()
     monkeypatch.setattr(de, "_stage_entries", stage)
-    monkeypatch.setattr(de, "archive_is_required", lambda: True)
+    monkeypatch.setenv("DATA_ENTRY_ARCHIVE_POLICY", "required")
     monkeypatch.setattr(
         de, "archive_file_bytes", MagicMock(side_effect=RuntimeError("offline"))
     )
 
     async def run():
         events = await collect(await response(prepared))
-        assert json.loads(events[-1][6:]) == {
-            "__ok": False,
-            "status": 503,
-            "detail": "The original file could not be archived; parsing was stopped safely.",
-        }
+        last = json.loads(events[-1][6:])
+        assert last["__ok"] is False and last["status"] == 503
+        assert last["detail"].startswith(
+            "The original file could not be archived; parsing was stopped safely."
+        )
+        assert last["detail"].endswith("[archive:unknown]")
         stage.assert_not_called()
+
+    asyncio.run(run())
+
+
+def test_archive_preflight_outage_skips_parse_and_staging(monkeypatch, prepared):
+    extract, stage, archive = MagicMock(), MagicMock(), MagicMock()
+    monkeypatch.setattr(de, "_extract_ops", extract)
+    monkeypatch.setattr(de, "_stage_entries", stage)
+    monkeypatch.setattr(de, "archive_file_bytes", archive)
+    monkeypatch.setenv("DATA_ENTRY_ARCHIVE_POLICY", "required")
+    monkeypatch.setattr(
+        de, "check_archive", lambda: {"ok": False, "reason": "storage_unreachable"}
+    )
+
+    async def run():
+        events = await collect(await response(prepared))
+        last = json.loads(events[-1][6:])
+        assert last["status"] == 503
+        assert "the file was not parsed" in last["detail"]
+        assert last["detail"].endswith("[archive:storage_unreachable]")
+        extract.assert_not_called()
+        archive.assert_not_called()
+        stage.assert_not_called()
+
+    asyncio.run(run())
+
+
+def test_archive_preflight_ambiguous_failure_still_attempts_real_write(
+    monkeypatch, prepared
+):
+    # A key that cannot HEAD the bucket may still be able to PUT; do not block.
+    archive = MagicMock(return_value={"id": "archive"})
+    monkeypatch.setattr(de, "archive_file_bytes", archive)
+    monkeypatch.setenv("DATA_ENTRY_ARCHIVE_POLICY", "required")
+    monkeypatch.setattr(
+        de, "check_archive", lambda: {"ok": False, "reason": "storage_auth_failed"}
+    )
+
+    async def run():
+        events = await collect(await response(prepared))
+        assert json.loads(events[-1][6:])["__ok"] is True
+        archive.assert_called_once()
 
     asyncio.run(run())
 
@@ -410,3 +456,142 @@ def test_file_archive_upload_responsive_and_context(monkeypatch):
             workspace.reset(token)
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "reason", ["storage_unreachable", "storage_error", "storage_auth_failed", "unknown"]
+)
+def test_best_effort_archive_outage_stages_with_warning(monkeypatch, prepared, reason):
+    monkeypatch.setenv("MJCC_ARCHIVE_REQUIRED", "true")
+    monkeypatch.setattr(de, "archive_is_configured", lambda: True)
+    monkeypatch.setattr(de, "check_archive", lambda: {"ok": False, "reason": reason})
+    archive = MagicMock()
+    monkeypatch.setattr(de, "archive_file_bytes", archive)
+
+    async def run():
+        result = json.loads((await collect(await response(prepared)))[-1][6:])
+        assert result["__ok"] is True
+        assert result["staged_count"] == 1
+        assert result["archive_status"] == "not_saved"
+        assert result["archive_file_id"] is None
+        assert "Keep your copy" in result["archive_warning"]
+        archive.assert_not_called()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("failure", ["metadata", "write"])
+def test_best_effort_archive_write_failure_stages(monkeypatch, prepared, failure):
+    monkeypatch.setattr(de, "archive_is_configured", lambda: True)
+    error = (
+        APIError(
+            {
+                "message": "metadata insert unavailable",
+                "code": "XX000",
+                "hint": None,
+                "details": None,
+            }
+        )
+        if failure == "metadata"
+        else EndpointConnectionError(endpoint_url="https://archive.invalid")
+    )
+    archive = MagicMock(side_effect=error)
+    monkeypatch.setattr(de, "archive_file_bytes", archive)
+
+    async def run():
+        result = json.loads((await collect(await response(prepared)))[-1][6:])
+        assert result["__ok"] is True
+        assert result["staged_count"] == 1
+        assert result["archive_status"] == "not_saved"
+        assert result["archive_file_id"] is None
+        assert result["archive_warning"]
+        assert archive.call_args.kwargs["client_options"] == {
+            "connect_timeout": 3,
+            "read_timeout": 8,
+            "attempts": 0,
+        }
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("policy", ["best_effort", "disabled"])
+def test_optional_unconfigured_archive_stages_with_warning(
+    monkeypatch, prepared, policy
+):
+    monkeypatch.setenv("DATA_ENTRY_ARCHIVE_POLICY", policy)
+    probe, archive = MagicMock(), MagicMock()
+    monkeypatch.setattr(de, "check_archive", probe)
+    monkeypatch.setattr(de, "archive_file_bytes", archive)
+
+    async def run():
+        result = json.loads((await collect(await response(prepared)))[-1][6:])
+        assert result["__ok"] is True
+        assert result["archive_status"] == "not_saved"
+        assert result["archive_warning"]
+        probe.assert_not_called()
+        archive.assert_not_called()
+
+    asyncio.run(run())
+
+
+def test_best_effort_success_reports_saved_original(monkeypatch, prepared):
+    monkeypatch.setattr(de, "archive_is_configured", lambda: True)
+    monkeypatch.setattr(
+        de, "archive_file_bytes", MagicMock(return_value={"id": "original"})
+    )
+
+    async def run():
+        result = json.loads((await collect(await response(prepared)))[-1][6:])
+        assert result["__ok"] is True
+        assert result["archive_status"] == "saved"
+        assert result["archive_file_id"] == "original"
+        assert "archive_warning" not in result
+
+    asyncio.run(run())
+
+
+def test_required_unconfigured_archive_blocks_parse(monkeypatch, prepared):
+    monkeypatch.setenv("DATA_ENTRY_ARCHIVE_POLICY", "required")
+    monkeypatch.setattr(
+        de, "check_archive", lambda: {"ok": False, "reason": "not_configured"}
+    )
+    extract, stage = MagicMock(), MagicMock()
+    monkeypatch.setattr(de, "_extract_ops", extract)
+    monkeypatch.setattr(de, "_stage_entries", stage)
+
+    async def run():
+        result = json.loads((await collect(await response(prepared)))[-1][6:])
+        assert result["__ok"] is False
+        assert result["status"] == 503
+        assert result["detail"].endswith("[archive:not_configured]")
+        extract.assert_not_called()
+        stage.assert_not_called()
+
+    asyncio.run(run())
+
+
+def test_disabled_archive_skips_configured_storage(monkeypatch, prepared):
+    monkeypatch.setenv("DATA_ENTRY_ARCHIVE_POLICY", "disabled")
+    monkeypatch.setattr(de, "archive_is_configured", lambda: True)
+    probe, archive = MagicMock(), MagicMock()
+    monkeypatch.setattr(de, "check_archive", probe)
+    monkeypatch.setattr(de, "archive_file_bytes", archive)
+
+    async def run():
+        result = json.loads((await collect(await response(prepared)))[-1][6:])
+        assert result["__ok"] is True
+        assert result["archive_status"] == "not_saved"
+        probe.assert_not_called()
+        archive.assert_not_called()
+
+    asyncio.run(run())
+
+
+def test_invalid_archive_policy_rejected_before_parse(monkeypatch, prepared):
+    monkeypatch.setenv("DATA_ENTRY_ARCHIVE_POLICY", "typo")
+    extract = MagicMock()
+    monkeypatch.setattr(de, "_extract_ops", extract)
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(response(prepared))
+    assert error.value.status_code == 503
+    extract.assert_not_called()

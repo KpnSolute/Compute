@@ -1023,6 +1023,20 @@ is image-only. It does not archive, parse, stage, or persist the file.
 ### `POST /api/data-entry/upload`
 Upload a file for AI extraction, staging, and preview.
 
+Data Entry runs independently of the optional home File Vault archive by default.
+`DATA_ENTRY_ARCHIVE_POLICY=best_effort` attempts to save the original when storage
+is available; an archive outage does not bypass reconciliation, authorization,
+duplicate detection, or staging review. `required` refuses uploads if the original
+cannot be saved, and `disabled` skips archiving. This policy is separate from
+`MJCC_ARCHIVE_REQUIRED` and does not change direct File Vault uploads.
+
+The final successful SSE payload includes `archive_status` (`saved` or
+`not_saved`) and `archive_file_id` (UUID or null). When not saved,
+`archive_warning` tells the user to retain their original file. The parsed
+invoice/entries are persisted, but the original bytes are not retained by MJCC;
+there is no automatic later archive retry. A successful staging response does
+not mean the inventory has been committed.
+
 **Request:** `multipart/form-data`
 
 | Field | Type | Required | Description |

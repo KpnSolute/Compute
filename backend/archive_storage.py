@@ -70,18 +70,74 @@ def _settings() -> dict[str, str]:
     }
 
 
-def _client():
+def _client(*, connect_timeout: float = 5, read_timeout: float = 60, attempts: int = 2):
     import boto3
 
     settings = _settings()
+    # botocore defaults (60s connect, 5 attempts) let an unreachable Garage
+    # tunnel hang an upload for minutes before failing; bound it instead.
     return boto3.client(
         "s3",
         endpoint_url=settings["endpoint"],
         region_name=settings["region"],
         aws_access_key_id=settings["access_key"],
         aws_secret_access_key=settings["secret_key"],
-        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+        config=Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "path"},
+            connect_timeout=connect_timeout,
+            read_timeout=read_timeout,
+            retries={"max_attempts": attempts, "mode": "standard"},
+        ),
     )
+
+
+def classify_archive_error(exc: BaseException) -> str:
+    """Map an archive failure to a short, non-sensitive reason code."""
+    if isinstance(exc, (ValueError,)):
+        return "rejected_file"
+    if isinstance(exc, RuntimeError) and "configured" in str(exc):
+        return "not_configured"
+    if isinstance(exc, RuntimeError) and "HTTPS" in str(exc):
+        return "insecure_endpoint"
+    name = type(exc).__name__
+    if name in {
+        "EndpointConnectionError",
+        "ConnectTimeoutError",
+        "ReadTimeoutError",
+        "ConnectionClosedError",
+        "SSLError",
+        "ProxyConnectionError",
+    }:
+        return "storage_unreachable"
+    response = getattr(exc, "response", None)
+    if isinstance(response, dict):
+        code = str(response.get("Error", {}).get("Code", ""))
+        if code in {
+            "InvalidAccessKeyId",
+            "SignatureDoesNotMatch",
+            "AccessDenied",
+            "403",
+        }:
+            return "storage_auth_failed"
+        if code in {"NoSuchBucket", "404"}:
+            return "bucket_missing"
+        return "storage_error"
+    if name in {"APIError", "PostgrestAPIError"} or "postgrest" in type(exc).__module__:
+        return "metadata_insert_failed"
+    return "unknown"
+
+
+def check_archive() -> dict:
+    """Cheap reachability/credential probe: ``{'ok': bool, 'reason': str}``."""
+    try:
+        settings = _settings()
+        _client(connect_timeout=4, read_timeout=8, attempts=1).head_bucket(
+            Bucket=settings["bucket"]
+        )
+        return {"ok": True, "reason": "ok"}
+    except Exception as exc:
+        return {"ok": False, "reason": classify_archive_error(exc)}
 
 
 def safe_filename(filename: str) -> str:
@@ -128,6 +184,7 @@ def archive_file_bytes(
     year: int | None = None,
     week: int | None = None,
     metadata: dict | None = None,
+    client_options: dict | None = None,
 ) -> dict:
     if not content:
         raise ValueError("Cannot archive an empty file")
@@ -141,7 +198,7 @@ def archive_file_bytes(
     digest = hashlib.sha256(content).hexdigest()
     settings = _settings()
     key = build_object_key(category, filename)
-    client = _client()
+    client = _client(**(client_options or {}))
     client.put_object(
         Bucket=settings["bucket"],
         Key=key,

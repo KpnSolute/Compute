@@ -8,6 +8,11 @@ from fastapi import APIRouter, Response
 from fastapi.responses import HTMLResponse
 
 from backend.ai import context as ai_context
+from backend.archive_storage import (
+    archive_is_configured,
+    archive_is_required,
+    check_archive,
+)
 from backend.routes import SUPABASE_URL, supabase_admin
 from backend.tenancy import (
     TENANT_TABLES,
@@ -226,6 +231,24 @@ def collect_system_status() -> dict:
             error=sync_error,
         )
     )
+
+    if archive_is_configured() or archive_is_required():
+        started = time.monotonic()
+        probe = check_archive()
+        checks.append(
+            _component(
+                "File Archive",
+                # Degraded, never outage: an archive problem must not make the
+                # readiness probe restart an otherwise healthy API.
+                _status(True, not probe["ok"]),
+                _elapsed_ms(started),
+                "Original-file archive is reachable."
+                if probe["ok"]
+                else "Original-file archive check failed; required uploads are blocked.",
+                required=archive_is_required(),
+                reason=probe["reason"],
+            )
+        )
 
     order = {"operational": 0, "degraded": 1, "outage": 2}
     overall = max((c["status"] for c in checks), key=lambda s: order.get(s, 2))

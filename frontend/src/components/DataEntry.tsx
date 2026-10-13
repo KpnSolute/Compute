@@ -40,6 +40,9 @@ interface UploadResult {
     pr_id?: string | null;
     pr_number?: number | null;
     description?: string;
+    archive_status?: 'saved' | 'not_saved';
+    archive_file_id?: string | null;
+    archive_warning?: string;
     overwrite?: boolean;
     overwrite_scope?: {
         kind: string;
@@ -1278,6 +1281,20 @@ export function DataEntry({ user, onNavigate }: { user: any; onNavigate?: (key: 
                                         </span>
                                     )}
                                 </div>
+                                {result.archive_warning && (
+                                    <div role="status" style={{
+                                        marginTop: 10, padding: '10px 12px', borderRadius: 8,
+                                        background: '#fffbeb', border: '1px solid #fcd34d', color: '#92400e',
+                                        fontSize: 12, lineHeight: 1.5,
+                                    }}>
+                                        <strong>Keep your original file.</strong> {result.archive_warning}
+                                    </div>
+                                )}
+                                {result.archive_status === 'saved' && (
+                                    <div style={{ marginTop: 8, fontSize: 12, color: '#166534' }}>
+                                        Original file saved in File Vault.
+                                    </div>
+                                )}
                                 {result.reconciliation && (
                                     <div style={{
                                         marginTop: 10, padding: '9px 12px',

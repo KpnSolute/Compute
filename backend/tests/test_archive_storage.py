@@ -100,3 +100,74 @@ def test_each_upload_gets_its_own_audit_row(monkeypatch):
     second = archive_storage.archive_file_bytes(**kwargs)
     assert first["id"] != second["id"]
     assert len(inserted) == 2
+
+
+def _client_error(code):
+    from botocore.exceptions import ClientError
+
+    return ClientError({"Error": {"Code": code, "Message": "x"}}, "HeadBucket")
+
+
+@pytest.mark.parametrize(
+    ("make", "reason"),
+    [
+        (
+            lambda: __import__(
+                "botocore.exceptions", fromlist=["x"]
+            ).EndpointConnectionError(endpoint_url="https://x"),
+            "storage_unreachable",
+        ),
+        (
+            lambda: __import__(
+                "botocore.exceptions", fromlist=["x"]
+            ).ConnectTimeoutError(endpoint_url="https://x"),
+            "storage_unreachable",
+        ),
+        (lambda: _client_error("InvalidAccessKeyId"), "storage_auth_failed"),
+        (lambda: _client_error("NoSuchBucket"), "bucket_missing"),
+        (lambda: _client_error("InternalError"), "storage_error"),
+        (
+            lambda: RuntimeError("MJCC archive storage is not configured"),
+            "not_configured",
+        ),
+        (
+            lambda: RuntimeError("MJCC_ARCHIVE_ENDPOINT must use HTTPS"),
+            "insecure_endpoint",
+        ),
+        (lambda: ValueError("File exceeds the archive size limit"), "rejected_file"),
+        (lambda: KeyError("boom"), "unknown"),
+    ],
+)
+def test_classify_archive_error(make, reason):
+    assert archive_storage.classify_archive_error(make()) == reason
+
+
+def test_check_archive_reports_reachable_and_unreachable(monkeypatch):
+    from botocore.exceptions import EndpointConnectionError
+
+    monkeypatch.setattr(archive_storage, "_settings", lambda: {"bucket": "b"})
+
+    class Good:
+        def head_bucket(self, Bucket):
+            assert Bucket == "b"
+
+    class Down:
+        def head_bucket(self, Bucket):
+            raise EndpointConnectionError(endpoint_url="https://secret-host")
+
+    monkeypatch.setattr(archive_storage, "_client", lambda **kw: Good())
+    assert archive_storage.check_archive() == {"ok": True, "reason": "ok"}
+    monkeypatch.setattr(archive_storage, "_client", lambda **kw: Down())
+    result = archive_storage.check_archive()
+    assert result == {"ok": False, "reason": "storage_unreachable"}
+    assert "secret-host" not in str(result)
+
+
+def test_check_archive_unconfigured(monkeypatch):
+    for name in (
+        "MJCC_ARCHIVE_ENDPOINT",
+        "MJCC_ARCHIVE_ACCESS_KEY",
+        "MJCC_ARCHIVE_SECRET_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    assert archive_storage.check_archive() == {"ok": False, "reason": "not_configured"}
