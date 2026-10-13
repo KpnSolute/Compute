@@ -31,6 +31,7 @@ def prepared(monkeypatch):
     monkeypatch.setattr(de.ctx, "get_ai_tools_config", lambda: {})
     monkeypatch.setattr(de, "archive_is_configured", lambda: False)
     monkeypatch.setattr(de, "archive_is_required", lambda: False)
+    monkeypatch.setattr(de, "check_archive", lambda: {"ok": True, "reason": "ok"})
     monkeypatch.setattr(
         de,
         "_extract_ops",
@@ -315,12 +316,55 @@ def test_required_archive_error_stops_staging(monkeypatch, prepared):
 
     async def run():
         events = await collect(await response(prepared))
-        assert json.loads(events[-1][6:]) == {
-            "__ok": False,
-            "status": 503,
-            "detail": "The original file could not be archived; parsing was stopped safely.",
-        }
+        last = json.loads(events[-1][6:])
+        assert last["__ok"] is False and last["status"] == 503
+        assert last["detail"].startswith(
+            "The original file could not be archived; parsing was stopped safely."
+        )
+        assert last["detail"].endswith("[archive:unknown]")
         stage.assert_not_called()
+
+    asyncio.run(run())
+
+
+def test_archive_preflight_outage_skips_parse_and_staging(monkeypatch, prepared):
+    extract, stage, archive = MagicMock(), MagicMock(), MagicMock()
+    monkeypatch.setattr(de, "_extract_ops", extract)
+    monkeypatch.setattr(de, "_stage_entries", stage)
+    monkeypatch.setattr(de, "archive_file_bytes", archive)
+    monkeypatch.setattr(de, "archive_is_required", lambda: True)
+    monkeypatch.setattr(
+        de, "check_archive", lambda: {"ok": False, "reason": "storage_unreachable"}
+    )
+
+    async def run():
+        events = await collect(await response(prepared))
+        last = json.loads(events[-1][6:])
+        assert last["status"] == 503
+        assert "the file was not parsed" in last["detail"]
+        assert last["detail"].endswith("[archive:storage_unreachable]")
+        extract.assert_not_called()
+        archive.assert_not_called()
+        stage.assert_not_called()
+
+    asyncio.run(run())
+
+
+def test_archive_preflight_ambiguous_failure_still_attempts_real_write(
+    monkeypatch, prepared
+):
+    # A key that cannot HEAD the bucket may still be able to PUT; do not block.
+    archive = MagicMock(return_value={"id": "archive"})
+    monkeypatch.setattr(de, "archive_file_bytes", archive)
+    monkeypatch.setattr(de, "archive_is_required", lambda: True)
+    monkeypatch.setattr(
+        de, "check_archive", lambda: {"ok": False, "reason": "storage_auth_failed"}
+    )
+
+    async def run():
+        events = await collect(await response(prepared))
+        assert json.loads(events[-1][6:])["__ok"] is True
+        archive.assert_called_once()
 
     asyncio.run(run())
 
